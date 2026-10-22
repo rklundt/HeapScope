@@ -215,12 +215,16 @@ public interface ISnapshot : IDisposable
                                                // pointer size, capture time
     SnapshotCapabilities Capabilities { get; } // what this snapshot can answer
     HeapGraph Graph { get; }                   // compact object graph, types, roots, strings
+    bool TryGetService<TService>(out TService? service) where TService : class; // optional services
 }
 ```
 - Loaders produce a `HeapGraph` through `HeapGraphBuilder` and wrap it in an `ISnapshot`.
 - Capabilities that need the original file (field values, string contents) are exposed through optional
   services obtained with `snapshot.TryGetService<IFieldValueReader>(out var reader)`. A gcdump snapshot
   simply does not provide them.
+- `GraphSnapshot` (an `ISnapshot` with no services) strips `FieldValues`, `StringContents` and `ThreadStacks`
+  from whatever capabilities it is given, so it can never claim what it cannot answer. A full dump reopened from
+  the index cache uses its own `ISnapshot` that reopens the dump for those services (sprint 1.2).
 
 ### 5.2 Capabilities
 `SnapshotCapabilities` is a `[Flags]` enum. Feature matrix:
@@ -263,13 +267,13 @@ section (ADR-015). Algorithms only ever see `ReadOnlySpan<T>`, so they do not ca
 | `TypeIndices` | `int` | 4 | Index into the type table. |
 | `Sizes` | `uint` | 4 | Shallow size. `uint.MaxValue` means "look up in `LargeSizes`" (objects of 4 GiB or more). |
 | `HeapKinds` | `byte` | 1 | Gen0, Gen1, Gen2, LOH, POH, Frozen, Unknown. |
-| `Flags` | `byte` | 1 | Reserved bits (e.g. is-root, has-finalizer) for later sprints. |
+| `Flags` | `byte` | 1 | `ObjectFlags`: `HasFinalizer` (registered for finalization and not suppressed); other bits reserved. |
 | `EdgeStarts` | `int` | 4 (+4 once) | CSR row offsets: outgoing references of object `i` are `Edges[EdgeStarts[i]..EdgeStarts[i+1]]`. |
 | `Edges` | `int` | 4 per reference | Target `ObjectIndex`. References to non-objects are dropped and counted in `DroppedReferenceCount`. |
 
 Supporting tables:
 - **Type table**: struct-of-arrays per type: name (string table id), method table address, base size,
-  component size, module (string table id), `TypeKind` flags (Array, String, ValueTypeBox, Free, Delegate,
+  component size, module (string table id), `TypeKind` flags (Array, String, ValueTypeBox, Delegate,
   Exception). Types are interned: one entry per method table.
 - **Root table**: array of `GcRoot { int ObjectIndex; RootKind Kind; RootFlags Flags; int DetailId }`,
   sorted by object index. `RootKind`: StaticField, ThreadStack, StrongHandle, PinnedHandle, AsyncPinnedHandle,
@@ -309,14 +313,25 @@ Supporting tables:
 - Typical heaps average 2 to 4 references per object, so about **30 to 38 bytes per object**.
 - 50M objects with 150M references: 1.1 GB + 0.6 GB = **about 1.7 GB**, well under the worker budget for a
   ~4 GB managed heap. On a 16 GB laptop the absolute first-load budget in section 10 (< 4 GB) is the one that binds.
-- The 50M benchmark (sprint 0.2) measures this and the result is recorded in section 10.
+- Measured in sprint 0.2 (`graph-build`, 50M objects, 150M references, Release, 24 logical cores, 32 GB RAM):
+  1,621 MB of columns, **34.0 bytes per object**; managed heap growth identical (no hidden per-object overhead).
+  Peak working set 2.5 to 2.7 GB for the build alone (varies by run). Build time: 1.9 s with address-ordered
+  input and references by index; 3.8 s with unsorted input (in-place permutation, no LOH temporaries); **46 s
+  with unsorted input and references resolved by address**, the loader path, with uniformly random targets as
+  the worst case for cache locality (217 s with a plain binary search, before the address index below). The
+  unsorted, by-address number is the binding one for first-load budgets (section 10); real heaps have much more
+  locality.
 
 ### 6.3 Building
 `HeapGraphBuilder` is two-phase so peak memory stays near the final size:
 1. Objects are appended (address, type, size, heap kind) into chunked buffers (1M-element chunks, so growth
    never copies a huge array), then sorted by address once and frozen.
-2. References are appended per source object in strictly increasing index order as address spans; each target
-   address is resolved by binary search. The builder throws if a source index is not greater than the previous
+2. References are appended per source object in strictly increasing index order as address spans, walking
+   `FrozenAddresses`; each target address is resolved through an `AddressIndex`, a bucket table over the address
+   range (about 8 objects per bucket, at most 2^26 buckets, about 25 MB for 50M objects) followed by a binary
+   search within the bucket. Dependent-handle edges enter only through `AddDependentHandle`, never through
+   `AddReferences`. Any exception thrown while state changes faults the builder, and a builder that never
+   reaches `Build` is disposed to release allocator memory. The builder throws if a source index is not greater than the previous
    one, because an out-of-order row would silently corrupt `EdgeStarts`. Chunked edge buffers are copied once
    into the final `Edges` array.
 Full dump loaders enumerate the heap twice (objects, then references) for exactly this reason. Because heap
@@ -326,6 +341,14 @@ column and reads each object by address (`heap.GetObject(address)`), not `Enumer
 Final columns are obtained from an `IColumnAllocator` given to the builder. Sprint 0.2 provides the managed
 array allocator; a file-backed allocator that writes columns straight into index cache sections can be added
 later (first load on memory constrained machines, Large tier) without changing the builder.
+
+Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`AddObject`, `FreezeObjects`,
+`AddDependentHandle`, `AddReferences` / `AddReferenceIndices`, `AddRoot` / `AddRootIndex`, `Build`),
+`HeapGraph` (columns, `GetSize`, `GetReferences`, `TryGetIndex`, `TryGetIndexContaining`, `TotalSize`,
+`ColumnBytes`, `FromColumns` for the index cache), `TypeTable`, `RootTable`, `StringTable`, `Column<T>`,
+`IColumnAllocator`. `HeapScope.Core.Synthetic` holds `SyntheticGraphBuilder` (hand-made graphs) and
+`SyntheticGraphs` (chain, cycle, tree, diamond, seeded random up to 50M objects). `GraphSnapshot` is the
+`ISnapshot` for graphs without optional services.
 
 ### 6.4 Extending without redesign (2.x)
 - **Reverse references**: a second CSR (`InEdgeStarts`, `InEdges`) built by counting in-degrees and filling,
@@ -431,7 +454,7 @@ Initial budgets (sprints refine them with measurements):
 | Worker private memory, Medium, mapped mode (after load) | < 1 GB | sprint 0.5 (synthetic) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | sprints 1.3, 1.4 |
-| Compact graph cost | ~30 to 38 bytes per object | sprint 0.2 |
+| Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 
 Before opening a snapshot the Application layer estimates the worker memory needed (dump size and the
 per-object budget) and warns when it exceeds available physical memory.

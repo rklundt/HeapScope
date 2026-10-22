@@ -9,7 +9,7 @@ everything else.
 |---|---|---|---|---|
 | 0.0 | Project charter, architecture and process | Closed | 2026-10-22 | sprint-0.0 |
 | 0.1 | Solution skeleton | Closed | 2026-10-22 | sprint-0.1 |
-| 0.2 | Snapshot abstraction and compact graph | Planned | | |
+| 0.2 | Snapshot abstraction and compact graph | Closed | 2026-10-22 | sprint-0.2 |
 | 0.3 | Worker process and IPC | Planned | | |
 | 0.4 | Fixtures and test harness | Planned | | |
 | 0.5 | Index cache format | Planned | | |
@@ -131,15 +131,15 @@ ADR-017 (no symbol or DAC downloads by default). Lows recorded only.
 
 **Goal**: the domain model and compact graph that every later feature builds on, measured against the budget.
 
+**Scope**
+- `ISnapshot`, `SnapshotInfo`, `SnapshotKind`, `SnapshotCapabilities`, `CapabilityNotSupportedException`
+  (user-facing capability descriptions live in Contracts, sprint 0.3, ADR-016).
+- `Column<T>` with array backing (mapped backing arrives in 0.5).
+- `TypeTable`, `StringTable`, `RootTable`, `GcRoot`, `RootKind`, `HeapKind`, `TypeKind`.
 - `HeapGraph` (struct-of-arrays, CSR) and `HeapGraphBuilder` (two-phase, chunked buffers, final columns from an
   `IColumnAllocator`; managed allocator only in this sprint).
 - Root semantics from ARCHITECTURE.md 6.1: `RootFlags.Retaining`, `Interior` floor search, `DroppedRootCount`,
   has-finalizer object flag; dependent handles as edges.
-- `ISnapshot`, `SnapshotInfo`, `SnapshotKind`, `SnapshotCapabilities`, `CapabilityDescriptions`,
-  `CapabilityNotSupportedException`.
-- `Column<T>` with array backing (mapped backing arrives in 0.5).
-- `TypeTable`, `StringTable`, `RootTable`, `GcRoot`, `RootKind`, `HeapKind`, `TypeKind`.
-- `HeapGraph` (struct-of-arrays, CSR) and `HeapGraphBuilder` (two-phase, chunked buffers).
 - `SyntheticGraphBuilder` for tests (deterministic shapes: chains, trees, cycles, diamonds, random graphs with
   a seed, scalable to 50M objects).
 - Benchmark: build a synthetic 50M-object graph; record build time, bytes per object and peak memory.
@@ -164,9 +164,47 @@ ADR-017 (no symbol or DAC downloads by default). Lows recorded only.
 **Risks and open questions**
 - Builder peak memory during the final copy; chunking keeps it near 2x the largest single array.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. `Column<T>` wraps `ReadOnlyMemory<T>`; a native backing in 0.5 is a `MemoryManager<T>` (ARCHITECTURE.md 6.5).
+2. The synthetic graph builders live in Core (`HeapScope.Core.Synthetic`), not in a test project, because the
+   worker's diagnostic job (0.3), the benchmarks and several test projects all use them.
+3. Dependent handles are registered on the builder (`AddDependentHandle`) after objects are frozen; the builder
+   merges them into the primary's CSR row during the reference pass. This is the only entry point for them: the
+   `AddReferences` contract says its targets are the object's own references and exclude dependent-handle
+   targets (the builder cannot detect a loader that passes them both ways; sprint 1.2 tests it).
+8. Address lookups in the builder use a bucketed `AddressIndex` (added after the review benchmark showed 217 s
+   for 150M random by-address lookups with plain binary search; now 46 s).
+4. Free objects are never added to the graph; fragmentation is an aggregate (adopts review note L1 of 0.1).
+5. Final columns are allocated uninitialized (`GC.AllocateUninitializedArray<T>`) and chunk buffers are released
+   column by column (adopts L2 of 0.1, as the natural implementation).
+6. Root order in the root table: by object index, then kind.
+7. Benchmarks stay a plain console app; `graph-build` reports elapsed time, column bytes per object, managed
+   heap after build and peak working set.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Vocabulary types: `SnapshotKind`, `SnapshotCapabilities` (+ `Require`), `CapabilityNotSupportedException`,
+   `SnapshotInfo`, `ISnapshot`, `HeapKind`, `TypeKind`, `RootKind`, `RootFlags`, `ObjectFlags`, `GcRoot`,
+   `LargeObjectSize`. Tests: enum value stability, capability checks.
+2. [x] `Column<T>`, `IColumnAllocator`, `ManagedColumnAllocator`, internal `ChunkedBuffer<T>`. Tests: chunk
+   boundaries, copy.
+3. [x] `StringTable`/builder, `TypeTable`/builder (interning by method table, or by name when it is zero).
+   Tests: interning.
+4. [x] `RootTable` with per-object lookup. Tests: lookup, ordering.
+5. [x] `HeapGraph`: sizes with large side table, references, address lookups (exact and floor), totals,
+   footprint, `FromColumns` validation. Tests in graph tests.
+6. [x] `HeapGraphBuilder`: freeze with sort and duplicate detection, reference pass with ordering check, dropped
+   references and roots, interior roots, dependent handles. Tests: every acceptance bullet.
+7. [x] `SyntheticGraphBuilder` and `SyntheticGraphs` (chain, tree, cycle, diamond, random with seed, scalable).
+   Tests: shapes have the expected counts and edges; random graphs are deterministic per seed.
+8. [x] `GraphSnapshot` (an `ISnapshot` over a graph). Tests: capabilities and dispose.
+9. [x] Benchmark `graph-build` and the 50M measurement recorded in ARCHITECTURE.md section 10.
+
+**Review summary**: 0 High, 11 Moderate, 14 Low (docs/reviews/sprint-0.2.md). All Moderate fixed now (decided
+autonomously). The most important: the by-address benchmark mode exposed 217 s for 150M random reference lookups;
+a bucketed `AddressIndex` brought it to 46 s. Also: `FrozenAddresses` for loaders, in-place permutation (unsorted
+peak about 2.7 GB instead of 3.15 GB), Faulted phase and disposal in the builder, weak handles never retaining,
+`GraphSnapshot` never claiming service-backed capabilities, eager `TotalSize`, `HasFinalizer` defined precisely,
+and the missing dependent-handle merge tests. Measured: 34.0 bytes per object at 50M objects.
 
 ---
 
@@ -267,6 +305,8 @@ recovery.
 - `Column<T>` mapped backing (read-only memory-mapped views); `HeapGraph` opened in-memory or mapped.
 - Memory mode selection policy (`MemoryBudget`), configurable.
 - Benchmark: write and reopen the synthetic 50M-object graph in both modes.
+- From the 0.2 review: lease shape on `ISnapshot` (no-op for array-backed graphs), and an explicit reserved field
+  in `LargeObjectSize` so persisted bytes are deterministic.
 
 **Out of scope**: reverse reference and dominator sections (2.x), loader integration (1.2).
 
@@ -327,6 +367,9 @@ snapshot library (folder per session, metadata JSON); CLI `list` and `capture`; 
 index cache; worker `OpenSnapshotAsync`; memory warning before open; UI and CLI open. From the 0.1 review:
 `StaticField` roots built from static field enumeration (ARCHITECTURE.md 6.1), dependent handles as edges, ClrMD
 cache capped, local-only DAC lookup (ADR-017), compacting GC and measurement of the build-to-mapped transition.
+From the 0.2 review: watch the by-address reference resolution time (46 s worst case at 50M), `TypeTableBuilder`
+lookup by method table without a name, and keep static storage handle roots retaining while ranking
+`StaticField` roots first in paths.
 
 **Acceptance criteria**
 - Object counts per type for each LeakyConsole dump match the known answers exactly.

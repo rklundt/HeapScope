@@ -79,7 +79,12 @@ Build output: UI and CLI get the worker deployed into a `worker/` subfolder of t
 ## 6. Benchmarks
 `perf/HeapScope.Benchmarks` is a plain console app (no BenchmarkDotNet, because the interesting cases use
 gigabytes of memory and run once). Each benchmark prints elapsed time, managed memory and process working set,
-and compares against the budget. Run in Release.
+and compares against the budget, returning exit code 1 when a budget is missed. Run in Release.
+
+- `graph-build [--objects 50000000] [--refs 3] [--seed 42] [--reverse 1] [--by-address 1]`: builds a seeded
+  random graph (`--by-address 1` resolves references by address like a loader; the realistic, slower path);
+  `--reverse 1` adds objects in descending address order to exercise the sort path. It checks the 30 to 38
+  bytes per object budget.
 
 ## 7. Git conventions
 - Work on `main`; no branches yet (ADR-012).
