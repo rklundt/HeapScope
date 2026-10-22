@@ -97,7 +97,7 @@ Changes from the kickoff layout, with reasons:
   can reference every source project without blurring any other test project's purpose.
 - `perf/HeapScope.Benchmarks` holds measurements that are too slow or too memory hungry for the unit test run.
 - `fixtures/KnownAnswers` makes the known answers a first-class, shared input of tests and detectors.
-- `build/` holds the target that places the worker beside the UI and CLI executables (section 5.1).
+- `build/` holds the target that places the worker beside the UI and CLI executables (section 3.1).
 
 ### 3.1 Dependency rules
 
@@ -116,7 +116,6 @@ flowchart TD
     Wk --> LC[Loaders.ClrMd]
     Wk --> LG[Loaders.GcDump]
     Wk --> Core
-    Con --> Core
     Ana --> Core
     Sto --> Core
     LC --> Core
@@ -132,7 +131,7 @@ flowchart TD
 | Capture | Core | Microsoft.Diagnostics.NETCore.Client, TraceEvent |
 | Loaders.ClrMd | Core | Microsoft.Diagnostics.Runtime |
 | Loaders.GcDump | Core | Microsoft.Diagnostics.Tracing.TraceEvent |
-| Contracts | Core | StreamJsonRpc attributes only (no transport code) |
+| Contracts | nothing (ADR-016) | StreamJsonRpc attributes only (no transport code) |
 | Worker | Core, Contracts, Analysis, Storage, Loaders.* | StreamJsonRpc |
 | Application | Core, Contracts, Capture | StreamJsonRpc |
 | Cli | Application, Contracts | System.CommandLine |
@@ -140,12 +139,17 @@ flowchart TD
 
 Rules:
 - Core references nothing, not even Microsoft.Extensions.*. It is pure domain types and data structures.
-- UI.Wpf never references Loaders, Analysis, Storage, Capture, Worker or any diagnostics library.
+- UI.Wpf never references Loaders, Analysis, Storage, Capture, Worker or any diagnostics library directly
+  (diagnostics libraries do load into the UI process, through Capture via Application).
+- UI.Wpf and Cli use no Core types. Everything they show comes through Application or Contracts, whose wire
+  vocabulary (snapshot kind, capabilities, capability descriptions) is defined in Contracts (ADR-016).
 - A build-order-only reference (`ReferenceOutputAssembly="false"`) to the Worker project is allowed from
   UI.Wpf, Cli and Integration.Tests; it ensures the worker is built and deployed next to them, without making
   any worker type visible.
-- `HeapScope.Architecture.Tests` parses every `src/**/*.csproj` and fails on any reference not in the table,
-  and also checks compiled assembly references.
+- `HeapScope.Architecture.Tests` checks every `src/**/*.csproj` against the table using the evaluated restore
+  graph (`obj/project.assets.json`, so references added by imported props and targets count) plus build-order-only
+  references from the project and the shared targets it imports. It also checks every compiled assembly reference
+  (solution assemblies and the governed package assemblies) against the same table.
 
 ## 4. Process model and IPC
 
@@ -179,7 +183,9 @@ Rules:
   The default formatter is used because it supports `IProgress<T>` and `CancellationToken` marshaling with no
   extra configuration. The formatter can be swapped later without changing service interfaces.
 - `HeapScope.Contracts` defines `IWorkerService` (methods called by clients) and the DTOs. DTOs are records of
-  primitive types, strings and arrays; no Core graph types ever cross the pipe.
+  primitive types, strings, arrays and Contracts enums; Contracts references no solution project, so no Core type
+  can cross the pipe (ADR-016). The worker maps Core values (for example `SnapshotCapabilities`) to their
+  Contracts counterparts (`SnapshotFeatures`); a test keeps the numeric values of mirrored enums identical.
 - `ProtocolVersion` is a constant in Contracts; a mismatch at handshake is a hard error with a clear message.
 
 ### 4.5 Progress and cancellation
@@ -232,7 +238,7 @@ public interface ISnapshot : IDisposable
 | `ThreadStacks` | Managed thread stacks | yes | no |
 
 Rules:
-- The UI disables any feature whose capability is missing and shows the reason from
+- The UI disables any feature whose capability is missing and shows the reason from the Contracts copy of
   `CapabilityDescriptions` (for example "Field values are not stored in a gcdump. Capture a full dump to
   inspect fields."). Features are never faked or approximated silently.
 - Analysis entry points declare their required capabilities; calling one without them throws
@@ -267,24 +273,59 @@ Supporting tables:
   Exception). Types are interned: one entry per method table.
 - **Root table**: array of `GcRoot { int ObjectIndex; RootKind Kind; RootFlags Flags; int DetailId }`,
   sorted by object index. `RootKind`: StaticField, ThreadStack, StrongHandle, PinnedHandle, AsyncPinnedHandle,
-  RefCountedHandle, DependentHandle, FinalizerQueue, WeakHandle (kept for display, never retains), Other.
-  `DetailId` points into the string table (e.g. `LeakyApi.Leaks.StaticCacheLeak.s_cache`, `thread 0x1a2c`).
+  RefCountedHandle, FinalizerQueue, WeakHandle, Other. `DetailId` points into the string table (e.g.
+  `LeakyApi.Leaks.StaticCacheLeak.s_cache`, `thread 0x1a2c`). `RootFlags`: `Retaining` (the root keeps its
+  object alive), `Pinned`, `Interior`.
 - **String table**: interned strings for names and details. Never contains object field values.
+
+#### Root and reference semantics (CLR rules every loader and algorithm follows)
+- **Retaining roots.** Only roots with `RootFlags.Retaining` keep objects alive in retention paths, dominators
+  and retained sizes. Weak handles are never retaining. Ref-counted handles are retaining only while their count
+  is above zero (ClrMD `IsStrong`). Roots shown for information only keep the flag clear.
+- **Dependent handles are edges, not roots.** A dependent handle (used by `ConditionalWeakTable`) keeps its
+  secondary alive only while its primary is reachable. Loaders add an ordinary edge primary -> secondary in the
+  CSR during the reference pass and never record the secondary as a root. Exactly one mechanism is used: either
+  ClrMD's reference enumeration including dependent handles, or explicit edges from the handle table, not both.
+- **Static fields.** On modern .NET the GC sees no static field roots: reference statics live in runtime
+  allocated `object[]` storage held by pinned handles. The full dump loader therefore builds `StaticField` roots
+  itself by enumerating static fields per module and app domain (ClrMD `ClrStaticField`), records the field name
+  as the root detail, and marks the pinned handle roots of the static storage arrays as non-retaining duplicates,
+  so retention paths say `s_cache` and not `PinnedHandle -> Object[]`.
+- **Finalizer queue.** Only the f-reachable queue (objects ready for finalization) produces `FinalizerQueue`
+  roots. Objects merely registered for finalization are not roots; that fact is kept in the object `Flags`
+  (has-finalizer bit).
+- **Interior pointers.** Stack roots may point inside an object (byrefs). Roots flagged `Interior` are resolved
+  with a floor search: the object with the largest address not above the pointer, accepted only when the pointer
+  is below that object's address plus size. All other roots and references use an exact match.
+- **Unresolvable targets.** References and roots that do not resolve to an object (stale handles, corrupt slots,
+  pointers outside the heap) are dropped and counted: `DroppedReferenceCount` and `DroppedRootCount` are part of
+  the graph and shown as a data quality note.
+- **Embedded value types.** References inside value types embedded in objects and arrays (struct fields, arrays
+  of structs such as `KeyValuePair<,>[]`) are edges of the containing object. Loaders use GCDesc based reference
+  enumeration, which covers them.
 
 ### 6.2 Memory budget per object
 - Fixed: 8 + 4 + 4 + 1 + 1 + 4 = **22 bytes per object** plus **4 bytes per reference**.
 - Typical heaps average 2 to 4 references per object, so about **30 to 38 bytes per object**.
 - 50M objects with 150M references: 1.1 GB + 0.6 GB = **about 1.7 GB**, well under the worker budget for a
-  ~4 GB managed heap (6 GB at 1.5x).
+  ~4 GB managed heap. On a 16 GB laptop the absolute first-load budget in section 10 (< 4 GB) is the one that binds.
 - The 50M benchmark (sprint 0.2) measures this and the result is recorded in section 10.
 
 ### 6.3 Building
 `HeapGraphBuilder` is two-phase so peak memory stays near the final size:
 1. Objects are appended (address, type, size, heap kind) into chunked buffers (1M-element chunks, so growth
    never copies a huge array), then sorted by address once and frozen.
-2. References are appended per source object in index order as address spans; each target address is
-   resolved by binary search. Chunked edge buffers are copied once into the final `Edges` array.
-Full dump loaders enumerate the heap twice (objects, then references) for exactly this reason.
+2. References are appended per source object in strictly increasing index order as address spans; each target
+   address is resolved by binary search. The builder throws if a source index is not greater than the previous
+   one, because an out-of-order row would silently corrupt `EdgeStarts`. Chunked edge buffers are copied once
+   into the final `Edges` array.
+Full dump loaders enumerate the heap twice (objects, then references) for exactly this reason. Because heap
+enumeration order is not address order with regions (.NET 7+), the reference pass walks the sorted `Addresses`
+column and reads each object by address (`heap.GetObject(address)`), not `EnumerateObjects`.
+
+Final columns are obtained from an `IColumnAllocator` given to the builder. Sprint 0.2 provides the managed
+array allocator; a file-backed allocator that writes columns straight into index cache sections can be added
+later (first load on memory constrained machines, Large tier) without changing the builder.
 
 ### 6.4 Extending without redesign (2.x)
 - **Reverse references**: a second CSR (`InEdgeStarts`, `InEdges`) built by counting in-degrees and filling,
@@ -305,8 +346,22 @@ Full dump loaders enumerate the heap twice (objects, then references) for exactl
 - The memory budget defaults to 50% of total physical memory, capped by currently available memory at open
   time (`Worker:MemoryBudget`, configurable). On a 16 GB laptop running the target API and an IDE, a Medium
   snapshot will usually open mapped; on 32 GB it opens in memory.
-- First load always builds in memory, then writes the cache. If the projected build footprint exceeds the
-  budget, the Application layer warns before starting (ADR-004).
+- First load builds in memory, then writes the cache. If the projected build footprint exceeds the budget,
+  the Application layer warns before starting (ADR-004). The projection counts the graph columns, the builder's
+  transient buffers and ClrMD's own caches; the ClrMD loader caps ClrMD's data cache explicitly.
+- When a snapshot switches to mapped mode after its first load, the worker drops the built arrays and runs one
+  blocking, compacting gen2 collection with `GCLargeObjectHeapCompactionMode.CompactOnce`, so the memory really
+  returns to the OS. Sprint 1.2 measures this transition, not only a reopen.
+- The Application layer may start the worker with `DOTNET_GCHeapHardLimit` derived from the budget, so an
+  oversize load fails with a clear out-of-memory error instead of paging the laptop to a standstill.
+
+#### Lifetime of mapped data
+A span over an unmapped view is an access violation that kills the worker, so mapped data has an explicit
+lifetime rule. A mapped snapshot owns its views through a reference-counted owner. Every query takes a lease
+(`using var lease = snapshot.Acquire()`), works on spans only inside that scope and never stores a span or a
+pointer beyond it. Disposing a snapshot (explicitly or by LRU) waits for outstanding leases to drain before
+unmapping. `Column<T>` wraps `ReadOnlyMemory<T>`; a native backing is a `MemoryManager<T>` over the mapped
+view, owned by the snapshot, so the column's shape does not change between 0.2 and 0.5.
 
 ### 6.6 Limits
 - At most 2^31 - 1 objects and 2^31 - 1 references per snapshot (32-bit indices; a span holds at most 2^31 - 1
@@ -340,7 +395,13 @@ Full dump loaders enumerate the heap twice (objects, then references) for exactl
   `CancellationToken`.
 - **Worker**: StreamJsonRpc dispatches requests concurrently. Loading or building an index for a snapshot is
   serialized per snapshot (`SemaphoreSlim`); read-only queries on a loaded snapshot run concurrently.
-  CPU-heavy algorithms may use `Parallel.For` with explicit partitioning, never per-object tasks.
+  CPU-heavy algorithms may use `Parallel.For` with explicit partitioning, never per-object tasks. Queries on
+  mapped snapshots hold a lease for their whole duration (section 6.5).
+- **Host lifecycle**: UI and CLI start their generic host with `StartAsync` and stop it with a bounded
+  `StopAsync` (5 s) before exit, so hosted services such as the worker client shut down in order. In the WPF app,
+  closing the main window cancels the close once, awaits the stop on the dispatcher without blocking, disposes
+  the host and then shuts the application down; a stop requested by the host closes the window through the same
+  path.
 
 ## 9. Worker memory and GC settings
 - Server GC, non-concurrent (`ServerGarbageCollector=true`, `ConcurrentGarbageCollection=false`):
@@ -365,7 +426,8 @@ Initial budgets (sprints refine them with measurements):
 |---|---|---|
 | Medium (~4 GB, ~50M objects) first load on a 16 GB laptop | < 3 min | sprint 1.2 |
 | Medium reopen from index cache | < 20 s in memory; < 2 s mapped | sprint 0.5 (synthetic) |
-| Worker peak memory, Medium, in-memory mode | < 1.5x the dump's managed heap size | sprint 1.2 |
+| Worker peak memory, Medium, in-memory mode (machines with room, e.g. 32 GB) | < 1.5x the dump's managed heap size | sprint 1.2 |
+| Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | sprint 1.2 |
 | Worker private memory, Medium, mapped mode (after load) | < 1 GB | sprint 0.5 (synthetic) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | sprints 1.3, 1.4 |
@@ -389,7 +451,7 @@ per-object budget) and warns when it exceeds available physical memory.
 ## 12. Security and privacy
 - Full dumps contain everything in the process memory: connection strings, tokens, personal data. HeapScope
   treats every dump and every index cache as sensitive.
-- Nothing is ever uploaded. There is no telemetry.
+- Nothing is ever uploaded. There is no telemetry. Symbol and DAC downloads are off by default (ADR-017).
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
   contents.
@@ -486,5 +548,55 @@ sprint 0.1.
   without conversion; algorithms take spans only; the index cache moves from "nice to have" to required for
   mapped mode.
 
+### ADR-016 Contracts owns the wire vocabulary (added in sprint 0.1)
+- Context: the UI must bind feature availability to snapshot capabilities (ADR-003), but UI.Wpf may only use
+  Application and Contracts. If DTOs carried Core enums, the UI would compile against Core and the layering rule
+  would break the first time a DTO field was read.
+- Decision: Contracts references no solution project. It defines its own wire enums (for example
+  `SnapshotFeatures` mirroring Core's `SnapshotCapabilities`, `SnapshotKindDto`) and the user-facing capability
+  descriptions. The worker maps Core values to Contracts values; a test asserts that mirrored enums keep
+  identical numeric values. Core keeps its own types for the engine.
+- Consequences: a small amount of mapping code in the worker; the protocol can evolve independently of the
+  engine's internal types; UI and CLI never load a Core type through a DTO.
+
+### ADR-017 No network access for symbols or DAC by default (added in sprint 0.1)
+- Context: ClrMD can download the data access component (DAC) and symbols from Microsoft's symbol server, and it
+  ships Azure.Identity and MSAL for that purpose. A download sends module identifiers off the machine, which
+  conflicts with "never send anything" (section 12), yet a dump from a runtime version not installed locally
+  cannot be read without the matching DAC.
+- Decision: the ClrMD loader configures its symbol locator explicitly with no remote servers. It looks for the
+  DAC in the locally installed runtimes, next to the dump, and in a user-configured folder. When the DAC is
+  missing, the user gets a message naming the exact runtime version needed and how to obtain it. A per-user
+  opt-in setting (`Symbols:AllowMicrosoftSymbolServer`, default off) may later enable downloads, with a privacy
+  note shown when it is turned on.
+- Consequences: dumps from machines with other runtime versions need a manual step unless the user opts in.
+  Implemented and tested in sprint 1.2.
+
 ## 14. Package versions
-Recorded at sprint 0.1 (see `Directory.Packages.props` for the authoritative list).
+Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
+authoritative list.
+
+| Package | Version | License | Used by |
+|---|---|---|---|
+| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.13 | MIT | Worker, Application, Cli, UI.Wpf |
+| System.IO.Hashing | 10.0.13 | MIT | Storage |
+| StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
+| CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.Wpf |
+| System.CommandLine | 2.0.13 | MIT | Cli |
+| Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |
+| Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | MIT | Capture |
+| Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | MIT | Capture (Loaders.GcDump in 1.8) |
+| xunit.v3 | 4.0.2 | Apache 2.0 | tests |
+| Shouldly | 4.3.0 | BSD 3-Clause | tests |
+
+Tests run on Microsoft.Testing.Platform (`global.json` opts in), which xunit.v3 4.x requires with the .NET 10
+SDK; `Microsoft.NET.Test.Sdk` and the VSTest adapter are therefore not used.
+
+## 15. Shared product information
+`HeapScope.Contracts.ProductInfo` holds the product name and version (from the informational version without
+source revision). It lives in Contracts because UI, CLI and worker all reference Contracts, and UI and CLI may not
+reference Core directly. `heapscope-cli --version` prints exactly this value.
+
+Executable names: the WPF app is `HeapScope.exe`, the CLI is `heapscope-cli.exe`, the worker is
+`HeapScope.Worker.exe`. The UI and CLI names must differ by more than case, because Windows file names are case
+insensitive and both assemblies meet in the architecture test's output folder.

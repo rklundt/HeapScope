@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\HeapScope.Core\HeapScope.Core.csproj" />
+    <ProjectReference Include="..\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+    <ProjectReference Include="..\HeapScope.Capture\HeapScope.Capture.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="StreamJsonRpc" />
+  </ItemGroup>
+</Project>

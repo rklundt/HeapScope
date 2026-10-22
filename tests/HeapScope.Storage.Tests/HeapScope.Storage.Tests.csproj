@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
+  </ItemGroup>
+</Project>

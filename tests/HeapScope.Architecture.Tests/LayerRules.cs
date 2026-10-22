@@ -1,0 +1,133 @@
+namespace HeapScope.Architecture.Tests;
+
+/// <summary>The dependency table of ARCHITECTURE.md section 3.1, as code.</summary>
+internal static class LayerRules
+{
+    private sealed record Rule(string[] Projects, string[] Packages, bool AllowsMicrosoftExtensions = true);
+
+    private static readonly string[] s_buildOrderOnlyAllowed = ["HeapScope.Worker"];
+
+    private static readonly Dictionary<string, Rule> s_rules = new(StringComparer.Ordinal)
+    {
+        ["HeapScope.Core"] = new([], [], AllowsMicrosoftExtensions: false),
+        ["HeapScope.Analysis"] = new(["HeapScope.Core"], []),
+        ["HeapScope.Storage"] = new(["HeapScope.Core"], ["System.IO.Hashing"]),
+        ["HeapScope.Capture"] = new(
+            ["HeapScope.Core"],
+            ["Microsoft.Diagnostics.NETCore.Client", "Microsoft.Diagnostics.Tracing.TraceEvent"]),
+        ["HeapScope.Loaders.ClrMd"] = new(["HeapScope.Core"], ["Microsoft.Diagnostics.Runtime"]),
+        ["HeapScope.Loaders.GcDump"] = new(["HeapScope.Core"], ["Microsoft.Diagnostics.Tracing.TraceEvent"]),
+        ["HeapScope.Contracts"] = new([], ["StreamJsonRpc"]),
+        ["HeapScope.Worker"] = new(
+            [
+                "HeapScope.Core", "HeapScope.Contracts", "HeapScope.Analysis", "HeapScope.Storage",
+                "HeapScope.Loaders.ClrMd", "HeapScope.Loaders.GcDump",
+            ],
+            ["StreamJsonRpc"]),
+        ["HeapScope.Application"] = new(
+            ["HeapScope.Core", "HeapScope.Contracts", "HeapScope.Capture"],
+            ["StreamJsonRpc"]),
+        ["HeapScope.Cli"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["System.CommandLine"]),
+        ["HeapScope.UI.Wpf"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
+    };
+
+    /// <summary>Assembly names that differ from project names.</summary>
+    public static readonly IReadOnlyDictionary<string, string> AssemblyToProject = new Dictionary<string, string>
+    {
+        ["heapscope-cli"] = "HeapScope.Cli",
+        ["HeapScope"] = "HeapScope.UI.Wpf",
+    };
+
+    public static IReadOnlyCollection<string> KnownProjects => s_rules.Keys;
+
+    /// <summary>Returns one message per violation; empty when the project follows the rules.</summary>
+    public static IReadOnlyList<string> Check(ProjectInfo project)
+    {
+        var violations = new List<string>();
+        if (!s_rules.TryGetValue(project.Name, out var rule))
+        {
+            violations.Add($"{project.Name} is not in the dependency table; add it to ARCHITECTURE.md 3.1 and LayerRules.");
+            return violations;
+        }
+
+        foreach (var reference in project.ProjectReferences)
+        {
+            if (!rule.Projects.Contains(reference, StringComparer.Ordinal))
+            {
+                violations.Add($"{project.Name} must not reference project {reference}.");
+            }
+        }
+
+        foreach (var reference in project.BuildOrderOnlyReferences)
+        {
+            if (!s_buildOrderOnlyAllowed.Contains(reference, StringComparer.Ordinal))
+            {
+                violations.Add($"{project.Name} has a build-order-only reference to {reference}, which is not allowed.");
+            }
+        }
+
+        foreach (var package in project.PackageReferences)
+        {
+            var allowed = package.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
+                ? rule.AllowsMicrosoftExtensions
+                : rule.Packages.Contains(package, StringComparer.Ordinal);
+            if (!allowed)
+            {
+                violations.Add($"{project.Name} must not reference package {package}.");
+            }
+        }
+
+        return violations;
+    }
+
+    /// <summary>Assembly name prefixes of the governed packages, so compiled references can be checked too.</summary>
+    private static readonly (string AssemblyPrefix, string Package)[] s_packageAssemblies =
+    [
+        ("Microsoft.Diagnostics.Runtime", "Microsoft.Diagnostics.Runtime"),
+        ("Microsoft.Diagnostics.NETCore.Client", "Microsoft.Diagnostics.NETCore.Client"),
+        ("Microsoft.Diagnostics.Tracing.TraceEvent", "Microsoft.Diagnostics.Tracing.TraceEvent"),
+        ("Microsoft.Diagnostics.FastSerialization", "Microsoft.Diagnostics.Tracing.TraceEvent"),
+        ("StreamJsonRpc", "StreamJsonRpc"),
+        ("CommunityToolkit.Mvvm", "CommunityToolkit.Mvvm"),
+        ("System.CommandLine", "System.CommandLine"),
+        ("System.IO.Hashing", "System.IO.Hashing"),
+    ];
+
+    /// <summary>
+    /// Checks one compiled assembly reference: solution assemblies and governed package assemblies must follow
+    /// the table, and Microsoft.Extensions.* is not allowed where the rule forbids it (Core).
+    /// </summary>
+    public static string? CheckAssemblyReference(string project, string referencedAssembly)
+    {
+        var rule = s_rules[project];
+        var referencedProject = AssemblyToProject.TryGetValue(referencedAssembly, out var mapped) ? mapped : referencedAssembly;
+        if (s_rules.ContainsKey(referencedProject))
+        {
+            return rule.Projects.Contains(referencedProject, StringComparer.Ordinal)
+                ? null
+                : $"{project} uses types from {referencedProject}.";
+        }
+
+        if (referencedAssembly.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal))
+        {
+            return rule.AllowsMicrosoftExtensions ? null : $"{project} uses {referencedAssembly}.";
+        }
+
+        foreach (var (prefix, package) in s_packageAssemblies)
+        {
+            if (referencedAssembly.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return rule.Packages.Contains(package, StringComparer.Ordinal)
+                    ? null
+                    : $"{project} uses {referencedAssembly} from package {package}.";
+            }
+        }
+
+        if (referencedAssembly.StartsWith("Microsoft.Diagnostics.", StringComparison.Ordinal))
+        {
+            return $"{project} uses unknown diagnostics library {referencedAssembly}; add it to LayerRules.";
+        }
+
+        return null;
+    }
+}

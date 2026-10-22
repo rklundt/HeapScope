@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HeapScope.Core\HeapScope.Core.csproj" />
+    <ProjectReference Include="..\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+    <ProjectReference Include="..\HeapScope.Analysis\HeapScope.Analysis.csproj" />
+    <ProjectReference Include="..\HeapScope.Storage\HeapScope.Storage.csproj" />
+    <ProjectReference Include="..\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="StreamJsonRpc" />
+  </ItemGroup>
+</Project>

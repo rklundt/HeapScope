@@ -8,7 +8,7 @@ description: Wrap up the active HeapScope sprint. Builds and tests, runs the sol
 Follow these steps exactly.
 
 1. **Confirm state.** The sprint in `docs/SPRINTS.md` is In Progress. Run `dotnet build HeapScope.sln` (must
-   be zero warnings) and `dotnet test HeapScope.sln`. Fix any failure before continuing.
+   be zero warnings) and `dotnet test --solution HeapScope.sln`. Fix any failure before continuing.
 2. **Change set.** Find the latest `sprint-*` tag (`git describe --tags --abbrev=0 --match "sprint-*"`) and
    list the changes since it: `git diff --stat <tag>` plus untracked files (`git status --porcelain`).
 3. **Review.** Launch the three reviewer subagents in parallel, in one message: `solution-architect`,
