@@ -4,9 +4,15 @@ using Microsoft.Extensions.Configuration;
 namespace HeapScope.Worker;
 
 /// <summary>Validated command line options of the worker process.</summary>
-public sealed record WorkerOptions(string Pipe, int? ParentPid)
+public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestHooks = false)
 {
     public const string SectionName = "Worker";
+
+    /// <summary>Flag (no value) that enables the crash and hang test hooks.</summary>
+    public const string EnableTestHooksSwitch = "--enable-test-hooks";
+
+    /// <summary>How long the worker waits for its client before giving up.</summary>
+    public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>Creates the map from command line switches to configuration keys.</summary>
     public static Dictionary<string, string> CreateSwitchMappings() => new()
@@ -19,7 +25,7 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid)
     /// Reads and validates the options. Returns false with a user-facing error for missing or malformed values,
     /// so the worker can exit with a usage error instead of an unhandled exception.
     /// </summary>
-    public static bool TryRead(IConfiguration configuration, out WorkerOptions? options, out string? error)
+    public static bool TryRead(IConfiguration configuration, bool enableTestHooks, out WorkerOptions? options, out string? error)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         options = null;
@@ -45,7 +51,7 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid)
             parentPid = pid;
         }
 
-        options = new WorkerOptions(pipe, parentPid);
+        options = new WorkerOptions(pipe, parentPid, enableTestHooks);
         error = null;
         return true;
     }

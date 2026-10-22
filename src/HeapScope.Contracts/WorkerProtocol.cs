@@ -1,0 +1,14 @@
+namespace HeapScope.Contracts;
+
+/// <summary>Protocol constants shared by the worker and its clients.</summary>
+public static class WorkerProtocol
+{
+    /// <summary>Bumped on any incompatible change to <see cref="IWorkerService"/> or its DTOs.</summary>
+    public const int Version = 1;
+
+    /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
+    public const int MaxPageSize = 10_000;
+
+    /// <summary>Prefix of worker pipe names; the rest is a GUID.</summary>
+    public const string PipeNamePrefix = "HeapScope.Worker.";
+}

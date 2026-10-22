@@ -1,29 +1,51 @@
 using System.Runtime;
 using HeapScope.Contracts;
 using HeapScope.Worker;
+using HeapScope.Worker.Rpc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 
 const int UsageError = 2;
+
+// The test hook switch takes no value, so it is removed before the key/value command line provider sees it.
+var enableTestHooks = args.Contains(WorkerOptions.EnableTestHooksSwitch, StringComparer.Ordinal);
+var configArgs = args.Where(a => !string.Equals(a, WorkerOptions.EnableTestHooksSwitch, StringComparison.Ordinal)).ToArray();
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 {
     ContentRootPath = AppContext.BaseDirectory,
 });
-builder.Configuration.AddCommandLine(args, WorkerOptions.CreateSwitchMappings());
+builder.Configuration.AddCommandLine(configArgs, WorkerOptions.CreateSwitchMappings());
 
-// The worker logs to stderr only; the client forwards it into its own log (ARCHITECTURE.md 11).
+// The worker logs single-line records to stderr only; the client forwards each line into its own log
+// (ARCHITECTURE.md 4.3 and 11).
 builder.Logging.ClearProviders();
-builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+builder.Logging.AddSimpleConsole(o =>
+{
+    o.SingleLine = true;
+    o.ColorBehavior = LoggerColorBehavior.Disabled;
+    o.TimestampFormat = "HH:mm:ss.fff ";
+});
+builder.Services.Configure<ConsoleLoggerOptions>(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Logging.AddDebug();
 
-var optionsValid = WorkerOptions.TryRead(builder.Configuration, out var options, out var optionsError);
+// Heavy analysis must never starve the UI or the profiled application of CPU (ARCHITECTURE.md 4.1, 8).
+using (var self = System.Diagnostics.Process.GetCurrentProcess())
+{
+    self.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
+}
+
+var optionsValid = WorkerOptions.TryRead(builder.Configuration, enableTestHooks, out var options, out var optionsError);
 if (options is not null)
 {
     builder.Services.AddSingleton(options);
+    builder.Services.AddSingleton(new ResultSetStore());
+    builder.Services.AddSingleton<WorkerService>();
     builder.Services.AddHostedService<ParentProcessWatcher>();
+    builder.Services.AddHostedService<WorkerRpcServer>();
 }
 
 using var host = builder.Build();
@@ -36,13 +58,14 @@ if (!optionsValid || options is null)
 }
 
 logger.LogInformation(
-    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, server GC {ServerGc}",
+    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, server GC {ServerGc}, test hooks {TestHooks}",
     ProductInfo.Name,
     ProductInfo.Version,
     Environment.ProcessId,
     options.Pipe,
     options.ParentPid,
-    GCSettings.IsServerGC);
+    GCSettings.IsServerGC,
+    options.EnableTestHooks);
 
 await host.RunAsync().ConfigureAwait(false);
 logger.LogInformation("Worker stopped");
