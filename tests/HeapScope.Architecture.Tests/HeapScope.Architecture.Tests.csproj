@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeapScope.Core\HeapScope.Core.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Analysis\HeapScope.Analysis.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Capture\HeapScope.Capture.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Worker\HeapScope.Worker.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Application\HeapScope.Application.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Cli\HeapScope.Cli.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.UI.Wpf\HeapScope.UI.Wpf.csproj" />
+  </ItemGroup>
+</Project>

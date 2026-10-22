@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>heapscope-cli</AssemblyName>
+    <RootNamespace>HeapScope.Cli</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />
+    <ProjectReference Include="..\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <Import Project="$(HeapScopeRoot)build\Worker.Deploy.targets" />
+</Project>

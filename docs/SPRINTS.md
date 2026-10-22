@@ -8,7 +8,7 @@ everything else.
 | Sprint | Title | Status | Closed | Tag |
 |---|---|---|---|---|
 | 0.0 | Project charter, architecture and process | Closed | 2026-10-22 | sprint-0.0 |
-| 0.1 | Solution skeleton | Planned | | |
+| 0.1 | Solution skeleton | Closed | 2026-10-22 | sprint-0.1 |
 | 0.2 | Snapshot abstraction and compact graph | Planned | | |
 | 0.3 | Worker process and IPC | Planned | | |
 | 0.4 | Fixtures and test harness | Planned | | |
@@ -65,10 +65,10 @@ reviewer subagents, `.gitignore`, initial commit and tag `sprint-0.0`. No review
 
 **Acceptance criteria**
 - `dotnet build HeapScope.sln` succeeds with zero warnings in Debug and Release.
-- `dotnet test HeapScope.sln` runs every test project, all pass.
+- `dotnet test --solution HeapScope.sln` runs every test project, all pass (decision 1).
 - Adding a forbidden reference (for example UI.Wpf -> Analysis) makes the architecture test fail; verified by a
   test that runs the rule checker against a deliberately bad sample.
-- `HeapScope.Cli --version` prints the product version and exits 0.
+- `heapscope-cli --version` prints the product version and exits 0.
 - The WPF app starts, shows a titled empty shell window and exits cleanly when closed.
 - The worker starts with `--pipe x`, logs startup, and exits with code 0 when told to stop (Ctrl+C) or when
   `--parent-pid` names a process that exits.
@@ -80,9 +80,50 @@ reviewer subagents, `.gitignore`, initial commit and tag `sprint-0.0`. No review
 - WPF projects require `net10.0-windows`; shared props must allow both TFMs.
 - Exe-to-exe deployment through MSBuild can be fragile; the targets file is covered by an integration test.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously, Phase 0 autonomy granted by the product owner)
+1. Test framework: xUnit v3 (`xunit.v3` 4.x) on Microsoft.Testing.Platform, opted in through `global.json`
+   (the VSTest path is no longer supported by xunit.v3 4.x on the .NET 10 SDK). Commands use
+   `dotnet test --solution HeapScope.sln`.
+2. CLI parser: System.CommandLine 2.0 (stable, MIT). The CLI assembly is named `heapscope-cli`
+   (`heapscope-cli.exe`); a plain `heapscope` collided with the UI assembly `HeapScope` on case-insensitive file
+   systems (found by the architecture test).
+3. Architecture test: own rule checker (csproj parsing plus compiled assembly references), no third party
+   library; it lives in `HeapScope.Architecture.Tests`.
+4. Solution file: classic `HeapScope.sln` (the kickoff name), not `.slnx`.
+5. Analyzers: `AnalysisLevel=latest` with the default rule set plus `EnforceCodeStyleInBuild`; stricter rule
+   sets can be raised later without code churn now.
+6. All projects compile as x64 (`PlatformTarget=x64`), matching ADR-001.
+7. Worker deployment: `build/Worker.Deploy.targets` adds a build-order-only reference and copies the worker's
+   output into `worker/` after build.
+8. Commits carry no co-author trailer, matching the product owner's sole-authorship preference in their other
+   repositories (flagged for confirmation).
+9. The worker's Ctrl+C stop relies on the generic host's standard console lifetime; the automated test covers
+   the parent-exit path, since sending Ctrl+C to a child process is not reliable on Windows.
+10. `ProductInfo` lives in Contracts (not Core) because UI.Wpf may not reference Core directly.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Repo build files: `global.json`, `Directory.Build.props`, `Directory.Packages.props`, `.editorconfig`,
+   `tests/Directory.Build.props`. Test: solution builds with zero warnings.
+2. [x] All src projects with references per ARCHITECTURE.md 3.1; placeholder types where a project would be
+   empty. Test: build.
+3. [x] Worker host: options (`--pipe`, `--parent-pid`), parent watcher, startup log, clean exit. Tests:
+   integration tests for parent exit and for a missing `--pipe` (exit code 2).
+4. [x] CLI host with System.CommandLine, `--version`. Test: integration test runs `heapscope-cli --version` and compares with the product version.
+5. [x] WPF shell through the generic host, empty titled window. Tests: view model unit test; integration
+   smoke test starts and closes the app.
+6. [x] `build/Worker.Deploy.targets` imported by UI, CLI and Integration.Tests. Test: worker exists in each
+   output folder.
+7. [x] Architecture test (rule checker, csproj scan, assembly scan, negative sample). Tests: in
+   `HeapScope.Architecture.Tests`.
+8. [x] Test projects and benchmark project scaffolding. Test: `dotnet test` runs every test project.
+9. [x] Package versions recorded in ARCHITECTURE.md section 14.
+
+**Review summary**: 1 High, 12 Moderate, 14 Low (docs/reviews/sprint-0.1.md). The High (dependent handles
+modelled as roots) was a design defect, fixed in ARCHITECTURE.md 6.1 and confirmed. All 12 Moderate were fixed now
+(decided autonomously): graph semantics and memory design (M1 to M5, implemented in 0.2, 0.4 and 1.2 scopes), CLI
+version, worker option validation, UI and CLI host lifecycle, CA2007 enforcement, ADR-016 (Contracts owns the wire
+vocabulary), an evaluated-graph architecture checker (which caught a CLI and UI assembly name collision) and
+ADR-017 (no symbol or DAC downloads by default). Lows recorded only.
 
 ---
 
@@ -90,7 +131,10 @@ reviewer subagents, `.gitignore`, initial commit and tag `sprint-0.0`. No review
 
 **Goal**: the domain model and compact graph that every later feature builds on, measured against the budget.
 
-**Scope**
+- `HeapGraph` (struct-of-arrays, CSR) and `HeapGraphBuilder` (two-phase, chunked buffers, final columns from an
+  `IColumnAllocator`; managed allocator only in this sprint).
+- Root semantics from ARCHITECTURE.md 6.1: `RootFlags.Retaining`, `Interior` floor search, `DroppedRootCount`,
+  has-finalizer object flag; dependent handles as edges.
 - `ISnapshot`, `SnapshotInfo`, `SnapshotKind`, `SnapshotCapabilities`, `CapabilityDescriptions`,
   `CapabilityNotSupportedException`.
 - `Column<T>` with array backing (mapped backing arrives in 0.5).
@@ -107,8 +151,10 @@ reviewer subagents, `.gitignore`, initial commit and tag `sprint-0.0`. No review
 - Builder resolves references by address, drops references to non-objects and counts them, and rejects
   duplicate object addresses with a clear exception.
 - Objects of 4 GiB or more round-trip their size through the large-size side table.
+- The builder throws when references are added for a source index that is not strictly increasing.
+- Interior roots resolve by floor search; roots that resolve to nothing are counted in `DroppedRootCount`.
 - Unit tests cover: empty graph, single object, self reference, cycles, unsorted input, dropped references,
-  roots of every kind, type interning, capability checks.
+  roots of every kind (retaining and non-retaining), a dependent-handle edge, type interning, capability checks.
 - 50M-object synthetic benchmark: graph memory within the ARCHITECTURE.md estimate (30 to 38 bytes per object
   at 3 references per object, measured), build time recorded, peak managed memory recorded.
 - ARCHITECTURE.md section 10 updated with the measured numbers.
@@ -130,7 +176,8 @@ reviewer subagents, `.gitignore`, initial commit and tag `sprint-0.0`. No review
 recovery.
 
 **Scope**
-- Contracts: `IWorkerService`, DTOs, `ProtocolVersion`, error codes, `JobProgress`, `ResultSetInfo`.
+- Contracts: `IWorkerService`, DTOs, `ProtocolVersion`, error codes, `JobProgress`, `ResultSetInfo`, wire enums
+  mirroring Core vocabulary with a test that their values match (ADR-016).
 - Worker: pipe server, StreamJsonRpc, parent watch, stderr logging, Server GC settings, result set store with
   LRU limit, a diagnostic job (`RunSyntheticJobAsync`) that builds a synthetic graph with progress and
   cancellation and returns a paged result, test hooks (crash, hang) enabled only by a command-line switch.
@@ -183,6 +230,9 @@ recovery.
 - `fixtures/scripts/New-SampleDump.ps1 -Tier Small|Medium`.
 - `fixtures/KnownAnswers/<leak>.json` per leak: leaking type(s), expected instance count formula, expected
   minimum retained bytes, root kind and root detail, retention path shape.
+- Two extra semantic fixtures (from the 0.1 review): a `ConditionalWeakTable` whose key dies (its values must not
+  appear retained) and a class holding a struct holding a reference plus a `KeyValuePair<,>[]` (embedded value
+  type references must be edges).
 - Integration test harness: start a fixture, wait until ready, capture a dump, clean up processes and files.
 
 **Out of scope**: HeapScope's own loader (1.2); the harness validates known answers with ClrMD directly.
@@ -274,7 +324,9 @@ snapshot library (folder per session, metadata JSON); CLI `list` and `capture`; 
 **Goal**: load a full dump into the compact graph with progress and cancellation, and reopen it from the cache.
 
 **Scope**: `HeapScope.Loaders.ClrMd`: two-pass heap walk, types, roots with details, heap kinds; writes the
-index cache; worker `OpenSnapshotAsync`; memory warning before open; UI and CLI open.
+index cache; worker `OpenSnapshotAsync`; memory warning before open; UI and CLI open. From the 0.1 review:
+`StaticField` roots built from static field enumeration (ARCHITECTURE.md 6.1), dependent handles as edges, ClrMD
+cache capped, local-only DAC lookup (ADR-017), compacting GC and measurement of the build-to-mapped transition.
 
 **Acceptance criteria**
 - Object counts per type for each LeakyConsole dump match the known answers exactly.

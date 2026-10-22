@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Contracts owns the wire vocabulary shared by UI, CLI and worker (ADR-016). It references no solution
+    project, so clients never see Core types; the worker maps Core values to Contracts values.
+  -->
+</Project>

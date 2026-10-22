@@ -9,7 +9,7 @@ Follow these steps exactly.
 
 1. **Verify the Definition of Done** (DEVELOPER.md section 9), item by item, and show the result:
    - `dotnet build HeapScope.sln -c Debug` and `-c Release`: zero warnings, zero errors.
-   - `dotnet test HeapScope.sln`: all pass, including the sprint's integration tests.
+   - `dotnet test --solution HeapScope.sln`: all pass, including the sprint's integration tests.
    - Every acceptance criterion in the sprint's section is met (cite the test or measurement) or explicitly
      deferred by the human (or, in autonomous mode, deferred and recorded as "decided autonomously").
    - `docs/reviews/sprint-X.Y.md` exists; every High finding is Fixed and confirmed; every Moderate finding

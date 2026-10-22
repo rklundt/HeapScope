@@ -15,14 +15,14 @@ Status: living document, updated by every sprint.
 git clone <repo> heapScope
 cd heapScope
 dotnet build HeapScope.sln
-dotnet test HeapScope.sln
+dotnet test --solution HeapScope.sln
 ```
-- Fast tests only: `dotnet test HeapScope.sln --filter "Category!=Integration&Category!=Slow"`.
+- Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
-- Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version`.
+- Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
 - Run the worker standalone (for debugging): `dotnet run --project src/HeapScope.Worker -- --pipe <name>`
   (without `--parent-pid` it does not watch a parent). Attach a client with
-  `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`.
+  `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>` (sprint 0.3).
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <benchmark> [options]`. See
   section 6.
 
@@ -44,7 +44,8 @@ Build output: UI and CLI get the worker deployed into a `worker/` subfolder of t
 - **Nullable** is enabled everywhere; no `!` suppressions without a comment explaining why.
 - **Warnings are errors**; do not disable a warning without a comment and reviewer agreement.
 - **Async**: every async method takes a `CancellationToken` last (after `IProgress<T>` when present). Library
-  code uses `ConfigureAwait(false)`. Never `.Result`, `.Wait()` or `async void` (except WPF event handlers,
+  code uses `ConfigureAwait(false)`, enforced by CA2007 for every `src/` project except UI.Wpf and Cli (see
+  `.editorconfig`). Never `.Result`, `.Wait()` or `async void` (except WPF event handlers,
   which must catch everything).
 - **MVVM**: CommunityToolkit.Mvvm source generators (`[ObservableProperty]`, `[RelayCommand]`). No code-behind
   logic beyond view-only concerns. View models get services by constructor injection and never reference WPF
@@ -70,7 +71,10 @@ Build output: UI and CLI get the worker deployed into a `worker/` subfolder of t
 - **Slow tests** (`[Trait("Category", "Slow")]`): large synthetic graphs; part of the full run.
 - **Performance checks**: `perf/HeapScope.Benchmarks` measures against the budgets in ARCHITECTURE.md
   section 10; sprints that touch hot paths record results in their review file.
+- Runner: xUnit v3 on Microsoft.Testing.Platform (opted in through `global.json`); test projects are executables
+  and can also be run directly from their output folder.
 - Assertions: Shouldly or plain xUnit asserts. FluentAssertions is not allowed (commercial license).
+- Tests that call methods taking a `CancellationToken` pass `TestContext.Current.CancellationToken` (xUnit1051).
 
 ## 6. Benchmarks
 `perf/HeapScope.Benchmarks` is a plain console app (no BenchmarkDotNet, because the interesting cases use

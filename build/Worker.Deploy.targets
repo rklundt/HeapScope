@@ -1,0 +1,26 @@
+<Project>
+  <!--
+    Deploys HeapScope.Worker into a worker/ subfolder of the importing project's output.
+    The reference is build-order only: no worker type is visible to the importing project (ARCHITECTURE.md 3.1).
+  -->
+  <PropertyGroup>
+    <_HeapScopeWorkerProject>$(MSBuildThisFileDirectory)..\src\HeapScope.Worker\HeapScope.Worker.csproj</_HeapScopeWorkerProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(_HeapScopeWorkerProject)" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+  <Target Name="HeapScopeDeployWorker" AfterTargets="Build">
+    <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_HeapScopeWorkerTargetPath" />
+    </MSBuild>
+    <PropertyGroup>
+      <_HeapScopeWorkerDir>@(_HeapScopeWorkerTargetPath->'%(RootDir)%(Directory)')</_HeapScopeWorkerDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_HeapScopeWorkerFiles Include="$(_HeapScopeWorkerDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_HeapScopeWorkerFiles)"
+          DestinationFiles="@(_HeapScopeWorkerFiles->'$(OutDir)worker\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>
