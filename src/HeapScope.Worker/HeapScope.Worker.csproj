@@ -12,6 +12,9 @@
     <ProjectReference Include="..\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.Worker.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="StreamJsonRpc" />
   </ItemGroup>

@@ -1,14 +1,22 @@
 using HeapScope.Cli;
+using Microsoft.Extensions.Hosting;
 
-using var host = CliHost.Build(args);
-await host.StartAsync().ConfigureAwait(false);
-try
+IHost? host = null;
+var root = CliCommands.Build(() => host!.Services);
+var parseResult = root.Parse(args);
+
+// The worker attach pipe must be known before the host is built.
+host = CliHost.Build(parseResult.GetValue(CliCommands.PipeOption));
+using (host)
 {
-    var root = CliCommands.Build(host.Services);
-    return await root.Parse(args).InvokeAsync().ConfigureAwait(false);
-}
-finally
-{
-    using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    await host.StopAsync(stopTimeout.Token).ConfigureAwait(false);
+    await host.StartAsync().ConfigureAwait(false);
+    try
+    {
+        return await parseResult.InvokeAsync().ConfigureAwait(false);
+    }
+    finally
+    {
+        using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await host.StopAsync(stopTimeout.Token).ConfigureAwait(false);
+    }
 }

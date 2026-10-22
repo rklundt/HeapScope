@@ -20,9 +20,17 @@ dotnet test --solution HeapScope.sln
 - Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
+  Commands: `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]` (Ctrl+C
+  cancels; exit codes 0 ok, 1 failure, 2 usage, 130 canceled).
 - Run the worker standalone (for debugging): `dotnet run --project src/HeapScope.Worker -- --pipe <name>`
-  (without `--parent-pid` it does not watch a parent). Attach a client with
-  `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>` (sprint 0.3).
+  (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
+  Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
+  `Worker:AttachPipeName` for the UI.
+- UI smoke run: `HeapScope.exe --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
+  (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8.
+- Logs: `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (UI and CLI, including forwarded worker lines);
+  override with `--Logging:File:Directory <dir>` (UI) or the `Logging__File__Directory` environment variable.
+- Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <benchmark> [options]`. See
   section 6.
 

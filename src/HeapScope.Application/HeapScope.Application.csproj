@@ -10,4 +10,8 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="StreamJsonRpc" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.Application.Tests" />
+    <InternalsVisibleTo Include="HeapScope.Integration.Tests" />
+  </ItemGroup>
 </Project>

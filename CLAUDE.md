@@ -39,5 +39,5 @@ WPF app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when availab
 - All tests: `dotnet test --solution HeapScope.sln`
 - Fast tests: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`
 - UI: `dotnet run --project src/HeapScope.UI.Wpf`
-- CLI: `dotnet run --project src/HeapScope.Cli -- --version`
+- CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `worker ping`, `worker info`, `synthetic --objects N`)
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>`

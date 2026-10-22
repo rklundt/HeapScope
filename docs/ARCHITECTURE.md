@@ -77,7 +77,8 @@ tests/
   HeapScope.Core.Tests
   HeapScope.Analysis.Tests     Synthetic graphs with known answers.
   HeapScope.Storage.Tests
-  HeapScope.Application.Tests  Job tracking and worker client logic with fakes.
+  HeapScope.Application.Tests  Job tracking, logging and worker client logic with fakes.
+  HeapScope.Worker.Tests       Worker internals: result set store, progress throttling, error mapping.
   HeapScope.UI.Wpf.Tests       View model tests (no windows are shown).
   HeapScope.Architecture.Tests Enforces the dependency rules below.
   HeapScope.Integration.Tests  Real worker processes, fixtures, real dumps, known answers.
@@ -98,6 +99,13 @@ Changes from the kickoff layout, with reasons:
 - `perf/HeapScope.Benchmarks` holds measurements that are too slow or too memory hungry for the unit test run.
 - `fixtures/KnownAnswers` makes the known answers a first-class, shared input of tests and detectors.
 - `build/` holds the target that places the worker beside the UI and CLI executables (section 3.1).
+
+Code map of the process layers (sprint 0.3): Contracts holds `IWorkerService`, `WorkerProtocol`, the DTOs,
+`HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`. The worker has `Rpc/` (`WorkerRpcServer`,
+`WorkerService`, `ResultSetStore`, `ThrottledProgress`). Application has `Workers/` (`WorkerHost`,
+`IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`, `Logging/FileLoggerProvider` and
+`WorkerOperations`. UI.Wpf has `ViewModels/` (shell, pages, jobs), `Views/` and `Services/` (dispatcher
+abstraction and watchdog). The CLI has `CliCommands` (`worker ping`, `worker info`, `synthetic`).
 
 ### 3.1 Dependency rules
 
@@ -158,7 +166,10 @@ Rules:
 - **CLI process** (x64): same Application services, console output.
 - **Worker process** (x64, `HeapScope.Worker.exe`): one per UI or CLI instance. Holds every loaded snapshot
   of the session (a diff needs both snapshots in one address space). Uses Server GC, non-concurrent
-  (section 9).
+  (section 9), and runs at below-normal process priority so its ordinary threads yield to the UI and the profiled
+  application. This does not cover Server GC threads, which the runtime creates at highest thread priority (they
+  end up at normal priority in a below-normal process); taming GC threads (job object CPU rate, EcoQoS, heap
+  affinity) is a backlog item to be decided with a trace.
 
 ### 4.2 Lifecycle
 1. Application's `WorkerHost` starts the worker with `--pipe <name> --parent-pid <pid>`. The pipe name is
@@ -167,16 +178,35 @@ Rules:
    timeout and calls `GetInfoAsync` as a handshake, which also checks the protocol version.
 3. The worker exits when the pipe disconnects or when the parent process exits (it watches the parent's
    process handle), so a crashed UI never leaves orphaned workers holding gigabytes.
-4. On orderly shutdown the client calls `ShutdownAsync`, then waits up to 5 s before killing the process.
+4. On orderly shutdown (the host stopping, since `WorkerHost` is a hosted service) the client calls
+   `ShutdownAsync`, then waits up to 5 s before killing the process.
+5. For debugging, a worker can be started by hand with `--pipe <name>` and a client attached to it with the
+   `Worker:AttachPipeName` option (CLI: `--pipe <name>`); an attached worker is disconnected, not shut down.
+6. Test hooks (`CrashForTestingAsync`, `HangForTestingAsync`) exist only when the worker is started with
+   `--enable-test-hooks` (`Worker:EnableTestHooks`); otherwise they fail with `TestHooksDisabled`.
 
 ### 4.3 Crash handling
 - The client watches both `Process.Exited` and `JsonRpc.Disconnected`. Either one moves the worker to
   `Crashed`, faults every in-flight call with `WorkerCrashedException` (exit code included), and raises a
   `WorkerStateChanged` event the UI shows as a banner.
-- The next request restarts the worker transparently. Snapshots the session had loaded are reopened on demand
-  from the index cache, so a restart costs seconds, not minutes.
+- The next request restarts the worker transparently. Every worker has an `InstanceId` (in `WorkerInfo`) and
+  `IWorkerClient.Generation` increases with each connected worker, so callers can tell that worker-owned ids
+  (result sets, and snapshots from 1.2) belong to a dead worker. (Planned, 1.2:) Application owns stable snapshot
+  handles (path plus fingerprint), maps them to worker snapshot ids per generation and reopens lazily from the
+  index cache; a stale id fails with `SnapshotNotLoaded`.
+- Error contract of `IWorkerClient`: calls fail only with `WorkerStartException`, `WorkerCrashedException`,
+  `WorkerOperationException` or `OperationCanceledException`. A stopped or disposed host refuses to start a
+  worker. The handshake is bounded by the connect timeout. In the worker, `WorkerErrors.GuardAsync` maps domain
+  exceptions to codes in one place (`CapabilityNotSupported`, `InsufficientMemory`, `InvalidArgument`). The UI
+  adds last-chance handlers (dispatcher, app domain, unobserved tasks) that log and show a plain message; the
+  CLI command boundary prints a plain message and logs the stack trace.
 - Worker stderr is captured by the client and forwarded into the client's log (category `Worker`), so the
-  last log lines before a crash are never lost.
+  last log lines before a crash are never lost. The worker writes single-line records
+  (`HH:mm:ss.fff level: Category[id] message`); the forwarder keeps the level and logs lines without one (for
+  example a stack trace) as warnings.
+- Transport failures (`ConnectionLostException`, broken pipe, disposed connection) become
+  `WorkerCrashedException`; worker errors become `WorkerOperationException` with the `HeapScopeErrorCode`;
+  startup failures (missing executable, no pipe within 30 s, exit during startup) become `WorkerStartException`.
 
 ### 4.4 Transport and contracts
 - StreamJsonRpc over the named pipe, with `HeaderDelimitedMessageHandler` and the default JSON formatter.
@@ -186,7 +216,10 @@ Rules:
   primitive types, strings, arrays and Contracts enums; Contracts references no solution project, so no Core type
   can cross the pipe (ADR-016). The worker maps Core values (for example `SnapshotCapabilities`) to their
   Contracts counterparts (`SnapshotFeatures`); a test keeps the numeric values of mirrored enums identical.
-- `ProtocolVersion` is a constant in Contracts; a mismatch at handshake is a hard error with a clear message.
+- `WorkerProtocol.Version` is a constant in Contracts; a mismatch at handshake is a hard error with a clear
+  message.
+- `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
+  version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
 ### 4.5 Progress and cancellation
 - Every long-running worker method takes `IProgress<JobProgress>` and `CancellationToken` as its last two
@@ -195,15 +228,24 @@ Rules:
 - `JobProgress` carries `Phase`, `Completed`, `Total` (nullable when unknown) and `Message`. The worker
   throttles reports to at most 10 per second per call.
 - Worker loops check the token at least every 64K items and pass it into every nested call.
-- Application's `JobTracker` gives each call a `JobId`, keeps its status (Queued, Running, Completed, Failed,
-  Canceled), latest progress and a `Cancel()` handle, and exposes them to the UI's jobs panel and to the CLI.
+- Application's `JobTracker` gives each job an id, keeps its status (Running, Completed, Failed, Canceled), latest
+  progress and a `Cancel()` handle, and raises `JobAdded` and `JobChanged` on any thread. The UI marshals them
+  through `IUiDispatcher`; the CLI prints them to stderr. `WorkerOperations` is the shared use-case facade for UI
+  and CLI.
 
 ### 4.6 Large result sets
 Large results are never sent whole. A query creates a result set in the worker and returns a
 `ResultSetInfo { Id, TotalCount, Columns }`. Clients then call `GetRowsAsync(id, offset, count)` with
 `count` capped at 10,000, and `ReleaseResultSetAsync(id)` when done. Sorting and filtering happen in the
 worker, producing a new result set. The WPF grids use data virtualization and fetch pages on scroll. Result
-sets are held with a LRU limit per worker so a forgetful client cannot leak memory in the worker.
+sets are typed sources (`IResultSource`: compact arrays such as indices, counts and sizes) formatted to strings only
+for the requested page, never stored as one string per cell. The store evicts least recently used sets beyond 32
+sets or an estimated 256 MB, whichever comes first (the newest set is always kept). A set can carry an owner, for
+example a snapshot lease, disposed on release or eviction. Producers must stay compact (indices, counts, sizes),
+because the newest set is kept even when it alone exceeds the byte budget; a source that reads graph columns takes
+its own snapshot lease for each page it formats. Cells cross the pipe as invariant-culture strings with
+typed column descriptors (`ResultColumn`: Text, Integer, Bytes), which keeps paging generic. Unknown, released or
+evicted sets fail with `ResultSetNotFound`.
 
 ## 5. Snapshot abstraction and capability model
 
@@ -411,9 +453,19 @@ view, owned by the snapshot, so the column's shape does not change between 0.2 a
 
 ## 8. Threading model
 - **UI**: view models are touched only on the dispatcher thread. All Application calls are `async` and
-  awaited from view models; `.Result`, `.Wait()` and `Dispatcher.Invoke` for long work are forbidden. Progress
-  arrives through `IProgress<T>` created on the dispatcher. No dispatcher work item may block more than
+  awaited from view models; `.Result`, `.Wait()` and `Dispatcher.Invoke` for long work are forbidden.
+  Application events (job progress, worker state) arrive on any thread and are marshaled with `IUiDispatcher`
+  (`WpfUiDispatcher` in the app, `ImmediateUiDispatcher` in tests). No dispatcher work item may block more than
   100 ms.
+- **Responsiveness measurement**: `DispatcherWatchdog` posts an input-priority probe every 25 ms and logs any
+  delay over 100 ms (with UI-process GC pause time), and times each dispatcher operation (nested operations
+  included) to name the priority of any single operation over budget. `HeapScope.exe --smoke-synthetic <n>` runs
+  a warm-up job, then an n-object synthetic job, and exits 0 when no single dispatcher operation exceeded 100 ms
+  and the probe lag stayed under the smoke gate
+  (2x budget), 3 when it did not, 4 when the job failed. Measured in sprint 0.3, steady state during a 5M job:
+  2 to 16 ms (Debug) and 43 ms (Release, cold); intermittently 105 to 130 ms in Debug at job completion while the
+  full integration suite runs (backlog item). One-time cold costs are not covered by the budget yet: first window
+  render about 1 s, first job row about 130 to 190 ms (backlog: UI cold start).
 - **Libraries** (everything below UI): `ConfigureAwait(false)` on every await; every async method takes a
   `CancellationToken`.
 - **Worker**: StreamJsonRpc dispatches requests concurrently. Loading or building an index for a snapshot is
@@ -421,7 +473,8 @@ view, owned by the snapshot, so the column's shape does not change between 0.2 a
   CPU-heavy algorithms may use `Parallel.For` with explicit partitioning, never per-object tasks. Queries on
   mapped snapshots hold a lease for their whole duration (section 6.5).
 - **Host lifecycle**: UI and CLI start their generic host with `StartAsync` and stop it with a bounded
-  `StopAsync` (5 s) before exit, so hosted services such as the worker client shut down in order. In the WPF app,
+  `StopAsync` (UI 5 s, CLI 10 s) before exit, so hosted services such as the worker client shut down in order; the
+  worker host honors that bound and kills the worker when it is reached. In the WPF app,
   closing the main window cancels the close once, awaits the stop on the dispatcher without blocking, disposes
   the host and then shuts the application down; a stop requested by the host closes the window through the same
   path.
@@ -431,6 +484,11 @@ view, owned by the snapshot, so the column's shape does not change between 0.2 a
   throughput matters more than pause times in the worker, and background GC adds memory overhead. DATAS
   (dynamic adaptation, on by default for Server GC since .NET 9) stays enabled so the worker does not reserve
   a large heap per core on a 16 GB laptop.
+- After a job that dropped large transient state (completed, failed or canceled), the worker runs one blocking,
+  compacting, aggressive gen2 collection before replying: an idle worker allocates nothing, so otherwise
+  gigabytes would stay committed.
+- Work whose size the client chooses is checked against the memory budget before it starts (the synthetic job
+  projects its peak and fails with `InsufficientMemory`), and large jobs of the same kind are serialized.
 - Large arrays are allocated once at their final size. No `List<T>` doubling for per-object data; chunked
   buffers during building, exact arrays after.
 - Hot loops avoid LINQ, closures, boxing and per-item allocations. `ArrayPool<T>` for temporary buffers.
@@ -460,13 +518,14 @@ Before opening a snapshot the Application layer estimates the worker memory need
 per-object budget) and warns when it exceeds available physical memory.
 
 ## 11. Error handling and logging
-- Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file under
-  `%LOCALAPPDATA%\HeapScope\logs` (planned, sprint 0.3) and to debug output; the worker logs to stderr, which
-  the client forwards into its own log.
+- Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file
+  `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (`FileLoggerProvider` in Application; directory
+  overridable with `Logging:File:Directory`), the UI also to debug output and the CLI to stderr from Warning up;
+  the worker logs single-line records to stderr, which the client forwards into its own log.
 - Exceptions are caught at boundaries only: worker RPC methods, view model commands, CLI command handlers.
   Inner code throws specific exceptions (`CapabilityNotSupportedException`, `SnapshotFormatException`,
   `ElevationRequiredException`, `WorkerCrashedException`) and does not swallow them.
-- Worker errors cross the pipe as JSON-RPC errors with a `HeapScopeErrorCode` in the error data so clients
+- Worker errors cross the pipe as JSON-RPC errors with a `HeapScopeErrorCode` as the JSON-RPC error code so clients
   can show a precise message.
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.

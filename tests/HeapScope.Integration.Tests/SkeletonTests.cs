@@ -69,7 +69,7 @@ public class SkeletonTests
         (await worker.WaitForOutputAsync("started", s_timeout)).ShouldBeTrue(worker.Output);
         parent.Process.Kill(entireProcessTree: true);
 
-        (await worker.WaitForExitAsync(TimeSpan.FromSeconds(5))).ShouldBeTrue(worker.Output);
+        (await worker.WaitForExitAsync(TimeSpan.FromSeconds(2))).ShouldBeTrue(worker.Output);
         worker.Process.ExitCode.ShouldBe(0);
     }
 
