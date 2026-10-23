@@ -16,20 +16,30 @@ public sealed class SyntheticGraphBuilder
     /// <summary>Address of the first synthetic object.</summary>
     public const ulong BaseAddress = 0x0001_0000;
 
-    private readonly List<(string Type, ulong Size, HeapKind Kind, ObjectFlags Flags)> _objects = [];
+    private readonly List<(string Type, ulong Size, HeapKind Kind, ObjectFlags Flags, string? Module, ulong MethodTable)> _objects = [];
     private readonly List<List<ulong>> _references = [];
     private readonly List<(ulong Address, RootKind Kind, RootFlags Flags, string? Detail)> _roots = [];
     private readonly List<(ulong Primary, ulong Secondary)> _dependentHandles = [];
     private ulong _nextAddress = BaseAddress;
 
-    /// <summary>Creates an object of the given type and shallow size.</summary>
-    public SyntheticObject Object(string typeName, ulong size = 24, HeapKind heapKind = HeapKind.Gen0, ObjectFlags flags = ObjectFlags.None)
+    /// <summary>
+    /// Creates an object of the given type and shallow size. Types are matched by name, or by
+    /// <paramref name="methodTable"/> when it is not zero (distinct types that share a name, for example one assembly
+    /// loaded into two load contexts).
+    /// </summary>
+    public SyntheticObject Object(
+        string typeName,
+        ulong size = 24,
+        HeapKind heapKind = HeapKind.Gen0,
+        ObjectFlags flags = ObjectFlags.None,
+        string? module = null,
+        ulong methodTable = 0)
     {
         ArgumentNullException.ThrowIfNull(typeName);
         var address = _nextAddress;
         var span = Math.Max(size, 8UL);
         _nextAddress += (span + 7) & ~7UL;
-        _objects.Add((typeName, size, heapKind, flags));
+        _objects.Add((typeName, size, heapKind, flags, module, methodTable));
         _references.Add([]);
         return new SyntheticObject(_objects.Count - 1, address);
     }
@@ -73,9 +83,9 @@ public sealed class SyntheticGraphBuilder
     {
         using var builder = new HeapGraphBuilder();
         var address = BaseAddress;
-        foreach (var (type, size, kind, flags) in _objects)
+        foreach (var (type, size, kind, flags, module, methodTable) in _objects)
         {
-            var typeIndex = builder.Types.GetOrAdd(type, baseSize: (uint)Math.Min(size, uint.MaxValue));
+            var typeIndex = builder.Types.GetOrAdd(type, methodTable, baseSize: (uint)Math.Min(size, uint.MaxValue), module: module);
             builder.AddObject(address, typeIndex, size, kind, flags);
             address += (Math.Max(size, 8UL) + 7) & ~7UL;
         }

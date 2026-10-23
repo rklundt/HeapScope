@@ -132,6 +132,36 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         }
     }
 
+    /// <summary>
+    /// A type summary with grouping, filter and sort (sprint 1.3). The rows come back as a <see cref="ResultSetHandle"/>
+    /// that runs the query again (reopening the snapshot if the worker restarted) when the set is gone.
+    /// </summary>
+    public async Task<TypeSummary> QueryTypeSummaryAsync(
+        SnapshotHandle handle,
+        TypeGrouping groupBy,
+        string? filter,
+        TypeSummarySort sort,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        TypeSummaryResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sort, descending), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+
+        // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
+        return new TypeSummary(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
     public Task<ResultSetInfo> GetTypeSummaryAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.GetTypeSummaryAsync(id, ct), cancellationToken);

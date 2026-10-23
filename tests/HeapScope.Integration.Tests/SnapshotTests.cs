@@ -127,6 +127,75 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     }
 
     [Fact]
+    public async Task Type_summary_totals_equal_the_snapshot_and_the_known_answers_hold()
+    {
+        var handle = await _session.StartOpen(_dump).Result;
+
+        var summary = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, TypeSummarySort.Bytes, true, null, Ct);
+        var rows = await AllRowsAsync(summary.Rows);
+
+        summary.Result.TotalObjects.ShouldBe(handle.Descriptor.ObjectCount);
+        summary.Result.TotalBytes.ShouldBe((long)handle.Descriptor.TotalSize);
+        summary.Result.TotalTypes.ShouldBe(handle.Descriptor.TypeCount);
+        rows.Sum(r => long.Parse(r[1]!, CultureInfo.InvariantCulture)).ShouldBe(summary.Result.TotalObjects);
+        rows.Sum(r => long.Parse(r[2]!, CultureInfo.InvariantCulture)).ShouldBe(summary.Result.TotalBytes);
+        summary.Result.HasGenerations.ShouldBeTrue();
+        summary.Result.HeapKinds.Sum(k => k.Bytes).ShouldBe(summary.Result.TotalBytes);
+        summary.Rows.Info.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent", "Gen0", "Gen1", "Gen2", "LargeObjectHeap", "PinnedObjectHeap", "Frozen"]);
+        summary.Rows.Info.Columns[0].IsKey.ShouldBeTrue();
+        rows.Select(r => long.Parse(r[2]!, CultureInfo.InvariantCulture)).ShouldBeInOrder(SortDirection.Descending);
+
+        // Known answers (fixtures/KnownAnswers/StaticCache.json): exact per-item counts.
+        var answer = KnownAnswer.Load("StaticCache");
+        foreach (var type in answer.Types)
+        {
+            rows.Single(r => r[0] == type.Type)[1].ShouldBe((StaticCacheDump.Items * type.PerItem).ToString(CultureInfo.InvariantCulture), type.Type);
+        }
+
+        await summary.Rows.ReleaseAsync(Ct);
+    }
+
+    [Fact]
+    public async Task Type_summary_filters_groups_and_sorts_in_the_worker()
+    {
+        var handle = await _session.StartOpen(_dump).Result;
+
+        var filtered = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, "SCE", TypeSummarySort.Name, false, null, Ct);
+        var filteredRows = await AllRowsAsync(filtered.Rows);
+        var byNamespace = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Namespace, null, TypeSummarySort.Count, true, null, Ct);
+        var namespaceRows = await AllRowsAsync(byNamespace.Rows);
+
+        filteredRows.ShouldNotBeEmpty();
+        filteredRows.ShouldAllBe(r => NameFilter.IsMatch(r[0]!, "SCE"));
+        filteredRows.ShouldContain(r => r[0] == "Fixtures.Leaks.StaticCacheEntry");
+        filteredRows.Select(r => r[0]).ShouldBe(filteredRows.Select(r => r[0]).Order(StringComparer.OrdinalIgnoreCase));
+        filtered.Result.TotalObjects.ShouldBe(handle.Descriptor.ObjectCount, "totals cover the whole snapshot, not only the filtered rows");
+        namespaceRows.ShouldContain(r => r[0] == "Fixtures.Leaks");
+        namespaceRows.Sum(r => long.Parse(r[1]!, CultureInfo.InvariantCulture)).ShouldBe(handle.Descriptor.ObjectCount);
+    }
+
+    [Fact]
+    public async Task A_result_set_that_is_gone_is_queried_again_transparently()
+    {
+        var handle = await _session.StartOpen(_dump).Result;
+        var summary = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, TypeSummarySort.Bytes, true, null, Ct);
+        var first = (await summary.Rows.GetRowsAsync(0, 5, Ct)).Rows;
+
+        // Evicted (released here) in the same worker, then lost with a worker restart.
+        await _host.InvokeAsync((service, ct) => service.ReleaseResultSetAsync(summary.Rows.Info.Id, ct), Ct);
+        (await summary.Rows.GetRowsAsync(0, 5, Ct)).Rows.Select(r => r[0]).ShouldBe(first.Select(r => r[0]));
+        await _host.RestartAsync(Ct);
+        (await summary.Rows.GetRowsAsync(0, 5, Ct)).Rows.Select(r => r[0]).ShouldBe(first.Select(r => r[0]));
+
+        summary.Rows.Requeries.ShouldBe(2);
+
+        // Released by its owner: finished, never queried again.
+        await summary.Rows.ReleaseAsync(Ct);
+        await Should.ThrowAsync<ObjectDisposedException>(() => summary.Rows.GetRowsAsync(0, 5, Ct));
+        summary.Rows.Requeries.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task After_a_worker_restart_the_session_reopens_the_snapshot_from_the_cache()
     {
         var handle = await _session.StartOpen(_dump).Result;
@@ -254,6 +323,17 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         _folder.Dispose();
     }
 
+    private static async Task<List<IReadOnlyList<string?>>> AllRowsAsync(ResultSetHandle rows)
+    {
+        var all = new List<IReadOnlyList<string?>>();
+        while (all.Count < rows.Info.TotalCount)
+        {
+            all.AddRange((await rows.GetRowsAsync(all.Count, WorkerProtocol.MaxPageSize, Ct)).Rows);
+        }
+
+        return all;
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
@@ -287,6 +367,32 @@ public sealed class CliOpenTests(StaticCacheDump shared) : IClassFixture<StaticC
         (await second.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(second.Output);
         second.Process.ExitCode.ShouldBe(0, second.Output);
         second.Output.ShouldContain("from the index cache");
+    }
+
+    [Fact]
+    public async Task Cli_summary_prints_a_table_csv_and_json()
+    {
+        var dump = _folder.File("summary.dmp");
+        File.Copy(shared.Path, dump);
+
+        using var table = ChildProcess.Start(TestPaths.CliExe, "summary", dump, "--top", "3");
+        (await table.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(table.Output);
+        table.Process.ExitCode.ShouldBe(0, table.Output);
+        table.Output.ShouldContain("Heap kinds:");
+
+        using var csv = ChildProcess.Start(TestPaths.CliExe, "summary", dump, "--format", "csv", "--filter", "StaticCacheEntry", "--sort", "name");
+        (await csv.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(csv.Output);
+        csv.Process.ExitCode.ShouldBe(0, csv.Output);
+        csv.Output.ShouldContain("Name,Objects,Bytes,Percent,Gen0");
+        csv.Output.ShouldContain("Fixtures.Leaks.StaticCacheEntry," + StaticCacheDump.Items.ToString(CultureInfo.InvariantCulture) + ",");
+
+        using var json = ChildProcess.Start(TestPaths.CliExe, "summary", dump, "--format", "json", "--group", "namespace", "--top", "2");
+        (await json.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(json.Output);
+        json.Process.ExitCode.ShouldBe(0, json.Output);
+        var start = json.Output.IndexOf('{', StringComparison.Ordinal);
+        using var document = System.Text.Json.JsonDocument.Parse(json.Output[start..(json.Output.LastIndexOf('}') + 1)]);
+        document.RootElement.GetProperty("Rows").GetArrayLength().ShouldBe(2);
+        document.RootElement.GetProperty("TotalObjects").GetInt64().ShouldBeGreaterThan(0);
     }
 
     [Fact]

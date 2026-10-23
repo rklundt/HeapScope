@@ -199,10 +199,18 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
                 SetState(WorkerState.NotStarted, null);
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
             {
                 SetState(WorkerState.Crashed, ex.Message);
                 throw;
+            }
+            catch (Exception ex)
+            {
+                // Callers handle the worker exception types only; anything else (a bug in starting the process) must not
+                // escape as an unexpected type, or a front end waits forever (sprint 1.3 smoke run).
+                _logger.LogError(ex, "Starting the analysis worker failed unexpectedly");
+                SetState(WorkerState.Crashed, ex.Message);
+                throw new WorkerStartException($"The analysis worker could not be started: {ex.Message}", ex);
             }
 
             Interlocked.Increment(ref _generation);
@@ -359,6 +367,12 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(path)!,
         };
+        if (!info.Environment.TryGetValue("DOTNET_GCHeapCount", out var heapCount) || string.IsNullOrEmpty(heapCount))
+        {
+            // Hexadecimal, as the runtime reads it.
+            info.Environment["DOTNET_GCHeapCount"] = _options.ResolveGcHeapCount().ToString("x", CultureInfo.InvariantCulture);
+        }
+
         info.ArgumentList.Add("--pipe");
         info.ArgumentList.Add(pipeName);
         info.ArgumentList.Add("--parent-pid");

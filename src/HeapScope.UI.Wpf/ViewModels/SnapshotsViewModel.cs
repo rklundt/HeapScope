@@ -7,11 +7,10 @@ using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Services;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.Wpf.ViewModels;
 
-/// <summary>One row of the top types table. Numbers stay numeric so the grid sorts them correctly.</summary>
-public sealed record TypeRow(string Type, long Count, long Bytes);
 
 /// <summary>An open snapshot as shown in the snapshot list and its overview.</summary>
 public sealed class SnapshotItemViewModel(SnapshotHandle handle)
@@ -60,19 +59,15 @@ public sealed class SnapshotItemViewModel(SnapshotHandle handle)
 }
 
 /// <summary>
-/// The Snapshots page (sprint 1.2): open a dump, see the open snapshots, and an overview of the selected one with its
-/// largest types (dotMemory's "Largest Size" tile, research section 7). The full types grid is sprint 1.3.
+/// The Snapshots page: open a dump (sprint 1.2), see the open snapshots, and the selected one's overview tiles, heap
+/// kinds bar and types grid (sprint 1.3, dotMemory's types view).
 /// </summary>
 public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
 {
-    /// <summary>Rows shown in the overview's largest types table.</summary>
-    public const int TopTypeCount = 200;
-
     private readonly SnapshotSession _session;
     private readonly WorkerOperations _operations;
     private readonly IUiDispatcher _dispatcher;
     private readonly IUserInteraction _interaction;
-    private int _overviewVersion;
 
     [ObservableProperty]
     private SnapshotItemViewModel? _selected;
@@ -87,21 +82,21 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         SnapshotSession session,
         WorkerOperations operations,
         IUiDispatcher dispatcher,
-        IUserInteraction interaction)
+        IUserInteraction interaction,
+        ILogger<TypeSummaryViewModel>? typesLogger = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
         _session.SnapshotsChanged += OnSnapshotsChanged;
+        Types = new TypeSummaryViewModel(session, typesLogger);
     }
 
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; } = [];
 
-    public ObservableCollection<TypeRow> TopTypes { get; } = [];
-
-    /// <summary>The overview load in progress, if any (tests and smoke runs await it).</summary>
-    public Task OverviewLoad { get; private set; } = Task.CompletedTask;
+    /// <summary>The types grid of the selected snapshot.</summary>
+    public TypeSummaryViewModel Types { get; }
 
     public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
 
@@ -173,46 +168,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         Refresh();
     }
 
-    partial void OnSelectedChanged(SnapshotItemViewModel? value)
-    {
-        TopTypes.Clear();
-        if (value is not null)
-        {
-            OverviewLoad = LoadOverviewAsync(value, ++_overviewVersion);
-        }
-    }
-
-    private async Task LoadOverviewAsync(SnapshotItemViewModel item, int version)
-    {
-        try
-        {
-            var summary = await _session.GetTypeSummaryAsync(item.Handle, CancellationToken.None);
-            try
-            {
-                var page = await _operations.GetRowsAsync(summary.Id, 0, TopTypeCount, CancellationToken.None);
-                if (version != _overviewVersion)
-                {
-                    return;
-                }
-
-                foreach (var row in page.Rows)
-                {
-                    TopTypes.Add(new TypeRow(
-                        row[0] ?? string.Empty,
-                        long.Parse(row[1]!, CultureInfo.InvariantCulture),
-                        long.Parse(row[2]!, CultureInfo.InvariantCulture)));
-                }
-            }
-            finally
-            {
-                await _operations.ReleaseResultSetAsync(summary.Id, CancellationToken.None);
-            }
-        }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
-        {
-            Status = ex.Message;
-        }
-    }
+    partial void OnSelectedChanged(SnapshotItemViewModel? value) => Types.Show(value?.Handle);
 
     private void OnSnapshotsChanged(object? sender, EventArgs e) => _dispatcher.Post(Refresh);
 

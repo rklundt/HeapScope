@@ -112,15 +112,103 @@ internal sealed class FakeWorkerService : IWorkerService
         return Task.CompletedTask;
     }
 
-    public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
-        Task.FromResult(new ResultSetInfo(Guid.NewGuid(), Rows.Count, []));
+    public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken)
+    {
+        var id = Guid.NewGuid();
+        _sets[id] = [.. Rows];
+        return Task.FromResult(new ResultSetInfo(id, Rows.Count, []));
+    }
 
-    public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken) =>
-        Task.FromResult(new ResultPage(resultSetId, offset, Rows.Count, [.. Rows.Skip(offset).Take(count)]));
+    /// <summary>Type summary queries received (tests check filter, sort and grouping).</summary>
+    public List<TypeSummaryRequest> SummaryQueries { get; } = [];
+
+    /// <summary>Whether summaries report generations.</summary>
+    public bool HasGenerations { get; set; } = true;
+
+    /// <summary>When set, summary queries wait for it (or for their cancellation) before answering.</summary>
+    public TaskCompletionSource? SummaryGate { get; set; }
+
+    /// <summary>When set, page requests wait for it (or for their cancellation) before answering.</summary>
+    public TaskCompletionSource? PageGate { get; set; }
+
+    /// <summary>When set, page requests fail with it.</summary>
+    public Exception? PageFailure { get; set; }
+
+    /// <summary>Page requests received: offset and count.</summary>
+    public List<(int Offset, int Count)> PageRequests { get; } = [];
+
+    /// <summary>Result sets alive in the fake worker (released sets are removed, as in the real store).</summary>
+    public IReadOnlyCollection<Guid> LiveSets => _sets.Keys;
+
+    private readonly Dictionary<Guid, List<IReadOnlyList<string?>>> _sets = [];
+
+    public async Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        SummaryQueries.Add(request);
+        if (SummaryGate is { } gate)
+        {
+            await gate.Task.WaitAsync(cancellationToken);
+        }
+
+        // The worker's order: the sort column, then the name ascending for ties.
+        var matching = Rows.Where(r => NameFilter.IsMatch(r[0]!, request.Filter));
+        Func<IReadOnlyList<string?>, long> key = request.Sort switch
+        {
+            TypeSummarySort.Count => r => long.Parse(r[1]!, System.Globalization.CultureInfo.InvariantCulture),
+            _ => r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture),
+        };
+        List<IReadOnlyList<string?>> rows = request.Sort == TypeSummarySort.Name
+            ? (request.Descending
+                ? [.. matching.OrderByDescending(r => r[0], StringComparer.OrdinalIgnoreCase).ThenBy(r => r[0], StringComparer.Ordinal)]
+                : [.. matching.OrderBy(r => r[0], StringComparer.OrdinalIgnoreCase).ThenBy(r => r[0], StringComparer.Ordinal)])
+            : (request.Descending
+                ? [.. matching.OrderByDescending(key).ThenBy(r => r[0], StringComparer.Ordinal)]
+                : [.. matching.OrderBy(key).ThenBy(r => r[0], StringComparer.Ordinal)]);
+
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        ResultColumn[] columns = [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Percent", ResultColumnKind.Percent)];
+        var totalBytes = Rows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture));
+        HeapKindTotal[] kinds = HasGenerations ? [new(HeapKindDto.Gen0, 10, totalBytes / 2), new(HeapKindDto.Gen2, 5, totalBytes / 2)] : [];
+        return new TypeSummaryResult(
+            new ResultSetInfo(id, rows.Count, columns),
+            Rows.Sum(r => long.Parse(r[1]!, System.Globalization.CultureInfo.InvariantCulture)),
+            totalBytes,
+            Rows.Count,
+            HasGenerations,
+            kinds,
+            0.1,
+            Rows.Count);
+    }
+
+    public async Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
+    {
+        PageRequests.Add((offset, count));
+        if (PageGate is { } gate)
+        {
+            await gate.Task.WaitAsync(cancellationToken);
+        }
+
+        if (PageFailure is { } failure)
+        {
+            throw failure;
+        }
+
+        if (!_sets.TryGetValue(resultSetId, out var rows))
+        {
+            throw new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.ResultSetNotFound, "The result set is gone. Run the query again.", null);
+        }
+
+        return new ResultPage(resultSetId, offset, rows.Count, [.. rows.Skip(offset).Take(count).Select(WithPercent)]);
+    }
+
+    private static IReadOnlyList<string?> WithPercent(IReadOnlyList<string?> row) =>
+        row.Count >= 4 ? row : [row[0], row[1], row[2], "0"];
 
     public Task ReleaseResultSetAsync(Guid resultSetId, CancellationToken cancellationToken)
     {
         Released.Add(resultSetId);
+        _sets.Remove(resultSetId);
         return Task.CompletedTask;
     }
 

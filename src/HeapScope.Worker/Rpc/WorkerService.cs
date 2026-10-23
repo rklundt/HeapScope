@@ -91,13 +91,18 @@ internal sealed class WorkerService(
         return Task.CompletedTask;
     }
 
-    public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+    public async Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        (await QueryTypeSummaryAsync(new TypeSummaryRequest(snapshotId), null, cancellationToken).ConfigureAwait(false)).Rows;
+
+    public Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         GuardAsync(async () =>
         {
-            var snapshot = snapshots.TryGet(snapshotId) ?? throw SnapshotNotLoaded(snapshotId);
+            ArgumentNullException.ThrowIfNull(request);
+            var stopwatch = Stopwatch.StartNew();
+            var snapshot = snapshots.TryGet(request.SnapshotId) ?? throw SnapshotNotLoaded(request.SnapshotId);
 
-            // The lease keeps a mapped graph alive while the summary reads it; the summary itself is compact arrays.
-            // A snapshot closed between the lookup and here refuses the lease.
+            // The lease keeps a mapped graph alive while the aggregation and the grouping read it; the result source
+            // itself holds only names and totals. A snapshot closed between the lookup and here refuses the lease.
             SnapshotLease lease;
             try
             {
@@ -105,11 +110,36 @@ internal sealed class WorkerService(
             }
             catch (ObjectDisposedException)
             {
-                throw SnapshotNotLoaded(snapshotId);
+                throw SnapshotNotLoaded(request.SnapshotId);
             }
 
             using var _ = lease;
-            return await Task.Run(() => resultSets.Add(TypeSummarySource.Create(snapshot.Graph, cancellationToken)), cancellationToken).ConfigureAwait(false);
+            var throttled = new ThrottledProgress<JobProgress>(progress);
+            var total = snapshot.Graph.ObjectCount;
+            var aggregation = await snapshots.GetAggregationAsync(
+                request.SnapshotId,
+                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
+                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
+            var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
+            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations), cancellationToken).ConfigureAwait(false);
+            throttled.Flush();
+            var rows = resultSets.Add(source);
+            // Unknown (generation not determined) is listed only when present, so the bar always adds up to the total.
+            var kinds = generations
+                ? TypeSummarySource.KindColumns.Prepend(Core.Graph.HeapKind.Unknown)
+                    .Where(k => k != Core.Graph.HeapKind.Unknown || aggregation.KindBytes[(int)k] > 0)
+                    .Select(k => new HeapKindTotal((HeapKindDto)(int)k, aggregation.KindObjects[(int)k], (long)aggregation.KindBytes[(int)k]))
+                    .ToArray()
+                : [];
+            return new TypeSummaryResult(
+                rows,
+                aggregation.TotalObjects,
+                (long)aggregation.TotalBytes,
+                aggregation.Counts.Count(c => c > 0),
+                generations,
+                kinds,
+                stopwatch.Elapsed.TotalSeconds,
+                source.UnfilteredCount);
         });
 
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)

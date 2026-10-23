@@ -41,6 +41,7 @@ public partial class App : System.Windows.Application
         {
             _host = UiHost.Build(e.Args, Dispatcher);
             InstallLastChanceHandlers(_host.Services);
+            ThemeManager.Apply(this, ThemeManager.Choose(_host.Services.GetService<Microsoft.Extensions.Configuration.IConfiguration>()?["Ui:Theme"]));
             await _host.StartAsync();
 
             var lifetime = _host.Services.GetRequiredService<IHostApplicationLifetime>();
@@ -137,15 +138,26 @@ public partial class App : System.Windows.Application
         watchdog.Reset();
 
         await snapshots.OpenPathAsync(dump);
-        await snapshots.OverviewLoad;
-        var completed = snapshots.Selected is not null && snapshots.TopTypes.Count > 0;
+        await snapshots.Types.QueryTask;
+
+        // Touch the first rows as the grid would, and wait for their page.
+        var rows = snapshots.Types.Rows;
+        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
+        {
+            rows.GetRow(i);
+        }
+
+        await rows.WhenLoadedAsync();
+        var completed = snapshots.Selected is not null && rows.Count > 0 && rows.GetRow(0).IsLoaded;
         await Task.Delay(500);
         var lag = watchdog.MaxLag;
         var operation = watchdog.MaxOperation;
         logger.LogInformation(
-            "Smoke open: snapshot shown {Completed} ({Status}), maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            "Smoke open: snapshot shown {Completed} ({Status}), {Pages} of {TotalPages} row pages fetched, maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
             completed,
             snapshots.Status ?? "ok",
+            rows.RequestedPages.Count,
+            (rows.Count + VirtualRowList.PageSize - 1) / VirtualRowList.PageSize,
             lag.TotalMilliseconds,
             operation.TotalMilliseconds);
         _exitCode = !completed ? SmokeJobFailed

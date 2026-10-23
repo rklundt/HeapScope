@@ -38,6 +38,13 @@ public interface IWorkerService
     Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// A type summary with grouping, filter and sort, plus totals (sprint 1.3). The first query of a snapshot aggregates
+    /// all objects once; later queries reuse that aggregation. Unknown snapshots fail with
+    /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/>.
+    /// </summary>
+    Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns rows [offset, offset + count) of a result set; count is capped at
     /// <see cref="WorkerProtocol.MaxPageSize"/>. Unknown, released or evicted sets fail with
     /// <see cref="HeapScopeErrorCode.ResultSetNotFound"/>.

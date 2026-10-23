@@ -33,7 +33,10 @@ public sealed class SnapshotsViewModelTests : IDisposable
         var dump = Dump("app.dmp", 1024);
 
         await _snapshots.OpenPathAsync(dump);
-        await _snapshots.OverviewLoad;
+        await _snapshots.Types.QueryTask;
+        var rows = _snapshots.Types.Rows;
+        rows.GetRow(0);
+        await rows.WhenLoadedAsync();
 
         var item = _snapshots.Snapshots.ShouldHaveSingleItem();
         _snapshots.Selected.ShouldBeSameAs(item);
@@ -41,8 +44,9 @@ public sealed class SnapshotsViewModelTests : IDisposable
         item.Process.ShouldStartWith("App (pid 42), .NET 10.0.13");
         item.Source.ShouldContain("from the dump");
         item.Notes.ShouldBe(["A note."]);
-        _snapshots.TopTypes.ShouldBe([new TypeRow("System.String", 600, 36000), new TypeRow("System.Byte[]", 400, 12000)]);
-        _worker.Service.Released.Count.ShouldBe(1, "the summary result set is released after the page is read");
+        rows.Count.ShouldBe(2);
+        (rows.GetRow(0).Name, rows.GetRow(0).Objects, rows.GetRow(0).Bytes).ShouldBe(("System.String", 600L, 36000L));
+        (rows.GetRow(1).Name, rows.GetRow(1).Bytes).ShouldBe(("System.Byte[]", 12000L));
         _interaction.Questions.ShouldBeEmpty();
     }
 
