@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <ServerGarbageCollection>true</ServerGarbageCollection>
@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Core\HeapScope.Core.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Baseline measurements of raw ClrMD heap walks for the 1.2 loader budgets. -->

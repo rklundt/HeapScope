@@ -12,7 +12,7 @@ everything else.
 | 0.2 | Snapshot abstraction and compact graph | Closed | 2026-10-22 | sprint-0.2 |
 | 0.3 | Worker process and IPC | Closed | 2026-10-22 | sprint-0.3 |
 | 0.4 | Fixtures and test harness | Closed | 2026-10-22 | sprint-0.4 |
-| 0.5 | Index cache format | Planned | | |
+| 0.5 | Index cache format | Closed | 2026-10-22 | sprint-0.5 |
 | 1.1 | Process discovery and capture | Planned | | |
 | 1.2 | Full dump loader | Planned | | |
 | 1.3 | Heap summary by type | Planned | | |
@@ -419,9 +419,51 @@ GB private bytes with no slowdown. Deferred to 1.6 and 2.6: their fixtures.
 **Risks and open questions**
 - Antivirus scanning of large new files can slow the first reopen; measured and documented.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. File layout: a 4096 byte header region (fixed header plus section directory with a checksum over both), then
+   page-aligned sections in the in-memory element layout. The header is written last, after all sections, so a
+   file interrupted at any point has no valid magic and is rejected.
+2. Metadata (`SnapshotInfo`, capabilities, writer version, dropped counts) is a small UTF-8 JSON section; strings
+   are one section (count, offsets, UTF-8 bytes) and are always loaded into managed strings.
+3. Every section's XxHash3 checksum is verified at open in both modes. In mapped mode this reads the file through
+   the OS page cache (file-backed pages, not private memory), which keeps the private memory budget; the cost is
+   measured against the 2 s mapped reopen budget.
+4. In mapped mode the per-object columns, edges and roots are views of the file; the small tables (types, large
+   sizes, strings) are copied. A mapped file stays open (and cannot be replaced) while the graph is open.
+5. Memory mode: `MemoryBudget` = fraction (default 0.5) of total physical memory, capped by available memory;
+   in-memory when the projected column bytes fit, mapped otherwise, or forced by configuration.
+6. Leases: `ISnapshot.AcquireLease()` returns a lease; disposing a snapshot waits for outstanding leases before
+   releasing its memory (ARCHITECTURE.md 6.5). `GraphSnapshot` implements it with a shared `LeaseTracker`.
+7. Fallback location: the cache sits next to the snapshot when that folder accepts a probe file; otherwise under
+   `%LOCALAPPDATA%\HeapScope\cache\<sha256 of the full snapshot path>.hsidx` (root configurable).
+8. Writes go to a temporary file in the target folder, are flushed to disk, then renamed over the target.
+9. (From the review) Optional 2.x indices go into sidecar files that name the base cache by its identity (its
+   header checksum); the base file is never rewritten. Decision 3 changed: mapped mode verifies with a sequential
+   read before mapping. Decision 6 changed: disposal never blocks; the last lease released disposes the graph.
+10. (From the review) The memory budget reads live physical memory from the operating system
+    (GlobalMemoryStatusEx), with a GC hard limit only as an extra cap.
+11. (From the review) Deferred to 2.1: a public opened-cache API with optional sections and an incremental section
+    writer. Deferred to the backlog: cold page cache and antivirus reopen measurements.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Core: explicit reserved field in `LargeObjectSize`; `LeaseTracker`, `SnapshotLease`,
+   `ISnapshot.AcquireLease`. Tests: layout, lease drain on dispose.
+2. [x] Storage: format constants, `SnapshotFingerprint`, section directory, `IndexCacheWriter` (atomic, chunked,
+   checksummed, header last, cancellation). Tests: round trips, determinism, cancellation leaves nothing.
+3. [x] Storage: `IndexCacheReader` in-memory and mapped (`MappedMemoryManager<T>`), validation with reasons.
+   Tests: every invalidation reason, truncation, corruption of each section.
+4. [x] Storage: `IndexCacheLocator` with fallback; `MemoryModeSelector`. Tests: fallback and selection.
+5. [x] Benchmark `index-cache` (write, reopen in both modes, private bytes); numbers recorded in
+   ARCHITECTURE.md 7 and 10.
+
+**Review summary**: 2 High, 8 Moderate, 9 Low (docs/reviews/sprint-0.5.md). High fixed and confirmed: optional
+indices move to sidecar files keyed by the base cache identity (H1), and the reader validates every directory
+entry overflow-safely on one file handle, so hostile or replaced files return a reason instead of crashing the
+worker (H2). Moderate fixed now: non-blocking reference-counted disposal, sequential verification for mapped
+opens (0.6 s, +202 MB working set instead of 1.4 s and +1.6 GB), live memory budget, overflow-safe string and
+metadata decoding, stale temporary file cleanup and `IndexCacheInUseException`, malformed-file tests in both
+modes. Deferred: public opened-cache API and incremental writer (2.1), cold-cache and antivirus measurements
+(backlog). Found while fixing: a static test hook leaked into parallel tests (now flow-local).
 
 ---
 
@@ -464,7 +506,8 @@ cache capped, local-only DAC lookup (ADR-017), compacting GC and measurement of 
 From the 0.3 review: Application-owned stable snapshot handles mapped to worker snapshot ids per worker generation,
 reopened lazily after a restart; `SnapshotNotLoaded` for stale ids; snapshot leases as result set owners. From
 the 0.3 confirmations: sources that read graph columns take a lease per page; one shared memory budget (6.5)
-replaces the synthetic job's own check.
+replaces the synthetic job's own check. From the 0.5 review: measure a cold-cache reopen before signing
+off the budgets; depend only on `IndexCacheReader.Open` and `Identity` from Storage.
 From the 0.2 review: watch the by-address reference resolution time (46 s worst case at 50M), `TypeTableBuilder`
 lookup by method table without a name, and keep static storage handle roots retaining while ranking
 `StaticField` roots first in paths.
@@ -616,7 +659,8 @@ mixed kinds.
 **Goal**: answer "who references this object or type".
 
 **Scope**: incoming-reference CSR built in the worker and cached as an optional section; queries by object and
-by type.
+by type. From the 0.5 review: the optional section is a sidecar file naming the base cache identity; a public
+opened-cache API (`IndexCacheFile`, `TryGetSection`) and an incremental section writer come first.
 
 **Acceptance criteria**: synthetic tests with known in-degrees; Medium build time and memory recorded within
 budget; cached section reused on reopen.
@@ -751,6 +795,11 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- Cold page cache and antivirus measurements of index cache reopen (fresh boot or standby purge, Defender on), on a
+  16 GB machine if available (from 0.5).
+- Log when a snapshot is disposed while leases are outstanding, so a leaked lease is visible (from 0.5).
+- Storage-owned metadata DTO instead of serializing Core's `SnapshotInfo` directly, so Core can evolve without
+  silently changing the cache format (from 0.5).
 - Large scale tier (8 GB+, 100M+ objects): 64-bit edge offsets, chunked disk-backed building.
 - Fragmentation and pinned object analysis.
 - String content search and object set queries.

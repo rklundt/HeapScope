@@ -15,6 +15,8 @@ public sealed class GraphSnapshot : ISnapshot
     public const SnapshotCapabilities ServiceBackedCapabilities =
         SnapshotCapabilities.FieldValues | SnapshotCapabilities.StringContents | SnapshotCapabilities.ThreadStacks;
 
+    private readonly LeaseTracker _leases = new();
+
     public GraphSnapshot(SnapshotInfo info, SnapshotCapabilities capabilities, HeapGraph graph)
     {
         Info = info ?? throw new ArgumentNullException(nameof(info));
@@ -35,5 +37,11 @@ public sealed class GraphSnapshot : ISnapshot
         return false;
     }
 
-    public void Dispose() => Graph.Dispose();
+    public SnapshotLease AcquireLease() => _leases.Acquire();
+
+    /// <summary>
+    /// Refuses new leases and releases the graph (and any mapped view it owns) once the last lease is returned. Never
+    /// blocks or throws; safe to call more than once and from several threads.
+    /// </summary>
+    public void Dispose() => _leases.Close(Graph.Dispose);
 }

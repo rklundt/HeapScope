@@ -418,7 +418,8 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
 - **Mapped**: columns are read-only memory-mapped views of the index cache. The OS pages data in on demand and
   can drop it under pressure, so the worker's committed memory stays small. Used when the projected footprint
   does not fit, or when forced by configuration.
-- The memory budget defaults to 50% of total physical memory, capped by currently available memory at open
+- The memory budget (`MemoryBudget.Current`) defaults to 50% of total physical memory, capped by the memory available
+  at that moment (read live from the operating system, with a GC hard limit as an extra cap), at open
   time (`Worker:MemoryBudget`, configurable). On a 16 GB laptop running the target API and an IDE, a Medium
   snapshot will usually open mapped; on 32 GB it opens in memory.
 - First load builds in memory, then writes the cache. If the projected build footprint exceeds the budget,
@@ -432,10 +433,10 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
 
 #### Lifetime of mapped data
 A span over an unmapped view is an access violation that kills the worker, so mapped data has an explicit
-lifetime rule. A mapped snapshot owns its views through a reference-counted owner. Every query takes a lease
-(`using var lease = snapshot.Acquire()`), works on spans only inside that scope and never stores a span or a
-pointer beyond it. Disposing a snapshot (explicitly or by LRU) waits for outstanding leases to drain before
-unmapping. `Column<T>` wraps `ReadOnlyMemory<T>`; a native backing is a `MemoryManager<T>` over the mapped
+lifetime rule (implemented in sprint 0.5: `LeaseTracker`, `ISnapshot.AcquireLease`). A mapped snapshot owns its views through the graph's owner. Every query takes a lease
+(`using var lease = snapshot.AcquireLease()`), works on spans only inside that scope and never stores a span or a
+pointer beyond it. Disposing a snapshot (explicitly or by LRU) returns at once; the mapping is released when the last
+lease is returned. `Column<T>` wraps `ReadOnlyMemory<T>`; a native backing is a `MemoryManager<T>` over the mapped
 view, owned by the snapshot, so the column's shape does not change between 0.2 and 0.5.
 
 ### 6.6 Limits
@@ -443,23 +444,60 @@ view, owned by the snapshot, so the column's shape does not change between 0.2 a
   elements). The Medium tier needs at most ~50M objects and a few hundred million references. The Large tier
   (backlog) would move to 64-bit edge offsets and chunked, disk-backed building.
 
-## 7. Index cache (ADR-006) (planned, sprint 0.5)
+## 7. Index cache (ADR-006)
 
-- Location: `<snapshot path>.hsidx` next to the snapshot. If that folder is not writable, fall back to
-  `%LOCALAPPDATA%\HeapScope\cache\<sha256 of full path>.hsidx`.
-- Layout: little-endian binary file.
-  - Header: magic `HSIDX` plus padding, `FormatVersion` (int), `HeaderLength`, snapshot fingerprint
-    (source length, last write time UTC, XxHash3 of the first and last 1 MiB), snapshot kind, capabilities,
-    `SnapshotInfo`, writer version, section count.
-  - Section directory: id, offset, byte length, element count, XxHash3 checksum per section.
-  - Sections, each aligned to 4096 bytes (ready for memory mapping in the Large tier): objects arrays,
-    edges, types, roots, strings, then optional sections (reverse references, dominators) added later.
-- Versioning: any change to the layout bumps `FormatVersion`. A version mismatch, a fingerprint mismatch or a
-  checksum failure means the cache is ignored and rebuilt; it is never patched.
-- Section payloads use exactly the in-memory element layout (little-endian, unmanaged structs, no
-  compression), so mapped mode (ADR-015) can hand a view straight to a `Column<T>`.
-- Optional sections are independent: adding the dominator section later does not invalidate base sections.
-- Writes go to a temp file in the same folder, then an atomic rename, so a crash never leaves a half file.
+Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheReader`, `IndexCacheLocator`,
+`SnapshotFingerprint`, `MemoryModeSelector`), hardened by its review.
+
+- Location (`IndexCacheLocator`): `<snapshot path>.hsidx` next to the snapshot when that folder accepts a probe
+  file; otherwise `%LOCALAPPDATA%\HeapScope\cache\<sha256 of the full path>.hsidx` (root configurable).
+- Layout (format version 1, little-endian):
+  - Header region (4096 bytes): a 64 byte fixed header (magic `HSIDX`, format version, header region length,
+    section count, snapshot fingerprint, XxHash3 checksum over header and directory), then the section
+    directory (40 bytes per section: id, element size, offset, byte length, element count, XxHash3 checksum).
+  - Sections, each aligned to 4096 bytes (ready for mapping): Addresses, TypeIndices, Sizes, HeapKinds,
+    ObjectFlags, EdgeStarts, Edges, LargeSizes, Roots, the six type table columns, Strings (count, offsets,
+    UTF-8 bytes) and Metadata (UTF-8 JSON: `SnapshotInfo`, capabilities, writer version, dropped counts).
+  - Section payloads use exactly the in-memory element layout (unmanaged structs with explicit padding fields,
+    no compression), so mapped mode (ADR-015) hands a view straight to a `Column<T>`. Writing the same graph
+    twice produces identical bytes.
+- Identity: the header checksum covers every section checksum, so it identifies the cache's content
+  (`IndexCacheOpenResult.Identity`).
+- Optional indices (reverse references in 2.1, dominators in 2.3) go into **sidecar files** next to the base
+  cache (`<cache>.rev.hsidx`, `<cache>.dom.hsidx`), in the same header and directory format, each recording the
+  identity of the base cache it extends. The base file is never rewritten to add them: a mapped base cache is open
+  and cannot be replaced, and rewriting would break the header-last crash safety. A sidecar whose base identity does
+  not match is ignored and rebuilt; a missing sidecar means "not built yet". (Decided in the 0.5 review; the
+  public API for opened caches and optional sections, and an incremental section writer, arrive with 2.1.)
+- Fingerprint (`SnapshotFingerprint`): snapshot length, last write time UTC and an XxHash3 of the first and last
+  MiB; any difference invalidates the cache.
+- Writing: sections go to a temporary file in the target folder, the header is written last, the file is flushed
+  to disk and renamed over the target. A process that dies at any point leaves either the previous cache or a
+  temporary file without a valid magic; a canceled or failed write deletes its temporary file, and temporary
+  files of this cache older than 10 minutes (left by a crashed writer) are removed before writing. Replacing a
+  cache that is open (for example mapped) fails with `IndexCacheInUseException` and keeps the previous cache.
+- Opening (`IndexCacheReader.Open(path, expected fingerprint, mode)`): one file handle, shared for reading only, is
+  used from the first header byte to the last section byte and becomes the mapping in mapped mode, so the file that
+  was validated is the file that is used and nobody can replace it meanwhile. Magic, version, header checksum,
+  every directory entry (known ids only, no repeats, element size, non-negative counts, page-aligned offsets past
+  the header, overflow-safe bounds against the file length), fingerprint and every section checksum are verified
+  before a graph is returned. Invalid caches return a reason (`Missing`, `Truncated`, `BadMagic`,
+  `VersionMismatch`, `HeaderCorrupted`, `Malformed`, `FingerprintMismatch`, `ChecksumMismatch`, `IoError`) and a
+  plain-language detail, never an exception and never a read outside the file; they are rebuilt, never patched.
+- Modes: in memory, every section is read into exact-size arrays and verified in the same pass (nothing more is
+  allocated after a failure). Mapped, the sections are first verified with a sequential read (pooled 4 MB buffer,
+  several times faster than hashing through the mapping and without growing the working set), then the
+  per-object columns, edges and roots become views of a read-only mapping (`MappedMemoryManager<T>` behind
+  `Column<T>`); the small tables (types, large sizes, strings) are copied. A mapped file stays open, and cannot be
+  replaced, until the graph is disposed.
+- Lifetime: `GraphSnapshot.Dispose` never blocks or throws. It refuses new leases and the last released lease
+  disposes the graph (and unmaps the file), so queries and result sets that page over a snapshot can hold leases
+  safely (6.5).
+- Versioning: any layout change of the base file bumps the format version.
+- Measured (`index-cache`, synthetic 50M objects with 150M references, 1.6 GB file, reopened in a fresh process,
+  mapped first, warm page cache): write 3.2 s; reopen mapped 0.6 s (+9 MB private, +202 MB working set),
+  scanning all edges of the mapped graph 0.2 s; reopen in memory 0.6 s (+1.6 GB private). A cold page cache and
+  antivirus scanning are not measured yet (backlog): a cold reopen adds at least the sequential read of the file.
 
 ## 8. Threading model
 - **UI**: view models are touched only on the dispatcher thread. All Application calls are `async` and
@@ -476,6 +514,7 @@ view, owned by the snapshot, so the column's shape does not change between 0.2 a
   2 to 16 ms (Debug) and 43 ms (Release, cold); intermittently 105 to 130 ms in Debug at job completion while the
   full integration suite runs (backlog item). One-time cold costs are not covered by the budget yet: first window
   render about 1 s, first job row about 130 to 190 ms (backlog: UI cold start).
+- **Leases**: `GraphSnapshot.Dispose` never blocks; the last lease released disposes the graph (section 7).
 - **Libraries** (everything below UI): `ConfigureAwait(false)` on every await; every async method takes a
   `CancellationToken`.
 - **Worker**: StreamJsonRpc dispatches requests concurrently. Loading or building an index for a snapshot is
@@ -516,10 +555,10 @@ Initial budgets (sprints refine them with measurements):
 | Budget | Target | Measured |
 |---|---|---|
 | Medium (~4 GB, ~50M objects) first load on a 16 GB laptop | < 3 min | sprint 1.2 |
-| Medium reopen from index cache | < 20 s in memory; < 2 s mapped | sprint 0.5 (synthetic) |
+| Medium reopen from index cache | < 20 s in memory; < 2 s mapped | 0.6 s in memory, 0.6 s mapped (sprint 0.5, synthetic 50M, fresh process, warm cache; cold not yet measured) |
 | Worker peak memory, Medium, in-memory mode (machines with room, e.g. 32 GB) | < 1.5x the dump's managed heap size | sprint 1.2 |
 | Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | sprint 1.2 |
-| Worker private memory, Medium, mapped mode (after load) | < 1 GB | sprint 0.5 (synthetic) |
+| Worker private memory, Medium, mapped mode (after load) | < 1 GB | +9 MB private, +202 MB working set for the mapped graph (sprint 0.5, synthetic 50M) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | sprints 1.3, 1.4 |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
@@ -606,7 +645,9 @@ sprint 0.1.
 ### ADR-006 On-disk index cache
 - Context: parsing a Medium dump takes minutes; investigations reopen the same snapshots many times.
 - Decision: persist the parsed graph next to the snapshot, versioned, invalidated on format change.
-- Consequences: a binary format to maintain; sensitive data on disk (section 12).
+- Consequences: a binary format to maintain; sensitive data on disk (section 12). Decided in sprint 0.5: the header is written last and
+  the file renamed atomically; every section is verified on open; a mapped cache stays open and cannot be replaced;
+  optional 2.x indices live in sidecar files that name the base cache by its identity (section 7).
 
 ### ADR-007 Out-of-process worker
 - Context: huge dumps can exhaust memory or crash a parser; the UI must never freeze or die with them.
