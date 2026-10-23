@@ -34,15 +34,17 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _crashMessage;
 
-    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, AboutViewModel about)
+    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, AboutViewModel about)
     {
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         Home = home ?? throw new ArgumentNullException(nameof(home));
+        Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         JobsPage = new JobsPageViewModel(Jobs, operations.Jobs);
         NavigationItems =
         [
             new NavigationItem("Home", Home),
+            new NavigationItem("Snapshots", Snapshots),
             new NavigationItem("Jobs", JobsPage),
             new NavigationItem("About", about ?? throw new ArgumentNullException(nameof(about))),
         ];
@@ -53,6 +55,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             AddJob(job);
         }
 
+        // Opening a snapshot (from Home or the Snapshots page) shows it.
+        Snapshots.PropertyChanged += OnSnapshotsPropertyChanged;
         operations.Jobs.JobAdded += OnJobAdded;
         operations.Jobs.JobChanged += OnJobChanged;
         operations.Worker.StateChanged += OnWorkerStateChanged;
@@ -65,6 +69,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     public HomeViewModel Home { get; }
 
+    public SnapshotsViewModel Snapshots { get; }
+
     public JobsPageViewModel JobsPage { get; }
 
     /// <summary>All jobs, newest first; the jobs panel and the Jobs page bind to it.</summary>
@@ -72,6 +78,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        Snapshots.PropertyChanged -= OnSnapshotsPropertyChanged;
+        Snapshots.Dispose();
         _operations.Jobs.JobAdded -= OnJobAdded;
         _operations.Jobs.JobChanged -= OnJobChanged;
         _operations.Worker.StateChanged -= OnWorkerStateChanged;
@@ -94,6 +102,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void DismissCrashBanner() => IsCrashBannerVisible = false;
+
+    private void OnSnapshotsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SnapshotsViewModel.Selected) && Snapshots.Selected is not null)
+        {
+            SelectedItem = NavigationItems[1];
+        }
+    }
 
     private void OnJobAdded(object? sender, TrackedJob job) => _dispatcher.Post(() => AddJob(job));
 

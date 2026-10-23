@@ -21,4 +21,13 @@ public enum HeapScopeErrorCode
 
     /// <summary>The snapshot file or index cache is not in a readable format.</summary>
     SnapshotFormat = 1008,
+
+    /// <summary>The data access component matching the dumped runtime is not on this machine (ADR-017).</summary>
+    RuntimeComponentMissing = 1009,
+
+    /// <summary>The snapshot file could not be read: in use (still being written), access denied or gone.</summary>
+    SnapshotUnavailable = 1010,
+
+    /// <summary>A reopen that requires the index cache found it missing or invalid: the file changed since it was opened.</summary>
+    SnapshotChanged = 1011,
 }

@@ -20,14 +20,24 @@ dotnet test --solution HeapScope.sln
 - Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
-  Commands: `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]` (Ctrl+C
-  cancels; exit codes 0 ok, 1 failure, 2 usage, 130 canceled).
+  Commands: `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]`,
+  `open <dump> [--rebuild] [--mode auto|memory|mapped] [--top N] [--no-overcommit]` (loads a full dump or reuses
+  its index cache, prints the snapshot, notes and largest types). Ctrl+C cancels; exit codes 0 ok, 1 failure,
+  2 usage, 130 canceled.
+- DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
+  to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
+  `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
+  downloads and logs a warning. Both reach the worker on its command line only.
 - Run the worker standalone (for debugging): `dotnet run --project src/HeapScope.Worker -- --pipe <name>`
   (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
   Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
   `Worker:AttachPipeName` for the UI.
 - UI smoke run: `HeapScope.exe --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
-  (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8.
+  (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
+  opens a dump through the Snapshots page instead, with the same checks. The log records "First window rendered
+  N ms after process start" for every run.
+- Precompiled UI: `dotnet publish src/HeapScope.UI.Wpf -c Release -r win-x64 --self-contained false -o <folder>`
+  (ReadyToRun is on for publish; the worker is published into `worker/` next to it).
 - Logs: `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (UI and CLI, including forwarded worker lines);
   override with `--Logging:File:Directory <dir>` (UI) or the `Logging__File__Directory` environment variable.
 - Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
@@ -105,6 +115,11 @@ of debuggable code) and exit when the process given as parent exits.
 - Assertions: Shouldly or plain xUnit asserts. FluentAssertions is not allowed (commercial license).
 - Tests that call methods taking a `CancellationToken` pass `TestContext.Current.CancellationToken` (xUnit1051).
 
+Dense sample dump (sprint 1.2): `./fixtures/scripts/New-DenseDump.ps1 -TargetMB 3000` starts the DenseHeap fixture
+(real Roslyn objects, about 3 references per object), captures a full dump into `artifacts/dumps` and always stops
+the fixture (a `finally` kill, and the fixture exits by itself when the script's process exits). About 2 minutes and
+a 4.4 GB dump for 3,000 MB. Load it with `load-dump --dump <path>`.
+
 ## 6. Benchmarks
 `perf/HeapScope.Benchmarks` is a plain console app (no BenchmarkDotNet, because the interesting cases use
 gigabytes of memory and run once). Each benchmark prints elapsed time, managed memory and process working set,
@@ -114,8 +129,17 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   random graph (`--by-address 1` resolves references by address like a loader; the realistic, slower path);
   `--reverse 1` adds objects in descending address order to exercise the sort path. It checks the 30 to 38
   bytes per object budget.
-- `index-cache [--objects 50000000] [--refs 3] [--dir <folder>]`: writes a synthetic graph to an index cache and
-  reopens it in memory and mapped (all checksums verified), against the reopen and mapped private memory budgets.
+- `index-cache [--objects 50000000] [--refs 3] [--dir <folder>] [--phase all|write|reopen]`: writes a synthetic graph
+  to an index cache and reopens it in memory and mapped (all checksums verified), against the reopen and mapped
+  private memory budgets. `--phase write` then `--phase reopen` in a fresh process (optionally after a standby list
+  purge as administrator) measures a cold reopen.
+- `dump-stats --dump <path> [--by-address 1] [--cache-mb N]`: a raw ClrMD walk (the 0.4 baseline).
+- `load-dump --dump <path> [--cache-mb 512] [--keep-cache 1]`: HeapScope's loader on a real dump: counts, density,
+  dropped data and segment completeness, private bytes when each phase starts and at peak, the cache write, the switch
+  to mapped mode and both reopens, checked against the ARCHITECTURE.md 10 budgets (exit code 1 on a miss).
+  `--cancel-at <phase>` cancels as a phase starts and checks the 2 s cancellation budget.
+- `dump-stats --dump <path> --segments 1`: per segment, the object range, the bytes walked and the gap at its end
+  (used to set the incomplete-segment rule).
 
 ## 7. Git conventions
 - Work on `main`; no branches yet (ADR-012).

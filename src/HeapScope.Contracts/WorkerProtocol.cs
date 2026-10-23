@@ -4,7 +4,8 @@ namespace HeapScope.Contracts;
 public static class WorkerProtocol
 {
     /// <summary>Bumped on any incompatible change to <see cref="IWorkerService"/> or its DTOs.</summary>
-    public const int Version = 1;
+    /// Version 2 (sprint 1.2): snapshots (probe, open, close, type summary) and the snapshot error codes.
+    public const int Version = 2;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

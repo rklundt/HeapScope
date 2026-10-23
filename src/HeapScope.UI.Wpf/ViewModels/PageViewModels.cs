@@ -9,10 +9,13 @@ using HeapScope.Contracts;
 
 namespace HeapScope.UI.Wpf.ViewModels;
 
-/// <summary>Home page: for now, the synthetic diagnostic job (sprint 0.3).</summary>
-public sealed partial class HomeViewModel(WorkerOperations operations) : ObservableObject
+/// <summary>Home page: open a dump (sprint 1.2) and the synthetic diagnostic job (sprint 0.3).</summary>
+public sealed partial class HomeViewModel(WorkerOperations operations, SnapshotsViewModel? snapshots = null) : ObservableObject
 {
     private readonly WorkerOperations _operations = operations ?? throw new ArgumentNullException(nameof(operations));
+
+    /// <summary>Opens a dump through the Snapshots page, which the shell then shows.</summary>
+    public IAsyncRelayCommand? OpenDumpCommand => snapshots?.OpenDumpCommand;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunSyntheticCommand))]

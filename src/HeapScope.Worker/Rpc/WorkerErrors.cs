@@ -1,5 +1,9 @@
 using HeapScope.Contracts;
 using HeapScope.Core;
+using HeapScope.Loaders.ClrMd;
+using HeapScope.Storage;
+using HeapScope.Worker.Snapshots;
+using Microsoft.Extensions.Logging;
 using StreamJsonRpc;
 
 namespace HeapScope.Worker.Rpc;
@@ -17,13 +21,28 @@ internal static class WorkerErrors
     public static HeapScopeErrorCode? CodeOf(Exception exception) => exception switch
     {
         CapabilityNotSupportedException => HeapScopeErrorCode.CapabilityNotSupported,
+        RuntimeComponentMissingException => HeapScopeErrorCode.RuntimeComponentMissing,
+        SnapshotFormatException => HeapScopeErrorCode.SnapshotFormat,
+        SnapshotChangedException => HeapScopeErrorCode.SnapshotChanged,
+        IndexCacheInUseException or IOException or UnauthorizedAccessException => HeapScopeErrorCode.SnapshotUnavailable,
         OutOfMemoryException or InsufficientExecutionStackException => HeapScopeErrorCode.InsufficientMemory,
         ArgumentException => HeapScopeErrorCode.InvalidArgument,
         _ => null,
     };
 
-    /// <summary>Runs an RPC method body, translating domain exceptions into coded errors.</summary>
-    public static async Task<T> GuardAsync<T>(Func<Task<T>> body)
+    /// <summary>The message users see for an exception with <paramref name="code"/>: plain language and a next step.</summary>
+    public static string MessageOf(Exception exception, HeapScopeErrorCode code) => code switch
+    {
+        HeapScopeErrorCode.SnapshotUnavailable when exception is not IndexCacheInUseException =>
+            $"The file could not be read: {exception.Message} It may still be being written (wait until the capture finishes) or access may be denied.",
+        _ => exception.Message,
+    };
+
+    /// <summary>
+    /// Runs an RPC method body, translating domain exceptions into coded errors. Every failure except cancellation is
+    /// logged with its stack trace: coded ones as warnings, unexpected ones as errors (the client only sees the message).
+    /// </summary>
+    public static async Task<T> GuardAsync<T>(Func<Task<T>> body, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(body);
         try
@@ -32,7 +51,13 @@ internal static class WorkerErrors
         }
         catch (Exception ex) when (ex is not LocalRpcException and not OperationCanceledException && CodeOf(ex) is { } code)
         {
-            throw new LocalRpcException(ex.Message, ex) { ErrorCode = (int)code };
+            logger?.LogWarning(ex, "Request failed with {Code}", code);
+            throw new LocalRpcException(MessageOf(ex, code), ex) { ErrorCode = (int)code };
+        }
+        catch (Exception ex) when (ex is not LocalRpcException and not OperationCanceledException)
+        {
+            logger?.LogError(ex, "Request failed unexpectedly");
+            throw;
         }
     }
 }

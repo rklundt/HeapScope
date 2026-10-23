@@ -28,11 +28,110 @@
       </Grid>
     </DataTemplate>
 
+    <Style x:Key="NumberCell" TargetType="TextBlock">
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Margin" Value="4,0" />
+    </Style>
+
+    <Style x:Key="Tile" TargetType="Border">
+      <Setter Property="BorderBrush" Value="#FFD0D7DE" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="12,8" />
+      <Setter Property="Margin" Value="0,0,8,8" />
+      <Setter Property="MinWidth" Value="130" />
+    </Style>
+
+    <DataTemplate DataType="{x:Type vm:SnapshotsViewModel}">
+      <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+          <TextBlock FontSize="20" Text="Snapshots" VerticalAlignment="Center" />
+          <Button Content="Open dump..." Margin="16,0,0,0" Padding="12,2" Command="{Binding OpenDumpCommand}" />
+          <Button Content="Close" Margin="8,0,0,0" Padding="12,2" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
+          <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" MaxWidth="600" />
+        </StackPanel>
+
+        <ListBox DockPanel.Dock="Left" Width="260" Margin="0,0,16,0" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Selected}">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Margin="2,4">
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" />
+                <TextBlock Text="{Binding Process}" Foreground="#FF57606A" FontSize="11" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Grid>
+          <TextBlock Text="Open a full memory dump (.dmp) to see what is on the heap." Foreground="#FF57606A">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Selected}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+
+          <DockPanel DataContext="{Binding Selected}">
+            <DockPanel.Style>
+              <Style TargetType="DockPanel">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </DockPanel.Style>
+            <StackPanel DockPanel.Dock="Top">
+              <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding Process}" Foreground="#FF57606A" />
+              <TextBlock Text="{Binding Source}" Foreground="#FF57606A" Margin="0,0,0,8" />
+              <WrapPanel>
+                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Objects" Foreground="#FF57606A" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Heap size" Foreground="#FF57606A" FontSize="11" /><TextBlock Text="{Binding Size}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Types" Foreground="#FF57606A" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="References" Foreground="#FF57606A" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Roots" Foreground="#FF57606A" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+              </WrapPanel>
+              <Border Background="#FFFFF8C5" BorderBrush="#FFD4A72C" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,8,8"
+                      Visibility="{Binding HasNotes, Converter={StaticResource BoolToVisibility}}">
+                <ItemsControl ItemsSource="{Binding Notes}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Border>
+              <TextBlock Text="Largest size" FontWeight="SemiBold" Margin="0,4,0,4" />
+            </StackPanel>
+            <DataGrid ItemsSource="{Binding DataContext.TopTypes, RelativeSource={RelativeSource AncestorType=ContentControl}}"
+                      AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="None"
+                      RowHeight="22" CanUserSortColumns="True" EnableRowVirtualization="True" SelectionMode="Single"
+                      AlternatingRowBackground="#FFF6F8FA">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
+                <DataGridTextColumn Header="Objects" Binding="{Binding Count, StringFormat=N0}" Width="110" ElementStyle="{StaticResource NumberCell}" />
+                <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="140" ElementStyle="{StaticResource NumberCell}" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </Grid>
+      </DockPanel>
+    </DataTemplate>
+
     <DataTemplate DataType="{x:Type vm:HomeViewModel}">
       <StackPanel Margin="16">
         <TextBlock FontSize="20" Text="Home" Margin="0,0,0,12" />
-        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12"
-                   Text="Snapshot analysis arrives in Phase 1. For now, run a synthetic graph job to exercise the analysis worker, progress and cancellation." />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Text="Open a full memory dump of a .NET process to see what is on its heap." />
+        <Button Content="Open dump..." HorizontalAlignment="Left" Padding="16,4" Margin="0,0,0,24" Command="{Binding OpenDumpCommand}" />
+        <TextBlock Text="Diagnostics" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Foreground="#FF57606A"
+                   Text="Run a synthetic graph job to exercise the analysis worker, progress and cancellation." />
         <StackPanel Orientation="Horizontal">
           <TextBlock Text="Objects:" VerticalAlignment="Center" Margin="0,0,8,0" />
           <TextBox Width="140" Text="{Binding ObjectCount, UpdateSourceTrigger=PropertyChanged}" />

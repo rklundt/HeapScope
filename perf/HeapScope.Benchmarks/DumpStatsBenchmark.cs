@@ -30,6 +30,24 @@ internal static class DumpStatsBenchmark
         using var target = DataTarget.LoadDump(path, options);
         using var runtime = target.ClrVersions[0].CreateRuntime();
         var heap = runtime.Heap;
+        if (args.GetInt("segments", 0) != 0)
+        {
+            // Per segment: object range, bytes walked (free objects included) and where the last object ends.
+            foreach (var segment in heap.Segments)
+            {
+                ulong walked = 0, lastEnd = segment.ObjectRange.Start;
+                foreach (var obj in segment.EnumerateObjects(carefully: false))
+                {
+                    walked += obj.Size;
+                    lastEnd = obj.Address + obj.Size;
+                }
+
+                var length = segment.ObjectRange.Length;
+                Console.WriteLine($"  {segment.Kind,-12} {segment.ObjectRange.Start:x12} length {length,14:N0} walked {walked,14:N0} ({100.0 * walked / Math.Max(length, 1),6:N1}%) last end gap {(long)(segment.ObjectRange.End - lastEnd),12:N0}");
+            }
+
+            return 0;
+        }
         var load = stopwatch.Elapsed;
 
         long objects = 0, free = 0;
@@ -88,35 +106,5 @@ internal static class DumpStatsBenchmark
         Measurement.Line("Peak private bytes", Measurement.Mb(sampler.Peak));
         Measurement.Line("Peak working set", Measurement.Mb(Measurement.PeakWorkingSet()));
         return 0;
-    }
-
-    /// <summary>Samples the process's private bytes every 100 ms and keeps the peak.</summary>
-    private sealed class PrivateBytesSampler : IDisposable
-    {
-        private readonly Timer _timer;
-        private long _peak;
-
-        public PrivateBytesSampler() => _timer = new Timer(_ => Sample(), null, TimeSpan.Zero, TimeSpan.FromMilliseconds(100));
-
-        public long Peak
-        {
-            get
-            {
-                Sample();
-                return Interlocked.Read(ref _peak);
-            }
-        }
-
-        public void Dispose() => _timer.Dispose();
-
-        private void Sample()
-        {
-            using var process = Process.GetCurrentProcess();
-            var value = process.PrivateMemorySize64;
-            long current;
-            while (value > (current = Interlocked.Read(ref _peak)) && Interlocked.CompareExchange(ref _peak, value, current) != current)
-            {
-            }
-        }
     }
 }

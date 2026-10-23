@@ -23,4 +23,10 @@
           DestinationFiles="@(_HeapScopeWorkerFiles->'$(OutDir)worker\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
+  <!-- A published UI or CLI carries the worker the same way (built output of the worker, same configuration). -->
+  <Target Name="HeapScopePublishWorker" AfterTargets="Publish" DependsOnTargets="HeapScopeDeployWorker">
+    <Copy SourceFiles="@(_HeapScopeWorkerFiles)"
+          DestinationFiles="@(_HeapScopeWorkerFiles->'$(PublishDir)worker\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

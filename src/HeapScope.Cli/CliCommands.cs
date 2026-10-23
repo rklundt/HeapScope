@@ -4,6 +4,7 @@ using System.Globalization;
 using HeapScope.Application;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Logging;
+using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,20 @@ internal static class CliCommands
         Recursive = true,
     };
 
+    /// <summary>A folder searched for the data access component (ADR-017), like <c>Symbols:DacFolder</c>.</summary>
+    public static readonly Option<string?> DacFolderOption = new("--dac-folder")
+    {
+        Description = "A folder holding mscordaccore.dll of the dumped runtime, when that runtime is not installed here.",
+        Recursive = true,
+    };
+
+    /// <summary>Opt-in to symbol server downloads (ADR-017), like <c>Symbols:AllowMicrosoftSymbolServer</c>.</summary>
+    public static readonly Option<bool> AllowSymbolServerOption = new("--allow-symbol-server")
+    {
+        Description = "Allow downloading a missing mscordaccore.dll from Microsoft's symbol server (sends module identifiers, never dump contents).",
+        Recursive = true,
+    };
+
     private static Func<IServiceProvider>? s_services;
 
     public static RootCommand Build(Func<IServiceProvider> services)
@@ -36,6 +51,8 @@ internal static class CliCommands
         s_services = services;
         var root = new RootCommand($"{ProductInfo.Name} {ProductInfo.Version}: .NET memory profiler command line");
         root.Options.Add(PipeOption);
+        root.Options.Add(DacFolderOption);
+        root.Options.Add(AllowSymbolServerOption);
 
         // The built-in --version prints the raw informational version (with the source revision);
         // the product version is ProductInfo.Version everywhere (ARCHITECTURE.md 15).
@@ -49,7 +66,83 @@ internal static class CliCommands
 
         root.Subcommands.Add(BuildWorkerCommand(services));
         root.Subcommands.Add(BuildSyntheticCommand(services));
+        root.Subcommands.Add(BuildOpenCommand(services));
         return root;
+    }
+
+    private static Command BuildOpenCommand(Func<IServiceProvider> services)
+    {
+        var dump = new Argument<FileInfo>("dump") { Description = "Path of the full memory dump (.dmp)." };
+        var rebuild = new Option<bool>("--rebuild") { Description = "Ignore an existing index cache and load the dump again." };
+        var mode = new Option<string>("--mode") { Description = "Memory mode: auto, memory or mapped.", DefaultValueFactory = _ => "auto" };
+        mode.AcceptOnlyFromAmong("auto", "memory", "mapped");
+        var top = new Option<int>("--top") { Description = "Number of types to list.", DefaultValueFactory = _ => 20 };
+        var noOvercommit = new Option<bool>("--no-overcommit") { Description = "Fail instead of warning when the load may not fit in available memory." };
+
+        var command = new Command("open", "Open a full dump: load it (or reuse its index cache) and print a summary. Ctrl+C cancels.");
+        command.Arguments.Add(dump);
+        command.Options.Add(rebuild);
+        command.Options.Add(mode);
+        command.Options.Add(top);
+        command.Options.Add(noOvercommit);
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        {
+            var file = parseResult.GetValue(dump)!;
+            if (!file.Exists)
+            {
+                await error.WriteLineAsync($"Error: the file {file.FullName} does not exist.").ConfigureAwait(false);
+                return Failure;
+            }
+
+            var session = services().GetRequiredService<SnapshotSession>();
+            if (await session.GetOpenWarningAsync(file.FullName, parseResult.GetValue(rebuild), ct).ConfigureAwait(false) is { } warning)
+            {
+                await error.WriteLineAsync("Warning: " + warning).ConfigureAwait(false);
+                if (parseResult.GetValue(noOvercommit))
+                {
+                    return Failure;
+                }
+            }
+
+            var jobs = services().GetRequiredService<JobTracker>();
+            var memoryMode = parseResult.GetValue(mode) switch
+            {
+                "memory" => SnapshotMemoryMode.InMemory,
+                "mapped" => SnapshotMemoryMode.Mapped,
+                _ => SnapshotMemoryMode.Auto,
+            };
+            var job = session.StartOpen(file.FullName, parseResult.GetValue(rebuild), memoryMode);
+            using var progressLine = new ConsoleProgress(jobs, job, error);
+            using var cancel = ct.Register(job.Cancel);
+            var handle = await job.Result.ConfigureAwait(false);
+            progressLine.Complete();
+
+            var d = handle.Descriptor;
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"""
+                Snapshot:     {d.Path}
+                Process:      {d.ProcessName ?? "?"} (pid {d.ProcessId?.ToString(CultureInfo.InvariantCulture) ?? "?"}), .NET {d.RuntimeVersion ?? "?"}, captured {d.CapturedAtUtc?.ToString("u", CultureInfo.InvariantCulture) ?? "?"}
+                Objects:      {d.ObjectCount:N0} ({Mb((long)d.TotalSize)}), {d.TypeCount:N0} types, {d.ReferenceCount:N0} references, {d.RootCount:N0} roots
+                Opened:       {d.OpenSeconds:N1} s from {(d.FromCache ? "the index cache" : "the dump")}, {(d.Mode == SnapshotMemoryMode.Mapped ? "mapped" : "in memory")}
+                Index cache:  {d.CachePath ?? "not written"}
+                """)).ConfigureAwait(false);
+            foreach (var note in d.Notes)
+            {
+                await output.WriteLineAsync("Note: " + note).ConfigureAwait(false);
+            }
+
+            var summary = await session.GetTypeSummaryAsync(handle, ct).ConfigureAwait(false);
+            var operations = services().GetRequiredService<WorkerOperations>();
+            var page = await operations.GetRowsAsync(summary.Id, 0, parseResult.GetValue(top), ct).ConfigureAwait(false);
+            await output.WriteLineAsync($"Top {page.Rows.Count} of {page.TotalCount} types by shallow size:").ConfigureAwait(false);
+            foreach (var row in page.Rows)
+            {
+                await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"  {long.Parse(row[1]!, CultureInfo.InvariantCulture),12:N0} {Mb(long.Parse(row[2]!, CultureInfo.InvariantCulture)),12}  {row[0]}")).ConfigureAwait(false);
+            }
+
+            await operations.ReleaseResultSetAsync(summary.Id, ct).ConfigureAwait(false);
+            return Success;
+        }));
+        return command;
     }
 
     private static Command BuildWorkerCommand(Func<IServiceProvider> services)

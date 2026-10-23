@@ -36,6 +36,19 @@ public sealed partial class FixtureProcess : IDisposable
         return new FixtureProcess(child, null);
     }
 
+    /// <summary>Starts DenseHeap, which grows a dense heap of real Roslyn objects to about <paramref name="targetMb"/> MB.</summary>
+    public static async Task<FixtureProcess> StartDenseAsync(int targetMb)
+    {
+        var child = ChildProcess.Start(
+            TestPaths.DenseHeapExe,
+            "--target-mb", targetMb.ToString(CultureInfo.InvariantCulture), "--parent-pid", Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        await WaitReadyAsync(child).ConfigureAwait(false);
+        return new FixtureProcess(child, null);
+    }
+
+    /// <summary>True once the fixture process has exited.</summary>
+    public bool HasExited => _process.Process.HasExited;
+
     /// <summary>Starts LeakyApi on a free local port with the given configuration arguments.</summary>
     public static async Task<FixtureProcess> StartApiAsync(params string[] arguments)
     {

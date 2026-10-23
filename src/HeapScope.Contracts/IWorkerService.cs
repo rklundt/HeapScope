@@ -14,6 +14,30 @@ public interface IWorkerService
     Task<SyntheticJobResult> RunSyntheticJobAsync(SyntheticJobRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Looks at a snapshot file without loading it: its size, whether a valid index cache exists (header and
+    /// fingerprint checked, sections not hashed) and whether it is open. Fails with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/> when the file does not exist.
+    /// </summary>
+    Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Opens a snapshot file: reuses a valid index cache or loads the dump and writes the cache, then keeps the snapshot
+    /// loaded until <see cref="CloseSnapshotAsync"/>. Opening a file that is already open returns the open snapshot
+    /// (in the mode it was opened with). With <see cref="OpenSnapshotRequest.RequireCache"/> a missing or invalid cache
+    /// fails with <see cref="HeapScopeErrorCode.SnapshotChanged"/> instead of loading the dump.
+    /// </summary>
+    Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>Unloads a snapshot. Closing an unknown snapshot is not an error.</summary>
+    Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Per-type count and shallow size of a loaded snapshot as a result set sorted by size. Unknown snapshots fail with
+    /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/>.
+    /// </summary>
+    Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns rows [offset, offset + count) of a result set; count is capped at
     /// <see cref="WorkerProtocol.MaxPageSize"/>. Unknown, released or evicted sets fail with
     /// <see cref="HeapScopeErrorCode.ResultSetNotFound"/>.

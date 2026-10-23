@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Runtime;
 using HeapScope.Contracts;
+using HeapScope.Core;
 using HeapScope.Core.Synthetic;
+using HeapScope.Worker.Snapshots;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -11,6 +13,7 @@ namespace HeapScope.Worker.Rpc;
 internal sealed class WorkerService(
     WorkerOptions options,
     ResultSetStore resultSets,
+    SnapshotStore snapshots,
     IHostApplicationLifetime lifetime,
     ILogger<WorkerService> logger) : IWorkerService
 {
@@ -51,7 +54,7 @@ internal sealed class WorkerService(
     }
 
     public Task<SyntheticJobResult> RunSyntheticJobAsync(SyntheticJobRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        WorkerErrors.GuardAsync(async () =>
+        GuardAsync(async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             Validate(request);
@@ -69,6 +72,44 @@ internal sealed class WorkerService(
             {
                 _syntheticGate.Release();
             }
+        });
+
+    public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) =>
+        GuardAsync(() => Task.Run(() => snapshots.Probe(path), cancellationToken));
+
+    public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(() =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            logger.LogInformation("Opening snapshot (rebuild {Rebuild}, mode {Mode})", request.Rebuild, request.Mode);
+            return snapshots.OpenAsync(request, progress, cancellationToken);
+        });
+
+    public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
+    {
+        snapshots.Close(snapshotId);
+        return Task.CompletedTask;
+    }
+
+    public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
+        {
+            var snapshot = snapshots.TryGet(snapshotId) ?? throw SnapshotNotLoaded(snapshotId);
+
+            // The lease keeps a mapped graph alive while the summary reads it; the summary itself is compact arrays.
+            // A snapshot closed between the lookup and here refuses the lease.
+            SnapshotLease lease;
+            try
+            {
+                lease = snapshot.AcquireLease();
+            }
+            catch (ObjectDisposedException)
+            {
+                throw SnapshotNotLoaded(snapshotId);
+            }
+
+            using var _ = lease;
+            return await Task.Run(() => resultSets.Add(TypeSummarySource.Create(snapshot.Graph, cancellationToken)), cancellationToken).ConfigureAwait(false);
         });
 
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
@@ -116,6 +157,12 @@ internal sealed class WorkerService(
         await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
     }
 
+    private Task<T> GuardAsync<T>(Func<Task<T>> body) => WorkerErrors.GuardAsync(body, logger);
+
+    private static StreamJsonRpc.LocalRpcException SnapshotNotLoaded(Guid snapshotId) => WorkerErrors.Create(
+        HeapScopeErrorCode.SnapshotNotLoaded,
+        $"Snapshot {snapshotId} is not loaded in the analysis worker: it was closed or the worker restarted. Open it again.");
+
     private static void Validate(SyntheticJobRequest request)
     {
         if (request.ObjectCount is < 0 or > MaxSyntheticObjects)
@@ -133,9 +180,10 @@ internal sealed class WorkerService(
             throw WorkerErrors.Create(HeapScopeErrorCode.InvalidArgument, "Type count must be between 1 and 1,000,000.");
         }
 
-        // Projected peak against the worker's memory budget (50% of the memory available to the GC, ARCHITECTURE.md 6.5).
+        // Projected peak against the worker's memory budget.
         var projected = (request.ObjectCount * PeakBytesPerObject) + (request.ObjectCount * request.AverageReferences * PeakBytesPerReference);
-        var budget = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2.0;
+        // The same budget snapshots use (ARCHITECTURE.md 6.5): live physical memory, not the GC's last reading.
+        var budget = (double)HeapScope.Storage.MemoryBudget.Current().BudgetBytes;
         if (projected > budget)
         {
             throw WorkerErrors.Create(

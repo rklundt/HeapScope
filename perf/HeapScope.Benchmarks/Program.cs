@@ -7,6 +7,7 @@ var benchmarks = new Dictionary<string, Func<BenchmarkArgs, int>>(StringComparer
     ["dump-stats"] = DumpStatsBenchmark.Run,
     ["stack-roots"] = StackRootsBenchmark.Run,
     ["index-cache"] = IndexCacheBenchmark.Run,
+    ["load-dump"] = LoadDumpBenchmark.Run,
 };
 
 if (args.Length == 0 || !benchmarks.TryGetValue(args[0], out var run))
