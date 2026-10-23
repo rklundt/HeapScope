@@ -16,7 +16,7 @@ everything else.
 | 1.2 | Full dump loader | Closed | 2026-10-23 | sprint-1.2 |
 | 1.1 | Process discovery and capture | Closed | 2026-10-23 | sprint-1.1 |
 | 1.3 | Heap summary by type | Closed | 2026-10-23 | sprint-1.3 |
-| 1.4 | Snapshot diff | Planned | | |
+| 1.4 | Snapshot diff | Closed | 2026-10-23 | sprint-1.4 |
 | 1.5 | Object search and inspection | Planned | | |
 | 1.6 | Simple inspections | Planned | | |
 | 1.7 | Live counters and timed snapshots | Planned | | |
@@ -810,9 +810,64 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): one row per typ
 
 **Dependencies**: 1.3.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Per-type deltas, no object identity: two dumps cannot tell survived, new and dead objects apart (compaction moves
+   objects, addresses are reused), so the diff shows per row the baseline and current objects and bytes and their
+   signed deltas, plus whether the type is new or gone. dotMemory's survived, new and dead columns need allocation
+   tracking (a 2.x live session at the earliest). Recorded as ADR-018.
+2. Rows are matched across snapshots by type name plus module file name (never by the display name, whose `#n` follows
+   each dump's own type order); method tables sharing a key inside one snapshot are summed. A name that appears with
+   more than one module shows the module, as in the types view. Namespace and assembly grouping are supported.
+3. Built on the cached per-snapshot aggregations (1.3): a diff merges two small per-type arrays, so it costs about
+   the same as a type summary. Both snapshots must be open in the same worker.
+4. Contract (protocol 4): `TypeDiffRequest` (baseline, current, group by, filter, sort column, direction) answered by
+   `TypeDiffResult` (result set plus totals: objects and bytes of each side and their deltas, new and gone type
+   counts, the delta of the filtered rows). Sorting uses a column name validated by the worker, the generic sort key
+   deferred from 1.3; the type summary keeps its enum for now (backlog). Default sort: bytes delta, descending.
+5. CLI `diff <baseline> <current> [--group] [--filter] [--sort column] [--top N | --all] [--format table|csv|json]
+   [--fail-on-growth <size|percent>]`: the growth checked is the bytes delta of the rows that match the filter (the
+   whole heap without one), a size like `50MB` or a percent of the matching baseline bytes like `10%`. Exit codes:
+   0 at or below the threshold, 2 above it, 1 on errors, 130 canceled. Usage errors move from 2 to 64 for every
+   command (`EX_USAGE`), so 2 always means "grew too much" for CI.
+6. UI: the Snapshots page gets a Compare tab next to Types: two pickers over the open snapshots (the earlier capture
+   is the default baseline, with a swap button), the same grid features as Types (virtualized, sort by header, filter
+   with highlighting, grouping), delta columns with a sign and color, and totals. Clicking a count to open those objects
+   comes with 1.5's object lists.
+7. `VirtualRowList` becomes generic over a row type and factory (deferred from 1.3), shared by Types and Compare.
+8. Medium diff budget (under 5 s) measured with the Medium and DenseHeap dumps open from their index caches.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] ADR-018 (diffs compare per-type totals; no object identity across dumps).
+2. [x] Analysis: `TypeDiff` merging two aggregations by type key (name plus module file name) with grouping.
+   Tests: synthetic graphs (growth, new and gone types, duplicate keys summed, namespace grouping, empty side).
+3. [x] Contracts and worker: `TypeDiffRequest`, `TypeDiffResult`, column-name sort validated by the worker,
+   `TypeDiffSource`, `QueryTypeDiffAsync`, protocol 4. Tests: contract mirror, worker unit tests on sort, filter and
+   columns; an unknown sort column fails with `InvalidArgument`; both snapshots must be loaded.
+4. [x] Application: `SnapshotSession.QueryTypeDiffAsync` with re-query through `ResultSetHandle` (either snapshot
+   reopened after a restart). Tests: integration re-query after a worker restart.
+5. [x] Known answers: two LeakyApi snapshots; every leak's exact census types grow by items times perItem, and each
+   leak's `types[0]` is first among its fixture types by count growth; by bytes delta `System.Byte[]` is first.
+6. [x] CLI `diff` with formats and `--fail-on-growth`; usage errors exit 64. Tests: exit code contract (0 below,
+   2 above, 1 errors, 64 usage) and output formats.
+7. [x] UI: generic `VirtualRowList`; Compare tab with pickers, swap, grid, totals. Tests: view model tests with the
+   gated fake; smoke open unaffected.
+8. [x] Measure Medium diff (Medium and DenseHeap from cache); record.
+   Result: CLI `diff` end to end 2.8 to 2.9 s warm (both opens from cache included), aggregations 0.05 to 0.08 s;
+   20.9 s on the first run after a build, spent starting the freshly built CLI and worker.
+9. [x] Docs: ARCHITECTURE.md, DEVELOPER.md, CLAUDE.md.
+
+**Review summary**: 0 High, 13 Moderate, 27 Low (`docs/reviews/sprint-1.4.md`).
+- Fixed: reloaded copies of a type visible ("copies", type counts per side); the CI gate refuses a filter that matches
+  nothing, has unit-tested thresholds (non-finite and overflowing values refused, zero baseline documented) and prints
+  each side's notes; `ExactCounts` on diff results; the empty Compare picker refills; Compare race tests; the
+  two-snapshot reopen and unknown snapshot tests; `summary` on the shared CLI helpers and validators; constant-time
+  row lookup in the grids.
+- Deferred: the drill-down key, the split of the grid base and the bounded page window to 1.5 (recorded in its scope);
+  growth by generation, a per-row gate, induced-GC capture and a 16 GB two-snapshot first load to the backlog; the cold
+  first show of the Compare tab to the UI cold start item.
+- Measured (Release, 24 logical cores, 32 GB): CLI `diff` of Medium against DenseHeap 2.8 to 2.9 s end to end from the
+  index caches; aggregations 0.05 to 0.08 s each; Compare tab warm re-query longest dispatcher operation 64 to 74 ms,
+  cold first show 97 to 238 ms; known answers: every exact census type grows by exactly items times perItem.
 
 ---
 
@@ -824,6 +879,11 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): one row per typ
 outgoing references; back and forward navigation.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): an instances grid (address, bytes, later retained bytes); filters by string value, regex and address; outgoing references as fields plus a references list; one drill-down action everywhere (double-click or Enter opens the row as a new subject); back and forward buttons (and mouse buttons).
+
+From the 1.4 review: a stable drill-down key on summary and diff rows (type name plus module file name, or the rows'
+type indices per snapshot) consumed by the instances query; the shared grid base split into a query-lifecycle core and a
+type-grid layer, with column-name sorting in the core; a bounded window of loaded pages in `VirtualRowList` (millions of
+instance rows).
 
 From the 1.2 review: the full-dump `ISnapshot` that reopens the dump with ClrMD for `FieldValues`, `StringContents` and `ThreadStacks` (`IFieldValueReader` and the string and thread stack services), so full dumps stop reporting them as missing; ClrMD runtime creation failures wrapped with a next step.
 
@@ -1071,7 +1131,12 @@ switches.
 - Before or in 1.4 (from the 1.3 review): a generic `VirtualRowList` over a row factory for the diff's rows; a sort key
   that covers delta columns (per-view enum or a column name validated by the worker); a hidden row key mapping a
   summary row to its type indices, for opening a row's objects.
-- A bounded window of loaded pages in `VirtualRowList` before 1.5's object lists (millions of rows) (from 1.3).
+- The type summary's sort as a column name like the diff's (1.4), retiring `TypeSummarySort`.
+- Diff growth by generation (`--growth-of gen2`, or gen2, LOH and POH delta columns) and a per-row gate
+  (`--fail-on-growth-per-row`), so uncollected gen0 garbage and a shrinking neighbor cannot mask a leak (from 1.4).
+- Capture with an induced full GC first (for CI gates), where the target allows it (from 1.4).
+- A diff on the 16 GB profile with neither index cache present: the second first load next to the first snapshot,
+  peak and chosen modes recorded (from 1.4).
 - View model tests on a single-threaded synchronization context, and a `TimeProvider` for the filter debounce
   (from 1.3).
 - Delete snapshots and sessions (also their `.hsidx` and sidecars, refused while open) from the UI and CLI, and a
@@ -1101,7 +1166,7 @@ switches.
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first
-  job row 130 to 190 ms once per run. Template preloading and deferring startup work remain options (from 0.3).
+  job row 130 to 190 ms once per run; first showing of the Compare tab with rows 97 to 238 ms (1.4). Template preloading and deferring startup work remain options (from 0.3).
 - WPF and WinForms specific leak inspections.
 - Unmanaged/native memory overview.
 - Linux dump analysis.

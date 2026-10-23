@@ -28,7 +28,14 @@ dotnet test --solution HeapScope.sln
   its index cache, prints the snapshot, notes and largest types), `summary <dump> [--group type|namespace|assembly]
   [--filter text] [--sort bytes|count|name] [--top N | --all] [--format table|csv|json]` (the types summary with
   bytes per heap kind; the filter follows the UI's rules). Ctrl+C cancels; exit codes 0 ok, 1 failure,
-  2 usage, 130 canceled.
+  64 usage, 130 canceled.
+  `diff <baseline> <current> [--group] [--filter] [--sort bytes-delta|count-delta|bytes|count|baseline-bytes|baseline-count|name]
+  [--top N | --all] [--format table|csv|json] [--fail-on-growth <size|percent>]` compares two dumps by type (ADR-018);
+  with `--fail-on-growth 50MB` or `10%` it exits 2 when the matching rows grew by more (CI), 0 otherwise (growth
+  exactly at the limit passes; a percent of a zero baseline allows no growth; a `--filter` that matches nothing exits 1
+  instead of passing). Both dumps count unreachable objects not yet collected: for a stable gate, capture both after a
+  full GC in the target (`GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();`). Snapshot notes (incomplete
+  heap segments, dropped references) are printed to stderr for each side, and in the JSON.
 - DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
   to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
   `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
@@ -41,8 +48,9 @@ dotnet test --solution HeapScope.sln
   `Worker:AttachPipeName` for the UI.
 - UI smoke run: `HeapScope.exe --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
-  opens a dump through the Snapshots page instead, with the same checks. The log records "First window rendered
-  N ms after process start" for every run.
+  opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
+  second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). The log records
+  "First window rendered N ms after process start" for every run.
 - Theme: the UI follows the Windows app theme (light or dark) at startup; `--Ui:Theme Light|Dark` or the
   `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI.Wpf/Themes/Light.xaml` and `Dark.xaml`, which
   must define the same keys (a test checks it); views use `DynamicResource`, never literal colors.

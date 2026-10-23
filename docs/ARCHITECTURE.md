@@ -175,6 +175,14 @@ click sorting with the arrows driven by the view model's `SortState`, match high
 `Themes/` with `Services/ThemeManager`. Only the latest query owns the view: `Show`, a re-query or closing the snapshot
 cancel the running query and the pending filter, and the replaced row list stops its page requests.
 
+Code map additions in sprint 1.4 (snapshot diff, ADR-018): Analysis has `TypeDiff` (rows matched by type name plus module
+file name, summed per key, grouped like the summary). The worker has `TypeDiffSource` (sort by any column name, ties
+by name) and `QueryTypeDiffAsync`, which leases both snapshots and reuses their cached aggregations. Application has
+`SnapshotSession.QueryTypeDiffAsync` (both snapshots reopened after a restart, through `UseBothAsync`) and the
+`SnapshotDiff` record. UI.Wpf has `GridQueryViewModel<TRow>` (the query lifecycle shared by the types and comparison
+grids: debounce, latest query wins, release), the generic `VirtualRowList<TRow>`, and `CompareViewModel` behind the
+Snapshots page's Compare tab (two pickers, the earlier capture as default baseline, swap). The CLI has `diff`.
+
 ### 3.1 Dependency rules
 
 ```mermaid
@@ -303,6 +311,9 @@ Rules:
   `HeapKindDto` (mirrors `HeapKind`), the column kinds `Percent`, `Address` and `SignedInteger`, and the key flag on
   `ResultColumn`. `NameFilter` lives in Contracts because it defines what the `Filter` field means to worker and UI
   alike; changing it changes the protocol's meaning.
+  Version 4 (sprint 1.4) added `QueryTypeDiffAsync` (`TypeDiffRequest` with a sort column named by
+  `TypeDiffColumns`, validated by the worker; `TypeDiffResult` with both sides' totals, new and gone row counts, the
+  matching rows' baseline bytes and delta, and `ExactCounts`).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -334,7 +345,7 @@ flagged as the row key), which keeps paging generic. Unknown, released or evicte
 Application's `ResultSetHandle` keeps the query that produced a set and re-runs it once when paging fails that way
 (eviction, or a worker restart through the snapshot session's reopen), so front ends page without knowing about
 eviction. A released handle is finished: paging throws and never re-runs the query, and a re-query in progress at the
-release has its new set released too, so no set is orphaned. The types grid fetches pages of 200 rows as it scrolls; each row object is filled with one property change
+release has its new set released too, so no set is orphaned. The grids (types and compare) fetch pages of 200 rows as they scroll; each row object is filled with one property change
 notification, which keeps a page under the dispatcher budget.
 
 Paging cost with the default JSON formatter (sprint 1.3, Release): a 10,000-row page (the maximum, used by the CLI's
@@ -655,7 +666,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   (2x budget), 3 when it did not, 4 when the job failed. Measured in sprint 0.3, steady state during a 5M job:
   2 to 16 ms (Debug) and 43 ms (Release, cold); intermittently 105 to 130 ms in Debug at job completion while the
   full integration suite runs (backlog item). One-time cold costs are not covered by the budget yet: first window
-  render about 1 s, first job row about 130 to 190 ms (backlog: UI cold start).
+  render about 1 s, first job row about 130 to 190 ms, first showing of the Compare tab with rows 97 to 238 ms (1.4)
+  (backlog: UI cold start). `--smoke-compare <dump>` (with `--smoke-open`) logs that first show and checks a warm
+  re-query of the comparison.
 - **Leases**: `GraphSnapshot.Dispose` never blocks; the last lease released disposes the graph (section 7).
 - **Libraries** (everything below UI): `ConfigureAwait(false)` on every await; every async method takes a
   `CancellationToken`.
@@ -709,7 +722,7 @@ Initial budgets (sprints refine them with measurements):
 | Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | 2.4 GB (1.2, fixture Medium at 1.14 references per object) |
 | Worker private memory, Medium, mapped mode (after load) | < 1 GB | +9 MB private, +202 MB working set for the mapped graph (sprint 0.5, synthetic 50M) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
-| Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); diff in 1.4 |
+| Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); CLI `diff` of Medium against DenseHeap end to end from the index caches 2.8 to 2.9 s, of which the aggregations 0.05 to 0.08 s each (1.4) |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 
 Baseline measured in sprint 0.4 on the fixture sample dumps (`dump-stats`, raw ClrMD walk, no HeapScope graph yet;
@@ -926,6 +939,22 @@ sprint 0.1.
   the target's DAC, sprint 1.1); every installed runtime folder is a candidate (the dump records the file
   version, folders use the product version) and the PE match picks the right one; when the dump records no index the
   file version must equal the runtime version.
+
+### ADR-018 Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4)
+- Context: dotMemory's comparison splits objects into survived, new and dead, using its profiler's allocation
+  tracking. Two dumps carry no object identity: compaction moves objects between snapshots and freed addresses are
+  reused, so matching by address would report wrong survivors with confidence. Dumps and gcdumps have no allocation
+  stream.
+- Decision: a snapshot diff matches rows by type name plus module file name and shows each side's objects and bytes with
+  signed deltas, new and gone rows, and how many distinct types (method tables) each side summed into the row. Method
+  tables sharing a key are summed (the types view keeps them apart, sprint 1.3), and a type row whose number of copies
+  changed is marked "copies", so a stale load context next to its reloaded copy stays visible even when the summed
+  counts are flat. Results say whether the counts are exact (`ExactCounts`, false when a side is a sampled gcdump).
+- Consequences: growth is per type, which is what leak hunting across replayed traffic needs (the known answers grow by
+  exact counts). Both sides count unreachable objects the GC has not collected yet, so a CI gate should compare dumps
+  captured after a full GC in the target. Drilling into a row opens that type's objects in either snapshot (1.5), not
+  "the new ones". An allocation-tracking live session (2.x at the earliest) could add identity later as a separate
+  source.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

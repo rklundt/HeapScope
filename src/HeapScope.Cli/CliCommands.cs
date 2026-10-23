@@ -14,13 +14,15 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.Cli;
 
 /// <summary>
-/// Builds the command tree (ADR-008). Exit codes: 0 success, 1 failure, 2 usage error (System.CommandLine),
-/// 130 canceled.
+/// Builds the command tree (ADR-008). Exit codes: 0 success, 1 failure, 2 `diff --fail-on-growth` threshold exceeded,
+/// 64 usage error (EX_USAGE), 130 canceled.
 /// </summary>
-internal static class CliCommands
+internal static partial class CliCommands
 {
     public const int Success = 0;
     public const int Failure = 1;
+    public const int GrowthExceeded = 2;
+    public const int Usage = 64;
     public const int Canceled = 130;
 
     /// <summary>Attach to an already running worker (debugging) instead of launching one.</summary>
@@ -76,6 +78,7 @@ internal static class CliCommands
         root.Subcommands.Add(BuildSyntheticCommand(services));
         root.Subcommands.Add(BuildOpenCommand(services));
         root.Subcommands.Add(BuildSummaryCommand(services));
+        root.Subcommands.Add(BuildDiffCommand(services));
         root.Subcommands.Add(BuildListCommand(services));
         root.Subcommands.Add(BuildCaptureCommand(services));
         return root;
@@ -189,15 +192,13 @@ internal static class CliCommands
     private static Command BuildSummaryCommand(Func<IServiceProvider> services)
     {
         var dump = new Argument<FileInfo>("dump") { Description = "Path of the full memory dump (.dmp)." };
-        var group = new Option<string>("--group") { Description = "Rows per type, namespace or assembly.", DefaultValueFactory = _ => "type" };
-        group.AcceptOnlyFromAmong("type", "namespace", "assembly");
-        var filter = new Option<string?>("--filter") { Description = "Keep rows whose name matches: lower case ignores case; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." };
+        var group = GroupOption();
+        var filter = FilterOption();
         var sort = new Option<string>("--sort") { Description = "Sort by bytes, count or name.", DefaultValueFactory = _ => "bytes" };
         sort.AcceptOnlyFromAmong("bytes", "count", "name");
-        var top = new Option<int>("--top") { Description = "Number of rows.", DefaultValueFactory = _ => 25 };
-        var all = new Option<bool>("--all") { Description = "Print every row." };
-        var format = new Option<string>("--format") { Description = "Output: table, csv or json.", DefaultValueFactory = _ => "table" };
-        format.AcceptOnlyFromAmong("table", "csv", "json");
+        var top = TopOption();
+        var all = AllOption();
+        var format = FormatOption();
 
         var command = new Command("summary", "Summarize a dump by type, namespace or assembly (opens it first; reuses its index cache). Ctrl+C cancels.");
         command.Arguments.Add(dump);
@@ -207,29 +208,16 @@ internal static class CliCommands
         command.Options.Add(top);
         command.Options.Add(all);
         command.Options.Add(format);
+        AddTopOrAllValidator(command, top, all);
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
-            var file = parseResult.GetValue(dump)!;
-            if (!file.Exists)
+            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            if (handle is null)
             {
-                await error.WriteLineAsync($"Error: the file {file.FullName} does not exist.").ConfigureAwait(false);
                 return Failure;
             }
 
             var session = services().GetRequiredService<SnapshotSession>();
-            var jobs = services().GetRequiredService<JobTracker>();
-            if (await session.GetOpenWarningAsync(file.FullName, rebuild: false, ct).ConfigureAwait(false) is { } warning)
-            {
-                await error.WriteLineAsync("Warning: " + warning).ConfigureAwait(false);
-            }
-
-            var openJob = session.StartOpen(file.FullName);
-            SnapshotHandle handle;
-            using (new ConsoleProgress(jobs, openJob, error))
-            using (ct.Register(openJob.Cancel))
-            {
-                handle = await openJob.Result.ConfigureAwait(false);
-            }
             var summary = await session.QueryTypeSummaryAsync(
                 handle,
                 Enum.Parse<TypeGrouping>(parseResult.GetValue(group)!, ignoreCase: true),
@@ -238,20 +226,9 @@ internal static class CliCommands
                 descending: parseResult.GetValue(sort) != "name",
                 progress: null,
                 ct).ConfigureAwait(false);
-            var rows = new List<IReadOnlyList<string?>>();
+            await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wanted = parseResult.GetValue(all) ? summary.Result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), summary.Result.Rows.TotalCount);
-            while (rows.Count < wanted)
-            {
-                var page = await summary.Rows.GetRowsAsync(rows.Count, Math.Min(WorkerProtocol.MaxPageSize, wanted - rows.Count), ct).ConfigureAwait(false);
-                if (page.Rows.Count == 0)
-                {
-                    break;
-                }
-
-                rows.AddRange(page.Rows);
-            }
-
-            await summary.Rows.ReleaseAsync(ct).ConfigureAwait(false);
+            var rows = await FetchRowsAsync(summary.Rows, wanted, ct).ConfigureAwait(false);
             var columns = summary.Rows.Info.Columns;
             switch (parseResult.GetValue(format))
             {
@@ -264,6 +241,16 @@ internal static class CliCommands
                 default:
                     await WriteSummaryTableAsync(output, summary.Result, rows).ConfigureAwait(false);
                     break;
+            }
+
+            // Output first: a worker gone at release time must not cost the rows already fetched.
+            try
+            {
+                await summary.Rows.ReleaseAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is WorkerCrashedException or WorkerOperationException)
+            {
+                // Releasing is housekeeping in a process about to exit; the rows are out.
             }
 
             return Success;
@@ -313,13 +300,111 @@ internal static class CliCommands
             result.UnfilteredRows,
             MatchingRows = result.Rows.TotalCount,
             HeapKinds = result.HeapKinds.Select(k => new { Kind = k.Kind.ToString(), k.Objects, k.Bytes }),
-            Rows = rows.Select(row => columns.Select((c, i) => (c, i)).ToDictionary(
-                x => x.c.Name,
-                x => x.c.Kind is ResultColumnKind.Text or ResultColumnKind.Address ? (object?)row[x.i]
-                    : x.c.Kind == ResultColumnKind.Percent ? double.Parse(row[x.i]!, CultureInfo.InvariantCulture)
-                    : long.Parse(row[x.i]!, CultureInfo.InvariantCulture))),
+            Rows = JsonRows(columns, rows),
         };
         await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(document, s_json)).ConfigureAwait(false);
+    }
+
+    /// <summary>Rows as objects keyed by column name, with numbers typed by the column kind.</summary>
+    private static IEnumerable<Dictionary<string, object?>> JsonRows(IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows) =>
+        rows.Select(row => columns.Select((c, i) => (c, i)).ToDictionary(
+            x => x.c.Name,
+            x => x.c.Kind is ResultColumnKind.Text or ResultColumnKind.Address ? (object?)row[x.i]
+                : x.c.Kind == ResultColumnKind.Percent ? double.Parse(row[x.i]!, CultureInfo.InvariantCulture)
+                : long.Parse(row[x.i]!, CultureInfo.InvariantCulture)));
+
+    /// <summary>Fetches the first <paramref name="wanted"/> rows of a result set.</summary>
+    private static async Task<List<IReadOnlyList<string?>>> FetchRowsAsync(ResultSetHandle handle, int wanted, CancellationToken cancellationToken)
+    {
+        var rows = new List<IReadOnlyList<string?>>();
+        while (rows.Count < wanted)
+        {
+            var page = await handle.GetRowsAsync(rows.Count, Math.Min(WorkerProtocol.MaxPageSize, wanted - rows.Count), cancellationToken).ConfigureAwait(false);
+            if (page.Rows.Count == 0)
+            {
+                break;
+            }
+
+            rows.AddRange(page.Rows);
+        }
+
+        return rows;
+    }
+
+    private static Option<string> GroupOption()
+    {
+        var group = new Option<string>("--group") { Description = "Rows per type, namespace or assembly.", DefaultValueFactory = _ => "type" };
+        group.AcceptOnlyFromAmong("type", "namespace", "assembly");
+        return group;
+    }
+
+    private static Option<string?> FilterOption(string more = "") => new("--filter")
+    {
+        Description = "Keep rows whose name matches: lower case ignores case; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." + more,
+    };
+
+    private static Option<int> TopOption()
+    {
+        var top = new Option<int>("--top") { Description = "Number of rows.", DefaultValueFactory = _ => 25 };
+        top.Validators.Add(result =>
+        {
+            if (result.GetValueOrDefault<int>() < 1)
+            {
+                result.AddError("--top must be 1 or more.");
+            }
+        });
+        return top;
+    }
+
+    private static Option<bool> AllOption() => new("--all") { Description = "Print every row." };
+
+    private static Option<string> FormatOption()
+    {
+        var format = new Option<string>("--format") { Description = "Output: table, csv or json.", DefaultValueFactory = _ => "table" };
+        format.AcceptOnlyFromAmong("table", "csv", "json");
+        return format;
+    }
+
+    private static void AddTopOrAllValidator(Command command, Option<int> top, Option<bool> all) =>
+        command.Validators.Add(result =>
+        {
+            if (result.GetResult(all) is { Implicit: false } && result.GetResult(top) is { Implicit: false })
+            {
+                result.AddError("Use either --top or --all, not both.");
+            }
+        });
+
+    /// <summary>Prints a snapshot's notes (incomplete segments, dropped references) to stderr, labeled by its role.</summary>
+    private static async Task WriteNotesAsync(TextWriter error, string role, SnapshotHandle snapshot)
+    {
+        foreach (var note in snapshot.Descriptor.Notes)
+        {
+            await error.WriteLineAsync($"{role} ({Path.GetFileName(snapshot.Path)}): {note}").ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Opens a dump through the session with progress on stderr, or returns null after printing why not.</summary>
+    private static async Task<SnapshotHandle?> OpenForQueryAsync(FileInfo file, TextWriter error, CancellationToken cancellationToken)
+    {
+        if (!file.Exists)
+        {
+            await error.WriteLineAsync($"Error: the file {file.FullName} does not exist.").ConfigureAwait(false);
+            return null;
+        }
+
+        var session = s_services!().GetRequiredService<SnapshotSession>();
+        var jobs = s_services!().GetRequiredService<JobTracker>();
+        if (await session.GetOpenWarningAsync(file.FullName, rebuild: false, cancellationToken).ConfigureAwait(false) is { } warning)
+        {
+            await error.WriteLineAsync("Warning: " + warning).ConfigureAwait(false);
+        }
+
+        var openJob = session.StartOpen(file.FullName);
+        using (new ConsoleProgress(jobs, openJob, error))
+        using (cancellationToken.Register(openJob.Cancel))
+        {
+            return await openJob.Result.ConfigureAwait(false);
+        }
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions s_json = new() { WriteIndented = true };

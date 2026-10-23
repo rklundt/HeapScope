@@ -142,6 +142,48 @@ internal sealed class WorkerService(
                 source.UnfilteredCount);
         });
 
+    public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            var stopwatch = Stopwatch.StartNew();
+
+            // Both graphs stay leased while their aggregations and names are read; the source keeps only names and totals.
+            var (baseline, baselineLease) = Lease(request.BaselineId);
+            using var _ = baselineLease;
+            var (current, currentLease) = Lease(request.CurrentId);
+            using var __ = currentLease;
+            var throttled = new ThrottledProgress<JobProgress>(progress);
+            var total = baseline.Graph.ObjectCount + (long)current.Graph.ObjectCount;
+            long baselineDone = 0;
+            var baselineAggregation = await snapshots.GetAggregationAsync(
+                request.BaselineId,
+                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone = done, total))),
+                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.BaselineId);
+            var currentAggregation = await snapshots.GetAggregationAsync(
+                request.CurrentId,
+                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone + done, total))),
+                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.CurrentId);
+            var source = await Task.Run(
+                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request),
+                cancellationToken).ConfigureAwait(false);
+            throttled.Flush();
+            var rows = resultSets.Add(source);
+            return new TypeDiffResult(
+                rows,
+                baselineAggregation.TotalObjects,
+                (long)baselineAggregation.TotalBytes,
+                currentAggregation.TotalObjects,
+                (long)currentAggregation.TotalBytes,
+                source.NewRows,
+                source.GoneRows,
+                source.UnfilteredCount,
+                source.MatchingBaselineBytes,
+                source.MatchingBytesDelta,
+                stopwatch.Elapsed.TotalSeconds,
+                baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts));
+        });
+
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
     {
         if (offset < 0 || count < 0)
@@ -188,6 +230,20 @@ internal sealed class WorkerService(
     }
 
     private Task<T> GuardAsync<T>(Func<Task<T>> body) => WorkerErrors.GuardAsync(body, logger);
+
+    /// <summary>A loaded snapshot and a lease on it; a snapshot closed meanwhile refuses the lease.</summary>
+    private (ISnapshot Snapshot, SnapshotLease Lease) Lease(Guid snapshotId)
+    {
+        var snapshot = snapshots.TryGet(snapshotId) ?? throw SnapshotNotLoaded(snapshotId);
+        try
+        {
+            return (snapshot, snapshot.AcquireLease());
+        }
+        catch (ObjectDisposedException)
+        {
+            throw SnapshotNotLoaded(snapshotId);
+        }
+    }
 
     private static StreamJsonRpc.LocalRpcException SnapshotNotLoaded(Guid snapshotId) => WorkerErrors.Create(
         HeapScopeErrorCode.SnapshotNotLoaded,

@@ -90,6 +90,9 @@ internal sealed class FakeWorkerService : IWorkerService
         return Task.FromResult(new SnapshotProbe(path, new FileInfo(path).Length, state, cache, null, false));
     }
 
+    /// <summary>The capture time reported for a path (null when not set).</summary>
+    public Func<string, DateTimeOffset?>? CapturedAt { get; set; }
+
     /// <summary>When set, the next opens fail with it.</summary>
     public Exception? OpenFailure { get; set; }
 
@@ -102,7 +105,7 @@ internal sealed class FakeWorkerService : IWorkerService
 
         Opened.Add(request);
         return Task.FromResult(new SnapshotDescriptor(
-            Guid.NewGuid(), request.Path, SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, "App", 42, "10.0.13", null,
+            Guid.NewGuid(), request.Path, SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
             1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."]));
     }
 
@@ -179,6 +182,57 @@ internal sealed class FakeWorkerService : IWorkerService
             kinds,
             0.1,
             Rows.Count);
+    }
+
+    /// <summary>Diff rows: name, change, baseline objects, current objects, objects delta, baseline bytes, current bytes, bytes delta.</summary>
+    public List<IReadOnlyList<string?>> DiffRows { get; } = [];
+
+    /// <summary>Diff queries received.</summary>
+    public List<TypeDiffRequest> DiffQueries { get; } = [];
+
+    /// <summary>Whether diffs report exact counts.</summary>
+    public bool DiffExact { get; set; } = true;
+
+    /// <summary>Result sets created by diff queries.</summary>
+    public List<Guid> DiffSets { get; } = [];
+
+    public async Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        DiffQueries.Add(request);
+        if (SummaryGate is { } gate)
+        {
+            await gate.Task.WaitAsync(cancellationToken);
+        }
+
+        string[] names = [TypeDiffColumns.Name, TypeDiffColumns.Change, TypeDiffColumns.BaselineObjects, TypeDiffColumns.CurrentObjects, TypeDiffColumns.ObjectsDelta, TypeDiffColumns.BaselineBytes, TypeDiffColumns.CurrentBytes, TypeDiffColumns.BytesDelta, TypeDiffColumns.BaselineTypes, TypeDiffColumns.CurrentTypes];
+        var column = Array.IndexOf(names, request.SortColumn ?? TypeDiffColumns.BytesDelta);
+        if (column < 0)
+        {
+            throw new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.InvalidArgument, $"Unknown sort column {request.SortColumn}.", null);
+        }
+
+        var matching = DiffRows.Where(r => NameFilter.IsMatch(r[0]!, request.Filter));
+        IOrderedEnumerable<IReadOnlyList<string?>> ordered = column <= 1
+            ? (request.Descending ? matching.OrderByDescending(r => r[column], StringComparer.OrdinalIgnoreCase) : matching.OrderBy(r => r[column], StringComparer.OrdinalIgnoreCase))
+            : (request.Descending ? matching.OrderByDescending(r => long.Parse(r[column]!, System.Globalization.CultureInfo.InvariantCulture)) : matching.OrderBy(r => long.Parse(r[column]!, System.Globalization.CultureInfo.InvariantCulture)));
+        List<IReadOnlyList<string?>> rows = [.. ordered.ThenBy(r => r[0], StringComparer.Ordinal)];
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        DiffSets.Add(id);
+        static long Sum(IEnumerable<IReadOnlyList<string?>> rows, int index) => rows.Sum(r => long.Parse(r[index]!, System.Globalization.CultureInfo.InvariantCulture));
+        return new TypeDiffResult(
+            new ResultSetInfo(id, rows.Count, [.. names.Select((n, i) => new ResultColumn(n, i <= 1 ? ResultColumnKind.Text : i is 4 or 7 ? ResultColumnKind.SignedInteger : ResultColumnKind.Integer, i == 0))]),
+            Sum(DiffRows, 2),
+            Sum(DiffRows, 5),
+            Sum(DiffRows, 3),
+            Sum(DiffRows, 6),
+            DiffRows.Count(r => r[1] == TypeDiffColumns.New),
+            DiffRows.Count(r => r[1] == TypeDiffColumns.Gone),
+            DiffRows.Count,
+            Sum(rows, 5),
+            Sum(rows, 7),
+            0.1,
+            DiffExact);
     }
 
     public async Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)

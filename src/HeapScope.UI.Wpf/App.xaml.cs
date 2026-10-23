@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Services;
 using HeapScope.UI.Wpf.ViewModels;
 using HeapScope.UI.Wpf.Views;
@@ -149,6 +150,11 @@ public partial class App : System.Windows.Application
 
         await rows.WhenLoadedAsync();
         var completed = snapshots.Selected is not null && rows.Count > 0 && rows.GetRow(0).IsLoaded;
+        if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
+        {
+            completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
+        }
+
         await Task.Delay(500);
         var lag = watchdog.MaxLag;
         var operation = watchdog.MaxOperation;
@@ -164,6 +170,52 @@ public partial class App : System.Windows.Application
             : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
             : 0;
         MainWindow?.Close();
+    }
+
+    /// <summary>
+    /// Opens a second dump and shows the comparison (sprint 1.4): the pickers fill themselves with the two open snapshots,
+    /// the grid's first rows are fetched as the grid would. Returns whether the comparison showed rows.
+    /// </summary>
+    private static async Task<bool> RunSmokeCompareAsync(SnapshotsViewModel snapshots, string dump, DispatcherWatchdog watchdog, ILogger logger)
+    {
+        // Show the (empty) tab first and let it render, then open: the tab's first layout and the rows are logged apart.
+        snapshots.SelectedTab = 1;
+        await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        logger.LogInformation("Smoke compare: tab shown");
+        await snapshots.OpenPathAsync(dump);
+        await snapshots.Compare.QueryTask;
+        var rows = snapshots.Compare.Rows;
+        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
+        {
+            rows.GetRow(i);
+        }
+
+        await rows.WhenLoadedAsync();
+        var shown = rows.Count > 0 && rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke compare: {Shown} ({Status}), {Rows:N0} rows, first {First}; {Totals}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            shown,
+            snapshots.Compare.Status ?? snapshots.Status ?? "ok",
+            rows.Count,
+            shown ? rows.GetRow(0).Name : "none",
+            snapshots.Compare.Totals,
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperation.TotalMilliseconds);
+
+        // The checked part, like the other smoke runs after their warm-up: a re-query and its rows in the warm grid
+        // (one-time cold costs of the tab are logged above and tracked by the UI cold start backlog item).
+        await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        watchdog.Reset();
+        snapshots.Compare.SortByCommand.Execute(TypeDiffColumns.ObjectsDelta);
+        await snapshots.Compare.QueryTask;
+        rows = snapshots.Compare.Rows;
+        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
+        {
+            rows.GetRow(i);
+        }
+
+        await rows.WhenLoadedAsync();
+        return shown && rows.Count > 0 && rows.GetRow(0).IsLoaded;
     }
 
     /// <summary>

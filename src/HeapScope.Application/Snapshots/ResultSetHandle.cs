@@ -107,3 +107,6 @@ public sealed class ResultSetHandle
 /// same snapshot, so the totals do not change.
 /// </summary>
 public sealed record TypeSummary(ResultSetHandle Rows, TypeSummaryResult Result);
+
+/// <summary>A snapshot comparison: its pageable rows and the totals of the first run (sprint 1.4).</summary>
+public sealed record SnapshotDiff(ResultSetHandle Rows, TypeDiffResult Result);

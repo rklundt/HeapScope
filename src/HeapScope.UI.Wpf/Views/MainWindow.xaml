@@ -65,105 +65,184 @@
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <Grid>
-          <TextBlock Text="Open a full memory dump (.dmp) to see what is on the heap." Foreground="{DynamicResource Brush.Subtle}">
-            <TextBlock.Style>
-              <Style TargetType="TextBlock">
-                <Setter Property="Visibility" Value="Collapsed" />
-                <Style.Triggers>
-                  <DataTrigger Binding="{Binding Selected}" Value="{x:Null}">
-                    <Setter Property="Visibility" Value="Visible" />
-                  </DataTrigger>
-                </Style.Triggers>
-              </Style>
-            </TextBlock.Style>
-          </TextBlock>
-
-          <DockPanel DataContext="{Binding Selected}">
-            <DockPanel.Style>
-              <Style TargetType="DockPanel">
-                <Style.Triggers>
-                  <DataTrigger Binding="{Binding}" Value="{x:Null}">
+        <TabControl SelectedIndex="{Binding SelectedTab}">
+          <TabItem Header="Snapshot">
+            <Grid>
+              <TextBlock Text="Open a full memory dump (.dmp) to see what is on the heap." Foreground="{DynamicResource Brush.Subtle}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
                     <Setter Property="Visibility" Value="Collapsed" />
-                  </DataTrigger>
-                </Style.Triggers>
-              </Style>
-            </DockPanel.Style>
-            <StackPanel DockPanel.Dock="Top">
-              <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding Process}" Foreground="{DynamicResource Brush.Subtle}" />
-              <TextBlock Text="{Binding Source}" Foreground="{DynamicResource Brush.Subtle}" Margin="0,0,0,8" />
-              <WrapPanel>
-                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Objects" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Heap size" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Size}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Types" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="References" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-                <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Roots" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-              </WrapPanel>
-              <Border Background="{DynamicResource Brush.Note.Background}" BorderBrush="{DynamicResource Brush.Note.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,8,8"
-                      Visibility="{Binding HasNotes, Converter={StaticResource BoolToVisibility}}">
-                <ItemsControl ItemsSource="{Binding Notes}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </Border>
-            </StackPanel>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding Selected}" Value="{x:Null}">
+                        <Setter Property="Visibility" Value="Visible" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
 
-            <!-- The types grid (sprint 1.3): its view model is the page's Types, not the selected snapshot item. -->
-            <DockPanel DataContext="{Binding DataContext.Types, RelativeSource={RelativeSource AncestorType=ContentControl}}">
+              <DockPanel DataContext="{Binding Selected}">
+                <DockPanel.Style>
+                  <Style TargetType="DockPanel">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding}" Value="{x:Null}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </DockPanel.Style>
+                <StackPanel DockPanel.Dock="Top">
+                  <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding Process}" Foreground="{DynamicResource Brush.Subtle}" />
+                  <TextBlock Text="{Binding Source}" Foreground="{DynamicResource Brush.Subtle}" Margin="0,0,0,8" />
+                  <WrapPanel>
+                    <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Objects" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                    <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Heap size" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Size}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                    <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Types" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                    <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="References" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                    <Border Style="{StaticResource Tile}"><StackPanel><TextBlock Text="Roots" Foreground="{DynamicResource Brush.Subtle}" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+                  </WrapPanel>
+                  <Border Background="{DynamicResource Brush.Note.Background}" BorderBrush="{DynamicResource Brush.Note.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,8,8"
+                          Visibility="{Binding HasNotes, Converter={StaticResource BoolToVisibility}}">
+                    <ItemsControl ItemsSource="{Binding Notes}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Border>
+                </StackPanel>
+
+                <!-- The types grid (sprint 1.3): its view model is the page's Types, not the selected snapshot item. -->
+                <DockPanel DataContext="{Binding DataContext.Types, RelativeSource={RelativeSource AncestorType=ContentControl}}">
+                  <DockPanel.Resources>
+                    <ctl:BindingProxy x:Key="Types" Data="{Binding}" />
+                  </DockPanel.Resources>
+
+                  <!-- Heap kinds: one fixed color per kind, width by share of the bytes. -->
+                  <StackPanel DockPanel.Dock="Top" Margin="0,0,8,8">
+                    <ItemsControl ItemsSource="{Binding HeapKinds}" Height="10">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <ctl:ProportionalPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip="{Binding Text}"
+                                  Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding HeapKinds}" Margin="0,4,0,0">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                            <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
+                            <TextBlock Text="{Binding Text}" FontSize="11" Foreground="{DynamicResource Brush.Subtle}" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+
+                  <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+                    <TextBlock DockPanel.Dock="Left" Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock DockPanel.Dock="Left" Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                    <ComboBox DockPanel.Dock="Left" Width="110" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" />
+                    <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                    <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
+                             Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+                    <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                             Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+                  <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                             Visibility="{Binding GenerationsExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
+
+                  <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                            GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
+                            EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                            VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                            ScrollViewer.CanContentScroll="True"
+                            ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}">
+                    <DataGrid.Columns>
+                      <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
+                                       ctl:HighlightedText.Filter="{Binding Data.Filter, Source={StaticResource Types}}"
+                                       ctl:HighlightedText.Text="{Binding Name}" />
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                      <DataGridTextColumn Header="Objects" Binding="{Binding Objects, StringFormat=N0}" Width="100" SortMemberPath="Objects" ElementStyle="{StaticResource NumberCell}" />
+                      <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="130" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
+                      <DataGridTextColumn Header="%" Binding="{Binding Percent, StringFormat=N2}" Width="60" CanUserSort="False" ElementStyle="{StaticResource NumberCell}" />
+                      <DataGridTextColumn Header="Gen0" Binding="{Binding Gen0, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                      <DataGridTextColumn Header="Gen1" Binding="{Binding Gen1, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                      <DataGridTextColumn Header="Gen2" Binding="{Binding Gen2, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                      <DataGridTextColumn Header="LOH" Binding="{Binding LargeObjectHeap, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                      <DataGridTextColumn Header="POH" Binding="{Binding PinnedObjectHeap, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                      <DataGridTextColumn Header="Frozen" Binding="{Binding Frozen, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </DockPanel>
+            </Grid>
+          </TabItem>
+
+          <!-- Comparison of two open snapshots (sprint 1.4, ADR-018): per-type deltas, no object identity. -->
+          <TabItem Header="Compare">
+            <DockPanel DataContext="{Binding Compare}" Margin="0,8,0,0">
               <DockPanel.Resources>
-                <ctl:BindingProxy x:Key="Types" Data="{Binding}" />
+                <ctl:BindingProxy x:Key="Compare" Data="{Binding}" />
+                <Style x:Key="DeltaCell" TargetType="TextBlock" BasedOn="{StaticResource NumberCell}">
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Trend}" Value="1">
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Trend}" Value="-1">
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.Shrink}" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
               </DockPanel.Resources>
 
-              <!-- Heap kinds: one fixed color per kind, width by share of the bytes. -->
-              <StackPanel DockPanel.Dock="Top" Margin="0,0,8,8">
-                <ItemsControl ItemsSource="{Binding HeapKinds}" Height="10">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <ctl:ProportionalPanel />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip="{Binding Text}"
-                              Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <ItemsControl ItemsSource="{Binding HeapKinds}" Margin="0,4,0,0">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <WrapPanel />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-                        <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
-                        <TextBlock Text="{Binding Text}" FontSize="11" Foreground="{DynamicResource Brush.Subtle}" />
-                      </StackPanel>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8">
+                <TextBlock Text="Baseline" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Baseline}" DisplayMemberPath="Title" ToolTip="The earlier snapshot; deltas are current minus baseline." />
+                <Button Content="Swap" Margin="8,0" Padding="10,1" Command="{Binding SwapCommand}" />
+                <TextBlock Text="Current" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Current}" DisplayMemberPath="Title" />
               </StackPanel>
+              <TextBlock DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Foreground="{DynamicResource Brush.Subtle}"
+                         Visibility="{Binding Hint, Converter={StaticResource NotEmptyToVisibility}}" />
 
               <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-                <TextBlock DockPanel.Dock="Left" Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
                 <TextBlock DockPanel.Dock="Left" Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
                 <ComboBox DockPanel.Dock="Left" Width="110" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" />
                 <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
                 <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
                          Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
-                <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Totals}" />
               </DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
                          Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
-              <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
-                         Visibility="{Binding GenerationsExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
 
               <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
                         GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
@@ -176,31 +255,31 @@
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate>
                         <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
-                                   ctl:HighlightedText.Filter="{Binding Data.Filter, Source={StaticResource Types}}"
+                                   ctl:HighlightedText.Filter="{Binding Data.Filter, Source={StaticResource Compare}}"
                                    ctl:HighlightedText.Text="{Binding Name}" />
                       </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
-                  <DataGridTextColumn Header="Objects" Binding="{Binding Objects, StringFormat=N0}" Width="100" SortMemberPath="Objects" ElementStyle="{StaticResource NumberCell}" />
-                  <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="130" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
-                  <DataGridTextColumn Header="%" Binding="{Binding Percent, StringFormat=N2}" Width="60" CanUserSort="False" ElementStyle="{StaticResource NumberCell}" />
-                  <DataGridTextColumn Header="Gen0" Binding="{Binding Gen0, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                      Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                  <DataGridTextColumn Header="Gen1" Binding="{Binding Gen1, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                      Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                  <DataGridTextColumn Header="Gen2" Binding="{Binding Gen2, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                      Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                  <DataGridTextColumn Header="LOH" Binding="{Binding LargeObjectHeap, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                      Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                  <DataGridTextColumn Header="POH" Binding="{Binding PinnedObjectHeap, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                      Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                  <DataGridTextColumn Header="Frozen" Binding="{Binding Frozen, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                      Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                  <DataGridTextColumn Header="Change" Binding="{Binding Change}" Width="60" SortMemberPath="Change">
+                    <DataGridTextColumn.HeaderStyle>
+                      <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                        <Setter Property="ToolTip" Value="new: only in the current snapshot. gone: only in the baseline. copies: the same type is loaded a different number of times (see the Types columns), for example a plugin reloaded while its old copy stays alive." />
+                      </Style>
+                    </DataGridTextColumn.HeaderStyle>
+                  </DataGridTextColumn>
+                  <DataGridTextColumn Header="Objects +/-" Binding="{Binding ObjectsDelta, StringFormat=+#\,0;-#\,0;0}" Width="110" SortMemberPath="ObjectsDelta" ElementStyle="{StaticResource DeltaCell}" />
+                  <DataGridTextColumn Header="Bytes +/-" Binding="{Binding BytesDelta, StringFormat=+#\,0;-#\,0;0}" Width="130" SortMemberPath="BytesDelta" ElementStyle="{StaticResource DeltaCell}" />
+                  <DataGridTextColumn Header="Objects (baseline)" Binding="{Binding BaselineObjects, StringFormat=N0}" Width="120" SortMemberPath="BaselineObjects" ElementStyle="{StaticResource NumberCell}" />
+                  <DataGridTextColumn Header="Objects (current)" Binding="{Binding CurrentObjects, StringFormat=N0}" Width="120" SortMemberPath="CurrentObjects" ElementStyle="{StaticResource NumberCell}" />
+                  <DataGridTextColumn Header="Bytes (baseline)" Binding="{Binding BaselineBytes, StringFormat=N0}" Width="140" SortMemberPath="BaselineBytes" ElementStyle="{StaticResource NumberCell}" />
+                  <DataGridTextColumn Header="Bytes (current)" Binding="{Binding CurrentBytes, StringFormat=N0}" Width="140" SortMemberPath="CurrentBytes" ElementStyle="{StaticResource NumberCell}" />
+                  <DataGridTextColumn Header="Types (baseline)" Binding="{Binding BaselineTypes}" Width="100" SortMemberPath="BaselineTypes" ElementStyle="{StaticResource NumberCell}" />
+                  <DataGridTextColumn Header="Types (current)" Binding="{Binding CurrentTypes}" Width="100" SortMemberPath="CurrentTypes" ElementStyle="{StaticResource NumberCell}" />
                 </DataGrid.Columns>
               </DataGrid>
             </DockPanel>
-          </DockPanel>
-        </Grid>
+          </TabItem>
+        </TabControl>
       </DockPanel>
     </DataTemplate>
 
