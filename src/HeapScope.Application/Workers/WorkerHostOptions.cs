@@ -19,6 +19,18 @@ public sealed class WorkerHostOptions
     /// <summary>How long an orderly shutdown may take before the worker is killed.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>Configuration section of the DAC lookup options, bound onto these options too (ADR-017).</summary>
+    public const string SymbolsSectionName = "Symbols";
+
+    /// <summary>A user folder searched for the data access component (<c>Symbols:DacFolder</c>).</summary>
+    public string? DacFolder { get; set; }
+
+    /// <summary>
+    /// Opt-in, default off (<c>Symbols:AllowMicrosoftSymbolServer</c>): a missing DAC may be downloaded from
+    /// Microsoft's symbol server. Sends module identifiers, never dump contents.
+    /// </summary>
+    public bool AllowMicrosoftSymbolServer { get; set; }
+
     /// <summary>Starts the worker with its crash and hang test hooks enabled (tests only).</summary>
     public bool EnableTestHooks { get; set; }
 

@@ -49,12 +49,18 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<DispatcherWatchdog>();
             var window = _host.Services.GetRequiredService<MainWindow>();
             window.Closing += OnMainWindowClosing;
+            window.ContentRendered += (_, _) => LogFirstRender(_host.Services);
             MainWindow = window;
             window.Show();
 
-            if (_host.Services.GetRequiredService<UiOptions>().SmokeSyntheticObjects is int objects)
+            var options = _host.Services.GetRequiredService<UiOptions>();
+            if (options.SmokeSyntheticObjects is int objects)
             {
                 await RunSmokeAsync(objects);
+            }
+            else if (options.SmokeOpenPath is { } dump)
+            {
+                await RunSmokeOpenAsync(dump);
             }
         }
         catch (Exception ex)
@@ -63,6 +69,14 @@ public partial class App : System.Windows.Application
             MessageBox.Show($"HeapScope could not start: {ex.Message}", "HeapScope", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
+    }
+
+    /// <summary>Logs the cold start cost: process start to first rendered window (backlog: UI cold start).</summary>
+    private static void LogFirstRender(IServiceProvider services)
+    {
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        var elapsed = DateTime.Now - self.StartTime;
+        services.GetRequiredService<ILogger<App>>().LogInformation("First window rendered {Ms:N0} ms after process start", elapsed.TotalMilliseconds);
     }
 
     /// <summary>Runs one synthetic job, checks the dispatcher lag budget and closes the app with a result code.</summary>
@@ -104,13 +118,50 @@ public partial class App : System.Windows.Application
     }
 
     /// <summary>
+    /// Opens a dump through the Snapshots page, waits for its overview, checks the dispatcher budget like
+    /// <see cref="RunSmokeAsync"/> and closes the app with a result code (sprint 1.2).
+    /// </summary>
+    private async Task RunSmokeOpenAsync(string dump)
+    {
+        var services = _host!.Services;
+        var logger = services.GetRequiredService<ILogger<App>>();
+        var watchdog = services.GetRequiredService<DispatcherWatchdog>();
+        var home = services.GetRequiredService<HomeViewModel>();
+        var snapshots = services.GetRequiredService<SnapshotsViewModel>();
+
+        // Warm-up as in RunSmokeAsync, so one-time cold costs are not counted.
+        home.ObjectCount = 10_000;
+        await home.RunSyntheticCommand.ExecuteAsync(null);
+        await Dispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        await Task.Delay(500);
+        watchdog.Reset();
+
+        await snapshots.OpenPathAsync(dump);
+        await snapshots.OverviewLoad;
+        var completed = snapshots.Selected is not null && snapshots.TopTypes.Count > 0;
+        await Task.Delay(500);
+        var lag = watchdog.MaxLag;
+        var operation = watchdog.MaxOperation;
+        logger.LogInformation(
+            "Smoke open: snapshot shown {Completed} ({Status}), maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            completed,
+            snapshots.Status ?? "ok",
+            lag.TotalMilliseconds,
+            operation.TotalMilliseconds);
+        _exitCode = !completed ? SmokeJobFailed
+            : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
+            : 0;
+        MainWindow?.Close();
+    }
+
+    /// <summary>
     /// Last-chance handlers (ARCHITECTURE.md 11): log, tell the user in plain language, keep running. In smoke mode
     /// no dialog is shown so automated runs never block; the run fails instead.
     /// </summary>
     private void InstallLastChanceHandlers(IServiceProvider services)
     {
         var logger = services.GetRequiredService<ILogger<App>>();
-        var smoke = services.GetRequiredService<UiOptions>().SmokeSyntheticObjects is not null;
+        var smoke = services.GetRequiredService<UiOptions>().IsSmokeRun;
         DispatcherUnhandledException += (_, e) =>
         {
             logger.LogError(e.Exception, "Unhandled exception on the UI thread");

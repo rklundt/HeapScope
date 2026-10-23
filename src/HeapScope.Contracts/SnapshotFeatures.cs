@@ -29,7 +29,31 @@ public enum SnapshotKindDto
 /// <summary>User-facing explanations of missing features, shown by UI and CLI (ARCHITECTURE.md 5.2).</summary>
 public static class CapabilityDescriptions
 {
-    /// <summary>Why a feature is unavailable when <paramref name="missing"/> is not supported by a snapshot.</summary>
+    /// <summary>
+    /// Why a feature is unavailable in a snapshot of <paramref name="kind"/>. A full dump holds everything; features it
+    /// lacks are not built yet (field values, string contents and thread stacks read the dump again, sprint 1.5) or
+    /// could not be read from a damaged dump.
+    /// </summary>
+    public static string ExplainMissing(SnapshotFeatures missing, SnapshotKindDto kind)
+    {
+        if (kind != SnapshotKindDto.FullDump)
+        {
+            return ExplainMissing(missing);
+        }
+
+        return missing switch
+        {
+            SnapshotFeatures.FieldValues => "Reading field values from a full dump is not available in this version of HeapScope yet.",
+            SnapshotFeatures.StringContents => "Reading string contents from a full dump is not available in this version of HeapScope yet.",
+            SnapshotFeatures.ThreadStacks => "Thread stacks of a full dump are not available in this version of HeapScope yet.",
+            SnapshotFeatures.Generations => "Generations could not be read from this dump.",
+            SnapshotFeatures.CompleteGraph or SnapshotFeatures.ExactCounts =>
+                "Parts of the managed heap could not be read from this dump, so some objects may be missing and counts are not exact.",
+            _ => ExplainMissing(missing),
+        };
+    }
+
+    /// <summary>Why a feature is unavailable when <paramref name="missing"/> is not supported by a gcdump.</summary>
     public static string ExplainMissing(SnapshotFeatures missing) => missing switch
     {
         SnapshotFeatures.FieldValues => "Field values are not stored in a gcdump. Capture a full dump to inspect fields.",

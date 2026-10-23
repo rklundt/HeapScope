@@ -24,6 +24,8 @@ internal static class TestPaths
 
     public static string LeakyApiExe => Path.Combine(RepoRoot, "fixtures", "LeakyApi", "bin", Configuration, "net10.0", "LeakyApi.exe");
 
+    public static string DenseHeapExe => Path.Combine(RepoRoot, "fixtures", "DenseHeap", "bin", Configuration, "net10.0", "DenseHeap.exe");
+
     public static string KnownAnswers => Path.Combine(RepoRoot, "fixtures", "KnownAnswers");
 
     private static string FindRoot()

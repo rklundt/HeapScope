@@ -38,11 +38,16 @@ using (var self = System.Diagnostics.Process.GetCurrentProcess())
     self.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
 }
 
-var optionsValid = WorkerOptions.TryRead(builder.Configuration, enableTestHooks, out var options, out var optionsError);
+// Options come from the command line only, never from environment variables or settings files: the client decides,
+// so a privacy-relevant switch (symbol server downloads, ADR-017) cannot be turned on behind its back.
+var commandLine = new ConfigurationBuilder().AddCommandLine(configArgs, WorkerOptions.CreateSwitchMappings()).Build();
+var optionsValid = WorkerOptions.TryRead(commandLine, enableTestHooks, out var options, out var optionsError);
 if (options is not null)
 {
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new ResultSetStore());
+    builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator());
+    builder.Services.AddSingleton<HeapScope.Worker.Snapshots.SnapshotStore>();
     builder.Services.AddSingleton<WorkerService>();
     builder.Services.AddHostedService<ParentProcessWatcher>();
     builder.Services.AddHostedService<WorkerRpcServer>();
@@ -66,6 +71,11 @@ logger.LogInformation(
     options.ParentPid,
     GCSettings.IsServerGC,
     options.EnableTestHooks);
+
+if (options.AllowMicrosoftSymbolServer)
+{
+    logger.LogWarning("Symbol server downloads are on (Symbols:AllowMicrosoftSymbolServer): a missing DAC may be downloaded from Microsoft's symbol server, which sends module identifiers (never dump contents)");
+}
 
 await host.RunAsync().ConfigureAwait(false);
 logger.LogInformation("Worker stopped");

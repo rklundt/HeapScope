@@ -94,6 +94,33 @@ public static class IndexCacheReader
         }
     }
 
+    /// <summary>
+    /// Checks a cache without reading its sections: present, header and directory valid, fingerprint equal. Returns
+    /// null when it would open (barring section corruption), otherwise the reason it would not.
+    /// </summary>
+    public static IndexCacheOpenResult? Probe(string path, SnapshotFingerprint expected)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        if (!File.Exists(path))
+        {
+            return IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Missing, $"No index cache at {path}.");
+        }
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return ReadDirectory(stream, expected, out _, out var failure) is null ? failure : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.IoError, $"The index cache could not be read: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is ArgumentException or OverflowException or InvalidDataException)
+        {
+            return IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Malformed, $"The index cache is malformed: {ex.Message}");
+        }
+    }
+
     /// <summary>Bytes the graph's sections would take in memory, from the directory; null when the cache is invalid.</summary>
     public static long? GetInMemoryBytes(string path)
     {

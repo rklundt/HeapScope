@@ -16,14 +16,16 @@ public sealed class ShellViewModelTests : IDisposable
     public ShellViewModelTests()
     {
         _operations = new WorkerOperations(_worker, new JobTracker(TimeProvider.System));
-        _shell = new ShellViewModel(_operations, new ImmediateUiDispatcher(), new HomeViewModel(_operations), new AboutViewModel(_operations));
+        var snapshots = new SnapshotsViewModel(
+            new Application.Snapshots.SnapshotSession(_worker, _operations.Jobs), _operations, new ImmediateUiDispatcher(), new FakeUserInteraction());
+        _shell = new ShellViewModel(_operations, new ImmediateUiDispatcher(), new HomeViewModel(_operations, snapshots), snapshots, new AboutViewModel(_operations));
     }
 
     [Fact]
     public void Shell_has_title_navigation_and_starts_on_home()
     {
         _shell.Title.ShouldBe($"HeapScope {ProductInfo.Version}");
-        _shell.NavigationItems.Select(n => n.Title).ShouldBe(["Home", "Jobs", "About"]);
+        _shell.NavigationItems.Select(n => n.Title).ShouldBe(["Home", "Snapshots", "Jobs", "About"]);
         _shell.SelectedItem.Page.ShouldBeSameAs(_shell.Home);
         _shell.WorkerStatus.ShouldBe("Worker not started");
     }
@@ -97,7 +99,7 @@ public sealed class ShellViewModelTests : IDisposable
     [Fact]
     public async Task About_page_shows_worker_details()
     {
-        var about = (AboutViewModel)_shell.NavigationItems[2].Page;
+        var about = (AboutViewModel)_shell.NavigationItems[3].Page;
 
         await about.RefreshCommand.ExecuteAsync(null);
 

@@ -20,6 +20,9 @@ public sealed class AllLeaksDump : IAsyncLifetime
 
     public DumpAnalysis Dump { get; private set; } = null!;
 
+    /// <summary>The dump file, shared with the loader tests (sprint 1.2).</summary>
+    public string DumpPath { get; private set; } = null!;
+
     public async ValueTask InitializeAsync()
     {
         var path = _folder.File("all-leaks.dmp");
@@ -34,6 +37,7 @@ public sealed class AllLeaksDump : IAsyncLifetime
             fixture.CaptureDump(path);
         }
 
+        DumpPath = path;
         Dump = DumpAnalysis.Open(path);
     }
 

@@ -12,7 +12,9 @@ namespace HeapScope.Cli;
 internal static class CliHost
 {
     /// <param name="attachPipe">When set, the CLI attaches to a running worker instead of launching one.</param>
-    public static IHost Build(string? attachPipe)
+    /// <param name="dacFolder">When set, overrides <c>Symbols:DacFolder</c> (<c>--dac-folder</c>).</param>
+    /// <param name="allowSymbolServer">When true, opts in to symbol server downloads (<c>--allow-symbol-server</c>).</param>
+    public static IHost Build(string? attachPipe, string? dacFolder = null, bool allowSymbolServer = false)
     {
         // System.CommandLine owns argument parsing, so the host gets no command line arguments.
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
@@ -28,9 +30,20 @@ internal static class CliHost
 
         builder.Services.AddHeapScopeApplication();
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SectionName));
+        builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SymbolsSectionName));
         if (!string.IsNullOrWhiteSpace(attachPipe))
         {
             builder.Services.PostConfigure<WorkerHostOptions>(o => o.AttachPipeName = attachPipe);
+        }
+
+        if (!string.IsNullOrWhiteSpace(dacFolder))
+        {
+            builder.Services.PostConfigure<WorkerHostOptions>(o => o.DacFolder = Path.GetFullPath(dacFolder));
+        }
+
+        if (allowSymbolServer)
+        {
+            builder.Services.PostConfigure<WorkerHostOptions>(o => o.AllowMicrosoftSymbolServer = true);
         }
 
         return builder.Build();

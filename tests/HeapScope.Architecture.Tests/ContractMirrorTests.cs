@@ -32,6 +32,8 @@ public class ContractMirrorTests
         foreach (var feature in Enum.GetValues<SnapshotFeatures>().Where(f => f != SnapshotFeatures.None))
         {
             CapabilityDescriptions.ExplainMissing(feature).ShouldNotStartWith("This snapshot does not support");
+            CapabilityDescriptions.ExplainMissing(feature, SnapshotKindDto.FullDump).ShouldNotStartWith("This snapshot does not support");
+            CapabilityDescriptions.ExplainMissing(feature, SnapshotKindDto.FullDump).ShouldNotContain("Capture a full dump", Case.Insensitive, feature.ToString());
         }
     }
 }

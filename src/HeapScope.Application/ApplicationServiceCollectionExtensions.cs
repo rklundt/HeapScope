@@ -23,6 +23,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<WorkerHost>());
         services.AddSingleton<JobTracker>();
         services.AddSingleton<WorkerOperations>();
+        services.AddSingleton<Snapshots.SnapshotSession>();
         return services;
     }
 }

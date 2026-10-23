@@ -5,6 +5,8 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>HeapScope</AssemblyName>
     <RootNamespace>HeapScope.UI.Wpf</RootNamespace>
+    <!-- Precompiled when published for a runtime (dotnet publish -r win-x64); measured in sprint 1.2. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />

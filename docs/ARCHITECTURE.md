@@ -77,11 +77,13 @@ tests/
   HeapScope.Core.Tests
   HeapScope.Analysis.Tests     Synthetic graphs with known answers.
   HeapScope.Storage.Tests
+  HeapScope.Loaders.ClrMd.Tests DAC lookup (local only) with real PE files; the loader itself runs in Integration.Tests.
   HeapScope.Application.Tests  Job tracking, logging and worker client logic with fakes.
   HeapScope.Worker.Tests       Worker internals: result set store, progress throttling, error mapping.
   HeapScope.UI.Wpf.Tests       View model tests (no windows are shown).
   HeapScope.Architecture.Tests Enforces the dependency rules below.
-  HeapScope.Integration.Tests  Real worker processes, fixtures, real dumps, known answers.
+  HeapScope.Integration.Tests  Real worker processes, fixtures, real dumps, known answers (ClrMD and the loader).
+                               References Loaders.ClrMd and Storage to test them in process.
 perf/
   HeapScope.Benchmarks         Console benchmarks against the budgets (synthetic 50M-object graph etc.).
 fixtures/
@@ -89,6 +91,8 @@ fixtures/
   LeakyApi                     ASP.NET Core API with switchable, scalable leaks.
   LeakyConsole                 Minimal console leaker for fast tests.
   LoadGen                      Load generator for LeakyApi; also captures dumps for the scripts.
+  DenseHeap                    Grows a dense heap of real Roslyn compiler objects (about 3 references per object)
+                               to a target size and waits to be dumped (sprint 1.2).
   KnownAnswers                 One JSON file per leak: what the analysis must find.
   scripts/                     Scripts producing Small and Medium sample dumps.
 ```
@@ -192,13 +196,21 @@ Rules:
   `WorkerStateChanged` event the UI shows as a banner.
 - The next request restarts the worker transparently. Every worker has an `InstanceId` (in `WorkerInfo`) and
   `IWorkerClient.Generation` increases with each connected worker, so callers can tell that worker-owned ids
-  (result sets, and snapshots from 1.2) belong to a dead worker. (Planned, 1.2:) Application owns stable snapshot
-  handles (path plus fingerprint), maps them to worker snapshot ids per generation and reopens lazily from the
-  index cache; a stale id fails with `SnapshotNotLoaded`.
+  (result sets, snapshots) belong to a dead worker. Application's `SnapshotSession` owns a stable `SnapshotHandle` per
+  opened file (keyed by the path that was opened, never by the path recorded in the cache), maps it to the worker's
+  snapshot id for one worker generation and reopens it lazily (`UseAsync`: before a call when the generation changed,
+  and once more when the worker answers `SnapshotNotLoaded`); a stale id fails with `SnapshotNotLoaded` (sprint 1.2).
+  A reopen asks for the index cache only (`OpenSnapshotRequest.RequireCache`) and keeps the mode the user chose: it
+  is cheap and silent, never an unrequested dump load, and a changed or uncached file fails with `SnapshotChanged` so
+  the user opens it again. A closed handle is never reopened; a reopen that finishes after a close closes its worker
+  snapshot again.
 - Error contract of `IWorkerClient`: calls fail only with `WorkerStartException`, `WorkerCrashedException`,
   `WorkerOperationException` or `OperationCanceledException`. A stopped or disposed host refuses to start a
   worker. The handshake is bounded by the connect timeout. In the worker, `WorkerErrors.GuardAsync` maps domain
-  exceptions to codes in one place (`CapabilityNotSupported`, `InsufficientMemory`, `InvalidArgument`). The UI
+  exceptions to codes in one place (`CapabilityNotSupported`, `InsufficientMemory`, `InvalidArgument`,
+  `RuntimeComponentMissing`, `SnapshotFormat`, `SnapshotUnavailable` for I/O and access failures with a next step,
+  `SnapshotChanged`) and logs every failure with its stack trace in the worker (warnings for coded errors, errors for
+  unexpected ones), so the client's message stays plain and the log keeps the details. The UI
   adds last-chance handlers (dispatcher, app domain, unobserved tasks) that log and show a plain message; the
   CLI command boundary prints a plain message and logs the stack trace.
 - Worker stderr is captured by the client and forwarded into the client's log (category `Worker`), so the
@@ -218,7 +230,10 @@ Rules:
   can cross the pipe (ADR-016). The worker maps Core values (for example `SnapshotCapabilities`) to their
   Contracts counterparts (`SnapshotFeatures`); a test keeps the numeric values of mirrored enums identical.
 - `WorkerProtocol.Version` is a constant in Contracts; a mismatch at handshake is a hard error with a clear
-  message.
+  message. Version 2 (sprint 1.2) added `ProbeSnapshotAsync` (file size, index cache state from its header and
+  fingerprint, open or not), `OpenSnapshotAsync`, `CloseSnapshotAsync`, `GetTypeSummaryAsync`, the snapshot DTOs
+  (`OpenSnapshotRequest` with `RequireCache`, `SnapshotDescriptor`, `SnapshotMemoryMode`, `SnapshotProbe`,
+  `SnapshotCacheState`) and the codes `RuntimeComponentMissing`, `SnapshotUnavailable` and `SnapshotChanged`.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -266,8 +281,13 @@ public interface ISnapshot : IDisposable
   services obtained with `snapshot.TryGetService<IFieldValueReader>(out var reader)`. A gcdump snapshot
   simply does not provide them.
 - `GraphSnapshot` (an `ISnapshot` with no services) strips `FieldValues`, `StringContents` and `ThreadStacks`
-  from whatever capabilities it is given, so it can never claim what it cannot answer. A full dump reopened from
-  the index cache uses its own `ISnapshot` that reopens the dump for those services (sprint 1.2).
+  from whatever capabilities it is given, so it can never claim what it cannot answer. In sprint 1.2 every snapshot,
+  first load or index cache, is a `GraphSnapshot`, so full dumps report those three as missing; a full-dump
+  `ISnapshot` that reopens the dump for those services is planned for 1.5. `CapabilityDescriptions.ExplainMissing`
+  takes the snapshot kind, so a full dump says "not available in this version yet" instead of "capture a full dump".
+- A full dump whose heap could not be read completely (unreadable objects, or a segment walk that covered noticeably
+  less than the segment, for example a truncated file) loses `CompleteGraph` and `ExactCounts` and carries a note.
+  A minidump without heap memory (MINIDUMP_TYPE without full or private read-write memory) is refused at open.
 
 ### 5.2 Capabilities
 `SnapshotCapabilities` is a `[Flags]` enum. Feature matrix:
@@ -340,7 +360,12 @@ Supporting tables:
   `ClrStaticField`) and records the field name as the root detail. The strong handle roots of the static storage
   arrays stay retaining (marking them non-retaining would make the storage arrays look unreachable); retention
   paths prefer a `StaticField` root over the storage handle, so they say `s_cache` and not
-  `StrongHandle -> Object[]`.
+  `StrongHandle -> Object[]`. Statics of collectible types (unloadable `AssemblyLoadContext`) live as long as their
+  loader allocator, so their `StaticField` roots are recorded without `Retaining`; the runtime's own references keep
+  them alive while the context is alive (a collectible fixture is a backlog item).
+- **Frozen objects.** Objects in frozen (NonGC) segments, such as string literals and `RuntimeType` objects, are never
+  collected. They have no root; reachability, dominator and garbage analyses (2.x) treat every `HeapKind.Frozen`
+  object as alive (a virtual root), so a literal referenced by nothing live is not reported as garbage.
 - **Finalizer queue.** Only the f-reachable queue (objects ready for finalization) produces `FinalizerQueue`
   roots. Objects merely registered for finalization are not roots; that fact is kept in the object `Flags`
   (`HasFinalizer`). `GC.SuppressFinalize` does not remove an object from the finalization queue (measured in 0.4:
@@ -348,7 +373,9 @@ Supporting tables:
   is therefore "registered and that bit clear", read from the header by the loader.
 - **Interior pointers.** Stack roots may point inside an object (byrefs). Roots flagged `Interior` are resolved
   with a floor search: the object with the largest address not above the pointer, accepted only when the pointer
-  is below that object's address plus size. All other roots and references use an exact match.
+  is below that object's address plus size. All other roots and references use an exact match. The loader passes
+  the raw pointer read from the stack slot, not ClrMD's resolved object, so this bounds check decides and a byref
+  into a free gap, a stack local or native memory is dropped.
 - **Stack roots of debuggable code.** In frames compiled as debuggable code (Debug builds), ClrMD reports no stack
   roots for some frames (measured in 0.4: the locals of parked fixture threads were missing in Debug and present,
   including an interior pointer, in Release). Objects held only by such frames can look unreachable. The UI states
@@ -394,6 +421,28 @@ Final columns are obtained from an `IColumnAllocator` given to the builder. Spri
 array allocator; a file-backed allocator that writes columns straight into index cache sections can be added
 later (first load on memory constrained machines, Large tier) without changing the builder.
 
+Full dump loader (sprint 1.2, `HeapScope.Loaders.ClrMd`: `ClrMdDumpLoader`, `DacLocator`, `LocalOnlyFileLocator`):
+- ClrMD reads the dump through its lock-free memory-mapped reader (`DataTargetOptions.UseLockFreeMemoryMapReader`):
+  dump pages are file-backed, not private memory, and the walk is about twice as fast as the default cached reader
+  (Medium: 15.8 s and 2.4 GB peak, against 36.6 s and 4.2 GB). ClrMD's data cache stays capped at 512 MB.
+- Object pass per segment (`ClrSegment.EnumerateObjects`): the heap kind comes from the segment kind, or from
+  `GetGeneration` on ephemeral and region segments; types are interned by method table on first sight;
+  `HasFinalizer` is `EnumerateFinalizableObjects` minus `ClrType.IsFinalizeSuppressed`.
+- After `FreezeObjects` the loader runs one aggressive, compacting collection: the phase-one chunks (about 20 bytes
+  per object) are garbage then, and otherwise stay committed through the reference pass, which is where a load peaks.
+- Dependent handles become edges before the reference pass; weak handles become non-retaining `WeakHandle` roots.
+- Reference pass in address order (`GetObject` per frozen address, `EnumerateReferenceAddresses` without dependent
+  handles), into a pooled buffer.
+- Roots: `ClrHeap.EnumerateRoots` (strong, pinned, async pinned and live ref-counted handles, stacks with the thread
+  as detail, the f-reachable queue). On .NET 9 and 10 it also reports the static storage bucket as `StaticVar` and
+  thread statics as `ThreadStaticVar`: the bucket maps to `StrongHandle` with the detail "static storage" and is kept
+  once; thread statics map to `Other`. `StaticField` roots come from `ClrModule.EnumerateTypesWithStaticFields` per
+  module and app domain (initialized reference statics, detail `Namespace.Type.field`). Statics of generic
+  instantiations missing from a module's type map are not reported; their values stay reachable through the storage
+  handle.
+- Modules compiled as debuggable code are recorded (cache metadata `DebuggableModules`) and shown as a note.
+- The snapshot's capture time is the minidump header's time stamp.
+
 Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`AddObject`, `FreezeObjects`,
 `AddDependentHandle`, `AddReferences` / `AddReferenceIndices`, `AddRoot` / `AddRootIndex`, `Build`),
 `HeapGraph` (columns, `GetSize`, `GetReferences`, `TryGetIndex`, `TryGetIndexContaining`, `TotalSize`,
@@ -420,14 +469,23 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
   does not fit, or when forced by configuration.
 - The memory budget (`MemoryBudget.Current`) defaults to 50% of total physical memory, capped by the memory available
   at that moment (read live from the operating system, with a GC hard limit as an extra cap), at open
-  time (`Worker:MemoryBudget`, configurable). On a 16 GB laptop running the target API and an IDE, a Medium
-  snapshot will usually open mapped; on 32 GB it opens in memory.
+  time. A request can force a mode; a configurable fraction is a backlog item. The synthetic job checks against the
+  same budget. On a 16 GB laptop running the target API and an IDE, a Medium snapshot will usually open mapped; on
+  32 GB it opens in memory.
 - First load builds in memory, then writes the cache. If the projected build footprint exceeds the budget,
   the Application layer warns before starting (ADR-004). The projection counts the graph columns, the builder's
   transient buffers and ClrMD's own caches; the ClrMD loader caps ClrMD's data cache explicitly.
 - When a snapshot switches to mapped mode after its first load, the worker drops the built arrays and runs one
   blocking, compacting gen2 collection with `GCLargeObjectHeapCompactionMode.CompactOnce`, so the memory really
-  returns to the OS. Sprint 1.2 measures this transition, not only a reopen.
+  returns to the OS. Measured in 1.2 (`load-dump`, Medium): 0.5 s, private bytes down to 59 MB after the drop and
+  66 MB with the graph mapped.
+- The worker's `SnapshotStore` applies this policy: a valid index cache is opened in the mode the budget chooses;
+  otherwise the dump is loaded, the cache written, and the graph either kept in memory or switched to mapped. After a
+  load, the mode is chosen once the load's garbage is collected, counting the graph's own memory as available (it
+  would be freed by going mapped), so a first load and a later reopen decide the same way. The clean-up collection
+  runs only after dump loads (and failed or canceled ones), never after a cache hit, because it pauses queries on
+  other snapshots. When the cache cannot be written the graph stays in memory, with a note. A request can force
+  either mode.
 - The Application layer may start the worker with `DOTNET_GCHeapHardLimit` derived from the budget, so an
   oversize load fails with a clear out-of-memory error instead of paging the laptop to a standstill.
 
@@ -493,11 +551,13 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Lifetime: `GraphSnapshot.Dispose` never blocks or throws. It refuses new leases and the last released lease
   disposes the graph (and unmaps the file), so queries and result sets that page over a snapshot can hold leases
   safely (6.5).
-- Versioning: any layout change of the base file bumps the format version.
+- Versioning: any layout change of the base file bumps the format version. Optional JSON fields in the metadata
+  section do not: 1.2 added `DebuggableModules` and `UnreadableObjects`, which read as null and 0 from older caches.
 - Measured (`index-cache`, synthetic 50M objects with 150M references, 1.6 GB file, reopened in a fresh process,
   mapped first, warm page cache): write 3.2 s; reopen mapped 0.6 s (+9 MB private, +202 MB working set),
-  scanning all edges of the mapped graph 0.2 s; reopen in memory 0.6 s (+1.6 GB private). A cold page cache and
-  antivirus scanning are not measured yet (backlog): a cold reopen adds at least the sequential read of the file.
+  scanning all edges of the mapped graph 0.2 s; reopen in memory 0.6 s (+1.6 GB private). Cold page cache (standby
+  list purged with administrator rights, run by the product owner on 2026-10-23): reopen mapped 1.0 s (+9 MB
+  private), in memory 0.8 s. Antivirus scanning of a freshly written cache is not measured separately.
 
 ## 8. Threading model
 - **UI**: view models are touched only on the dispatcher thread. All Application calls are `async` and
@@ -554,10 +614,10 @@ Initial budgets (sprints refine them with measurements):
 
 | Budget | Target | Measured |
 |---|---|---|
-| Medium (~4 GB, ~50M objects) first load on a 16 GB laptop | < 3 min | sprint 1.2 |
-| Medium reopen from index cache | < 20 s in memory; < 2 s mapped | 0.6 s in memory, 0.6 s mapped (sprint 0.5, synthetic 50M, fresh process, warm cache; cold not yet measured) |
-| Worker peak memory, Medium, in-memory mode (machines with room, e.g. 32 GB) | < 1.5x the dump's managed heap size | sprint 1.2 |
-| Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | sprint 1.2 |
+| Medium (~4 GB, ~50M objects) first load on a 16 GB laptop | < 3 min | 15.8 s on the fixture Medium dump (1.2, `load-dump`, 32 GB machine); about 20 s end to end in the UI smoke run |
+| Medium reopen from index cache | < 20 s in memory; < 2 s mapped | 0.6 s in memory, 0.6 s mapped warm; 0.8 s and 1.0 s cold (0.5, synthetic 50M); 0.6 s for the fixture Medium (1.2) |
+| Worker peak memory, Medium, in-memory mode (machines with room, e.g. 32 GB) | < 1.5x the dump's managed heap size | 2.4 GB for a 3.36 GB managed heap, 0.71x (1.2) |
+| Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | 2.4 GB (1.2, fixture Medium at 1.14 references per object) |
 | Worker private memory, Medium, mapped mode (after load) | < 1 GB | +9 MB private, +202 MB working set for the mapped graph (sprint 0.5, synthetic 50M) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | sprints 1.3, 1.4 |
@@ -581,8 +641,36 @@ ClrMD fit the 4 GB first-load budget. Caveat: the fixture heaps have 1.14 to 1.2
 2 to 4 assumed in 6.2 for real applications; 1.2 also measures a denser heap (for example a dump of a real
 ASP.NET Core application under load) before signing off its budgets.
 
-Before opening a snapshot the Application layer estimates the worker memory needed (dump size and the
-per-object budget) and warns when it exceeds available physical memory.
+Measured in sprint 1.2 with HeapScope's loader (`load-dump`, Release, 24 logical cores, 32 GB RAM, ClrMD cache 512 MB,
+memory-mapped dump reader):
+
+| Dump | Objects | References per object | Object pass | Reference pass | First load (with cache write) | Peak private bytes | Graph columns |
+|---|---|---|---|---|---|---|---|
+| Small (568 MB) | 5.6M | 1.23 | 1.3 s | 1.0 s | 3.7 s | 227 MB | 142 MB |
+| Medium (4,022 MB) | 57.5M | 1.14 | 7.0 s | 6.7 s | 15.8 s | 2,395 MB | 1,457 MB |
+| Roslyn compiler server (423 MB, a real application) | 0.35M | 2.01 | 0.4 s | 0.2 s | 1.7 s | 130 MB | 10 MB |
+| DenseHeap (4,440 MB; 3.4 GB heap of real Roslyn objects) | 54.1M | 3.03 | 27.5 s | 29.2 s | 64.4 s | 2,636 MB | 1,759 MB |
+
+The leak fixture heaps are sparse (1.1 to 1.2 references per object). The DenseHeap fixture (`fixtures/DenseHeap`,
+captured with `fixtures/scripts/New-DenseDump.ps1`) builds a Medium-size heap at real-application density out of the
+Roslyn compiler's own objects: first load 64 s against the 3 minute budget, peak 2.6 GB (0.78x the managed heap)
+against 4 GB, 34.1 bytes per object, nothing dropped, mapped transition 1.4 s down to 34 MB private. The benchmark ran
+right after the capture (the dump file partly cold); opened through the UI a minute later the worker loaded it in
+29.0 s, and reopened it from the index cache in 1.0 s, with the longest dispatcher operation 44 ms.
+
+Cancellation (acceptance criterion: a load stops within 2 s), measured on the DenseHeap dump with
+`load-dump --cancel-at <phase>`: canceled as "Opening dump" and "Reading objects" start 0.2 s, "Reading references"
+0.8 s (it includes the collection after freezing), "Reading roots" 1.1 s, "Building graph" 1.1 s. `load-dump` checks
+the budgets of this section (the 1.5x heap check passes any peak under 512 MB, so small dumps are not failed by fixed
+costs) and returns 1 when one is missed; the DenseHeap run met all of them (first load 58.9 s,
+peak 2.6 GB, mapped transition 1.0 s down to 33 MB private).
+
+Before opening a dump without an index cache, the Application layer estimates the first-load peak
+(`SnapshotMemoryEstimate`: 0.55 bytes per dump byte plus 768 MB, calibrated on the samples above; for the dense dump it
+gives 3.2 GB against the measured 2.6 GB) and warns when it exceeds available physical memory: the UI asks to
+continue, the CLI prints the warning (or fails with `--no-overcommit`). `SnapshotSession.GetOpenWarningAsync` holds the
+rule for both front ends; it asks the worker (`ProbeSnapshotAsync`) whether a valid index cache exists where the
+locator puts it, so a reopen from cache never warns.
 
 ## 11. Error handling and logging
 - Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file
@@ -601,6 +689,12 @@ per-object budget) and warns when it exceeds available physical memory.
 - Full dumps contain everything in the process memory: connection strings, tokens, personal data. HeapScope
   treats every dump and every index cache as sensitive.
 - Nothing is ever uploaded. There is no telemetry. Symbol and DAC downloads are off by default (ADR-017).
+- A dump is untrusted input. Paths recorded in it (the runtime's folder, module paths) never lead the worker to a
+  network share: the DAC lookup and ClrMD's file locator accept local fixed-drive paths only, and the dumped runtime's
+  folder only when it is an installed shared runtime folder. A DAC placed next to the dump or in `Symbols:DacFolder`
+  is native code the user chooses to trust, loaded only when its PE image matches the dump's index (or, when the dump
+  records none, its file version equals the runtime's). This local-only guarantee holds while the symbol server
+  opt-in is off; with it on, ClrMD's own locator is used.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
   contents.
@@ -721,7 +815,21 @@ sprint 0.1.
   opt-in setting (`Symbols:AllowMicrosoftSymbolServer`, default off) may later enable downloads, with a privacy
   note shown when it is turned on.
 - Consequences: dumps from machines with other runtime versions need a manual step unless the user opts in.
-  Implemented and tested in sprint 1.2.
+- Implemented in sprint 1.2 and confirmed by the product owner: `DacLocator` searches the dumped runtime's folder
+  (only inside an installed runtime folder, see the amendment), the installed shared runtimes, the dump's folder and
+  `Symbols:DacFolder`, and
+  accepts a file only when its PE time stamp and image size match the dump's index. `LocalOnlyFileLocator` replaces
+  ClrMD's default locator. The opt-in `Symbols:AllowMicrosoftSymbolServer` restores ClrMD's own lookup. A missing DAC
+  fails with `RuntimeComponentMissing` (1009) naming the runtime version, the file and the folders searched. The UI and
+  CLI read the `Symbols` section (the CLI also takes `--dac-folder` and `--allow-symbol-server`) and pass it to the
+  worker on its command line; the worker reads options from its command line only, never from environment variables
+  or settings files.
+- Amended in the 1.2 review: the opt-in is per installation (appsettings next to the executable, or the CLI options),
+  not per user. The privacy note is a warning logged by the client (shown on the CLI's stderr) and by the worker
+  whenever downloads are on. Candidate folders are local fixed-drive paths only; the dumped runtime's folder counts only
+  inside an installed runtime folder; every installed runtime folder is a candidate (the dump records the file
+  version, folders use the product version) and the PE match picks the right one; when the dump records no index the
+  file version must equal the runtime version.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

@@ -6,7 +6,10 @@ var root = CliCommands.Build(() => host!.Services);
 var parseResult = root.Parse(args);
 
 // The worker attach pipe must be known before the host is built.
-host = CliHost.Build(parseResult.GetValue(CliCommands.PipeOption));
+host = CliHost.Build(
+    parseResult.GetValue(CliCommands.PipeOption),
+    parseResult.GetValue(CliCommands.DacFolderOption),
+    parseResult.GetValue(CliCommands.AllowSymbolServerOption));
 using (host)
 {
     await host.StartAsync().ConfigureAwait(false);

@@ -1,3 +1,4 @@
+using System.IO;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 
@@ -18,7 +19,11 @@ internal sealed class FakeWorkerClient : IWorkerClient
 
     public event EventHandler<WorkerStateChangedEventArgs>? StateChanged;
 
-    public Task<WorkerInfo> EnsureStartedAsync(CancellationToken cancellationToken) => Task.FromResult(Info!);
+    public Task<WorkerInfo> EnsureStartedAsync(CancellationToken cancellationToken)
+    {
+        State = WorkerState.Running;
+        return Task.FromResult(Info!);
+    }
 
     public Task<T> InvokeAsync<T>(Func<IWorkerService, CancellationToken, Task<T>> call, CancellationToken cancellationToken) =>
         call(Service, cancellationToken);
@@ -66,8 +71,52 @@ internal sealed class FakeWorkerService : IWorkerService
         return _synthetic.Task;
     }
 
+    public List<OpenSnapshotRequest> Opened { get; } = [];
+
+    public List<Guid> Closed { get; } = [];
+
+    /// <summary>Rows returned by every page: type, count, bytes.</summary>
+    public List<IReadOnlyList<string?>> Rows { get; } = [];
+
+    public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+        {
+            throw new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.InvalidArgument, $"The file {path} does not exist.", null);
+        }
+
+        var cache = path + ".hsidx";
+        var state = File.Exists(cache) ? SnapshotCacheState.Valid : SnapshotCacheState.Missing;
+        return Task.FromResult(new SnapshotProbe(path, new FileInfo(path).Length, state, cache, null, false));
+    }
+
+    /// <summary>When set, the next opens fail with it.</summary>
+    public Exception? OpenFailure { get; set; }
+
+    public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (OpenFailure is { } failure)
+        {
+            return Task.FromException<SnapshotDescriptor>(failure);
+        }
+
+        Opened.Add(request);
+        return Task.FromResult(new SnapshotDescriptor(
+            Guid.NewGuid(), request.Path, SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, "App", 42, "10.0.13", null,
+            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."]));
+    }
+
+    public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
+    {
+        Closed.Add(snapshotId);
+        return Task.CompletedTask;
+    }
+
+    public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        Task.FromResult(new ResultSetInfo(Guid.NewGuid(), Rows.Count, []));
+
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken) =>
-        Task.FromResult(new ResultPage(resultSetId, offset, 0, []));
+        Task.FromResult(new ResultPage(resultSetId, offset, Rows.Count, [.. Rows.Skip(offset).Take(count)]));
 
     public Task ReleaseResultSetAsync(Guid resultSetId, CancellationToken cancellationToken)
     {
@@ -80,4 +129,22 @@ internal sealed class FakeWorkerService : IWorkerService
     public Task CrashForTestingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public Task HangForTestingAsync(IProgress<JobProgress>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+/// <summary>Scripted dialogs.</summary>
+internal sealed class FakeUserInteraction : HeapScope.UI.Wpf.Services.IUserInteraction
+{
+    public string? NextFile { get; set; }
+
+    public bool Answer { get; set; } = true;
+
+    public List<string> Questions { get; } = [];
+
+    public string? PickDumpFile() => NextFile;
+
+    public bool Confirm(string title, string message)
+    {
+        Questions.Add(message);
+        return Answer;
+    }
 }

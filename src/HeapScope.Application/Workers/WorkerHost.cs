@@ -363,6 +363,20 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         info.ArgumentList.Add(pipeName);
         info.ArgumentList.Add("--parent-pid");
         info.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        if (!string.IsNullOrWhiteSpace(_options.DacFolder))
+        {
+            info.ArgumentList.Add("--dac-folder");
+            info.ArgumentList.Add(_options.DacFolder);
+        }
+
+        if (_options.AllowMicrosoftSymbolServer)
+        {
+            // The worker logs a warning too; this one reaches the CLI's stderr and the UI log (ADR-017 privacy note).
+            _logger.LogWarning("Symbol server downloads are on: a missing DAC may be downloaded from Microsoft's symbol server (module identifiers only, never dump contents).");
+            info.ArgumentList.Add("--allow-symbol-server");
+            info.ArgumentList.Add("true");
+        }
+
         if (_options.EnableTestHooks)
         {
             info.ArgumentList.Add("--enable-test-hooks");

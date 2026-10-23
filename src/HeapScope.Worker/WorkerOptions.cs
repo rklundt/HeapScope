@@ -11,6 +11,15 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
     /// <summary>Flag (no value) that enables the crash and hang test hooks.</summary>
     public const string EnableTestHooksSwitch = "--enable-test-hooks";
 
+    /// <summary>Configuration section of the DAC lookup options (ADR-017).</summary>
+    public const string SymbolsSectionName = "Symbols";
+
+    /// <summary>A user folder searched for the data access component (<c>--dac-folder</c>).</summary>
+    public string? DacFolder { get; init; }
+
+    /// <summary>Opt-in: let ClrMD download a missing DAC from Microsoft's symbol server (<c>--allow-symbol-server true</c>).</summary>
+    public bool AllowMicrosoftSymbolServer { get; init; }
+
     /// <summary>How long the worker waits for its client before giving up.</summary>
     public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
@@ -19,6 +28,8 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
     {
         ["--pipe"] = $"{SectionName}:Pipe",
         ["--parent-pid"] = $"{SectionName}:ParentPid",
+        ["--dac-folder"] = $"{SymbolsSectionName}:DacFolder",
+        ["--allow-symbol-server"] = $"{SymbolsSectionName}:AllowMicrosoftSymbolServer",
     };
 
     /// <summary>
@@ -51,7 +62,20 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
             parentPid = pid;
         }
 
-        options = new WorkerOptions(pipe, parentPid, enableTestHooks);
+        var symbols = configuration.GetSection(SymbolsSectionName);
+        var rawAllow = symbols["AllowMicrosoftSymbolServer"];
+        var allow = false;
+        if (rawAllow is not null && !bool.TryParse(rawAllow, out allow))
+        {
+            error = $"Invalid --allow-symbol-server '{rawAllow}': expected true or false.";
+            return false;
+        }
+
+        options = new WorkerOptions(pipe, parentPid, enableTestHooks)
+        {
+            DacFolder = string.IsNullOrWhiteSpace(symbols["DacFolder"]) ? null : symbols["DacFolder"],
+            AllowMicrosoftSymbolServer = allow,
+        };
         error = null;
         return true;
     }
