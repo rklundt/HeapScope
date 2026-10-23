@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "name": "UnboundedDictionary",
+  "kind": "leak",
+  "description": "A static ConcurrentDictionary<string, SessionRecord> keyed by unique strings.",
+  "types": [
+    { "type": "Fixtures.Leaks.SessionRecord", "perItem": 1 }
+  ],
+  "census": [
+    { "type": "Fixtures.Leaks.SessionRecord", "perItem": 1, "shallowBytes": 32 },
+    { "type": "System.Collections.Concurrent.ConcurrentDictionary<System.String, Fixtures.Leaks.SessionRecord>+Node", "perItem": 1, "exact": false, "shallowBytes": 48 },
+    { "type": "System.Byte[]", "perItem": 1, "exact": false },
+    { "type": "System.String", "perItem": 1, "exact": false }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.UnboundedDictionaryLeak", "field": "s_sessions" } ],
+  "runtimeRoot": { "rootKind": "StrongHandle", "container": "System.Object[]" },
+  "growingCollection": "System.Collections.Concurrent.ConcurrentDictionary<System.String, Fixtures.Leaks.SessionRecord>+Tables",
+  "pathShape": [ "Fixtures.Leaks.UnboundedDictionaryLeak.s_sessions", "System.Collections.Concurrent.ConcurrentDictionary", "+Tables", "+VolatileNode[]", "+Node", "Fixtures.Leaks.SessionRecord" ],
+  "minRetainedBytesPerItem": { "base": 56, "payloadMultiplier": 1 },
+  "notes": "Buckets are a VolatileNode[] (an array of structs) whose embedded _node field holds the first Node; later nodes of a bucket follow Node._next. The Node dominates the record and its key string; the record retains only itself and its payload. Node counts are not exact: a resize recreates every node, and the old ones stay on the heap as garbage until a collection."
+}

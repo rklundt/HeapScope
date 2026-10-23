@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "name": "ConditionalWeakTable",
+  "kind": "semantics",
+  "description": "A ConditionalWeakTable<CwtKey, CwtValue> with N rooted keys; N more keys died and were collected before the dump.",
+  "types": [
+    { "type": "Fixtures.Leaks.CwtKey", "perItem": 1 },
+    { "type": "Fixtures.Leaks.CwtValue", "perItem": 1 }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.SemanticFixtures", "field": "s_liveKeys", "itemType": "Fixtures.Leaks.CwtValue" } ],
+  "pathShape": [ "Fixtures.Leaks.SemanticFixtures.s_liveKeys", "System.Collections.Generic.List", "Fixtures.Leaks.CwtKey[]", "Fixtures.Leaks.CwtKey", "(dependent handle)", "Fixtures.Leaks.CwtValue" ],
+  "minRetainedBytesPerItem": { "base": 112, "payloadMultiplier": 0 },
+  "notes": "Values are retained only through dependent handles from live keys (ARCHITECTURE.md 6.1). Retained bytes are measured from a CwtKey: the key, its value and the value's 64 byte array. No CwtValue may be reported as a root. The dead-key case still on the heap is LateGarbage."
+}

@@ -24,8 +24,9 @@ public enum ObjectFlags : byte
     None = 0,
 
     /// <summary>
-    /// The object is registered in the finalization queue and finalization was not suppressed (sourced from the
-    /// runtime's finalizable-object list, not from the type). Not a root by itself (ARCHITECTURE.md 6.1).
+    /// The object is registered in the finalization queue and finalization was not suppressed: registered in the
+    /// runtime's finalizable-object list and bit 0x40000000 of the object header clear (GC.SuppressFinalize sets it
+    /// without removing the object from the queue). Not a root by itself (ARCHITECTURE.md 6.1).
     /// </summary>
     HasFinalizer = 1 << 0,
 }

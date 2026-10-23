@@ -37,14 +37,35 @@ dotnet test --solution HeapScope.sln
 Build output: UI and CLI get the worker deployed into a `worker/` subfolder of their output by
 `build/Worker.Deploy.targets`.
 
-## 3. Fixtures and sample dumps (planned, sprint 0.4)
-- `fixtures/LeakyApi`: run with `dotnet run --project fixtures/LeakyApi`. Leaks are switched on and sized via
-  configuration or the `/leaks/*` endpoints (see the fixture README).
-- `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak <name> --count <n>`.
-- `fixtures/LoadGen`: drives LeakyApi and can capture a dump when done.
-- `fixtures/scripts/New-SampleDump.ps1 -Tier Small|Medium` produces sample dumps into `artifacts/dumps/`
-  (git-ignored).
-- `fixtures/KnownAnswers/*.json`: what the analysis must find for each leak.
+## 3. Fixtures and sample dumps
+Leak names: `StaticCache`, `EventHandler`, `Closure`, `UndisposedList`, `UnboundedDictionary` (shared code in
+`fixtures/Leaks`, namespace `Fixtures.Leaks`; each leak is rooted by a static field of its leak class). Fixture
+projects are always compiled optimized (they stand in for production apps; see ARCHITECTURE.md 6.1 on stack roots
+of debuggable code) and exit when the process given as parent exits.
+- `fixtures/LeakyApi`: `dotnet run --project fixtures/LeakyApi -- --urls http://127.0.0.1:5080
+  --Leaks:Enabled=all --Leaks:ItemsPerRequest=100 --Leaks:PayloadBytes=64 [--Leaks:Publishers=N] [--ParentPid=P]`.
+  Prints `READY pid=<pid> url=<url>` when listening (use port 0 for a free port). `POST /work` grows every enabled
+  leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
+  `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
+- `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2 --count N
+  --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--parent-pid P]`;
+  prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
+  embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and
+  parked thread fixtures, `--late-garbage` dead table entries and weak-only objects created after the last full GC.
+- `fixtures/LoadGen`: `LoadGen --url <url> --requests N --concurrency C [--dump <path> --pid <pid>
+  [--dump-type Full|WithHeap]]` drives `POST /work`, then optionally writes a dump of the target.
+- `fixtures/scripts/New-SampleDump.ps1 -Tier Small|Medium [-Port N]` builds the fixtures, checks the port, runs
+  LeakyApi with all leaks (its output goes to a `.log` next to the dump), drives it with LoadGen and writes a full
+  dump into `artifacts/dumps/` (git-ignored); a failed run deletes its partial dump and a size outside the tier's
+  range is warned about. Measured: Small about 560 MB (5.6M objects) in about 10 s; Medium 4.0 GB (57.5M objects)
+  in about 12 s, needing about 4 GB of RAM while running.
+- `fixtures/KnownAnswers/*.json`: what the analysis must find for each leak and semantic fixture (format version 1
+  and path shape grammar in its README). Integration tests verify every field with ClrMD (`KnownAnswerTests`,
+  `DisabledLeakTests`, `LeakyApiGrowthTests`). Test harness: `FixtureProcess` (start LeakyConsole or LeakyApi,
+  drive, capture any number of dumps, always killed), `DumpAnalysis` (ClrMD checks), `TempFolder`.
+- Benchmarks `dump-stats --dump <path> [--by-address 1] [--cache-mb N]` (ClrMD walk: objects, heap, references,
+  timings, peak private bytes and working set) and `stack-roots --dump <path>` (diagnostic: stack roots per thread
+  and frame). Both are measurement only, without a budget check.
 
 ## 4. Coding conventions
 - **Naming**: .NET conventions. `PascalCase` types and members, `_camelCase` private fields, `s_camelCase`

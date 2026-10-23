@@ -1,0 +1,13 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- Fixture code leaks memory on purpose; analyzers about disposal and allocation do not apply. -->
+    <NoWarn>$(NoWarn);CA2000;CA1001</NoWarn>
+    <!--
+      Fixtures stand in for production applications, so they are always optimized. In debuggable code ClrMD
+      reports no stack roots for some frames (found in sprint 0.4: locals of the parked fixture threads were
+      missing in Debug builds and present in Release builds).
+    -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+</Project>
