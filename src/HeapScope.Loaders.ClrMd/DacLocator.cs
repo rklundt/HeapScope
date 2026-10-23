@@ -57,7 +57,14 @@ public static class DacLocator
             }
         }
 
-        Add(Path.GetDirectoryName(Path.GetFullPath(dumpPath)));
+        var dumpFolder = Path.GetDirectoryName(Path.GetFullPath(dumpPath));
+        Add(dumpFolder);
+
+        // HeapScope's capture keeps the target's DAC under dac\<file version> next to the dump (sprint 1.1).
+        if (dumpFolder is not null)
+        {
+            Add(Path.Combine(dumpFolder, "dac", request.RuntimeVersion));
+        }
         Add(options.DacFolder);
         return result;
     }

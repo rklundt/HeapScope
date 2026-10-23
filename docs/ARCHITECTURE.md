@@ -54,6 +54,47 @@ Capture (process discovery, dump writing, live counters) runs in the UI or CLI p
 Application layer, because it is light and needs the caller's elevation. Everything that touches snapshot
 contents runs in the worker.
 
+Capture and sessions (sprint 1.1):
+- `HeapScope.Capture`: `ProcessDiscovery` lists processes with a diagnostics port
+  (`DiagnosticsClient.GetPublishedProcesses`) with name, working set, private bytes, start time, command line
+  (`NtQueryInformationProcess`, limited query rights), runtime version and folder (the loaded `coreclr.dll`; single-file
+  apps have none) and elevation. HeapScope's own processes (this pid, and executables under its installation folder,
+  the worker included) are never listed or captured, matched by path, not name. A detail that cannot be read stays
+  empty. `WindowsElevationProbe` reads token elevation for targets and for HeapScope itself (one rule): a token that
+  cannot be opened for query (elevated, or another user's, such as services running as SYSTEM) or that reports
+  elevation means only an elevated HeapScope can dump it.
+- `DumpCapturer`: checks elevation and free space before asking the runtime for a full dump (`DumpType.Full`: module
+  images are in the dump, so it never depends on finding the exact module files). The estimate is measured, not
+  guessed: the target's committed readable pages from a `VirtualQueryEx` walk plus 16 MB of streams; when the walk is
+  denied, private bytes x 1.1 + 384 MB for images and mapped files + 16 MB. Free space comes from
+  `GetDiskFreeSpaceEx` on the folder itself (UNC paths and mount points), and 1 GB is always left free. The dump is
+  written to `<name>.dmp.partial` and renamed only on success; an existing file is never overwritten. The runtime's
+  createdump runs inside the target under the target's account and cannot be stopped safely, so a cancel waits until
+  it has written the file and then deletes it (measured: a 200 ms cancel used to leave a complete 203 MB dump). The
+  front ends keep the process alive for that: the CLI gives Ctrl+C up to an hour (System.CommandLine's
+  `ProcessTerminationTimeout`; its 2 second default would exit with the dump on disk, and null would turn Ctrl+C off),
+  and closing the UI cancels running jobs and waits for them. As a safety net for killed runs, half-written
+  `*.dmp.partial` files older than 10 minutes and no longer held are removed when capture starts.
+  Failures are specific: `ElevationRequiredException`, `InsufficientDiskSpaceException`, `TargetUnavailableException`,
+  `DumpFileExistsException`, `DumpWriteFailedException` (runtime errors decoded: disk full, or the target's account
+  cannot write the folder, with `--out` as the next step). Progress says the target is paused while its memory is
+  written.
+- Application: `SessionLibrary` keeps sessions under `%LOCALAPPDATA%\HeapScope\sessions` (`Sessions:Root`; a relative
+  root is under `%LOCALAPPDATA%\HeapScope`), one folder per session (`yyyyMMdd-HHmmss[-name]`, claimed by creating its
+  `session.json` exclusively, so parallel runs never share one) with `session.json` (format version 1: name, created,
+  last opened, snapshots with id, file, label, kind, source, process, runtime version and folder, capture time, size;
+  unknown members are kept on save, so an older build never drops what a newer one wrote). Every change is a
+  read-modify-write under a cross-process lock file (`session.lock`) with a unique temporary file flushed to disk.
+  The current session is created when the first capture passes its checks (a refused capture leaves no folder), or
+  chosen with `Open` (Home's Open, CLI `--session`). `CaptureService` (behind `ICaptureService`) lists processes off
+  the calling thread, runs captures as tracked jobs with collision-free file names into the session that was current
+  when the capture started, copies the target's `mscordaccore.dll` to `dac\<file version>\` next to the dump (the
+  loader searches it; the dump stays readable after the runtime on this machine is updated, for self-contained apps,
+  and with several runtimes in one session), records the snapshot, and logs start, end and failures. Every capture states that the dump
+  contains secrets and where it was written. Front ends see only Application types: `ICaptureService`, `ProcessEntry`
+  (with `ProcessElevation` and `NeedsAdministrator`) and `CaptureFailedException` with a `CaptureFailure` reason (the
+  architecture test caught the first draft using Capture types in UI and CLI).
+
 ## 3. Solution layout and layers
 
 ```
@@ -78,6 +119,7 @@ tests/
   HeapScope.Analysis.Tests     Synthetic graphs with known answers.
   HeapScope.Storage.Tests
   HeapScope.Loaders.ClrMd.Tests DAC lookup (local only) with real PE files; the loader itself runs in Integration.Tests.
+  HeapScope.Capture.Tests      Capture preflight (elevation, disk, partial files) with fakes; the real probe.
   HeapScope.Application.Tests  Job tracking, logging and worker client logic with fakes.
   HeapScope.Worker.Tests       Worker internals: result set store, progress throttling, error mapping.
   HeapScope.UI.Wpf.Tests       View model tests (no windows are shown).
@@ -698,7 +740,10 @@ locator puts it, so a reopen from cache never warns.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
   contents.
-- The UI warns once per capture that the dump may contain secrets and shows where it was written.
+- The UI and the CLI say once per capture that the dump contains secrets and where it was written.
+- Dumps live in the session folders under `%LOCALAPPDATA%\HeapScope\sessions` (inheriting the user-only ACL of the
+  user's profile) unless `--out` puts them elsewhere; HeapScope never moves them. Deleting snapshots and sessions from
+  the UI and CLI, and a retention rule, are backlog items; until then, the folders can be deleted by hand.
 - Elevated targets require HeapScope to run elevated (ADR-014). HeapScope never tries to elevate silently.
 
 ## 13. Architecture Decision Records
@@ -782,6 +827,9 @@ sprint 0.1.
 ### ADR-014 Elevation
 - Decision: dumping or attaching to elevated processes requires HeapScope to run elevated. Detect this and
   explain it clearly; never fail silently.
+- Implemented in sprint 1.1: the process list marks such targets ("Needs administrator", with a hint), and a capture
+  is refused before the runtime is asked, with "Run HeapScope as administrator". Tested with a fake probe, and against
+  the real elevated .NET services on the development machine. HeapScope never elevates itself.
 
 ### ADR-015 Adaptive memory modes (added 2026-10-22, follows from the ADR-004 amendment)
 - Context: on a 16 GB laptop the target API, an IDE and the worker compete for memory; a Medium snapshot with
@@ -827,7 +875,8 @@ sprint 0.1.
 - Amended in the 1.2 review: the opt-in is per installation (appsettings next to the executable, or the CLI options),
   not per user. The privacy note is a warning logged by the client (shown on the CLI's stderr) and by the worker
   whenever downloads are on. Candidate folders are local fixed-drive paths only; the dumped runtime's folder counts only
-  inside an installed runtime folder; every installed runtime folder is a candidate (the dump records the file
+  inside an installed runtime folder; `dac\<runtime file version>` next to the dump is a candidate (where capture keeps
+  the target's DAC, sprint 1.1); every installed runtime folder is a candidate (the dump records the file
   version, folders use the product version) and the PE match picks the right one; when the dump records no index the
   file version must equal the runtime version.
 

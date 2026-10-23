@@ -34,7 +34,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _crashMessage;
 
-    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, AboutViewModel about)
+    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about)
     {
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -45,6 +45,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         [
             new NavigationItem("Home", Home),
             new NavigationItem("Snapshots", Snapshots),
+            new NavigationItem("Processes", processes ?? throw new ArgumentNullException(nameof(processes))),
             new NavigationItem("Jobs", JobsPage),
             new NavigationItem("About", about ?? throw new ArgumentNullException(nameof(about))),
         ];
@@ -54,6 +55,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             AddJob(job);
         }
+
+        Home.RefreshSessionsCommand.Execute(null);
 
         // Opening a snapshot (from Home or the Snapshots page) shows it.
         Snapshots.PropertyChanged += OnSnapshotsPropertyChanged;
@@ -102,6 +105,20 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void DismissCrashBanner() => IsCrashBannerVisible = false;
+
+    /// <summary>Pages that show live data refresh when they are shown.</summary>
+    partial void OnSelectedItemChanged(NavigationItem value)
+    {
+        switch (value?.Page)
+        {
+            case ProcessesViewModel processes when processes.RefreshCommand.CanExecute(null):
+                processes.RefreshCommand.Execute(null);
+                break;
+            case HomeViewModel home when home.RefreshSessionsCommand.CanExecute(null):
+                home.RefreshSessionsCommand.Execute(null);
+                break;
+        }
+    }
 
     private void OnSnapshotsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {

@@ -15,7 +15,7 @@ using (host)
     await host.StartAsync().ConfigureAwait(false);
     try
     {
-        return await parseResult.InvokeAsync().ConfigureAwait(false);
+        return await parseResult.InvokeAsync(CliCommands.CreateInvocationConfiguration()).ConfigureAwait(false);
     }
     finally
     {

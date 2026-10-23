@@ -40,6 +40,7 @@ internal static class UiHost
         builder.Services.AddHeapScopeApplication();
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SectionName));
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SymbolsSectionName));
+        builder.Services.Configure<HeapScope.Application.Sessions.SessionOptions>(builder.Configuration.GetSection(HeapScope.Application.Sessions.SessionOptions.SectionName));
 
         var smoke = builder.Configuration["smoke-synthetic"];
         builder.Services.AddSingleton(new UiOptions(
@@ -54,7 +55,14 @@ internal static class UiHost
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<IUiDispatcher>(),
             sp.GetRequiredService<IUserInteraction>()));
-        builder.Services.AddSingleton<HomeViewModel>(sp => new HomeViewModel(sp.GetRequiredService<WorkerOperations>(), sp.GetRequiredService<SnapshotsViewModel>()));
+        builder.Services.AddSingleton<HomeViewModel>(sp => new HomeViewModel(
+            sp.GetRequiredService<WorkerOperations>(),
+            sp.GetRequiredService<SnapshotsViewModel>(),
+            sp.GetRequiredService<HeapScope.Application.Sessions.SessionLibrary>()));
+        builder.Services.AddSingleton<ProcessesViewModel>(sp => new ProcessesViewModel(
+            sp.GetRequiredService<HeapScope.Application.Sessions.ICaptureService>(),
+            sp.GetRequiredService<SnapshotsViewModel>(),
+            sp.GetRequiredService<IUserInteraction>()));
         builder.Services.AddSingleton<AboutViewModel>();
         builder.Services.AddSingleton<ShellViewModel>();
         builder.Services.AddSingleton<MainWindow>();

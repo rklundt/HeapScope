@@ -30,6 +30,9 @@ internal sealed class ChildProcess : IDisposable
         }
     }
 
+    /// <summary>Session library root for every front end a test starts (sprint 1.1).</summary>
+    public static string TestSessionsRoot { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HeapScopeTests", "sessions");
+
     public static ChildProcess Start(string fileName, params string[] arguments)
     {
         var info = new ProcessStartInfo(fileName)
@@ -43,6 +46,9 @@ internal sealed class ChildProcess : IDisposable
         {
             info.ArgumentList.Add(argument);
         }
+
+        // HeapScope front ends started by tests keep their session folders out of the user's real library.
+        info.Environment["Sessions__Root"] = TestSessionsRoot;
 
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         var child = new ChildProcess(process);

@@ -32,6 +32,7 @@ public sealed class DacLocatorTests : IDisposable
             @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13-custom",
             @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13",
             @"C:\dumps",
+            @"C:\dumps\dac\10.0.13",
             @"C:\dacs"]);
     }
 
@@ -41,7 +42,7 @@ public sealed class DacLocatorTests : IDisposable
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], SearchDumpedRuntimeDirectory = false };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\x"), @"C:\dumps\app.dmp", options)
-            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps"]);
+            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps", @"C:\dumps\dac\10.0.13"]);
     }
 
     [Theory]
@@ -55,7 +56,7 @@ public sealed class DacLocatorTests : IDisposable
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"] };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: recorded), @"C:\dumps\app.dmp", options)
-            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps"]);
+            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps", @"C:\dumps\dac\10.0.13"]);
     }
 
     [Theory]

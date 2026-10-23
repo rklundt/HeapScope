@@ -1,0 +1,123 @@
+using System.IO;
+using HeapScope.Application;
+using HeapScope.Application.Jobs;
+using HeapScope.Application.Sessions;
+using HeapScope.Application.Snapshots;
+using HeapScope.UI.Wpf.Services;
+using HeapScope.UI.Wpf.ViewModels;
+
+namespace HeapScope.UI.Wpf.Tests;
+
+public sealed class ProcessesViewModelTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "HeapScopeTests", Guid.NewGuid().ToString("N"));
+    private readonly FakeWorkerClient _worker = new();
+    private readonly FakeUserInteraction _interaction = new();
+    private readonly JobTracker _jobs = new(TimeProvider.System);
+    private readonly FakeCaptureService _capture;
+    private readonly SnapshotsViewModel _snapshots;
+    private readonly ProcessesViewModel _processes;
+
+    public ProcessesViewModelTests()
+    {
+        var operations = new WorkerOperations(_worker, _jobs);
+        _snapshots = new SnapshotsViewModel(new SnapshotSession(_worker, _jobs), operations, new ImmediateUiDispatcher(), _interaction);
+        _capture = new FakeCaptureService(_root, _jobs);
+        _processes = new ProcessesViewModel(_capture, _snapshots, _interaction);
+        _capture.Processes.Add(new ProcessEntry(10, "Api", "Api.exe --urls x", "10.0.13", ProcessElevation.NotElevated, false, 1000, 2000));
+        _capture.Processes.Add(new ProcessEntry(20, "Service", null, null, ProcessElevation.Elevated, false, 3000, 4000));
+    }
+
+    [Fact]
+    public async Task Refresh_lists_processes_and_shows_the_elevation_hint()
+    {
+        await _processes.RefreshCommand.ExecuteAsync(null);
+
+        _processes.Processes.Select(p => p.Name).ShouldBe(["Api", "Service"]);
+        _processes.Processes[1].Elevation.ShouldBe("Needs administrator");
+        _processes.Processes[0].Elevation.ShouldBeEmpty();
+        _processes.ShowElevationHint.ShouldBeTrue();
+        _processes.CaptureCommand.CanExecute(null).ShouldBeFalse("nothing selected");
+    }
+
+    [Fact]
+    public async Task An_elevated_HeapScope_shows_no_hint()
+    {
+        _capture.IsHeapScopeElevated = true;
+
+        await _processes.RefreshCommand.ExecuteAsync(null);
+
+        _processes.ShowElevationHint.ShouldBeFalse();
+        _processes.Processes[1].Elevation.ShouldBe("Elevated");
+    }
+
+    [Fact]
+    public async Task Capture_writes_into_the_session_shows_the_secrets_note_and_offers_to_open()
+    {
+        await _processes.RefreshCommand.ExecuteAsync(null);
+        _processes.Selected = _processes.Processes[0];
+
+        await _processes.CaptureCommand.ExecuteAsync(null);
+
+        File.Exists(_processes.LastCapturePath).ShouldBeTrue();
+        _processes.LastCapturePath!.ShouldStartWith(_root);
+        var question = _interaction.Questions.ShouldHaveSingleItem();
+        question.ShouldContain("never uploads");
+        question.ShouldContain("Open the dump now?");
+        _worker.Service.Opened.ShouldHaveSingleItem().Path.ShouldBe(_processes.LastCapturePath);
+    }
+
+    [Fact]
+    public async Task Capturing_an_elevated_process_explains_how_to_run_as_administrator()
+    {
+        await _processes.RefreshCommand.ExecuteAsync(null);
+        _processes.Selected = _processes.Processes[1];
+
+        await _processes.CaptureCommand.ExecuteAsync(null);
+
+        _processes.Status!.ShouldContain("Run HeapScope as administrator");
+        _processes.LastCapturePath.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Any_capture_failure_is_shown_as_the_status()
+    {
+        _capture.Failure = new CaptureFailedException(CaptureFailure.WriteFailed, "The disk is full.", null);
+        await _processes.RefreshCommand.ExecuteAsync(null);
+        _processes.Selected = _processes.Processes[0];
+
+        await _processes.CaptureCommand.ExecuteAsync(null);
+
+        _processes.Status.ShouldBe("The disk is full.");
+        _processes.IsBusy.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Home_lists_recent_sessions_and_opening_one_makes_it_current_and_opens_its_latest_snapshot()
+    {
+        await _processes.RefreshCommand.ExecuteAsync(null);
+        _processes.Selected = _processes.Processes[0];
+        _interaction.Answer = false;
+        await _processes.CaptureCommand.ExecuteAsync(null);
+        var library = new SessionLibrary(_root);
+        var home = new HomeViewModel(new WorkerOperations(_worker, _jobs), _snapshots, library);
+
+        await home.RefreshSessionsCommand.ExecuteAsync(null);
+        await home.OpenSessionCommand.ExecuteAsync(home.RecentSessions.ShouldHaveSingleItem());
+
+        _worker.Service.Opened.ShouldHaveSingleItem().Path.ShouldBe(_processes.LastCapturePath);
+        library.Current.Folder.ShouldBe(Path.GetDirectoryName(_processes.LastCapturePath));
+    }
+
+    public void Dispose()
+    {
+        _snapshots.Dispose();
+        try
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+}
