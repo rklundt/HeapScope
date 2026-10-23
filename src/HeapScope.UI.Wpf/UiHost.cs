@@ -54,7 +54,8 @@ internal static class UiHost
             sp.GetRequiredService<HeapScope.Application.Snapshots.SnapshotSession>(),
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<IUiDispatcher>(),
-            sp.GetRequiredService<IUserInteraction>()));
+            sp.GetRequiredService<IUserInteraction>(),
+            sp.GetRequiredService<ILogger<TypeSummaryViewModel>>()));
         builder.Services.AddSingleton<HomeViewModel>(sp => new HomeViewModel(
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<SnapshotsViewModel>(),

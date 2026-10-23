@@ -15,7 +15,7 @@ everything else.
 | 0.5 | Index cache format | Closed | 2026-10-22 | sprint-0.5 |
 | 1.2 | Full dump loader | Closed | 2026-10-23 | sprint-1.2 |
 | 1.1 | Process discovery and capture | Closed | 2026-10-23 | sprint-1.1 |
-| 1.3 | Heap summary by type | Planned | | |
+| 1.3 | Heap summary by type | Closed | 2026-10-23 | sprint-1.3 |
 | 1.4 | Snapshot diff | Planned | | |
 | 1.5 | Object search and inspection | Planned | | |
 | 1.6 | Simple inspections | Planned | | |
@@ -723,9 +723,72 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): the types grid 
 
 **Dependencies**: 1.2.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Aggregation once per snapshot: the worker computes per-type count, shallow bytes and per-heap-kind bytes in one
+   pass over the objects (parallel by object range, merged per type) the first time a summary is asked for, and
+   keeps these small per-type arrays with the snapshot. Grouping, filtering and sorting then work on types only
+   (thousands of rows), so every re-query is cheap.
+2. One query DTO, `TypeSummaryRequest` (snapshot, group by type, namespace or assembly, filter text, sort column and
+   direction), answered with `TypeSummaryResult`: a result set plus totals (objects, bytes, per heap kind) and whether
+   generations are available. Sorting and filtering happen in the worker and produce a new result set (ARCHITECTURE.md
+   4.6). `GetTypeSummaryAsync(snapshotId)` from 1.2 stays as the default query.
+3. Columns: name (key), objects, bytes, percent of all bytes, then bytes per heap kind (Gen0, Gen1, Gen2, LOH, POH,
+   frozen) only when the snapshot has `Generations`. New result column kinds `Percent`, `Address` and
+   `SignedInteger` and a key flag on `ResultColumn`; protocol version 3.
+4. Filter (smart case, revised while implementing): an all lower-case filter is a case-insensitive substring; a filter
+   with capitals is matched as typed, then as CamelHumps (`SCE` matches `StaticCacheEntry`); `*` matches any run of
+   characters (case-insensitive). The first rule set ("SCE" as a case-insensitive substring) matched 244 types on the
+   Small dump. Matching is done in the worker on type
+   names; the UI highlights the matched characters.
+5. Application `ResultSetHandle`: keeps the query that produced a result set and re-runs it once when paging fails with
+   `ResultSetNotFound` (eviction or worker restart, through the snapshot session's reopen).
+6. JSON paging cost: measured in the UI process for a 10,000-row page (allocations and time); the formatter changes
+   only when it is significant (over 50 MB or 200 ms per page). The result is recorded either way.
+7. CLI `summary <dump> [--group type|namespace|assembly] [--filter text] [--sort bytes|count|name] [--top N | --all]
+   [--format table|csv|json]`.
+8. UI: the Snapshots page's overview keeps its tiles and gains a heap kinds bar; the full types grid replaces the top
+   types table: data virtualization (rows fetched in pages as the grid scrolls), sorting by column header (re-queried
+   in the worker), a debounced type-to-filter box with match highlighting, and a group-by selector. Generation columns
+   are hidden, with the capability explanation shown, when `Generations` is missing.
+9. Themes: light and dark resource dictionaries (following the Windows app theme at startup) with one fixed color
+   per heap kind; the window's hard-coded colors move into them.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Contracts: `TypeSummaryRequest`, `TypeSummaryResult`, grouping and sort enums, new column kinds and key flag,
+   protocol 3. Tests: contract mirror and protocol tests updated.
+2. [x] Worker: per-snapshot type aggregation (parallel), grouping, smart filter, sort, typed result source.
+   Tests: unit tests on synthetic graphs (totals equal the sum over objects, grouping, filter rules, sort orders);
+   aggregation timing on the Medium and dense dumps through the worker (under 5 s).
+3. [x] Application: `ResultSetHandle` with re-query on `ResultSetNotFound`; `SnapshotSession.QueryTypeSummaryAsync`.
+   Tests: eviction and worker restart re-run the query.
+4. [x] Known answers through the worker: per-type counts of the shared fixture dump match the known answers, and
+   summary totals equal the snapshot's.
+5. [x] CLI `summary` (table, CSV, JSON). Tests: output formats and exit codes.
+6. [x] UI: virtualized types grid with sorting, filter with highlighting, grouping, generation columns or the
+   explanation, heap kinds bar. Tests: view model tests with fakes; smoke open stays within the dispatcher budget.
+7. [x] Themes: light and dark dictionaries, heap kind colors, window colors moved. Tests: both dictionaries define
+   the same keys.
+8. [x] Measure JSON paging for a 10,000-row page in the UI process; record and decide.
+   Result: 7.6 MB and 70 to 80 ms per 10,000-row page over the pipe, 1.5 ms per 200-row grid page; under the
+   thresholds, so the default formatter stays (ARCHITECTURE.md 4.6).
+9. [x] Docs: ARCHITECTURE.md, DEVELOPER.md, CLAUDE.md.
+
+**Review summary**: 1 High, 19 Moderate (two found while verifying fixes), 18 Low (`docs/reviews/sprint-1.3.md`).
+- High H1 fixed and confirmed by gc-specialist: same-named types (one assembly in two load contexts) were merged into one
+  row; type rows are now one per method table, colliding names get the module file name and a number.
+- Moderates fixed: result set release and stale pages (no orphaned sets), `Show(null)` and superseded queries,
+  logging and retry for failed pages, header arrows from the view model, a shared per-snapshot aggregation on
+  `DerivedData`, enum validation and the `GroupKey` mirror test, smart-case wording, "unreachable included" labels,
+  the Unknown heap kind, a parallelism cap, unfiltered row counts, enumeration without fetching, rows mapped by column
+  name, many new unit tests and a gated UI fake; the worker's GC heaps capped at half the logical processors (M18) and
+  unexpected worker start failures wrapped (M19).
+- Deferred: a generic row list, a sort key for deltas and a row key for drill-down (1.4); a bounded page window (1.5);
+  a synchronization context and `TimeProvider` in view model tests; the remaining intermittent lag right after a
+  snapshot opens (High backlog item, with new evidence).
+- Measured (Release, 24 logical cores, 32 GB): type aggregation 0.02 to 0.05 s on Medium (57.5M objects) and 0.02 to
+  0.03 s on DenseHeap (54.1M); CLI `summary` from the index cache 1.9 s (Medium) and 2.0 s (DenseHeap) end to end;
+  10,000-row page 70 to 80 ms and 7.6 MB, 200-row grid page 1.5 ms; Medium smoke open 8 of 8 within the gates after the
+  GC heap cap (longest operation 41 to 60 ms), DenseHeap and Small 4 of 6 overall.
 
 ---
 
@@ -990,7 +1053,10 @@ switches.
 
 **High**
 - Intermittent dispatcher lag: re-measured in 1.2 with real loads (smoke open of Small and Medium: probe lag 88 to
-  133 ms, longest operation 48 to 61 ms, inside the gates).
+  133 ms, longest operation 48 to 61 ms, inside the gates). In 1.3 the worker's GC heaps were capped at half the cores,
+  which fixed the Medium smoke open (8 of 8), but DenseHeap and Small still showed one 300 to 600 ms lag right after the
+  snapshot opened in 2 of 6 runs, with the UI thread using under 100 ms of CPU and the time outside dispatcher
+  operations (watchdog breakdown). Next step: a WPR trace of such a run (needs administrator rights).
 - Intermittent 105 to 130 ms dispatcher lag at job completion under heavy machine load (from 0.3): find the
   cause (likely CPU contention with the worker) and bring the smoke gate back to 100 ms. Capture a WPR or PerfView
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
@@ -1002,6 +1068,12 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- Before or in 1.4 (from the 1.3 review): a generic `VirtualRowList` over a row factory for the diff's rows; a sort key
+  that covers delta columns (per-view enum or a column name validated by the worker); a hidden row key mapping a
+  summary row to its type indices, for opening a row's objects.
+- A bounded window of loaded pages in `VirtualRowList` before 1.5's object lists (millions of rows) (from 1.3).
+- View model tests on a single-threaded synchronization context, and a `TimeProvider` for the filter debounce
+  (from 1.3).
 - Delete snapshots and sessions (also their `.hsidx` and sidecars, refused while open) from the UI and CLI, and a
   retention rule for old sessions (from 1.1).
 - Capturing service targets whose account cannot write the user's session folder: write into a folder that grants the

@@ -31,6 +31,17 @@ public sealed class WorkerHostOptions
     /// </summary>
     public bool AllowMicrosoftSymbolServer { get; set; }
 
+    /// <summary>
+    /// Server GC heaps (and GC threads) of the worker (<c>Worker:GcHeapCount</c>). Default: half the logical processors,
+    /// so the worker's blocking collections cannot occupy every core and starve the UI thread (measured in sprint 1.3:
+    /// 550 to 760 ms of input lag while a Medium snapshot opened with 24 heaps on 24 cores, under 200 ms with 12, at the
+    /// same load time). A <c>DOTNET_GCHeapCount</c> already in the environment wins.
+    /// </summary>
+    public int? GcHeapCount { get; set; }
+
+    /// <summary>The GC heap count the worker is started with.</summary>
+    public int ResolveGcHeapCount() => Math.Max(1, GcHeapCount ?? Environment.ProcessorCount / 2);
+
     /// <summary>Starts the worker with its crash and hang test hooks enabled (tests only).</summary>
     public bool EnableTestHooks { get; set; }
 

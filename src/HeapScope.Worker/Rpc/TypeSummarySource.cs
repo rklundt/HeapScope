@@ -1,97 +1,105 @@
 using System.Globalization;
+using HeapScope.Analysis;
 using HeapScope.Contracts;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>Per-type count and shallow size, sorted by size descending, held as parallel arrays.</summary>
+/// <summary>
+/// Summary rows (per type, namespace or assembly) held as compact arrays and formatted only for the requested page
+/// (ARCHITECTURE.md 4.6). Columns: name (key), objects, bytes, percent of all bytes, then bytes per heap kind when the
+/// snapshot has generations (sprint 1.3).
+/// </summary>
 internal sealed class TypeSummarySource : IResultSource
 {
-    private static readonly ResultColumn[] s_columns =
+    /// <summary>The heap kinds shown as columns, in order.</summary>
+    public static readonly HeapKind[] KindColumns =
+        [HeapKind.Gen0, HeapKind.Gen1, HeapKind.Gen2, HeapKind.LargeObjectHeap, HeapKind.PinnedObjectHeap, HeapKind.Frozen];
+
+    private static readonly ResultColumn[] s_baseColumns =
     [
-        new("Type", ResultColumnKind.Text),
-        new("Count", ResultColumnKind.Integer),
-        new("ShallowSize", ResultColumnKind.Bytes),
+        new("Name", ResultColumnKind.Text, IsKey: true),
+        new("Objects", ResultColumnKind.Integer),
+        new("Bytes", ResultColumnKind.Bytes),
+        new("Percent", ResultColumnKind.Percent),
     ];
 
-    private readonly string[] _names;
-    private readonly long[] _counts;
-    private readonly ulong[] _sizes;
+    private static readonly ResultColumn[] s_generationColumns =
+        [.. s_baseColumns, .. KindColumns.Select(k => new ResultColumn(k.ToString(), ResultColumnKind.Bytes))];
 
-    private TypeSummarySource(string[] names, long[] counts, ulong[] sizes, long nameBytes)
+    private readonly SummaryRow[] _rows;
+    private readonly ulong _totalBytes;
+    private readonly bool _generations;
+
+    private TypeSummarySource(SummaryRow[] rows, int unfilteredCount, ulong totalBytes, bool generations)
     {
-        _names = names;
-        _counts = counts;
-        _sizes = sizes;
-        EstimatedBytes = nameBytes + ((long)names.Length * (sizeof(long) + sizeof(ulong) + IntPtr.Size));
+        _rows = rows;
+        UnfilteredCount = unfilteredCount;
+        _totalBytes = totalBytes;
+        _generations = generations;
+        EstimatedBytes = rows.Sum(r => 48L + (2L * r.Name.Length) + (8L * r.BytesByKind.Length));
     }
 
-    public IReadOnlyList<ResultColumn> Columns => s_columns;
+    public IReadOnlyList<ResultColumn> Columns => _generations ? s_generationColumns : s_baseColumns;
 
-    public int Count => _names.Length;
+    public int Count => _rows.Length;
+
+    /// <summary>Rows of the grouping before the filter.</summary>
+    public int UnfilteredCount { get; }
 
     public long EstimatedBytes { get; }
 
-    /// <summary>Aggregates the graph by type. One pass over the objects; the result does not reference the graph.</summary>
-    public static TypeSummarySource Create(HeapGraph graph, CancellationToken cancellationToken)
+    /// <summary>The default summary: one row per type, largest first (the 1.2 query and the synthetic job).</summary>
+    public static TypeSummarySource Create(HeapGraph graph, CancellationToken cancellationToken) =>
+        Create(graph, TypeAggregation.Compute(graph, cancellationToken: cancellationToken), new TypeSummaryRequest(Guid.Empty), generations: false);
+
+    /// <summary>Groups, filters and sorts <paramref name="aggregation"/> as <paramref name="request"/> asks.</summary>
+    public static TypeSummarySource Create(HeapGraph graph, TypeAggregation aggregation, TypeSummaryRequest request, bool generations)
     {
-        ArgumentNullException.ThrowIfNull(graph);
-        var typeCount = graph.Types.Count;
-        var counts = new long[typeCount];
-        var sizes = new ulong[typeCount];
-        var types = graph.TypeIndices.Span;
-        for (var i = 0; i < types.Length; i++)
+        ArgumentNullException.ThrowIfNull(aggregation);
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Enum.IsDefined(request.GroupBy) || !Enum.IsDefined(request.Sort))
         {
-            counts[types[i]]++;
-            sizes[types[i]] += graph.GetSize(i);
-            if ((i & 0xFFFF) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-            }
+            throw new ArgumentOutOfRangeException(nameof(request), $"Unknown grouping {(int)request.GroupBy} or sort {(int)request.Sort}.");
         }
 
-        var present = 0;
-        for (var t = 0; t < typeCount; t++)
+        var rows = TypeGroups.Build(graph, aggregation, (GroupKey)(int)request.GroupBy);
+        var unfiltered = rows.Count;
+        if (!string.IsNullOrWhiteSpace(request.Filter))
         {
-            if (counts[t] > 0)
-            {
-                present++;
-            }
+            rows.RemoveAll(r => !NameFilter.IsMatch(r.Name, request.Filter));
         }
 
-        var order = new int[present];
-        var keys = new ulong[present];
-        for (int t = 0, r = 0; t < typeCount; t++)
+        Comparison<SummaryRow> compare = request.Sort switch
         {
-            if (counts[t] > 0)
-            {
-                order[r] = t;
-                keys[r] = ulong.MaxValue - sizes[t];
-                r++;
-            }
-        }
+            TypeSummarySort.Count => (a, b) => a.Count.CompareTo(b.Count),
+            TypeSummarySort.Name => (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase),
+            _ => (a, b) => a.Bytes.CompareTo(b.Bytes),
+        };
 
-        Array.Sort(keys, order);
-        var names = new string[present];
-        var rowCounts = new long[present];
-        var rowSizes = new ulong[present];
-        long nameBytes = 0;
-        for (var r = 0; r < present; r++)
+        // Ties by name keep the order stable between queries.
+        rows.Sort((a, b) =>
         {
-            var t = order[r];
-            names[r] = graph.Types.GetName(t);
-            nameBytes += 24 + (2L * names[r].Length);
-            rowCounts[r] = counts[t];
-            rowSizes[r] = sizes[t];
-        }
+            var primary = request.Descending ? compare(b, a) : compare(a, b);
+            return primary != 0 ? primary : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
+        });
 
-        return new TypeSummarySource(names, rowCounts, rowSizes, nameBytes);
+        return new TypeSummarySource([.. rows], unfiltered, aggregation.TotalBytes, generations);
     }
 
     public void FormatRow(int index, string?[] cells)
     {
-        cells[0] = _names[index];
-        cells[1] = _counts[index].ToString(CultureInfo.InvariantCulture);
-        cells[2] = _sizes[index].ToString(CultureInfo.InvariantCulture);
+        var row = _rows[index];
+        cells[0] = row.Name;
+        cells[1] = row.Count.ToString(CultureInfo.InvariantCulture);
+        cells[2] = row.Bytes.ToString(CultureInfo.InvariantCulture);
+        cells[3] = (_totalBytes == 0 ? 0 : 100.0 * row.Bytes / _totalBytes).ToString("0.##", CultureInfo.InvariantCulture);
+        if (_generations)
+        {
+            for (var k = 0; k < KindColumns.Length; k++)
+            {
+                cells[4 + k] = row.BytesByKind[(int)KindColumns[k]].ToString(CultureInfo.InvariantCulture);
+            }
+        }
     }
 }

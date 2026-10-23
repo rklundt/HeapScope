@@ -81,9 +81,44 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         }
 
         // Never blocks: outstanding leases (result sets, running queries) keep the graph until they are released.
+        entry.Derived.Close();
         entry.Snapshot.Dispose();
         logger.LogInformation("Snapshot {Id} closed", snapshotId);
         return true;
+    }
+
+    /// <summary>
+    /// The type aggregation of a loaded snapshot, computed once on first use (one parallel pass over the objects) and
+    /// kept with the snapshot until it is closed (sprint 1.3). The computation is shared: it holds its own lease and runs
+    /// until the snapshot closes, so a caller that cancels (a superseded query) only stops waiting. Returns null when the
+    /// snapshot is not loaded or closes meanwhile.
+    /// </summary>
+    public async Task<Analysis.TypeAggregation?> GetAggregationAsync(Guid snapshotId, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        if (!_snapshots.TryGetValue(snapshotId, out var entry))
+        {
+            return null;
+        }
+
+        var task = entry.Derived.GetOrStartAggregation(lifetime => Task.Run(
+            () =>
+            {
+                using var lease = entry.Snapshot.AcquireLease();
+                var stopwatch = Stopwatch.StartNew();
+                var aggregation = Analysis.TypeAggregation.Compute(entry.Snapshot.Graph, progress, lifetime);
+                logger.LogInformation("Snapshot {Id} aggregated by type in {Seconds:N2} s", snapshotId, stopwatch.Elapsed.TotalSeconds);
+                return aggregation;
+            },
+            lifetime));
+        try
+        {
+            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            // Closed before or during the computation.
+            return null;
+        }
     }
 
     /// <summary>The snapshot, or null when it is not loaded in this worker.</summary>
@@ -379,7 +414,10 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             [.. notes]);
     }
 
-    private sealed record Entry(GraphSnapshot Snapshot, SnapshotDescriptor Descriptor);
+    private sealed record Entry(GraphSnapshot Snapshot, SnapshotDescriptor Descriptor)
+    {
+        public DerivedData Derived { get; } = new();
+    }
 
     private sealed class LoadProgressAdapter(Rpc.ThrottledProgress<JobProgress> target) : IProgress<LoadProgress>
     {

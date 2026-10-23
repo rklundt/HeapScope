@@ -25,12 +25,16 @@ dotnet test --solution HeapScope.sln
   run's session folder, an existing session, or `--out`; the target is paused while it is written),
   `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]`,
   `open <dump> [--rebuild] [--mode auto|memory|mapped] [--top N] [--no-overcommit]` (loads a full dump or reuses
-  its index cache, prints the snapshot, notes and largest types). Ctrl+C cancels; exit codes 0 ok, 1 failure,
+  its index cache, prints the snapshot, notes and largest types), `summary <dump> [--group type|namespace|assembly]
+  [--filter text] [--sort bytes|count|name] [--top N | --all] [--format table|csv|json]` (the types summary with
+  bytes per heap kind; the filter follows the UI's rules). Ctrl+C cancels; exit codes 0 ok, 1 failure,
   2 usage, 130 canceled.
 - DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
   to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
   `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
   downloads and logs a warning. Both reach the worker on its command line only.
+- Worker GC heaps: half the logical processors by default, so the worker cannot starve the UI; override with
+  `--Worker:GcHeapCount <n>` (UI), the `Worker__GcHeapCount` environment variable, or `DOTNET_GCHeapCount` (hexadecimal).
 - Run the worker standalone (for debugging): `dotnet run --project src/HeapScope.Worker -- --pipe <name>`
   (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
   Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
@@ -39,6 +43,9 @@ dotnet test --solution HeapScope.sln
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks. The log records "First window rendered
   N ms after process start" for every run.
+- Theme: the UI follows the Windows app theme (light or dark) at startup; `--Ui:Theme Light|Dark` or the
+  `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI.Wpf/Themes/Light.xaml` and `Dark.xaml`, which
+  must define the same keys (a test checks it); views use `DynamicResource`, never literal colors.
 - Precompiled UI: `dotnet publish src/HeapScope.UI.Wpf -c Release -r win-x64 --self-contained false -o <folder>`
   (ReadyToRun is on for publish; the worker is published into `worker/` next to it).
 - Sessions: captures go to `%LOCALAPPDATA%\HeapScope\sessions\<yyyyMMdd-HHmmss>` with a `session.json`; override the

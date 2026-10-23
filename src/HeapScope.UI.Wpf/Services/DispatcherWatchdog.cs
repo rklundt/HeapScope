@@ -23,6 +23,15 @@ public sealed class DispatcherWatchdog : IDisposable
     private int _probePending;
     private readonly Stack<long> _operationStarts = new();
 
+    // Top-level operation counts and time per priority (indexed by DispatcherPriority, 0 to 10), written on the UI thread
+    // and copied by the probe so a lag can be broken down by what ran during it.
+    private readonly long[] _operationCounts = new long[11];
+    private readonly long[] _operationTicks = new long[11];
+
+    // The UI thread's CPU time at the previous probe (100 ns units), taken on the UI thread. A lag with little UI thread
+    // CPU time means the thread was waiting or not scheduled (CPU contention), not working.
+    private long _uiCpuAtLastProbe;
+
     public DispatcherWatchdog(Dispatcher dispatcher, ILogger<DispatcherWatchdog> logger)
     {
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -65,6 +74,13 @@ public sealed class DispatcherWatchdog : IDisposable
         }
 
         var elapsed = Stopwatch.GetTimestamp() - started;
+        var priority = (int)e.Operation.Priority;
+        if (_operationStarts.Count == 0 && priority is >= 0 and < 11)
+        {
+            Interlocked.Increment(ref _operationCounts[priority]);
+            Interlocked.Add(ref _operationTicks[priority], elapsed);
+        }
+
         if (started >= Interlocked.Read(ref _resetTimestamp))
         {
             RecordMax(ref _maxOperationTicks, elapsed);
@@ -87,10 +103,15 @@ public sealed class DispatcherWatchdog : IDisposable
         var posted = Stopwatch.GetTimestamp();
         var pauseBefore = GC.GetTotalPauseDuration();
         var gen2Before = GC.CollectionCount(2);
+        var countsBefore = Snapshot(_operationCounts);
+        var ticksBefore = Snapshot(_operationTicks);
         _dispatcher.BeginInvoke(
             () =>
             {
                 var lag = Stopwatch.GetTimestamp() - posted;
+                var uiCpu = NativeMethods.CurrentThreadCpuTime();
+                var uiCpuMs = (uiCpu - _uiCpuAtLastProbe) / 10_000.0;
+                _uiCpuAtLastProbe = uiCpu;
                 Interlocked.Exchange(ref _probePending, 0);
                 if (posted >= Interlocked.Read(ref _resetTimestamp))
                 {
@@ -100,14 +121,38 @@ public sealed class DispatcherWatchdog : IDisposable
                 if (lag > Budget.TotalSeconds * Stopwatch.Frequency)
                 {
                     _logger.LogWarning(
-                        "UI dispatcher was blocked for {LagMs:N0} ms (budget {BudgetMs} ms); UI process GC pauses in that time {GcPauseMs:N0} ms, gen2 collections {Gen2}",
+                        "UI dispatcher was blocked for {LagMs:N0} ms (budget {BudgetMs} ms); UI thread CPU {UiCpuMs:N0} ms; UI process GC pauses in that time {GcPauseMs:N0} ms, gen2 collections {Gen2}; ran meanwhile: {Breakdown}",
                         lag * 1000.0 / Stopwatch.Frequency,
                         Budget.TotalMilliseconds,
+                        uiCpuMs,
                         (GC.GetTotalPauseDuration() - pauseBefore).TotalMilliseconds,
-                        GC.CollectionCount(2) - gen2Before);
+                        GC.CollectionCount(2) - gen2Before,
+                        Breakdown(lag, countsBefore, ticksBefore));
                 }
             },
             DispatcherPriority.Input);
+    }
+
+    private static long[] Snapshot(long[] values) => [.. values.Select((_, i) => Interlocked.Read(ref values[i]))];
+
+    // "Render 14 ops 420 ms, Normal 3 ops 40 ms, outside operations 120 ms": what kept the input-priority probe waiting.
+    private string Breakdown(long lag, long[] countsBefore, long[] ticksBefore)
+    {
+        var parts = new List<string>();
+        long busy = 0;
+        for (var p = 10; p >= 0; p--)
+        {
+            var count = Interlocked.Read(ref _operationCounts[p]) - countsBefore[p];
+            var ticks = Interlocked.Read(ref _operationTicks[p]) - ticksBefore[p];
+            if (count > 0)
+            {
+                busy += ticks;
+                parts.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{(DispatcherPriority)p} {count} ops {ticks * 1000.0 / Stopwatch.Frequency:N0} ms"));
+            }
+        }
+
+        parts.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"outside operations {Math.Max(0, lag - busy) * 1000.0 / Stopwatch.Frequency:N0} ms"));
+        return string.Join(", ", parts);
     }
 
     private static void RecordMax(ref long maximum, long value)

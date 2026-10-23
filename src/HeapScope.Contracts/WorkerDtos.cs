@@ -89,10 +89,87 @@ public enum ResultColumnKind
     Text = 0,
     Integer = 1,
     Bytes = 2,
+
+    /// <summary>A percentage, 0 to 100, with up to two decimals.</summary>
+    Percent = 3,
+
+    /// <summary>An object address, as 0x-prefixed hexadecimal.</summary>
+    Address = 4,
+
+    /// <summary>A signed integer such as a delta (diffs, sprint 1.4).</summary>
+    SignedInteger = 5,
 }
 
-/// <summary>One column of a result set.</summary>
-public sealed record ResultColumn(string Name, ResultColumnKind Kind);
+/// <summary>One column of a result set. <see cref="IsKey"/> marks the column that names a row (for example the type).</summary>
+public sealed record ResultColumn(string Name, ResultColumnKind Kind, bool IsKey = false);
+
+/// <summary>What the rows of a type summary are grouped by.</summary>
+public enum TypeGrouping
+{
+    Type = 0,
+    Namespace = 1,
+    Assembly = 2,
+}
+
+/// <summary>Columns a type summary can be sorted by.</summary>
+public enum TypeSummarySort
+{
+    Bytes = 0,
+    Count = 1,
+    Name = 2,
+}
+
+/// <summary>
+/// Heap kinds, in the order the per-kind columns and totals use (mirrors Core's <c>HeapKind</c>). Unknown covers objects
+/// whose generation the loader could not tell; it appears in the totals only when some bytes have it.
+/// </summary>
+public enum HeapKindDto
+{
+    Unknown = 0,
+    Gen0 = 1,
+    Gen1 = 2,
+    Gen2 = 3,
+    LargeObjectHeap = 4,
+    PinnedObjectHeap = 5,
+    Frozen = 6,
+}
+
+/// <summary>A type summary query (sprint 1.3).</summary>
+/// <param name="SnapshotId">The snapshot.</param>
+/// <param name="GroupBy">Rows per type, namespace or assembly.</param>
+/// <param name="Filter">
+/// Keeps rows whose name matches (<see cref="NameFilter"/>): an all lower-case filter ignores case; a filter with capitals
+/// matches as typed or as CamelHumps; <c>*</c> matches any run of characters, ignoring case.
+/// </param>
+/// <param name="Sort">Sort column.</param>
+/// <param name="Descending">Sort direction.</param>
+public sealed record TypeSummaryRequest(
+    Guid SnapshotId,
+    TypeGrouping GroupBy = TypeGrouping.Type,
+    string? Filter = null,
+    TypeSummarySort Sort = TypeSummarySort.Bytes,
+    bool Descending = true);
+
+/// <summary>Totals for one heap kind.</summary>
+public sealed record HeapKindTotal(HeapKindDto Kind, long Objects, long Bytes);
+
+/// <summary>
+/// The answer to a type summary: the rows as a result set (columns: name, objects, bytes, percent, then bytes per heap
+/// kind when <see cref="HasGenerations"/>), and totals over the whole snapshot (not only the filtered rows). Totals and
+/// rows count every object in the dump, including unreachable objects the GC has not collected yet; reachability comes
+/// with the retention analysis (2.x).
+/// </summary>
+/// <param name="TotalTypes">Distinct types present in the snapshot.</param>
+/// <param name="UnfilteredRows">Rows of the requested grouping before the filter (types, namespaces or assemblies).</param>
+public sealed record TypeSummaryResult(
+    ResultSetInfo Rows,
+    long TotalObjects,
+    long TotalBytes,
+    int TotalTypes,
+    bool HasGenerations,
+    IReadOnlyList<HeapKindTotal> HeapKinds,
+    double ElapsedSeconds,
+    int UnfilteredRows);
 
 /// <summary>A result set held by the worker, fetched with <see cref="IWorkerService.GetRowsAsync"/>.</summary>
 public sealed record ResultSetInfo(Guid Id, int TotalCount, IReadOnlyList<ResultColumn> Columns);

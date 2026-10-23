@@ -83,12 +83,12 @@ public class ResultSetStoreTests
             source = TypeSummarySource.Create(graph, TestContext.Current.CancellationToken);
         }
 
-        var cells = new string?[3];
+        var cells = new string?[source.Columns.Count];
         source.Count.ShouldBe(2);
         source.FormatRow(0, cells);
-        cells.ShouldBe(["Big", "1", "1000"]);
+        cells.Take(4).ShouldBe(["Big", "1", "1000", "95.42"]);
         source.FormatRow(1, cells);
-        cells.ShouldBe(["Small", "2", "48"]);
+        cells.Take(4).ShouldBe(["Small", "2", "48", "4.58"]);
         source.EstimatedBytes.ShouldBeGreaterThan(0);
     }
 

@@ -154,6 +154,27 @@ Code map of the process layers (sprint 0.3): Contracts holds `IWorkerService`, `
 `WorkerOperations`. UI.Wpf has `ViewModels/` (shell, pages, jobs), `Views/` and `Services/` (dispatcher
 abstraction and watchdog). The CLI has `CliCommands` (`worker ping`, `worker info`, `synthetic`).
 
+Code map additions in sprint 1.3 (types summary): Analysis has `TypeAggregation` (one parallel pass over the objects:
+count, shallow bytes and bytes per heap kind for every type, computed once per snapshot and kept on the snapshot's
+entry in the worker's `SnapshotStore`) and `TypeGroups` (rows by type, namespace or assembly). Type rows are one per type
+table entry (method table), never merged by name: distinct types that share a name (one assembly in two load contexts,
+same-named types in different modules) keep their own rows, named `Name [Module.dll]` and then `#n` in type index order (stable for a snapshot, not across snapshots), so a stale copy of
+a plugin's types is visible on its own row. Namespace and assembly rows merge by design. Totals count every object in
+the dump, unreachable ones included (the UI and CLI say so); a live and dead split comes with the retention analysis
+(2.x). Contracts has `TypeSummaryRequest`,
+`TypeSummaryResult` and `NameFilter`, the one filter rule set shared by the worker (matching) and the UI
+(highlighting): an all lower-case filter is a case-insensitive substring; a filter with capitals matches as typed,
+then as CamelHumps within one identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters. The
+worker's `TypeSummarySource` groups, filters and sorts the cached aggregation per query, so a re-query costs
+microseconds per type. The worker keeps per-snapshot derived data in `Snapshots/DerivedData` on the snapshot's entry,
+dropped in one step when the snapshot closes; each slot is one shared computation with its own lease and a token tied to
+the snapshot's lifetime, so a caller that cancels only stops waiting (reverse references and dominators get slots here
+in 2.x). Application has `ResultSetHandle` (section 4.6). UI.Wpf has `TypeSummaryViewModel` with
+`VirtualRowList` (data virtualization; `TypeRowLayout` maps cells by column name), `Controls/GridHelpers` (header
+click sorting with the arrows driven by the view model's `SortState`, match highlighting, the heap kinds bar) and
+`Themes/` with `Services/ThemeManager`. Only the latest query owns the view: `Show`, a re-query or closing the snapshot
+cancel the running query and the pending filter, and the replaced row list stops its page requests.
+
 ### 3.1 Dependency rules
 
 ```mermaid
@@ -276,6 +297,12 @@ Rules:
   fingerprint, open or not), `OpenSnapshotAsync`, `CloseSnapshotAsync`, `GetTypeSummaryAsync`, the snapshot DTOs
   (`OpenSnapshotRequest` with `RequireCache`, `SnapshotDescriptor`, `SnapshotMemoryMode`, `SnapshotProbe`,
   `SnapshotCacheState`) and the codes `RuntimeComponentMissing`, `SnapshotUnavailable` and `SnapshotChanged`.
+  Version 3 (sprint 1.3) added `QueryTypeSummaryAsync` (`TypeSummaryRequest`: group by, filter, sort and
+  direction, validated; `TypeSummaryResult`: a result set, totals per heap kind (Unknown listed only when present),
+  whether generations exist, and the rows before the filter), the wire enums `TypeGrouping`, `TypeSummarySort` and
+  `HeapKindDto` (mirrors `HeapKind`), the column kinds `Percent`, `Address` and `SignedInteger`, and the key flag on
+  `ResultColumn`. `NameFilter` lives in Contracts because it defines what the `Filter` field means to worker and UI
+  alike; changing it changes the protocol's meaning.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -302,8 +329,19 @@ sets or an estimated 256 MB, whichever comes first (the newest set is always kep
 example a snapshot lease, disposed on release or eviction. Producers must stay compact (indices, counts, sizes),
 because the newest set is kept even when it alone exceeds the byte budget; a source that reads graph columns takes
 its own snapshot lease for each page it formats. Cells cross the pipe as invariant-culture strings with
-typed column descriptors (`ResultColumn`: Text, Integer, Bytes), which keeps paging generic. Unknown, released or
-evicted sets fail with `ResultSetNotFound`.
+typed column descriptors (`ResultColumn`: Text, Integer, Bytes, Percent, Address, SignedInteger; one column may be
+flagged as the row key), which keeps paging generic. Unknown, released or evicted sets fail with `ResultSetNotFound`.
+Application's `ResultSetHandle` keeps the query that produced a set and re-runs it once when paging fails that way
+(eviction, or a worker restart through the snapshot session's reopen), so front ends page without knowing about
+eviction. A released handle is finished: paging throws and never re-runs the query, and a re-query in progress at the
+release has its new set released too, so no set is orphaned. The types grid fetches pages of 200 rows as it scrolls; each row object is filled with one property change
+notification, which keeps a page under the dispatcher budget.
+
+Paging cost with the default JSON formatter (sprint 1.3, Release): a 10,000-row page (the maximum, used by the CLI's
+`--all`) arrives in 70 to 80 ms (median) with 7.6 MB allocated in the client; deserializing a page of ten-column type
+summary rows alone takes 58 ms and 8.2 MB; the grid's 200-row page takes 1.5 ms and 163 KB. The threshold for
+changing the formatter was 50 MB or 200 ms per 10,000-row page, so it stays (tests
+`A_full_page_costs_little_to_receive_in_the_client_process` and `ResultPageJsonCostTests`).
 
 ## 5. Snapshot abstraction and capability model
 
@@ -609,7 +647,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   100 ms.
 - **Responsiveness measurement**: `DispatcherWatchdog` posts an input-priority probe every 25 ms and logs any
   delay over 100 ms (with UI-process GC pause time), and times each dispatcher operation (nested operations
-  included) to name the priority of any single operation over budget. `HeapScope.exe --smoke-synthetic <n>` runs
+  included) to name the priority of any single operation over budget. Since sprint 1.3 each lag warning also gives the
+  UI thread's own CPU time in the lag and what ran meanwhile (operations and time per priority, plus the time outside
+  any dispatcher operation): a lag with little UI thread CPU means the thread was waiting or not scheduled, not working. `HeapScope.exe --smoke-synthetic <n>` runs
   a warm-up job, then an n-object synthetic job, and exits 0 when no single dispatcher operation exceeded 100 ms
   and the probe lag stayed under the smoke gate
   (2x budget), 3 when it did not, 4 when the job failed. Measured in sprint 0.3, steady state during a 5M job:
@@ -622,7 +662,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - **Worker**: StreamJsonRpc dispatches requests concurrently. Loading or building an index for a snapshot is
   serialized per snapshot (`SemaphoreSlim`); read-only queries on a loaded snapshot run concurrently.
   CPU-heavy algorithms may use `Parallel.For` with explicit partitioning, never per-object tasks. Queries on
-  mapped snapshots hold a lease for their whole duration (section 6.5).
+  mapped snapshots hold a lease for their whole duration (section 6.5). The per-snapshot type aggregation
+  (sprint 1.3) is computed once, behind its own per-snapshot `SemaphoreSlim`, with `Parallel.For` over 1M-object
+  partitions and thread-local arrays merged at the end; it is dropped when the snapshot closes.
 - **Host lifecycle**: UI and CLI start their generic host with `StartAsync` and stop it with a bounded
   `StopAsync` (UI 5 s, CLI 10 s) before exit, so hosted services such as the worker client shut down in order; the
   worker host honors that bound and kills the worker when it is reached. In the WPF app,
@@ -635,6 +677,11 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   throughput matters more than pause times in the worker, and background GC adds memory overhead. DATAS
   (dynamic adaptation, on by default for Server GC since .NET 9) stays enabled so the worker does not reserve
   a large heap per core on a 16 GB laptop.
+- GC heaps capped at half the logical processors (sprint 1.3): the client starts the worker with
+  `DOTNET_GCHeapCount` (`Worker:GcHeapCount` overrides it; a value already in the environment wins). With one heap per
+  core, the worker's blocking collections occupied every core and starved the UI thread: on the Medium smoke open
+  (24 logical cores) input lag of 550 to 760 ms in most runs, with the UI thread using only 16 to 94 ms of CPU in that
+  time; with 12 heaps 8 of 8 runs passed (lag 86 to 193 ms) at the same load time (0.8 s from the index cache).
 - After a job that dropped large transient state (completed, failed or canceled), the worker runs one blocking,
   compacting, aggressive gen2 collection before replying: an idle worker allocates nothing, so otherwise
   gigabytes would stay committed.
@@ -662,7 +709,7 @@ Initial budgets (sprints refine them with measurements):
 | Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | 2.4 GB (1.2, fixture Medium at 1.14 references per object) |
 | Worker private memory, Medium, mapped mode (after load) | < 1 GB | +9 MB private, +202 MB working set for the mapped graph (sprint 0.5, synthetic 50M) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
-| Type summary and diff on loaded Medium | < 5 s | sprints 1.3, 1.4 |
+| Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); diff in 1.4 |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 
 Baseline measured in sprint 0.4 on the fixture sample dumps (`dump-stats`, raw ClrMD walk, no HeapScope graph yet;
