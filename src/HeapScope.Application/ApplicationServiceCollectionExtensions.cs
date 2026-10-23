@@ -24,6 +24,22 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<JobTracker>();
         services.AddSingleton<WorkerOperations>();
         services.AddSingleton<Snapshots.SnapshotSession>();
+        services.AddOptions<Sessions.SessionOptions>();
+        services.TryAddSingleton<Capture.IElevationProbe>(Capture.WindowsElevationProbe.Instance);
+        services.TryAddSingleton<Capture.IProcessDiscovery>(sp => new Capture.ProcessDiscovery(sp.GetRequiredService<Capture.IElevationProbe>()));
+        services.TryAddSingleton(sp => new Capture.DumpCapturer(sp.GetRequiredService<Capture.IElevationProbe>()));
+        services.TryAddSingleton(sp => new Sessions.SessionLibrary(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Sessions.SessionOptions>>().Value.Root,
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new Sessions.CaptureService(
+            sp.GetRequiredService<Capture.IProcessDiscovery>(),
+            sp.GetRequiredService<Capture.DumpCapturer>(),
+            sp.GetRequiredService<Sessions.SessionLibrary>(),
+            sp.GetRequiredService<JobTracker>(),
+            sp.GetRequiredService<Capture.IElevationProbe>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Sessions.CaptureService>>()));
+        services.AddSingleton<Sessions.ICaptureService>(sp => sp.GetRequiredService<Sessions.CaptureService>());
         return services;
     }
 }

@@ -4,15 +4,87 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application;
 using HeapScope.Application.Jobs;
+using HeapScope.Application.Sessions;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 
 namespace HeapScope.UI.Wpf.ViewModels;
 
-/// <summary>Home page: open a dump (sprint 1.2) and the synthetic diagnostic job (sprint 0.3).</summary>
-public sealed partial class HomeViewModel(WorkerOperations operations, SnapshotsViewModel? snapshots = null) : ObservableObject
+/// <summary>
+/// Home page: open a dump (sprint 1.2), recent sessions with their snapshots (sprint 1.1, dotMemory's workspace list)
+/// and the synthetic diagnostic job (sprint 0.3).
+/// </summary>
+public sealed partial class HomeViewModel(WorkerOperations operations, SnapshotsViewModel? snapshots = null, SessionLibrary? library = null) : ObservableObject
 {
     private readonly WorkerOperations _operations = operations ?? throw new ArgumentNullException(nameof(operations));
+
+    /// <summary>Sessions, most recently opened first (name, created, last opened, snapshots, size).</summary>
+    public ObservableCollection<SessionSummary> RecentSessions { get; } = [];
+
+    [ObservableProperty]
+    private string? _sessionStatus;
+
+    /// <summary>Reloads the recent sessions list (read off the dispatcher).</summary>
+    [RelayCommand]
+    private async Task RefreshSessionsAsync()
+    {
+        if (library is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var sessions = await Task.Run(() => library.ListRecent());
+            RecentSessions.Clear();
+            foreach (var session in sessions)
+            {
+                RecentSessions.Add(session);
+            }
+
+            SessionStatus = sessions.Count == 0 ? "No sessions yet. Capture a process or open a dump to start one." : null;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            SessionStatus = "Sessions could not be read: " + ex.Message;
+        }
+    }
+
+    /// <summary>Opens the most recent snapshot of a session through the Snapshots page.</summary>
+    [RelayCommand]
+    private async Task OpenSessionAsync(SessionSummary? summary)
+    {
+        if (summary is null || library is null || snapshots is null)
+        {
+            return;
+        }
+
+        Session? session;
+        try
+        {
+            // Opening a session makes it current: the next capture goes into it.
+            session = await Task.Run(() => library.Open(summary.Folder));
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            SessionStatus = $"The session {summary.Name} could not be opened: {ex.Message}";
+            return;
+        }
+
+        if (session is null)
+        {
+            SessionStatus = $"The session {summary.Name} is damaged or was removed.";
+            return;
+        }
+
+        if (session.Document.Snapshots.LastOrDefault() is not { } latest)
+        {
+            SessionStatus = $"The session {summary.Name} has no snapshots yet; new captures go into it.";
+            return;
+        }
+
+        await snapshots.OpenPathAsync(session.PathOf(latest));
+    }
 
     /// <summary>Opens a dump through the Snapshots page, which the shell then shows.</summary>
     public IAsyncRelayCommand? OpenDumpCommand => snapshots?.OpenDumpCommand;

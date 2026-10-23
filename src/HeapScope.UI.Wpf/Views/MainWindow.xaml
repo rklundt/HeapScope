@@ -124,11 +124,64 @@
       </DockPanel>
     </DataTemplate>
 
+    <DataTemplate DataType="{x:Type vm:ProcessesViewModel}">
+      <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+          <TextBlock FontSize="20" Text="Processes" VerticalAlignment="Center" />
+          <Button Content="Refresh" Margin="16,0,0,0" Padding="12,2" Command="{Binding RefreshCommand}" />
+          <Button Content="Capture dump" Margin="8,0,0,0" Padding="12,2" Command="{Binding CaptureCommand}" />
+        </StackPanel>
+        <Border DockPanel.Dock="Top" Background="#FFDDF4FF" BorderBrush="#FF54AEFF" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,0,8"
+                Visibility="{Binding ShowElevationHint, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock TextWrapping="Wrap"
+                     Text="Processes marked 'Needs administrator' run elevated or as another user. To capture them, run HeapScope as administrator." />
+        </Border>
+        <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
+        <DataGrid ItemsSource="{Binding Processes}" SelectedItem="{Binding Selected}" AutoGenerateColumns="False" IsReadOnly="True"
+                  HeadersVisibility="Column" GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True"
+                  EnableRowVirtualization="True" SelectionMode="Single" AlternatingRowBackground="#FFF6F8FA">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="70" ElementStyle="{StaticResource NumberCell}" />
+            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="200" />
+            <DataGridTextColumn Header="Runtime" Binding="{Binding Runtime}" Width="130" />
+            <DataGridTextColumn Header="Elevation" Binding="{Binding Elevation}" Width="140" />
+            <DataGridTextColumn Header="Working set" Binding="{Binding WorkingSetBytes, StringFormat=N0}" Width="130" ElementStyle="{StaticResource NumberCell}" />
+            <DataGridTextColumn Header="Command line" Binding="{Binding CommandLine}" Width="*" />
+          </DataGrid.Columns>
+        </DataGrid>
+      </DockPanel>
+    </DataTemplate>
+
     <DataTemplate DataType="{x:Type vm:HomeViewModel}">
       <StackPanel Margin="16">
         <TextBlock FontSize="20" Text="Home" Margin="0,0,0,12" />
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Text="Open a full memory dump of a .NET process to see what is on its heap." />
         <Button Content="Open dump..." HorizontalAlignment="Left" Padding="16,4" Margin="0,0,0,24" Command="{Binding OpenDumpCommand}" />
+        <DockPanel Margin="0,0,0,4">
+          <Button DockPanel.Dock="Right" Content="Refresh" Padding="10,1" Command="{Binding RefreshSessionsCommand}" />
+          <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBlock Text="{Binding SessionStatus}" Foreground="#FF57606A" Margin="0,0,0,4" />
+        <DataGrid ItemsSource="{Binding RecentSessions}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                  GridLinesVisibility="None" RowHeight="22" MaxHeight="220" Margin="0,0,0,24" SelectionMode="Single"
+                  AlternatingRowBackground="#FFF6F8FA">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Session" Binding="{Binding Name}" Width="*" />
+            <DataGridTextColumn Header="Created" Binding="{Binding CreatedUtc.LocalDateTime, StringFormat=g}" Width="140" />
+            <DataGridTextColumn Header="Last opened" Binding="{Binding LastOpenedUtc.LocalDateTime, StringFormat=g}" Width="140" />
+            <DataGridTextColumn Header="Snapshots" Binding="{Binding SnapshotCount}" Width="80" ElementStyle="{StaticResource NumberCell}" />
+            <DataGridTextColumn Header="Bytes" Binding="{Binding SizeBytes, StringFormat=N0}" Width="130" ElementStyle="{StaticResource NumberCell}" />
+            <DataGridTemplateColumn Width="70">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <Button Content="Open" Padding="8,0" Margin="2,1"
+                          Command="{Binding DataContext.OpenSessionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                          CommandParameter="{Binding}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
         <TextBlock Text="Diagnostics" FontWeight="SemiBold" Margin="0,0,0,4" />
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Foreground="#FF57606A"
                    Text="Run a synthetic graph job to exercise the analysis worker, progress and cancellation." />

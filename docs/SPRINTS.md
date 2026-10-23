@@ -14,7 +14,7 @@ everything else.
 | 0.4 | Fixtures and test harness | Closed | 2026-10-22 | sprint-0.4 |
 | 0.5 | Index cache format | Closed | 2026-10-22 | sprint-0.5 |
 | 1.2 | Full dump loader | Closed | 2026-10-23 | sprint-1.2 |
-| 1.1 | Process discovery and capture | Planned | | |
+| 1.1 | Process discovery and capture | Closed | 2026-10-23 | sprint-1.1 |
 | 1.3 | Heap summary by type | Planned | | |
 | 1.4 | Snapshot diff | Planned | | |
 | 1.5 | Object search and inspection | Planned | | |
@@ -491,9 +491,70 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a process list 
 
 **Risks and open questions**: dump size estimate before capture is approximate.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Capture runs in the UI or CLI process (ARCHITECTURE.md 2): `HeapScope.Capture` holds discovery, the elevation probe,
+   the dump size estimate and the capture itself; Application holds the session library and the capture use case;
+   UI and CLI call Application only.
+2. Discovery: `DiagnosticsClient.GetPublishedProcesses()` (processes with a diagnostics port), minus HeapScope's own
+   processes. Per process: name, working set and private bytes (`Process`), command line (`NtQueryInformationProcess`,
+   limited query rights, so it works for elevated targets too), runtime version (the file version of the loaded
+   `coreclr.dll`, when its modules can be read), and the elevation state. Details that cannot be read stay empty and
+   never fail the list.
+3. Elevation (ADR-014): `IElevationProbe` answers "is HeapScope elevated" and "can this process be dumped": a target
+   whose token cannot be opened for query, or that is elevated, needs an elevated HeapScope. Capture refuses with
+   `ElevationRequiredException` and the message "run HeapScope as administrator" before calling the runtime; a
+   failing dump with access denied maps to the same message. Tests use a fake probe; the real probe is checked
+   manually by the product owner (optional).
+4. Disk check: the dump estimate is measured from the target's committed readable pages (`VirtualQueryEx`), with a
+   fallback from private bytes plus images and mapped files (revised in the review); free space must cover it plus a
+   1 GB reserve, otherwise `InsufficientDiskSpaceException` names both numbers and the folder. `IDiskSpace` is faked in
+   tests.
+5. RAM: capture itself needs little memory; the memory check is the 1.2 open warning, shown when the captured dump is
+   opened. The UI offers to open the dump right after capture, which runs that check.
+6. Session library: sessions under `%LOCALAPPDATA%\HeapScope\sessions` (configurable `Sessions:Root`), one folder per
+   session named `yyyyMMdd-HHmmss` plus an optional name, with `session.json` (format version 1: name, created, last
+   opened, snapshots with file, process name and id, runtime version, capture time, size and kind). One current
+   session per UI or CLI run, created on the first capture. Recent sessions list: name, created, last opened, size
+   (dotMemory's workspace list). Dumps are written into the session folder unless `--out` gives a path.
+7. Capture is a tracked job (progress phases, cancellation; a canceled or failed capture deletes its partial file).
+   Every capture states once that a dump can contain secrets and where it was written (section 12).
+8. CLI: `list` (pid, name, runtime, elevation, working set, command line, exit 0) and
+   `capture --pid <id> [--out <path>] [--open]` (exit 1 on any failure, 130 canceled).
+9. UI: a Processes page (refreshable list with elevation hints, a Capture button, the captured dump offered for
+   opening) and recent sessions on the Home page. The process list is loaded off the dispatcher.
+10. (While implementing) The development machine runs elevated .NET services (as SYSTEM), so the real elevation path
+    is tested too: `A_real_elevated_process_gives_the_administrator_message` runs instead of skipping. HeapScope's
+    front ends started by tests use a temporary session root (`Sessions__Root`), so tests never write into the user's
+    session library.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Capture: `DotNetProcess` and `ProcessDiscovery` (published processes, details, own processes excluded). Tests:
+   integration test finds a running LeakyApi with its runtime version, command line and "not elevated".
+2. [x] Capture: `IElevationProbe` (Windows token query) and `ElevationRequiredException`. Tests: the current process
+   reports its own elevation; fake probe used by the capture tests.
+3. [x] Capture: dump size estimate, `IDiskSpace`, `InsufficientDiskSpaceException`, `DumpCapturer` (preflight, write
+   with `WriteDumpAsync`, cancellation, partial file removal, access denied mapped to elevation). Tests with fakes:
+   elevated target refused with the administrator message, small disk refused with both numbers.
+4. [x] Application: `SessionLibrary` (create, add snapshot, last opened, list recent with sizes, tolerant reading).
+   Tests: round trip, ordering, damaged `session.json` skipped.
+5. [x] Application: `CaptureService` (list processes, start a capture job into the current session, add to the
+   library). Tests: integration capture of LeakyApi lands in the session folder with metadata; fake elevation
+   probe gives the administrator message through the service.
+6. [x] CLI `list` and `capture`. Tests: exit codes and output against LeakyApi; failure for a non-existent pid.
+7. [x] UI: Processes page, capture with progress and the secrets note, open after capture, recent sessions on Home.
+   Tests: view model tests with fakes.
+8. [x] Docs: ARCHITECTURE.md (Capture, sessions, ADR-014 implementation), DEVELOPER.md, CLAUDE.md.
+
+**Review summary** (`docs/reviews/sprint-1.1.md`): 1 High, 15 Moderate, 21 Low after dedupe. Fixed High (raised by all
+three reviewers, confirmed by measurement): a canceled capture left a complete dump behind (the runtime's createdump
+keeps writing); now the capture waits for the runtime, deletes the file, writes to a `.partial` name until success,
+and removes the empty session. Moderate, decided autonomously: 13 fixed now (specific capture failures with next
+steps, session concurrency with a lock file and exclusive folder claims, session model with ids, labels, sources and
+forward-compatible JSON, `Open` and `--session`, sessions created only after the checks, `ICaptureService`, measured
+dump estimate via `VirtualQueryEx`, a 1 GB free-space reserve, the target's DAC copied next to the dump, a pause
+warning, `GetDiskFreeSpaceEx`, `capture --open` cancel and progress, capture logging, more tests), 1 partly fixed
+(service account write access: the error names it; the full fix is in the backlog), 1 deferred (deleting snapshots and
+sessions, retention). The real elevation path was tested against SYSTEM services on the development machine.
 
 ---
 
@@ -941,6 +1002,13 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- Delete snapshots and sessions (also their `.hsidx` and sidecars, refused while open) from the UI and CLI, and a
+  retention rule for old sessions (from 1.1).
+- Capturing service targets whose account cannot write the user's session folder: write into a folder that grants the
+  target's account write access, then move the dump into the session (from 1.1; today the error names the cause and
+  suggests `--out`).
+- Process list details for single-file apps (runtime version from the diagnostics IPC) and x86 or NativeAOT targets
+  marked as not supported before capture (from 1.1).
 - A LeakyConsole fixture with a collectible `AssemblyLoadContext` holding statics, to test that collectible statics
   are recorded without `Retaining` (and whether .NET 9 and 10 also report them through the static storage root) (from
   1.2).

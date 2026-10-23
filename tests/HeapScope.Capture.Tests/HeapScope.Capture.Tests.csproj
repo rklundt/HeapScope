@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeapScope.Capture\HeapScope.Capture.csproj" />
+  </ItemGroup>
+</Project>

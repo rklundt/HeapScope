@@ -20,7 +20,10 @@ dotnet test --solution HeapScope.sln
 - Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
-  Commands: `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]`,
+  Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
+  `capture --pid <id> [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full dump into this
+  run's session folder, an existing session, or `--out`; the target is paused while it is written),
+  `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]`,
   `open <dump> [--rebuild] [--mode auto|memory|mapped] [--top N] [--no-overcommit]` (loads a full dump or reuses
   its index cache, prints the snapshot, notes and largest types). Ctrl+C cancels; exit codes 0 ok, 1 failure,
   2 usage, 130 canceled.
@@ -38,9 +41,18 @@ dotnet test --solution HeapScope.sln
   N ms after process start" for every run.
 - Precompiled UI: `dotnet publish src/HeapScope.UI.Wpf -c Release -r win-x64 --self-contained false -o <folder>`
   (ReadyToRun is on for publish; the worker is published into `worker/` next to it).
+- Sessions: captures go to `%LOCALAPPDATA%\HeapScope\sessions\<yyyyMMdd-HHmmss>` with a `session.json`; override the
+  root with `--Sessions:Root <dir>` (UI) or the `Sessions__Root` environment variable. Integration tests point every
+  front end they start at a temporary root.
+- Ctrl+C in tests: `LoadGen --launch <exe> [args]` runs a program with Ctrl+C enabled (children of the test host
+  inherit "ignore Ctrl+C"), and `LoadGen --ctrl-c <pid>` sends Ctrl+C to that program's console.
+- A canceled capture waits for the runtime to finish writing and then deletes the dump: the CLI waits up to an hour
+  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`) is swept at the next start.
 - Logs: `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (UI and CLI, including forwarded worker lines);
   override with `--Logging:File:Directory <dir>` (UI) or the `Logging__File__Directory` environment variable.
 - Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
+- Tests that need gigabyte heaps or dumps (DenseHeap, the CLI Ctrl+C capture) run alone in `HeavyTestsCollection`, so
+  they cannot slow other tests into timeouts; they also carry `Category=Slow`.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <benchmark> [options]`. See
   section 6.
 

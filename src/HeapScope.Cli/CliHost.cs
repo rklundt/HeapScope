@@ -31,6 +31,7 @@ internal static class CliHost
         builder.Services.AddHeapScopeApplication();
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SectionName));
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SymbolsSectionName));
+        builder.Services.Configure<HeapScope.Application.Sessions.SessionOptions>(builder.Configuration.GetSection(HeapScope.Application.Sessions.SessionOptions.SectionName));
         if (!string.IsNullOrWhiteSpace(attachPipe))
         {
             builder.Services.PostConfigure<WorkerHostOptions>(o => o.AttachPipeName = attachPipe);

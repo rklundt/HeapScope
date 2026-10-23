@@ -4,6 +4,7 @@ using System.Globalization;
 using HeapScope.Application;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Logging;
+using HeapScope.Application.Sessions;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -45,6 +46,13 @@ internal static class CliCommands
 
     private static Func<IServiceProvider>? s_services;
 
+    /// <summary>
+    /// Ctrl+C cancels the command's token and then waits up to an hour for the command to return: a canceled capture
+    /// must let the runtime finish writing and then delete the dump (sprint 1.1 review H1). The default (2 seconds)
+    /// would return 130 and exit with the dump left on disk; null would turn Ctrl+C handling off altogether.
+    /// </summary>
+    public static InvocationConfiguration CreateInvocationConfiguration() => new() { ProcessTerminationTimeout = TimeSpan.FromHours(1) };
+
     public static RootCommand Build(Func<IServiceProvider> services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -67,8 +75,117 @@ internal static class CliCommands
         root.Subcommands.Add(BuildWorkerCommand(services));
         root.Subcommands.Add(BuildSyntheticCommand(services));
         root.Subcommands.Add(BuildOpenCommand(services));
+        root.Subcommands.Add(BuildListCommand(services));
+        root.Subcommands.Add(BuildCaptureCommand(services));
         return root;
     }
+
+    private static Command BuildListCommand(Func<IServiceProvider> services)
+    {
+        var command = new Command("list", "List running .NET processes that can be captured.");
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        {
+            var capture = services().GetRequiredService<ICaptureService>();
+            var processes = await capture.ListProcessesAsync(ct).ConfigureAwait(false);
+            await output.WriteLineAsync($"{"PID",8}  {"Name",-28} {"Runtime",-18} {"Elevation",-12} {"Working set",12}  Command line").ConfigureAwait(false);
+            foreach (var p in processes)
+            {
+                var elevation = p.Elevation switch
+                {
+                    ProcessElevation.Elevated => "elevated",
+                    ProcessElevation.NotElevated => "no",
+                    _ => "unknown",
+                };
+                var commandLine = p.CommandLine is { Length: > 80 } text ? text[..77] + "..." : p.CommandLine ?? string.Empty;
+                await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                    $"{p.ProcessId,8}  {Truncate(p.Name, 28),-28} {p.RuntimeVersion ?? "?",-18} {elevation,-12} {(p.WorkingSetBytes is { } ws ? Mb(ws) : "?"),12}  {commandLine}")).ConfigureAwait(false);
+            }
+
+            if (processes.Any(p => p.NeedsAdministrator))
+            {
+                await error.WriteLineAsync("Processes marked elevated can only be captured when HeapScope runs as administrator.").ConfigureAwait(false);
+            }
+
+            return Success;
+        }));
+        return command;
+    }
+
+    private static Command BuildCaptureCommand(Func<IServiceProvider> services)
+    {
+        var pid = new Option<int>("--pid") { Description = "Process id to capture (see 'list').", Required = true };
+        var output = new Option<FileInfo?>("--out") { Description = "Dump file (or existing folder) to write; default: a new file in the session folder." };
+        var sessionOption = new Option<string?>("--session") { Description = "Capture into this existing session (folder name or path under the sessions root) instead of a new one." };
+        var label = new Option<string?>("--label") { Description = "A label for the snapshot, such as baseline." };
+        var open = new Option<bool>("--open") { Description = "Open the dump after capturing it and print its summary." };
+        var command = new Command("capture", "Capture a full memory dump of a running .NET process (it is paused while the dump is written). Ctrl+C cancels.");
+        command.Options.Add(pid);
+        command.Options.Add(output);
+        command.Options.Add(sessionOption);
+        command.Options.Add(label);
+        command.Options.Add(open);
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (stdout, error) =>
+        {
+            var capture = services().GetRequiredService<ICaptureService>();
+            if (parseResult.GetValue(sessionOption) is { } sessionName && capture.Library.Open(sessionName) is null)
+            {
+                await error.WriteLineAsync($"Error: {sessionName} is not a HeapScope session under {capture.Library.Root}.").ConfigureAwait(false);
+                return Failure;
+            }
+
+            var jobs = services().GetRequiredService<JobTracker>();
+            var job = capture.StartCapture(parseResult.GetValue(pid), parseResult.GetValue(output)?.FullName, parseResult.GetValue(label));
+            using var progressLine = new ConsoleProgress(jobs, job, error);
+            using var cancel = ct.Register(job.Cancel);
+            CaptureResult result;
+            try
+            {
+                result = await job.Result.ConfigureAwait(false);
+            }
+            catch (CaptureFailedException ex)
+            {
+                await error.WriteLineAsync("Error: " + ex.Message).ConfigureAwait(false);
+                return Failure;
+            }
+
+            progressLine.Complete();
+            await stdout.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"Captured {result.Process.Name} (pid {result.Process.ProcessId}): {result.Path} ({Mb(result.SizeBytes)})")).ConfigureAwait(false);
+            if (result.Session is { } recorded)
+            {
+                await stdout.WriteLineAsync($"Session: {recorded.Folder}").ConfigureAwait(false);
+            }
+
+            if (result.Warning is { } captureWarning)
+            {
+                await error.WriteLineAsync("Warning: " + captureWarning).ConfigureAwait(false);
+            }
+
+            await error.WriteLineAsync("Note: " + result.SecretsNote).ConfigureAwait(false);
+            if (!parseResult.GetValue(open))
+            {
+                return Success;
+            }
+
+            var session = services().GetRequiredService<SnapshotSession>();
+            if (await session.GetOpenWarningAsync(result.Path, rebuild: false, ct).ConfigureAwait(false) is { } warning)
+            {
+                await error.WriteLineAsync("Warning: " + warning).ConfigureAwait(false);
+            }
+
+            var openJob = session.StartOpen(result.Path);
+            using var openProgress = new ConsoleProgress(jobs, openJob, error);
+            using var cancelOpen = ct.Register(openJob.Cancel);
+            var handle = await openJob.Result.ConfigureAwait(false);
+            openProgress.Complete();
+            await stdout.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"Opened: {handle.Descriptor.ObjectCount:N0} objects ({Mb((long)handle.Descriptor.TotalSize)}), {handle.Descriptor.TypeCount:N0} types, {handle.Descriptor.OpenSeconds:N1} s")).ConfigureAwait(false);
+            return Success;
+        }));
+        return command;
+    }
+
+    private static string Truncate(string value, int length) => value.Length <= length ? value : value[..(length - 3)] + "...";
 
     private static Command BuildOpenCommand(Func<IServiceProvider> services)
     {
@@ -268,6 +385,7 @@ internal static class CliCommands
         private readonly TextWriter _error;
         private readonly object _gate = new();
         private DateTime _lastWrite = DateTime.MinValue;
+        private string? _lastPhase;
 
         public ConsoleProgress(JobTracker tracker, TrackedJob job, TextWriter error)
         {
@@ -290,15 +408,17 @@ internal static class CliCommands
 
             lock (_gate)
             {
+                // A new phase is always printed (it can carry a warning, such as the paused target); repeats are throttled.
                 var now = DateTime.UtcNow;
-                if (now - _lastWrite < TimeSpan.FromMilliseconds(250))
+                if (progress.Phase == _lastPhase && now - _lastWrite < TimeSpan.FromMilliseconds(250))
                 {
                     return;
                 }
 
                 _lastWrite = now;
+                _lastPhase = progress.Phase;
                 var percent = progress.Total is > 0 ? $" {100.0 * progress.Completed / progress.Total.Value,5:N1}%" : string.Empty;
-                _error.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{progress.Phase}{percent}"));
+                _error.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{progress.Phase}{percent}{(progress.Message is { } message ? ": " + message : string.Empty)}"));
             }
         }
     }

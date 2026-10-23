@@ -11,6 +11,7 @@ namespace HeapScope.Integration.Tests;
 /// <c>New-DenseDump.ps1</c> script plus the <c>load-dump</c> benchmark; this test uses a small heap.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection(nameof(HeavyTestsCollection))]
 public sealed class DenseHeapTests : IDisposable
 {
     private const int TargetMb = 200;

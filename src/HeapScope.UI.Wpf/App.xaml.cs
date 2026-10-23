@@ -188,6 +188,33 @@ public partial class App : System.Windows.Application
         };
     }
 
+    /// <summary>
+    /// Cancels running jobs and waits for them (bounded): a capture canceled here still lets the runtime finish writing
+    /// and then deletes the dump, which must happen before the process exits (sprint 1.1 review H1).
+    /// </summary>
+    private static async Task CancelRunningJobsAsync(IServiceProvider services)
+    {
+        var running = services.GetRequiredService<Application.Jobs.JobTracker>().Jobs
+            .Where(j => j.Status == Application.Jobs.JobStatus.Running)
+            .ToList();
+        if (running.Count == 0)
+        {
+            return;
+        }
+
+        if (Current?.MainWindow is { } window)
+        {
+            window.Title += " (finishing running jobs, a canceled capture removes its dump first)";
+        }
+
+        foreach (var job in running)
+        {
+            job.Cancel();
+        }
+
+        await Task.WhenAny(Task.WhenAll(running.Select(j => j.Completion)), Task.Delay(TimeSpan.FromMinutes(5)));
+    }
+
     private async void OnMainWindowClosing(object? sender, CancelEventArgs e)
     {
         if (_host is null)
@@ -205,6 +232,7 @@ public partial class App : System.Windows.Application
         var host = _host;
         try
         {
+            await CancelRunningJobsAsync(host.Services);
             host.Services.GetService<ShellViewModel>()?.Dispose();
             host.Services.GetService<DispatcherWatchdog>()?.Dispose();
             using var timeout = new CancellationTokenSource(s_stopTimeout);

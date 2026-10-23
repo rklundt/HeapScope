@@ -122,7 +122,8 @@ public sealed class SnapshotsViewModelTests : IDisposable
     [Fact]
     public async Task Shell_shows_the_snapshots_page_when_a_snapshot_opens()
     {
-        using var shell = new ShellViewModel(_operations, new ImmediateUiDispatcher(), new HomeViewModel(_operations, _snapshots), _snapshots, new AboutViewModel(_operations));
+        var processes = new ProcessesViewModel(new FakeCaptureService(Path.Combine(_folder, "sessions"), _operations.Jobs), _snapshots, _interaction);
+        using var shell = new ShellViewModel(_operations, new ImmediateUiDispatcher(), new HomeViewModel(_operations, _snapshots), _snapshots, processes, new AboutViewModel(_operations));
 
         await _snapshots.OpenPathAsync(Dump("b.dmp", 10));
 
