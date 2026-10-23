@@ -78,12 +78,17 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isOpening;
 
+    /// <summary>The detail tab: 0 the selected snapshot, 1 the comparison.</summary>
+    [ObservableProperty]
+    private int _selectedTab;
+
     public SnapshotsViewModel(
         SnapshotSession session,
         WorkerOperations operations,
         IUiDispatcher dispatcher,
         IUserInteraction interaction,
-        ILogger<TypeSummaryViewModel>? typesLogger = null)
+        ILogger<TypeSummaryViewModel>? typesLogger = null,
+        ILogger<CompareViewModel>? compareLogger = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
@@ -91,12 +96,16 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
         _session.SnapshotsChanged += OnSnapshotsChanged;
         Types = new TypeSummaryViewModel(session, typesLogger);
+        Compare = new CompareViewModel(session, Snapshots, compareLogger);
     }
 
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; } = [];
 
     /// <summary>The types grid of the selected snapshot.</summary>
     public TypeSummaryViewModel Types { get; }
+
+    /// <summary>The comparison of two open snapshots (sprint 1.4).</summary>
+    public CompareViewModel Compare { get; }
 
     public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
 
@@ -208,5 +217,13 @@ public static class Format
         >= 1L << 20 => string.Create(CultureInfo.CurrentCulture, $"{bytes / (double)(1L << 20):N1} MB"),
         >= 1L << 10 => string.Create(CultureInfo.CurrentCulture, $"{bytes / (double)(1L << 10):N1} KB"),
         _ => string.Create(CultureInfo.CurrentCulture, $"{bytes:N0} bytes"),
+    };
+
+    /// <summary>A humanized size with its sign (+1.5 MB, -200 bytes, 0 bytes), for deltas.</summary>
+    public static string SignedBytes(long bytes) => bytes switch
+    {
+        > 0 => "+" + Bytes(bytes),
+        < 0 => "-" + Bytes(bytes == long.MinValue ? long.MaxValue : -bytes),
+        _ => Bytes(0),
     };
 }

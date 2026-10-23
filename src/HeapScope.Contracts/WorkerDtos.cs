@@ -171,6 +171,69 @@ public sealed record TypeSummaryResult(
     double ElapsedSeconds,
     int UnfilteredRows);
 
+/// <summary>A snapshot comparison query (sprint 1.4, ADR-018).</summary>
+/// <param name="BaselineId">The earlier snapshot; deltas are current minus baseline.</param>
+/// <param name="CurrentId">The later snapshot.</param>
+/// <param name="GroupBy">Rows per type, namespace or assembly.</param>
+/// <param name="Filter">Keeps rows whose name matches (<see cref="NameFilter"/>).</param>
+/// <param name="SortColumn">The name of a result column to sort by; null sorts by <see cref="TypeDiffColumns.BytesDelta"/>.</param>
+/// <param name="Descending">Sort direction.</param>
+public sealed record TypeDiffRequest(
+    Guid BaselineId,
+    Guid CurrentId,
+    TypeGrouping GroupBy = TypeGrouping.Type,
+    string? Filter = null,
+    string? SortColumn = null,
+    bool Descending = true);
+
+/// <summary>Column names of a type diff result set.</summary>
+public static class TypeDiffColumns
+{
+    public const string Name = "Name";
+    public const string Change = "Change";
+    public const string BaselineTypes = "BaselineTypes";
+    public const string CurrentTypes = "CurrentTypes";
+    public const string BaselineObjects = "BaselineObjects";
+    public const string CurrentObjects = "CurrentObjects";
+    public const string ObjectsDelta = "ObjectsDelta";
+    public const string BaselineBytes = "BaselineBytes";
+    public const string CurrentBytes = "CurrentBytes";
+    public const string BytesDelta = "BytesDelta";
+
+    /// <summary>The <see cref="Change"/> value of a row present only in the current snapshot.</summary>
+    public const string New = "new";
+
+    /// <summary>The <see cref="Change"/> value of a row present only in the baseline.</summary>
+    public const string Gone = "gone";
+
+    /// <summary>
+    /// The <see cref="Change"/> value of a row whose number of distinct types changed: the same type name and module
+    /// loaded a different number of times (for example a plugin reloaded into a new load context while the old copy
+    /// stays alive). The counts are in <see cref="BaselineTypes"/> and <see cref="CurrentTypes"/>.
+    /// </summary>
+    public const string Copies = "copies";
+}
+
+/// <summary>
+/// The answer to a type diff: rows (columns in <see cref="TypeDiffColumns"/>) and totals. Snapshot totals cover every
+/// object of each dump, unreachable ones included; the matching totals cover the rows that pass the filter (the whole
+/// heap without one) and are what <c>diff --fail-on-growth</c> checks. <see cref="ExactCounts"/> is false when either
+/// snapshot's counts are estimates (a sampled gcdump, ADR-003): the deltas are then estimates too.
+/// </summary>
+public sealed record TypeDiffResult(
+    ResultSetInfo Rows,
+    long BaselineObjects,
+    long BaselineBytes,
+    long CurrentObjects,
+    long CurrentBytes,
+    int NewRows,
+    int GoneRows,
+    int UnfilteredRows,
+    long MatchingBaselineBytes,
+    long MatchingBytesDelta,
+    double ElapsedSeconds,
+    bool ExactCounts);
+
 /// <summary>A result set held by the worker, fetched with <see cref="IWorkerService.GetRowsAsync"/>.</summary>
 public sealed record ResultSetInfo(Guid Id, int TotalCount, IReadOnlyList<ResultColumn> Columns);
 

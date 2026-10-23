@@ -53,17 +53,21 @@ public sealed class WorkerIpcTests : IAsyncDisposable
     public async Task Handshake_protocol_mismatch_fails_the_start_and_leaves_no_worker()
     {
         var options = new WorkerHostOptions { WorkerPath = TestPaths.WorkerExe, ClientProtocolVersion = WorkerProtocol.Version + 1 };
-        await using var host = new WorkerHost(Options.Create(options), _logs);
+        var logs = new ListLoggerProvider();
+        await using var host = new WorkerHost(Options.Create(options), logs);
         var states = new ConcurrentQueue<WorkerState>();
         host.StateChanged += (_, e) => states.Enqueue(e.State);
-        var workersBefore = WorkerProcessIds();
 
         var ex = await Should.ThrowAsync<WorkerOperationException>(() => host.EnsureStartedAsync(Ct));
 
         ex.ErrorCode.ShouldBe(HeapScopeErrorCode.ProtocolMismatch);
         ex.Message.ShouldContain("protocol");
         host.State.ShouldBe(WorkerState.Crashed);
-        await WaitUntilAsync(() => WorkerProcessIds().Except(workersBefore).All(pid => !IsRunning(pid)));
+
+        // Only the worker this host started: other test classes start workers of their own in parallel.
+        var started = logs.Records.Select(r => System.Text.RegularExpressions.Regex.Match(r.Message, @"Started worker process (\d+)"))
+            .Single(m => m.Success).Groups[1].Value;
+        await WaitUntilAsync(() => !IsRunning(int.Parse(started, System.Globalization.CultureInfo.InvariantCulture)));
     }
 
     [Fact]

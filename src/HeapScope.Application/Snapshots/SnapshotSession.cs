@@ -162,6 +162,41 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         return new TypeSummary(new ResultSetHandle(worker, info, RunAsync), latest!);
     }
 
+    /// <summary>
+    /// Compares two snapshots by type (sprint 1.4, ADR-018): deltas are <paramref name="current"/> minus
+    /// <paramref name="baseline"/>. Like the type summary, the rows re-run the query (reopening either snapshot after a
+    /// worker restart) when the set is gone.
+    /// </summary>
+    public async Task<SnapshotDiff> QueryTypeDiffAsync(
+        SnapshotHandle baseline,
+        SnapshotHandle current,
+        TypeGrouping groupBy,
+        string? filter,
+        string? sortColumn,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
+        ArgumentNullException.ThrowIfNull(current);
+        TypeDiffResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseBothAsync(
+                baseline,
+                current,
+                (service, baselineId, currentId, innerCt) => service.QueryTypeDiffAsync(
+                    new TypeDiffRequest(baselineId, currentId, groupBy, filter, sortColumn, descending), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+
+        // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
+        return new SnapshotDiff(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
     public Task<ResultSetInfo> GetTypeSummaryAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.GetTypeSummaryAsync(id, ct), cancellationToken);
@@ -190,6 +225,45 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             ThrowIfClosed(handle);
             await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
             return await worker.InvokeAsync((service, ct) => call(service, handle.WorkerSnapshotId, ct), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="UseAsync{T}"/> for a call on two snapshots. When the worker reports a snapshot as not loaded, both are
+    /// reopened from their index caches (reopening one that is still loaded returns it as it is) and the call runs once
+    /// more.
+    /// </summary>
+    private async Task<T> UseBothAsync<T>(
+        SnapshotHandle first,
+        SnapshotHandle second,
+        Func<IWorkerService, Guid, Guid, CancellationToken, Task<T>> call,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfClosed(first);
+        ThrowIfClosed(second);
+        await worker.EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var handle in new[] { first, second }.Distinct())
+        {
+            if (handle.Generation != worker.Generation)
+            {
+                await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        try
+        {
+            return await worker.InvokeAsync((service, ct) => call(service, first.WorkerSnapshotId, second.WorkerSnapshotId, ct), cancellationToken).ConfigureAwait(false);
+        }
+        catch (WorkerOperationException ex) when (ex.ErrorCode == HeapScopeErrorCode.SnapshotNotLoaded)
+        {
+            ThrowIfClosed(first);
+            ThrowIfClosed(second);
+            foreach (var handle in new[] { first, second }.Distinct())
+            {
+                await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
+            }
+
+            return await worker.InvokeAsync((service, ct) => call(service, first.WorkerSnapshotId, second.WorkerSnapshotId, ct), cancellationToken).ConfigureAwait(false);
         }
     }
 

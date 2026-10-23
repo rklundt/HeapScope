@@ -14,6 +14,9 @@
   <SolidColorBrush x:Key="Brush.Info.Border" Color="#FF388BFD" />
   <SolidColorBrush x:Key="Brush.Error.Background" Color="#FF3D1F1D" />
   <SolidColorBrush x:Key="Brush.Error.Border" Color="#FFF85149" />
+  <!-- Diff deltas (sprint 1.4): growth and shrinkage. -->
+  <SolidColorBrush x:Key="Brush.Growth" Color="#FFFF7B72" />
+  <SolidColorBrush x:Key="Brush.Shrink" Color="#FF3FB950" />
   <SolidColorBrush x:Key="HeapKind.Unknown" Color="#FF757575" />
   <SolidColorBrush x:Key="HeapKind.Gen0" Color="#FF66BB6A" />
   <SolidColorBrush x:Key="HeapKind.Gen1" Color="#FF42A5F5" />

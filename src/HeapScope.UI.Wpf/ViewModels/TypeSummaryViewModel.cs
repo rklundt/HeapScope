@@ -1,13 +1,9 @@
-using System.Collections;
-using System.Collections.Specialized;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
-using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.UI.Wpf.ViewModels;
 
@@ -19,21 +15,16 @@ public sealed class TypeRowLayout
 {
     private TypeRowLayout(IReadOnlyList<ResultColumn> columns)
     {
-        int Find(string name) => columns.Select((c, i) => (c, i)).FirstOrDefault(x => x.c.Name == name, (null!, -1)).Item2;
-        int Require(string name) => Find(name) is >= 0 and var i
-            ? i
-            : throw new InvalidOperationException($"The worker's type summary has no {name} column. The worker and the app are from different builds.");
-
-        Name = Require("Name");
-        Objects = Require("Objects");
-        Bytes = Require("Bytes");
-        Percent = Find("Percent");
-        Gen0 = Find("Gen0");
-        Gen1 = Find("Gen1");
-        Gen2 = Find("Gen2");
-        LargeObjectHeap = Find("LargeObjectHeap");
-        PinnedObjectHeap = Find("PinnedObjectHeap");
-        Frozen = Find("Frozen");
+        Name = ResultColumns.Require(columns, "Name");
+        Objects = ResultColumns.Require(columns, "Objects");
+        Bytes = ResultColumns.Require(columns, "Bytes");
+        Percent = ResultColumns.Find(columns, "Percent");
+        Gen0 = ResultColumns.Find(columns, "Gen0");
+        Gen1 = ResultColumns.Find(columns, "Gen1");
+        Gen2 = ResultColumns.Find(columns, "Gen2");
+        LargeObjectHeap = ResultColumns.Find(columns, "LargeObjectHeap");
+        PinnedObjectHeap = ResultColumns.Find(columns, "PinnedObjectHeap");
+        Frozen = ResultColumns.Find(columns, "Frozen");
     }
 
     public int Name { get; }
@@ -64,7 +55,7 @@ public sealed class TypeRowLayout
 /// with one "all properties changed" notification: a page fills 200 rows, and a notification per value made the grid's
 /// rebinding exceed the 100 ms dispatcher budget (sprint 1.3 smoke run).
 /// </summary>
-public sealed class TypeRowItem(int index) : ObservableObject
+public sealed class TypeRowItem(int index) : ObservableObject, IIndexedRow
 {
     public int Index { get; } = index;
 
@@ -90,189 +81,41 @@ public sealed class TypeRowItem(int index) : ObservableObject
 
     public bool IsLoaded { get; private set; }
 
+    /// <summary>A row list over a type summary result set; fails at once when a required column is missing.</summary>
+    public static VirtualRowList<TypeRowItem> CreateList(ResultSetHandle? rows, ResultSetInfo info, Action<Exception>? onError = null, ILogger? logger = null)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        var layout = TypeRowLayout.From(info.Columns);
+        return new VirtualRowList<TypeRowItem>(rows, info.TotalCount, i => new TypeRowItem(i), (row, cells) => row.Fill(cells, layout), onError, logger);
+    }
+
     internal void Fill(IReadOnlyList<string?> cells, TypeRowLayout layout)
     {
-        Name = layout.Name < cells.Count ? cells[layout.Name] ?? string.Empty : string.Empty;
-        Objects = ParseLong(cells, layout.Objects);
-        Bytes = ParseLong(cells, layout.Bytes);
-        Percent = layout.Percent >= 0 && layout.Percent < cells.Count && double.TryParse(cells[layout.Percent], NumberStyles.Float, CultureInfo.InvariantCulture, out var p) ? p : 0;
-        Gen0 = ParseLong(cells, layout.Gen0);
-        Gen1 = ParseLong(cells, layout.Gen1);
-        Gen2 = ParseLong(cells, layout.Gen2);
-        LargeObjectHeap = ParseLong(cells, layout.LargeObjectHeap);
-        PinnedObjectHeap = ParseLong(cells, layout.PinnedObjectHeap);
-        Frozen = ParseLong(cells, layout.Frozen);
+        Name = Cells.Text(cells, layout.Name);
+        Objects = Cells.Long(cells, layout.Objects);
+        Bytes = Cells.Long(cells, layout.Bytes);
+        Percent = Cells.Double(cells, layout.Percent);
+        Gen0 = Cells.Long(cells, layout.Gen0);
+        Gen1 = Cells.Long(cells, layout.Gen1);
+        Gen2 = Cells.Long(cells, layout.Gen2);
+        LargeObjectHeap = Cells.Long(cells, layout.LargeObjectHeap);
+        PinnedObjectHeap = Cells.Long(cells, layout.PinnedObjectHeap);
+        Frozen = Cells.Long(cells, layout.Frozen);
         IsLoaded = true;
         OnPropertyChanged(string.Empty);
     }
-
-    private static long ParseLong(IReadOnlyList<string?> cells, int index) =>
-        index >= 0 && index < cells.Count && long.TryParse(cells[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
 }
 
-/// <summary>
-/// A list of a result set's rows for a virtualizing grid: the count is known up front, rows are created when the grid
-/// asks for them and filled by fetching their page from the worker. Rows the grid has asked for are kept for the life
-/// of the list (one list per query); a bounded window of pages is a backlog item for the object lists of 1.5.
-/// <see cref="Cancel"/> ends the list when a newer query replaces it: page requests in flight stop, and their rows and
-/// errors are dropped.
-/// </summary>
-public sealed class VirtualRowList : IList, INotifyCollectionChanged
+/// <summary>Invariant-culture cell parsing; a missing column (index -1) or empty cell reads as zero or empty.</summary>
+internal static class Cells
 {
-    /// <summary>Rows per page fetched from the worker.</summary>
-    public const int PageSize = 200;
+    public static string Text(IReadOnlyList<string?> cells, int index) => index >= 0 && index < cells.Count ? cells[index] ?? string.Empty : string.Empty;
 
-    private readonly ResultSetHandle? _rows;
-    private readonly TypeRowLayout? _layout;
-    private readonly Dictionary<int, TypeRowItem> _items = [];
-    private readonly Dictionary<int, Task> _pages = [];
-    private readonly Action<Exception>? _onError;
-    private readonly ILogger _logger;
-    private readonly CancellationTokenSource _lifetime = new();
+    public static long Long(IReadOnlyList<string?> cells, int index) =>
+        index >= 0 && index < cells.Count && long.TryParse(cells[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
 
-    public VirtualRowList(ResultSetHandle? rows, ResultSetInfo? info, Action<Exception>? onError = null, ILogger? logger = null)
-    {
-        _rows = rows;
-        _layout = info is null ? null : TypeRowLayout.From(info.Columns);
-        Count = info?.TotalCount ?? 0;
-        _onError = onError;
-        _logger = logger ?? NullLogger.Instance;
-    }
-
-    public static VirtualRowList Empty { get; } = new(null, null);
-
-    // The count never changes and rows fill in place (each row notifies), so the list never raises this. It implements
-    // INotifyCollectionChanged only so WPF does not take a snapshot copy of an IList it believes is static.
-    public event NotifyCollectionChangedEventHandler? CollectionChanged
-    {
-        add { }
-        remove { }
-    }
-
-    public int Count { get; }
-
-    public bool IsFixedSize => true;
-
-    public bool IsReadOnly => true;
-
-    public bool IsSynchronized => false;
-
-    public object SyncRoot => this;
-
-    /// <summary>Pages requested so far (tests).</summary>
-    public IReadOnlyCollection<int> RequestedPages => _pages.Keys;
-
-    public object? this[int index]
-    {
-        get => GetRow(index);
-        set => throw new NotSupportedException();
-    }
-
-    /// <summary>The row at <paramref name="index"/>; starts fetching its page when it is not loaded yet.</summary>
-    public TypeRowItem GetRow(int index)
-    {
-        var item = GetRowWithoutFetch(index);
-        var page = index / PageSize;
-        if (_rows is not null && !_lifetime.IsCancellationRequested && !_pages.ContainsKey(page))
-        {
-            // Reserve the slot first: a load that fails synchronously removes it, and must stay removed so the page can
-            // be retried.
-            _pages[page] = Task.CompletedTask;
-            var load = LoadPageAsync(page);
-            if (_pages.ContainsKey(page))
-            {
-                _pages[page] = load;
-            }
-        }
-
-        return item;
-    }
-
-    /// <summary>Ends the list: page requests in flight stop and their results are dropped.</summary>
-    public void Cancel() => _lifetime.Cancel();
-
-    /// <summary>Completes when every page requested so far has arrived (tests and smoke runs).</summary>
-    public Task WhenLoadedAsync() => Task.WhenAll(_pages.Values);
-
-    public int Add(object? value) => throw new NotSupportedException();
-
-    public void Clear() => throw new NotSupportedException();
-
-    public bool Contains(object? value) => value is TypeRowItem item && item.Index < Count && _items.ContainsKey(item.Index);
-
-    public int IndexOf(object? value) => value is TypeRowItem item && _items.TryGetValue(item.Index, out var same) && ReferenceEquals(same, item) ? item.Index : -1;
-
-    public void Insert(int index, object? value) => throw new NotSupportedException();
-
-    public void Remove(object? value) => throw new NotSupportedException();
-
-    public void RemoveAt(int index) => throw new NotSupportedException();
-
-    // Enumeration never fetches: an enumerating consumer (automation peers, a copy command) would otherwise pull the
-    // whole result set over the pipe. Rows not asked for by index come back as unloaded placeholders.
-    public void CopyTo(Array array, int index)
-    {
-        ArgumentNullException.ThrowIfNull(array);
-        for (var i = 0; i < Count; i++)
-        {
-            array.SetValue(_items.TryGetValue(i, out var item) ? item : new TypeRowItem(i), index + i);
-        }
-    }
-
-    public IEnumerator GetEnumerator()
-    {
-        for (var i = 0; i < Count; i++)
-        {
-            yield return _items.TryGetValue(i, out var item) ? item : new TypeRowItem(i);
-        }
-    }
-
-    private async Task LoadPageAsync(int page)
-    {
-        var start = page * PageSize;
-        var token = _lifetime.Token;
-        try
-        {
-            var result = await _rows!.GetRowsAsync(start, Math.Min(PageSize, Count - start), token);
-            if (token.IsCancellationRequested)
-            {
-                return;
-            }
-
-            for (var i = 0; i < result.Rows.Count; i++)
-            {
-                GetRowWithoutFetch(start + i).Fill(result.Rows[i], _layout!);
-            }
-        }
-        catch (Exception) when (token.IsCancellationRequested)
-        {
-            // A newer query replaced this list; its handle may already be released.
-        }
-        catch (Exception ex)
-        {
-            // The page can be asked for again (scrolling back retries it).
-            _pages.Remove(page);
-            if (ex is not (WorkerStartException or WorkerCrashedException or WorkerOperationException))
-            {
-                _logger.LogError(ex, "Loading rows {Start} to {End} of the types grid failed", start, start + PageSize - 1);
-            }
-
-            _onError?.Invoke(ex);
-        }
-    }
-
-    private TypeRowItem GetRowWithoutFetch(int index)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(index);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Count);
-        if (!_items.TryGetValue(index, out var item))
-        {
-            item = new TypeRowItem(index);
-            _items[index] = item;
-        }
-
-        return item;
-    }
+    public static double Double(IReadOnlyList<string?> cells, int index) =>
+        index >= 0 && index < cells.Count && double.TryParse(cells[index], NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0;
 }
 
 /// <summary>A heap kind in the overview bar: share of the snapshot's bytes, in its fixed color.</summary>
@@ -285,29 +128,12 @@ public sealed record HeapKindShare(HeapKindDto Kind, string Label, long Objects,
 
 /// <summary>
 /// The types grid of a snapshot (sprint 1.3, dotMemory's types view): grouping, type-to-filter (debounced) and sorting
-/// re-query the worker; rows are virtualized; generation columns show only when the snapshot has generations. Only the
-/// latest query owns the view: an older query's result, error or page is dropped.
+/// re-query the worker; rows are virtualized; generation columns show only when the snapshot has generations.
 /// </summary>
-public sealed partial class TypeSummaryViewModel : ObservableObject
+public sealed partial class TypeSummaryViewModel : GridQueryViewModel<TypeRowItem>
 {
-    /// <summary>Delay between the last filter keystroke and the query.</summary>
-    public static readonly TimeSpan FilterDelay = TimeSpan.FromMilliseconds(250);
-
     private readonly SnapshotSession _session;
-    private readonly ILogger _logger;
     private SnapshotHandle? _snapshot;
-    private TypeSummary? _current;
-    private CancellationTokenSource? _query;
-    private CancellationTokenSource? _filterDelay;
-
-    [ObservableProperty]
-    private VirtualRowList _rows = VirtualRowList.Empty;
-
-    [ObservableProperty]
-    private TypeGrouping _groupBy = TypeGrouping.Type;
-
-    [ObservableProperty]
-    private string? _filter;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SortState))]
@@ -324,25 +150,10 @@ public sealed partial class TypeSummaryViewModel : ObservableObject
     private string? _generationsExplanation;
 
     [ObservableProperty]
-    private string? _status;
-
-    [ObservableProperty]
-    private string? _totals;
-
-    [ObservableProperty]
     private IReadOnlyList<HeapKindShare> _heapKinds = [];
 
     public TypeSummaryViewModel(SnapshotSession session, ILogger<TypeSummaryViewModel>? logger = null)
-    {
-        _session = session ?? throw new ArgumentNullException(nameof(session));
-        _logger = (ILogger?)logger ?? NullLogger.Instance;
-    }
-
-    /// <summary>The groupings the selector offers.</summary>
-    public IReadOnlyList<TypeGrouping> Groupings { get; } = Enum.GetValues<TypeGrouping>();
-
-    /// <summary>The query in progress, if any (tests and smoke runs await it).</summary>
-    public Task QueryTask { get; private set; } = Task.CompletedTask;
+        : base(logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
 
     /// <summary>
     /// The sorted column's <c>SortMemberPath</c> and direction ("Bytes|desc"); the grid shows its header arrow from this,
@@ -355,23 +166,45 @@ public sealed partial class TypeSummaryViewModel : ObservableObject
         _ => nameof(TypeRowItem.Bytes),
     }) + (Descending ? "|desc" : "|asc");
 
+    protected override bool CanQuery => _snapshot is not null;
+
+    protected override string BusyText => "Summarizing...";
+
     /// <summary>Shows a snapshot (or nothing) and queries it with the current grouping, filter and sort.</summary>
     public void Show(SnapshotHandle? snapshot)
     {
         _snapshot = snapshot;
         if (snapshot is null)
         {
-            CancelPending();
-            ReplaceCurrent(null);
-            Rows.Cancel();
-            Rows = VirtualRowList.Empty;
-            Totals = null;
-            Status = null;
-            HeapKinds = [];
+            ClearResults();
             return;
         }
 
         Requery();
+    }
+
+    protected override void OnCleared() => HeapKinds = [];
+
+    protected override async Task<GridQuery<TypeRowItem>> RunQueryAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = _snapshot!;
+        var groupBy = GroupBy;
+        var summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, Sort, Descending, null, cancellationToken);
+        var result = summary.Result;
+        return new GridQuery<TypeRowItem>(
+            summary.Rows,
+            () =>
+            {
+                HasGenerations = result.HasGenerations;
+                GenerationsExplanation = result.HasGenerations
+                    ? null
+                    : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, snapshot.Descriptor.Kind);
+                HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];
+                Totals = string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} (all objects in the dump, unreachable ones included)");
+            },
+            onError => TypeRowItem.CreateList(summary.Rows, result.Rows, onError, Logger));
     }
 
     /// <summary>Sorts by a grid column: a second click on the same column flips the direction.</summary>
@@ -398,121 +231,6 @@ public sealed partial class TypeSummaryViewModel : ObservableObject
         Requery();
     }
 
-    partial void OnGroupByChanged(TypeGrouping value) => Requery();
-
-    partial void OnFilterChanged(string? value)
-    {
-        ReplaceSource(ref _filterDelay);
-        var token = _filterDelay!.Token;
-        _ = Task.Delay(FilterDelay, token).ContinueWith(
-            _ => Requery(),
-            token,
-            TaskContinuationOptions.OnlyOnRanToCompletion,
-            TaskSchedulerExtensions.FromCurrentSynchronizationContextOrDefault());
-    }
-
-    private void Requery()
-    {
-        if (_snapshot is null)
-        {
-            return;
-        }
-
-        CancelPending();
-        ReplaceSource(ref _query);
-        QueryTask = QueryAsync(_snapshot, _query!.Token);
-    }
-
-    private void CancelPending()
-    {
-        // A grouping or sort change also runs a pending filter now, so the debounce must not fire it a second time.
-        _filterDelay?.Cancel();
-        _filterDelay?.Dispose();
-        _filterDelay = null;
-        _query?.Cancel();
-    }
-
-    private static void ReplaceSource(ref CancellationTokenSource? source)
-    {
-        source?.Cancel();
-        source?.Dispose();
-        source = new CancellationTokenSource();
-    }
-
-    private async Task QueryAsync(SnapshotHandle snapshot, CancellationToken cancellationToken)
-    {
-        Status = "Summarizing...";
-        try
-        {
-            var summary = await _session.QueryTypeSummaryAsync(snapshot, GroupBy, Filter, Sort, Descending, null, cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                await summary.Rows.ReleaseAsync(CancellationToken.None);
-                return;
-            }
-
-            ReplaceCurrent(summary);
-            var result = summary.Result;
-            HasGenerations = result.HasGenerations;
-            GenerationsExplanation = result.HasGenerations
-                ? null
-                : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, snapshot.Descriptor.Kind);
-            HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];
-            Totals = string.Create(
-                CultureInfo.CurrentCulture,
-                $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(GroupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} (all objects in the dump, unreachable ones included)");
-            Rows.Cancel();
-            Rows = new VirtualRowList(summary.Rows, result.Rows, ex => Status = PageError(ex), _logger);
-            Status = result.Rows.TotalCount == 0 ? $"No {Singular(GroupBy)} matches the filter." : null;
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // A newer query (or closing the snapshot) replaced this one; whatever it failed with is stale.
-        }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
-        {
-            Status = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "The type summary query failed");
-            Status = "The type summary failed. Details are in the log; try again, or reopen the snapshot.";
-        }
-    }
-
-    private static string PageError(Exception ex) =>
-        ex is WorkerStartException or WorkerCrashedException or WorkerOperationException
-            ? ex.Message
-            : "Some rows could not be loaded. Details are in the log; scroll to retry.";
-
-    private void ReplaceCurrent(TypeSummary? summary)
-    {
-        var previous = _current;
-        _current = summary;
-        if (previous is not null)
-        {
-            _ = previous.Rows.ReleaseAsync(CancellationToken.None).ContinueWith(
-                t => _logger.LogDebug(t.Exception, "Releasing a previous type summary failed"),
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted,
-                TaskScheduler.Default);
-        }
-    }
-
-    private static string Plural(TypeGrouping grouping) => grouping switch
-    {
-        TypeGrouping.Namespace => "namespaces",
-        TypeGrouping.Assembly => "assemblies",
-        _ => "types",
-    };
-
-    private static string Singular(TypeGrouping grouping) => grouping switch
-    {
-        TypeGrouping.Namespace => "namespace",
-        TypeGrouping.Assembly => "assembly",
-        _ => "type",
-    };
-
     private static string Label(HeapKindDto kind) => kind switch
     {
         HeapKindDto.LargeObjectHeap => "LOH",
@@ -520,11 +238,4 @@ public sealed partial class TypeSummaryViewModel : ObservableObject
         HeapKindDto.Unknown => "Unknown generation",
         _ => kind.ToString(),
     };
-}
-
-/// <summary>Scheduler helper: the dispatcher's context when there is one (the app), the thread pool otherwise (tests).</summary>
-internal static class TaskSchedulerExtensions
-{
-    public static TaskScheduler FromCurrentSynchronizationContextOrDefault() =>
-        SynchronizationContext.Current is null ? TaskScheduler.Default : TaskScheduler.FromCurrentSynchronizationContext();
 }

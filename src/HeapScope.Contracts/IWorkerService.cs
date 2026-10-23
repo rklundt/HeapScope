@@ -45,6 +45,13 @@ public interface IWorkerService
     Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Compares the per-type totals of two loaded snapshots (sprint 1.4, ADR-018), reusing each snapshot's aggregation.
+    /// Unknown snapshots fail with <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/>, an unknown sort column with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns rows [offset, offset + count) of a result set; count is capped at
     /// <see cref="WorkerProtocol.MaxPageSize"/>. Unknown, released or evicted sets fail with
     /// <see cref="HeapScopeErrorCode.ResultSetNotFound"/>.

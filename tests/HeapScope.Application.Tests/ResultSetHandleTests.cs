@@ -191,6 +191,8 @@ public sealed class ResultSetHandleTests
 
         public Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
 
+        public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task ShutdownAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task CrashForTestingAsync(CancellationToken cancellationToken) => throw new NotSupportedException();

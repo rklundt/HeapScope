@@ -209,11 +209,11 @@ public sealed class TypeSummaryViewModelTests : IDisposable
     public void Enumerating_the_rows_fetches_nothing()
     {
         var info = new ResultSetInfo(Guid.NewGuid(), 1000, [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes)]);
-        var rows = new VirtualRowList(null, info);
+        var rows = TypeRowItem.CreateList(null, info);
 
         rows.Cast<TypeRowItem>().Count().ShouldBe(1000);
         rows.RequestedPages.ShouldBeEmpty();
-        Should.Throw<InvalidOperationException>(() => new VirtualRowList(null, info with { Columns = [new("Name", ResultColumnKind.Text, true)] }));
+        Should.Throw<InvalidOperationException>(() => TypeRowItem.CreateList(null, info with { Columns = [new("Name", ResultColumnKind.Text, true)] }));
     }
 
     [Fact]
