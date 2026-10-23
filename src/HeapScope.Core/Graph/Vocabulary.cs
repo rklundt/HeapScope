@@ -118,6 +118,35 @@ public readonly struct GcRoot : IEquatable<GcRoot>
     public override string ToString() => $"{_kind} -> #{_objectIndex} ({_flags})";
 }
 
-/// <summary>Size of an object of 4 GiB or more (its <c>Sizes</c> entry holds <see cref="uint.MaxValue"/>).</summary>
+/// <summary>
+/// Size of an object of 4 GiB or more (its <c>Sizes</c> entry holds <see cref="uint.MaxValue"/>). 16 bytes with an
+/// explicit, always zero reserved field, so persisted bytes are deterministic.
+/// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-public readonly record struct LargeObjectSize(int ObjectIndex, ulong Size);
+public readonly struct LargeObjectSize : IEquatable<LargeObjectSize>
+{
+    private readonly int _objectIndex;
+    private readonly int _reserved;
+    private readonly ulong _size;
+
+    public LargeObjectSize(int objectIndex, ulong size)
+    {
+        _objectIndex = objectIndex;
+        _reserved = 0;
+        _size = size;
+    }
+
+    public int ObjectIndex => _objectIndex;
+
+    public ulong Size => _size;
+
+    public static bool operator ==(LargeObjectSize left, LargeObjectSize right) => left.Equals(right);
+
+    public static bool operator !=(LargeObjectSize left, LargeObjectSize right) => !left.Equals(right);
+
+    public bool Equals(LargeObjectSize other) => _objectIndex == other._objectIndex && _size == other._size;
+
+    public override bool Equals(object? obj) => obj is LargeObjectSize other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(_objectIndex, _size);
+}

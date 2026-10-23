@@ -114,6 +114,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   random graph (`--by-address 1` resolves references by address like a loader; the realistic, slower path);
   `--reverse 1` adds objects in descending address order to exercise the sort path. It checks the 30 to 38
   bytes per object budget.
+- `index-cache [--objects 50000000] [--refs 3] [--dir <folder>]`: writes a synthetic graph to an index cache and
+  reopens it in memory and mapped (all checksums verified), against the reopen and mapped private memory budgets.
 
 ## 7. Git conventions
 - Work on `main`; no branches yet (ADR-012).

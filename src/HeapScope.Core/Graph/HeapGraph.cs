@@ -30,7 +30,7 @@ public sealed class HeapGraph : IDisposable
 
     private readonly IDisposable? _owner;
     private readonly ulong _totalSize;
-    private bool _disposed;
+    private int _disposed;
 
     private HeapGraph(
         HeapGraphColumns columns,
@@ -179,13 +179,10 @@ public sealed class HeapGraph : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            return;
+            _owner?.Dispose();
         }
-
-        _disposed = true;
-        _owner?.Dispose();
     }
 
     private ulong FindLargeSize(int objectIndex)
