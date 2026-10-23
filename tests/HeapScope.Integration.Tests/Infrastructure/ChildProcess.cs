@@ -80,6 +80,13 @@ internal sealed class ChildProcess : IDisposable
                 return true;
             }
 
+            if (Process.HasExited)
+            {
+                // Let the output reader drain before the final check.
+                await Process.WaitForExitAsync();
+                return Output.Contains(text, StringComparison.Ordinal);
+            }
+
             await Task.Delay(50);
         }
 

@@ -1,0 +1,17 @@
+{
+  "formatVersion": 1,
+  "name": "EmbeddedStruct",
+  "kind": "semantics",
+  "description": "References inside value types: StructHolder.Inner (an InnerStruct field) holds an EmbeddedTarget; a KeyValuePair<string, KvpTarget>[] holds KvpTargets.",
+  "types": [
+    { "type": "Fixtures.Leaks.EmbeddedTarget", "perItem": 1 },
+    { "type": "Fixtures.Leaks.KvpTarget", "perItem": 1 }
+  ],
+  "roots": [
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.SemanticFixtures", "field": "s_holders", "itemType": "Fixtures.Leaks.EmbeddedTarget" },
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.SemanticFixtures", "field": "s_pairs", "itemType": "Fixtures.Leaks.KvpTarget" }
+  ],
+  "pathShape": [ "Fixtures.Leaks.SemanticFixtures.s_holders", "System.Collections.Generic.List", "Fixtures.Leaks.StructHolder[]", "Fixtures.Leaks.StructHolder", "Fixtures.Leaks.EmbeddedTarget" ],
+  "minRetainedBytesPerItem": { "base": 24, "payloadMultiplier": 0 },
+  "notes": "EmbeddedTarget is referenced only from the struct embedded in StructHolder; KvpTarget only from the KeyValuePair array. Both must be edges of the containing object, otherwise they look unreachable."
+}

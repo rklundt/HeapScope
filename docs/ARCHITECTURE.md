@@ -85,6 +85,7 @@ tests/
 perf/
   HeapScope.Benchmarks         Console benchmarks against the budgets (synthetic 50M-object graph etc.).
 fixtures/
+  Leaks                        Shared leak implementations and semantic fixtures (namespace Fixtures.Leaks).
   LeakyApi                     ASP.NET Core API with switchable, scalable leaks.
   LeakyConsole                 Minimal console leaker for fast tests.
   LoadGen                      Load generator for LeakyApi; also captures dumps for the scripts.
@@ -333,16 +334,25 @@ Supporting tables:
   CSR during the reference pass and never record the secondary as a root. Exactly one mechanism is used: either
   ClrMD's reference enumeration including dependent handles, or explicit edges from the handle table, not both.
 - **Static fields.** On modern .NET the GC sees no static field roots: reference statics live in runtime
-  allocated `object[]` storage held by pinned handles. The full dump loader therefore builds `StaticField` roots
-  itself by enumerating static fields per module and app domain (ClrMD `ClrStaticField`), records the field name
-  as the root detail, and marks the pinned handle roots of the static storage arrays as non-retaining duplicates,
-  so retention paths say `s_cache` and not `PinnedHandle -> Object[]`.
+  allocated `object[]` storage. Measured on .NET 10 with the sprint 0.4 fixtures, that storage is reached through a
+  **strong handle** (`StrongHandle -> System.Object[] -> static value`), not a pinned handle. The full dump loader
+  builds `StaticField` roots itself by enumerating static fields per module and app domain (ClrMD
+  `ClrStaticField`) and records the field name as the root detail. The strong handle roots of the static storage
+  arrays stay retaining (marking them non-retaining would make the storage arrays look unreachable); retention
+  paths prefer a `StaticField` root over the storage handle, so they say `s_cache` and not
+  `StrongHandle -> Object[]`.
 - **Finalizer queue.** Only the f-reachable queue (objects ready for finalization) produces `FinalizerQueue`
   roots. Objects merely registered for finalization are not roots; that fact is kept in the object `Flags`
-  (has-finalizer bit).
+  (`HasFinalizer`). `GC.SuppressFinalize` does not remove an object from the finalization queue (measured in 0.4:
+  every finalizable instance stays registered); it sets bit 0x40000000 in the object header word. `HasFinalizer`
+  is therefore "registered and that bit clear", read from the header by the loader.
 - **Interior pointers.** Stack roots may point inside an object (byrefs). Roots flagged `Interior` are resolved
   with a floor search: the object with the largest address not above the pointer, accepted only when the pointer
   is below that object's address plus size. All other roots and references use an exact match.
+- **Stack roots of debuggable code.** In frames compiled as debuggable code (Debug builds), ClrMD reports no stack
+  roots for some frames (measured in 0.4: the locals of parked fixture threads were missing in Debug and present,
+  including an interior pointer, in Release). Objects held only by such frames can look unreachable. The UI states
+  this when a snapshot's process ran Debug assemblies (sprint 1.2), and the fixtures are always optimized.
 - **Unresolvable targets.** References and roots that do not resolve to an object (stale handles, corrupt slots,
   pointers outside the heap) are dropped and counted: `DroppedReferenceCount` and `DroppedRootCount` are part of
   the graph and shown as a data quality note.
@@ -513,6 +523,24 @@ Initial budgets (sprints refine them with measurements):
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | sprints 1.3, 1.4 |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
+
+Baseline measured in sprint 0.4 on the fixture sample dumps (`dump-stats`, raw ClrMD walk, no HeapScope graph yet;
+reference pass by address as the loader will do it; 24 logical cores, 32 GB RAM, Release). Memory is peak private
+bytes (committed memory, the budget's metric); the benchmark's own sorted address list (8 bytes per object) is
+included.
+
+| Dump | Size | Objects | Managed heap (live + dead) | References per object | Object pass | Reference pass | Peak private bytes |
+|---|---|---|---|---|---|---|---|
+| Small | 568 MB | 5.6M | 317 MB | 1.23 | 1.5 s | 1.6 s | 189 MB |
+| Medium, ClrMD cache default | 4,022 MB | 57.5M | 3,359 MB | 1.14 | 41 s | 42 s | 3,475 MB |
+| Medium, ClrMD cache 512 MB | 4,022 MB | 57.5M | 3,359 MB | 1.14 | 30 s | 51 s | 2,079 MB |
+
+Readings for 1.2: the two ClrMD passes take about 80 s, leaving about 100 s of the 3 minute first-load budget for
+reference resolution and the cache write. Uncapped, ClrMD commits about as much as the managed heap; capped at
+512 MB the total is about 2.1 GB at the same speed, so graph columns (about 1.55 GB at 1.14 references) plus a capped
+ClrMD fit the 4 GB first-load budget. Caveat: the fixture heaps have 1.14 to 1.23 references per object, against the
+2 to 4 assumed in 6.2 for real applications; 1.2 also measures a denser heap (for example a dump of a real
+ASP.NET Core application under load) before signing off its budgets.
 
 Before opening a snapshot the Application layer estimates the worker memory needed (dump size and the
 per-object budget) and warns when it exceeds available physical memory.

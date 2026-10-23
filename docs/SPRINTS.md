@@ -11,7 +11,7 @@ everything else.
 | 0.1 | Solution skeleton | Closed | 2026-10-22 | sprint-0.1 |
 | 0.2 | Snapshot abstraction and compact graph | Closed | 2026-10-22 | sprint-0.2 |
 | 0.3 | Worker process and IPC | Closed | 2026-10-22 | sprint-0.3 |
-| 0.4 | Fixtures and test harness | Planned | | |
+| 0.4 | Fixtures and test harness | Closed | 2026-10-22 | sprint-0.4 |
 | 0.5 | Index cache format | Planned | | |
 | 1.1 | Process discovery and capture | Planned | | |
 | 1.2 | Full dump loader | Planned | | |
@@ -329,7 +329,7 @@ reserved error codes, a probe counted across a watchdog reset.
 - Integration test per leak: run LeakyConsole with a small size, capture a dump, verify with ClrMD that the
   known-answers file is correct (instance counts and root kinds).
 - The Small script produces a dump of about 500 MB (300 to 900 MB accepted) with all leaks active.
-- The Medium script produces a dump of about 4 GB (3 to 6 GB accepted); run once manually, timing recorded.
+- The Medium script produces a dump of about 4 GB (3 to 6 GB accepted); run once, timing recorded.
 - Dumps land in `artifacts/dumps/` which is git-ignored.
 - Fixture processes are always cleaned up, even when a test fails.
 
@@ -338,9 +338,54 @@ reserved error codes, a probe counted across a watchdog reset.
 **Risks and open questions**
 - Dump capture of a child process requires same user and no elevation; the harness checks and explains.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Fixture projects: `fixtures/Leaks` (class library, namespace `Fixtures.Leaks`, shared by both apps),
+   `fixtures/LeakyConsole`, `fixtures/LeakyApi` (ASP.NET Core minimal API), `fixtures/LoadGen`. They live outside
+   `src/`, so the layering rules do not apply; they may use diagnostics packages directly.
+2. Every leak is rooted by a static field of its leak class, so the known answers name the root precisely. Each
+   item creates a small object cluster (about 4 to 5 objects, about 200 bytes) so dumps reach high object counts
+   at moderate size; the payload size is configurable.
+3. The event handler leak spreads subscribers over 16,384 long-lived publishers: one multicast delegate with
+   millions of targets would make every subscription copy the whole invocation list (quadratic).
+4. LeakyApi grows every enabled leak by `Leaks:ItemsPerRequest` on each `POST /work`; `Leaks:Enabled` lists the
+   leaks (`all` for every leak); disabled leaks are never touched.
+5. LoadGen captures dumps with Microsoft.Diagnostics.NETCore.Client (`--dump <path> --pid <pid>`), full dumps by
+   default; integration tests use heap-only dumps (`WithHeap`) to keep them small and fast.
+6. Integration tests share one LeakyConsole dump per test class (all leaks plus the semantic fixtures) and verify
+   the known answers with ClrMD directly (HeapScope's loader arrives in 1.2). Path shapes are recorded now and
+   verified when retention paths exist (2.2).
+7. Sample dumps go to `artifacts/dumps/` (git-ignored). The Medium dump is produced once on this machine and kept
+   there for sprint 1.2.
+8. LoadGen drives a request count at a concurrency, not a rate and duration: the fixtures need a known item
+   count, which a count gives exactly.
+9. (From the review) Known answers use format version 1 with a path shape grammar, retained bytes anchored on the
+   item instance, a per-item census, runtime root and growing collection, all verified with ClrMD now rather than
+   in 2.2 and 2.3.
+10. (From the review) Fixtures are always compiled optimized: in debuggable code ClrMD reports no stack roots for
+    some frames (measured). Fixtures exit when their parent process exits.
+11. (From the review) Fixtures for 1.6 and 2.6 (duplicate strings, timers, disposed-but-referenced objects, a
+    non-leaking LeakyApi workload for the clean run) are added by those sprints; recorded in their scopes.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] `fixtures/Leaks`: five leaks (static cache, event handler, captured closure, undisposed list, unbounded
+   concurrent dictionary) and the semantic fixtures (conditional weak table, embedded struct references), sized by
+   item count and payload. Tests: integration (known answers).
+2. [x] `fixtures/LeakyConsole` and `fixtures/LeakyApi`. Tests: integration (console); API exercised by the
+   Small script run.
+3. [x] `fixtures/LoadGen` with dump capture. Tests: Small script run.
+4. [x] `fixtures/KnownAnswers/*.json` for every leak and semantic fixture. Tests: parse and verify with ClrMD.
+5. [x] Integration harness (`FixtureDump`): start, wait for ready, capture, clean up processes and files.
+6. [x] `fixtures/scripts/New-SampleDump.ps1` for Small and Medium; both run once, sizes and timings recorded.
+
+**Review summary**: 1 High, 12 Moderate, 12 Low (docs/reviews/sprint-0.4.md). High fixed and confirmed:
+retained bytes are anchored on the item instance, two bounds corrected, all verified with ClrMD. Moderate, mostly
+fixed now: known answers format version 1 (path grammar, census, runtime root, multiple roots), multicast event
+paths, exclusivity and runtime root tests, a reusable harness with LeakyApi and two-snapshot growth tests, late
+garbage and runtime kind fixtures, benchmark on private bytes with a cache cap, script hardening, self-ending
+fixtures. Findings that changed the design: static storage is held by strong handles on .NET 10;
+SuppressFinalize leaves objects in the finalization queue (header bit); ClrMD misses stack roots of debuggable
+frames; ConcurrentDictionary nodes are recreated on resize; a 512 MB ClrMD cache cap keeps the Medium walk at 2.1
+GB private bytes with no slowdown. Deferred to 1.6 and 2.6: their fixtures.
 
 ---
 
@@ -472,7 +517,9 @@ allocations in the UI process for a 10k-row page and switch formatter if signifi
 `--fail-on-growth <bytes|percent>` returning a non-zero exit code.
 
 **Acceptance criteria**
-- Diff of two LeakyApi snapshots with a growing leak ranks the leaking type first by size growth.
+- Diff of two LeakyApi snapshots reports, for every leak, each exact census type of its known answer with count
+  growth exactly items times perItem, and the leak's `types[0]` first by count growth among fixture types.
+  (Sorting by size growth puts `System.Byte[]` first, because payloads dominate bytes.)
 - Exit code contract tested: 0 below threshold, 2 above, 1 on errors.
 - Medium diff under 5 s.
 
@@ -509,7 +556,8 @@ outgoing references; back and forward navigation.
 **Goal**: one-click findings for common waste.
 
 **Scope**: inspection plugin model in Analysis; duplicate strings (with wasted bytes), LOH contents, empty and
-oversized collections, large arrays; UI list of inspections; CLI `inspect <name>`.
+oversized collections, large arrays; UI list of inspections; CLI `inspect <name>`. Fixtures and known answers (format
+version 1, kind `inspection`): repeated strings, empty and oversized collections, deliberate LOH arrays.
 
 **Acceptance criteria**
 - Each inspection has synthetic-graph tests with known answers and a fixture integration test.
@@ -654,7 +702,9 @@ time range.
 **Goal**: name the leak, not just show the data.
 
 **Scope**: event handler leaks, disposed-but-referenced objects, timers keeping objects alive, static
-collections growing across snapshots, HttpClient misuse, common ASP.NET Core patterns.
+collections growing across snapshots, HttpClient misuse, common ASP.NET Core patterns. Fixtures first: a timer leak,
+disposed-but-referenced objects, and a non-leaking LeakyApi workload (bounded cache with eviction, subscribe then
+unsubscribe, dispose and release) for the "no detector fires" run.
 
 **Acceptance criteria**: every LeakyApi leak is detected with its known answer; no detector fires on a clean
 LeakyApi run.

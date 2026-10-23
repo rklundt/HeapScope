@@ -1,0 +1,22 @@
+{
+  "formatVersion": 1,
+  "name": "StaticCache",
+  "kind": "leak",
+  "description": "A static Dictionary<int, StaticCacheEntry> that only grows.",
+  "types": [
+    { "type": "Fixtures.Leaks.StaticCacheEntry", "perItem": 1 },
+    { "type": "Fixtures.Leaks.EntryMetadata", "perItem": 1 }
+  ],
+  "census": [
+    { "type": "Fixtures.Leaks.StaticCacheEntry", "perItem": 1, "shallowBytes": 32 },
+    { "type": "Fixtures.Leaks.EntryMetadata", "perItem": 1, "shallowBytes": 24 },
+    { "type": "System.Byte[]", "perItem": 1, "exact": false },
+    { "type": "System.String", "perItem": 1, "exact": false }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.StaticCacheLeak", "field": "s_cache" } ],
+  "runtimeRoot": { "rootKind": "StrongHandle", "container": "System.Object[]" },
+  "growingCollection": "System.Collections.Generic.Dictionary<System.Int32, Fixtures.Leaks.StaticCacheEntry>",
+  "pathShape": [ "Fixtures.Leaks.StaticCacheLeak.s_cache", "System.Collections.Generic.Dictionary", "+Entry[]", "Fixtures.Leaks.StaticCacheEntry" ],
+  "minRetainedBytesPerItem": { "base": 96, "payloadMultiplier": 1 },
+  "notes": "An entry retains its metadata, the metadata name string and the payload array."
+}

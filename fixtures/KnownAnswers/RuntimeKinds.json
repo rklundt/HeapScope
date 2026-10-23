@@ -1,0 +1,17 @@
+{
+  "formatVersion": 1,
+  "name": "RuntimeKinds",
+  "kind": "semantics",
+  "description": "Heap kinds and root kinds: finalizable objects (half suppressed), POH and LOH arrays, pinned handles, a frozen literal, and a parked thread holding a local and an interior pointer.",
+  "types": [
+    { "type": "Fixtures.Leaks.FinalizableResource", "perItem": 1 },
+    { "type": "Fixtures.Leaks.PohHolder", "perItem": 1 },
+    { "type": "Fixtures.Leaks.LohHolder", "perItem": 1 },
+    { "type": "Fixtures.Leaks.PinnedPoint[]", "perItem": 1 }
+  ],
+  "heapKinds": [
+    { "type": "Fixtures.Leaks.PohHolder", "field": "<Buffer>k__BackingField", "heapKind": "Pinned" },
+    { "type": "Fixtures.Leaks.LohHolder", "field": "<Buffer>k__BackingField", "heapKind": "Large" }
+  ],
+  "notes": "FinalizableResource: N instances, half registered for finalization (the others called GC.SuppressFinalize). PinnedPoint[]: N pinned GC handles. RuntimeFixtures.s_literal: a string literal in the frozen heap. A parked thread holds one StackRootedObject in a local and an InteriorElement[] only through a ref to its element 3."
+}

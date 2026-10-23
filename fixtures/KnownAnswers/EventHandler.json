@@ -1,0 +1,20 @@
+{
+  "formatVersion": 1,
+  "name": "EventHandler",
+  "kind": "leak",
+  "description": "Subscribers attached to the Changed events of long-lived publishers and never detached.",
+  "types": [
+    { "type": "Fixtures.Leaks.LeakySubscriber", "perItem": 1 }
+  ],
+  "census": [
+    { "type": "Fixtures.Leaks.LeakySubscriber", "perItem": 1, "shallowBytes": 32 },
+    { "type": "System.Byte[]", "perItem": 1, "exact": false },
+    { "type": "System.EventHandler", "perItem": 1, "exact": false }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.EventHandlerLeak", "field": "s_publishers" } ],
+  "runtimeRoot": { "rootKind": "StrongHandle", "container": "System.Object[]" },
+  "growingCollection": "System.Object[]",
+  "pathShape": [ "Fixtures.Leaks.EventHandlerLeak.s_publishers", "Fixtures.Leaks.LongLivedPublisher[]", "Fixtures.Leaks.LongLivedPublisher", "System.EventHandler", "System.Object[]?", "System.EventHandler?", "Fixtures.Leaks.LeakySubscriber" ],
+  "minRetainedBytesPerItem": { "base": 56, "payloadMultiplier": 1 },
+  "notes": "With more than one subscriber per publisher the event field holds a multicast EventHandler whose invocation list (System.Object[], possibly with spare null slots) holds one EventHandler per subscriber; the subscriber is that delegate's target. The growing collection is the invocation list. An event handler leak detector must name the publisher's Changed event."
+}

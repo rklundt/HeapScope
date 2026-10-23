@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "name": "UndisposedList",
+  "kind": "leak",
+  "description": "IDisposable objects held in a static list and never disposed.",
+  "types": [
+    { "type": "Fixtures.Leaks.UndisposedResource", "perItem": 1 }
+  ],
+  "census": [
+    { "type": "Fixtures.Leaks.UndisposedResource", "perItem": 1, "shallowBytes": 32 },
+    { "type": "System.Byte[]", "perItem": 1, "exact": false }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.UndisposedListLeak", "field": "s_resources" } ],
+  "runtimeRoot": { "rootKind": "StrongHandle", "container": "System.Object[]" },
+  "growingCollection": "System.Collections.Generic.List<Fixtures.Leaks.UndisposedResource>",
+  "pathShape": [ "Fixtures.Leaks.UndisposedListLeak.s_resources", "System.Collections.Generic.List", "Fixtures.Leaks.UndisposedResource[]", "Fixtures.Leaks.UndisposedResource" ],
+  "minRetainedBytesPerItem": { "base": 56, "payloadMultiplier": 1 },
+  "notes": "Every resource has IsDisposed false; a disposed-but-referenced detector must not fire on them."
+}

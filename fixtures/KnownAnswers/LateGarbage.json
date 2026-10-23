@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "name": "LateGarbage",
+  "kind": "semantics",
+  "description": "Garbage still on the heap at dump time: dead ConditionalWeakTable entries whose dependent handles are still registered, and objects reachable only through WeakReference.",
+  "types": [
+    { "type": "Fixtures.Leaks.DeadKey", "perItem": 1 },
+    { "type": "Fixtures.Leaks.DeadValue", "perItem": 1 },
+    { "type": "Fixtures.Leaks.WeakOnlyTarget", "perItem": 1 }
+  ],
+  "presentButUnreachable": [ "Fixtures.Leaks.DeadKey", "Fixtures.Leaks.DeadValue", "Fixtures.Leaks.WeakOnlyTarget" ],
+  "notes": "All three types are present (N each) but none is reachable from a retaining root. A loader that roots dependent-handle secondaries, adds edges from dead primaries, or treats weak handles as retaining gets this wrong."
+}

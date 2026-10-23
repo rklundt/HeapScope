@@ -7,4 +7,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Core\HeapScope.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Baseline measurements of raw ClrMD heap walks for the 1.2 loader budgets. -->
+    <PackageReference Include="Microsoft.Diagnostics.Runtime" />
+  </ItemGroup>
 </Project>
