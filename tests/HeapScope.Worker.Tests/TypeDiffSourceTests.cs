@@ -119,7 +119,7 @@ public sealed class TypeDiffSourceTests : IDisposable
     }
 
     private TypeDiffSource Create(TypeDiffRequest request) =>
-        TypeDiffSource.Create(_baseline, _baselineAggregation, _current, _currentAggregation, request);
+        TypeDiffSource.Create(_baseline, _baselineAggregation, _current, _currentAggregation, request, HeapScope.Core.SnapshotKind.FullDump, HeapScope.Core.SnapshotKind.FullDump);
 
     private static string?[] Row(TypeDiffSource source, int index)
     {

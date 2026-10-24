@@ -269,21 +269,10 @@ public sealed class TypeSummaryViewModelTests : IDisposable
 
     private static List<string> Keys(string file)
     {
-        var path = Path.Combine(TestRoot(), "src", "HeapScope.UI.Wpf", "Themes", file);
+        var path = Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI.Wpf", "Themes", file);
         var document = System.Xml.Linq.XDocument.Load(path);
         System.Xml.Linq.XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
         return [.. document.Root!.Elements().Select(e => (string?)e.Attribute(x + "Key")).OfType<string>().Order(StringComparer.Ordinal)];
-    }
-
-    private static string TestRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HeapScope.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        return directory?.FullName ?? throw new InvalidOperationException("Repository root not found.");
     }
 
     private async Task ShowAsync() => await (await StartShowAsync()).QueryTask;

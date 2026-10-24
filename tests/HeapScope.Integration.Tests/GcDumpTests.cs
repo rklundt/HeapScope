@@ -212,6 +212,30 @@ public sealed class GcDumpTests(AllLeaksGcDump shared) : IClassFixture<AllLeaksG
     }
 
     [Fact]
+    public void A_crafted_gcdump_naming_an_unknown_type_is_refused_without_creating_it()
+    {
+        // A gcdump from elsewhere is untrusted input (ARCHITECTURE.md 12, sprint 1.9): its stream names the types to
+        // create. Swap the nested MemoryGraph's type name for a type the reader was never told about, one that records
+        // its construction, and check the reader refuses it rather than creating it.
+        using var folder = new TempFolder();
+        var path = folder.File("crafted.gcdump");
+        var bytes = File.ReadAllBytes(shared.GcDumpPath);
+        var original = "Graphs.MemoryGraph"u8.ToArray();
+        var at = bytes.AsSpan().IndexOf(original);
+        at.ShouldBeGreaterThan(4);
+        BitConverter.ToInt32(bytes, at - 4).ShouldBe(original.Length, "type names are length-prefixed");
+        var canary = System.Text.Encoding.UTF8.GetBytes(typeof(FastSerializationCanary).AssemblyQualifiedName!);
+        byte[] crafted = [.. bytes[..(at - 4)], .. BitConverter.GetBytes(canary.Length), .. canary, .. bytes[(at + original.Length)..]];
+        File.WriteAllBytes(path, crafted);
+        FastSerializationCanary.Created = 0;
+
+        var ex = Should.Throw<SnapshotFormatException>(() => new GcDumpLoader().Load(path, cancellationToken: Ct));
+        ex.ToString().ShouldContain("must be registered with the deserializer", customMessage: "TraceEvent resolves only registered factories");
+
+        FastSerializationCanary.Created.ShouldBe(0, "the reader must not create a type the file names");
+    }
+
+    [Fact]
     public void A_sampled_gcdump_is_recognized_by_its_multipliers()
     {
         // PerfView writes sampled gcdumps (HeapScope and dotnet-gcdump never do): counts are then scaled estimates and the

@@ -112,9 +112,8 @@ public sealed class CaptureService : ICaptureService
         SnapshotSource source = SnapshotSource.Manual,
         SnapshotKindDto kind = SnapshotKindDto.FullDump)
     {
-        var gcdump = kind == SnapshotKindDto.GcDump;
-        var extension = gcdump ? GcDumpCapturer.Extension : ".dmp";
-        var title = string.Create(CultureInfo.InvariantCulture, $"Capture {(gcdump ? "gcdump of " : string.Empty)}pid {processId}");
+        var profile = ProfileOf(kind);
+        var title = string.Create(CultureInfo.InvariantCulture, $"Capture {profile.TitlePrefix}pid {processId}");
         return Jobs.Start(title, async (progress, ct) =>
         {
             var stopwatch = Stopwatch.StartNew();
@@ -129,35 +128,24 @@ public sealed class CaptureService : ICaptureService
             {
                 if (outputPath is null)
                 {
-                    // Check against the library root before a session folder exists. A gcdump is a fraction of the heap's
-                    // size, so only a full dump's size is checked against the disk.
+                    // Check against the library root before a session folder exists.
                     Directory.CreateDirectory(Library.Root);
-                    if (!gcdump)
-                    {
-                        _capturer.Preflight(process, Path.Combine(Library.Root, "probe.dmp"));
-                    }
+                    profile.Preflight?.Invoke(process, Path.Combine(Library.Root, "probe" + profile.Extension));
 
                     createdSession = !Library.HasCurrent;
 
                     // The session is fixed now: opening another one meanwhile does not move this capture.
                     sessionFolder = Library.Current.Folder;
-                    path = UniquePath(sessionFolder, process, extension);
+                    path = UniquePath(sessionFolder, process, profile.Extension);
                 }
                 else
                 {
-                    path = Path.GetFullPath(Directory.Exists(outputPath) ? UniquePath(outputPath, process, extension) : outputPath);
+                    path = Path.GetFullPath(Directory.Exists(outputPath) ? UniquePath(outputPath, process, profile.Extension) : outputPath);
                     SweepPartialDumps(Path.GetDirectoryName(path));
                 }
 
-                _logger.LogInformation("Capturing a {Kind} of {Name} (pid {Pid}) to {Path}", gcdump ? "gcdump" : "full dump", process.Name, process.ProcessId, path);
-                if (gcdump)
-                {
-                    await _gcDumpCapturer.CaptureAsync(process, path, new CaptureProgressAdapter(progress), null, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await _capturer.CaptureAsync(process, path, new CaptureProgressAdapter(progress), ct).ConfigureAwait(false);
-                }
+                _logger.LogInformation("Capturing a {Kind} of {Name} (pid {Pid}) to {Path}", profile.Noun, process.Name, process.ProcessId, path);
+                await profile.Capture(process, path, new CaptureProgressAdapter(progress), ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (Translate(ex) is { } failure)
             {
@@ -193,7 +181,7 @@ public sealed class CaptureService : ICaptureService
             // Assigned in both branches of the try above, which returned or threw otherwise.
             var size = new FileInfo(path!).Length;
             _logger.LogInformation("Captured {Name} (pid {Pid}): {Bytes} bytes in {Seconds:N1} s", process.Name, process.ProcessId, size, stopwatch.Elapsed.TotalSeconds);
-            if (!gcdump)
+            if (profile.CopiesDac)
             {
                 CopyDac(process, Path.GetDirectoryName(path!)!);
             }
@@ -213,6 +201,37 @@ public sealed class CaptureService : ICaptureService
             }
         });
     }
+
+    /// <summary>
+    /// What differs per kind of capture (sprint 1.9): a full dump is checked against the disk (its size is about the
+    /// process's memory) and gets the target's DAC beside it; a gcdump is a fraction of the heap and needs no DAC.
+    /// </summary>
+    private CaptureProfile ProfileOf(SnapshotKindDto kind) => kind switch
+    {
+        SnapshotKindDto.GcDump => new(
+            "gcdump",
+            GcDumpCapturer.Extension,
+            "gcdump of ",
+            Preflight: null,
+            CopiesDac: false,
+            (process, path, progress, ct) => _gcDumpCapturer.CaptureAsync(process, path, progress, null, ct)),
+        SnapshotKindDto.FullDump => new(
+            "full dump",
+            ".dmp",
+            string.Empty,
+            (process, path) => _capturer.Preflight(process, path),
+            CopiesDac: true,
+            _capturer.CaptureAsync),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), $"Unknown snapshot kind {kind}."),
+    };
+
+    private sealed record CaptureProfile(
+        string Noun,
+        string Extension,
+        string TitlePrefix,
+        Action<DotNetProcess, string>? Preflight,
+        bool CopiesDac,
+        Func<DotNetProcess, string, IProgress<CaptureProgress>, CancellationToken, Task> Capture);
 
     /// <summary>
     /// Copies the target's mscordaccore.dll next to the dump, so the 1.2 loader finds the matching DAC in the dump's

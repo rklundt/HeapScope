@@ -96,20 +96,17 @@ internal sealed class TypeSummarySource : IResultSource
         }
 
         var byType = request.GroupBy == TypeGrouping.Type;
-        var compare = Comparer(request.SortColumn ?? TypeSummaryColumns.Bytes, generations, byType);
-        var rows = TypeGroups.Build(graph, aggregation, (GroupKey)(int)request.GroupBy);
+        var sortColumn = request.SortColumn ?? TypeSummaryColumns.Bytes;
+        var sort = Sort(generations, byType);
+        sort.Validate(sortColumn);
+        var rows = TypeGroups.Build(graph, aggregation, request.GroupBy.ToGroupKey());
         var unfiltered = rows.Count;
         if (!string.IsNullOrWhiteSpace(request.Filter))
         {
             rows.RemoveAll(r => !NameFilter.IsMatch(r.Name, request.Filter));
         }
 
-        // Ties by name keep the order stable between queries.
-        rows.Sort((a, b) =>
-        {
-            var primary = request.Descending ? compare(b, a) : compare(a, b);
-            return primary != 0 ? primary : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
-        });
+        sort.Sort(rows, sortColumn, request.Descending);
 
         return new TypeSummarySource([.. rows], unfiltered, aggregation.TotalBytes, generations, byType);
     }
@@ -140,29 +137,28 @@ internal sealed class TypeSummarySource : IResultSource
     private static ResultColumn[] ColumnsFor(bool generations, bool byType) =>
         [.. s_baseColumns, .. generations ? s_kindColumns : [], .. byType ? s_keyColumns : []];
 
-    private static Comparison<SummaryRow> Comparer(string column, bool generations, bool byType)
+    private static ColumnSort<SummaryRow> Sort(bool generations, bool byType)
     {
-        switch (column)
+        var sort = new ColumnSort<SummaryRow>(r => r.Name)
+            .On(TypeSummaryColumns.Name, (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase))
+            .On(TypeSummaryColumns.Objects, r => r.Count)
+            .On(TypeSummaryColumns.Bytes, r => r.Bytes)
+            .On(TypeSummaryColumns.Percent, r => r.Bytes);
+        if (generations)
         {
-            case TypeSummaryColumns.Name:
-                return (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-            case TypeSummaryColumns.Objects:
-                return (a, b) => a.Count.CompareTo(b.Count);
-            case TypeSummaryColumns.Bytes or TypeSummaryColumns.Percent:
-                return (a, b) => a.Bytes.CompareTo(b.Bytes);
-            case TypeSummaryColumns.TypeName when byType:
-                return (a, b) => string.CompareOrdinal(a.TypeName, b.TypeName);
-            case TypeSummaryColumns.Module when byType:
-                return (a, b) => string.Compare(a.Module, b.Module, StringComparison.OrdinalIgnoreCase);
+            for (var i = 0; i < s_kindColumns.Length; i++)
+            {
+                var kind = (int)KindColumns[i];
+                sort.On(s_kindColumns[i].Name, r => r.BytesByKind[kind]);
+            }
         }
 
-        var kindColumn = Array.FindIndex(s_kindColumns, c => c.Name == column);
-        if (generations && kindColumn >= 0)
+        if (byType)
         {
-            var kind = (int)KindColumns[kindColumn];
-            return (a, b) => a.BytesByKind[kind].CompareTo(b.BytesByKind[kind]);
+            sort.On(TypeSummaryColumns.TypeName, (a, b) => string.CompareOrdinal(a.TypeName, b.TypeName))
+                .On(TypeSummaryColumns.Module, (a, b) => string.Compare(a.Module, b.Module, StringComparison.OrdinalIgnoreCase));
         }
 
-        throw new ArgumentException($"Unknown sort column {column}. Sort by one of: {string.Join(", ", ColumnsFor(generations, byType).Select(c => c.Name))}.");
+        return sort;
     }
 }

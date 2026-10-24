@@ -42,7 +42,7 @@ internal static class InspectionAvailability
         if (missing != SnapshotCapabilities.None)
         {
             // Contracts mirrors Core's capability flags (ADR-016); the lowest missing one explains it.
-            return CapabilityDescriptions.ExplainMissing((SnapshotFeatures)(uint)LowestFlag((int)missing), (SnapshotKindDto)(int)info.Kind);
+            return ContractMapping.ExplainMissing(missing, info.Kind);
         }
 
         var facts = inspection.RequiresFacts & ~info.Facts;
@@ -58,11 +58,6 @@ internal static class InspectionAvailability
     public static string Explain(string title, SnapshotInfo info)
     {
         ArgumentNullException.ThrowIfNull(info);
-        return info.Kind == SnapshotKind.FullDump
-            ? $"{title} needs data newer versions of HeapScope record, and this snapshot's index cache is older. Reopen the dump with Rebuild."
-            : $"{title} needs data a gcdump does not record. Capture a full dump for it.";
+        return Snapshots.SnapshotKinds.Describe(info.Kind).ExplainMissingFact(title);
     }
-
-    /// <summary>The lowest set bit of a flags value.</summary>
-    public static int LowestFlag(int flags) => flags & -flags;
 }

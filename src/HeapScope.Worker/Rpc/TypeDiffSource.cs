@@ -90,8 +90,8 @@ internal sealed class TypeDiffSource : IResultSource
     /// <summary>Bytes delta of the rows that pass the filter.</summary>
     public long MatchingBytesDelta => _rows.Sum(r => r.BytesDelta);
 
-    /// <param name="baselineKind">The baseline's snapshot kind: when the two kinds differ, the full dump's type names are
-    /// matched in their gcdump form (sprint 1.8), because a gcdump cannot name nested types fully.</param>
+    /// <param name="baselineKind">The baseline's snapshot kind: across kinds, each side's names are mapped as its kind's
+    /// handler says (sprint 1.8: a full dump's names in their gcdump form).</param>
     /// <param name="currentKind">The current snapshot's kind.</param>
     public static TypeDiffSource Create(
         HeapGraph baselineGraph,
@@ -99,8 +99,8 @@ internal sealed class TypeDiffSource : IResultSource
         HeapGraph currentGraph,
         TypeAggregation current,
         TypeDiffRequest request,
-        SnapshotKind baselineKind = SnapshotKind.FullDump,
-        SnapshotKind currentKind = SnapshotKind.FullDump)
+        SnapshotKind baselineKind,
+        SnapshotKind currentKind)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(request.GroupBy))
@@ -110,32 +110,27 @@ internal sealed class TypeDiffSource : IResultSource
 
         var sortColumn = request.SortColumn ?? TypeDiffColumns.BytesDelta;
         var byType = request.GroupBy == TypeGrouping.Type;
-        Comparison<DiffRow> compare = sortColumn switch
-        {
-            TypeDiffColumns.Name => (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase),
-            TypeDiffColumns.Change => (a, b) => string.CompareOrdinal(Change(a, byType), Change(b, byType)),
-            TypeDiffColumns.BaselineTypes => (a, b) => a.BaselineTypes.CompareTo(b.BaselineTypes),
-            TypeDiffColumns.CurrentTypes => (a, b) => a.CurrentTypes.CompareTo(b.CurrentTypes),
-            TypeDiffColumns.BaselineObjects => (a, b) => a.BaselineCount.CompareTo(b.BaselineCount),
-            TypeDiffColumns.CurrentObjects => (a, b) => a.CurrentCount.CompareTo(b.CurrentCount),
-            TypeDiffColumns.ObjectsDelta => (a, b) => a.CountDelta.CompareTo(b.CountDelta),
-            TypeDiffColumns.BaselineBytes => (a, b) => a.BaselineBytes.CompareTo(b.BaselineBytes),
-            TypeDiffColumns.CurrentBytes => (a, b) => a.CurrentBytes.CompareTo(b.CurrentBytes),
-            TypeDiffColumns.BytesDelta => (a, b) => a.BytesDelta.CompareTo(b.BytesDelta),
-            _ => throw new ArgumentException(
-                $"Unknown sort column {sortColumn}. Sort by one of: {string.Join(", ", s_columns.Select(c => c.Name))}.",
-                nameof(request)),
-        };
+        var sort = new ColumnSort<DiffRow>(r => r.Name)
+            .On(TypeDiffColumns.Name, (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase))
+            .On(TypeDiffColumns.Change, (a, b) => string.CompareOrdinal(Change(a, byType), Change(b, byType)))
+            .On(TypeDiffColumns.BaselineObjects, r => r.BaselineCount)
+            .On(TypeDiffColumns.CurrentObjects, r => r.CurrentCount)
+            .On(TypeDiffColumns.ObjectsDelta, r => r.CountDelta)
+            .On(TypeDiffColumns.BaselineBytes, r => r.BaselineBytes)
+            .On(TypeDiffColumns.CurrentBytes, r => r.CurrentBytes)
+            .On(TypeDiffColumns.BytesDelta, r => r.BytesDelta)
+            .On(TypeDiffColumns.BaselineTypes, r => r.BaselineTypes)
+            .On(TypeDiffColumns.CurrentTypes, r => r.CurrentTypes);
+        sort.Validate(sortColumn);
 
-        Func<string, string>? asGcDump = baselineKind == currentKind ? null : TypeNameForms.AsGcDumpName;
         var rows = TypeDiff.Build(
             baselineGraph,
             baseline,
             currentGraph,
             current,
-            (GroupKey)(int)request.GroupBy,
-            baselineKind == SnapshotKind.FullDump ? asGcDump : null,
-            currentKind == SnapshotKind.FullDump ? asGcDump : null);
+            request.GroupBy.ToGroupKey(),
+            Snapshots.SnapshotKinds.Describe(baselineKind).NamesWhenComparedWith(currentKind),
+            Snapshots.SnapshotKinds.Describe(currentKind).NamesWhenComparedWith(baselineKind));
         var unfiltered = rows.Count;
         var newRows = rows.Count(r => r.IsNew);
         var goneRows = rows.Count(r => r.IsGone);
@@ -144,12 +139,7 @@ internal sealed class TypeDiffSource : IResultSource
             rows.RemoveAll(r => !NameFilter.IsMatch(r.Name, request.Filter));
         }
 
-        rows.Sort((a, b) =>
-        {
-            var primary = request.Descending ? compare(b, a) : compare(a, b);
-            return primary != 0 ? primary : string.CompareOrdinal(a.Name, b.Name);
-        });
-
+        sort.Sort(rows, sortColumn, request.Descending);
         return new TypeDiffSource([.. rows], byType, unfiltered, newRows, goneRows);
     }
 

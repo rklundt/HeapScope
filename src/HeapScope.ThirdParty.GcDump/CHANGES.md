@@ -25,3 +25,6 @@ Each change is marked with a `HeapScope change` comment.
 3. `EventPipeDotNetHeapDumper.cs`, `DumpFromEventPipe`: the task that ends the session runs with
    `CancellationToken.None` instead of the capture's token. With the canceled token it never ran, so the event reader
    waited for the session forever and a canceled capture never returned (sprint 1.8 review H1).
+4. `EventPipeDotNetHeapDumper.cs`, `EventPipeSessionController`: the warning about lossy buffering (printed on every
+   .NET 10 capture) is written to the dump's log, which HeapScope sends to its own log, instead of the console
+   (sprint 1.9). The controller takes the log as an optional parameter; without one it still writes to the console.

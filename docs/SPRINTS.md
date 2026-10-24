@@ -21,6 +21,7 @@ everything else.
 | 1.6 | Simple inspections | Closed | 2026-10-23 | sprint-1.6 |
 | 1.7 | Live counters and timed snapshots | Closed | 2026-10-23 | sprint-1.7 |
 | 1.8 | gcdump support | Closed | 2026-10-24 | sprint-1.8 |
+| 1.9 | Phase 1 hardening | Closed | 2026-10-24 | sprint-1.9 |
 | 2.1 | Reverse references | Planned | | |
 | 2.2 | Retention paths | Planned | | |
 | 2.3 | Dominator tree and retained size | Planned | | |
@@ -1263,6 +1264,98 @@ for gcdumps, a FastSerialization safety check. Tests: 712 (from 620 at 1.7), all
 
 ---
 
+## Sprint 1.9: Phase 1 hardening
+
+**Goal**: pay down the Phase 1 debt where Phase 2 builds next, and settle the open questions Phase 2 depends on.
+
+**Scope** (from the Phase 1 peer review, approved by the product owner on 2026-10-24): snapshot kind logic in one
+place per kind (worker and capture); the worker's RPC layer split by feature area with one shared column sort; one
+mapping between Core and Contracts enums; the main window split per page and the smoke harness out of `App`; a
+prototype measurement of the Phase 2 indices (reverse references, dominators) against the memory budgets; where gcdump
+capture runs; whether the gcdump reader refuses unknown types in a crafted file; a local full test gate; and, as they
+fit, a shared CLI output writer, the code map reorganized by project, and small review leftovers.
+
+**Acceptance criteria**
+- No behavior change: every Phase 1 test passes unchanged except where a test moves with the code it covers.
+- A measurement of reverse references and dominators on the synthetic 50M graph, with peak memory against the budgets,
+  recorded in ARCHITECTURE 6.4 and 10, and a decision on whether the Phase 2 indices need mapped mode.
+- A decision record on where gcdump capture runs, backed by a measurement of the front end's memory during a capture.
+- A test showing the gcdump reader's behavior on a crafted file naming an unknown type.
+
+**Dependencies**: 1.8.
+
+**Task breakdown**
+1. [x] Snapshot kinds in one place in the worker: `Snapshots/SnapshotKinds` holds, per kind, the loader, its version,
+   how an opened graph becomes an `ISnapshot` (with or without a reader) and the kind's data quality notes;
+   `SnapshotStore` keeps no kind checks. Tests: `SnapshotKindsTests` (each kind's loader version and snapshot type, an
+   unknown kind refused); the Phase 1 worker and integration tests unchanged.
+2. [x] Capture in one place: `PartialSnapshotFile` (reserve a path, refuse to overwrite, commit by rename, discard with a
+   retried delete) shared by `DumpCapturer` and `GcDumpCapturer`; `CaptureService` takes per-kind settings (extension,
+   disk preflight, DAC copy, capturer) from one table. Tests: `PartialSnapshotFileTests`; capture tests unchanged.
+3. [x] One mapping between Core and Contracts enums (`ContractMapping`), replacing the casts in the worker. Tests: a
+   mapping test over every value.
+4. [x] The worker's RPC layer by feature area: `WorkerService` in partial files (snapshots, summaries and diffs,
+   instances and objects, inspections), `WorkerDtos.cs` split per area (types unchanged, no protocol change), and one
+   `ColumnSort` for the result sources' sort-by-column tables. Tests: `ColumnSortTests`; worker tests unchanged.
+5. [x] UI structure: one resource dictionary per page instead of one 780 line `MainWindow.xaml`; the smoke harness moves
+   from `App.xaml.cs` into `Smoke/SmokeRunner`. Tests: UI tests and `AttributionTests` unchanged; smoke runs
+   (`--smoke-open` on the Small dump, `--smoke-live`) pass.
+6. [x] Phase 2 index prototype (perf): reverse references and dominators with retained sizes on the synthetic 50M graph
+   (and the fixture Medium dump when present), time and peak private bytes against the budgets; results in ARCHITECTURE
+   6.4 and 10 and a decision on mapped mode for the new indices.
+7. [x] Where gcdump capture runs: measure the front end's peak memory while capturing a large gcdump; decision record
+   (ADR-023).
+8. [x] Crafted gcdump safety: a test feeding the gcdump reader a file that names a type it does not know, proving it is
+   refused without creating that type; a mitigation if it is not.
+9. [x] Local full gate: `build/gate.ps1` (Debug and Release builds, the full suite, run time, failures appended to a
+   history file under `artifacts/`). Tests: one run recorded.
+10. [x] Shared CLI output writer (table, csv, json) used by `summary`, `diff`, `instances` and `inspect`. Tests: the CLI
+   integration tests unchanged.
+11. [x] Leftovers: one shared repo-root helper for the test projects; the gcdump "sampled" text names lost events and the
+   writer's limit; the vendored lossy-buffering warning goes to the log (vendored change 4).
+12. [x] Docs: the ARCHITECTURE code map by project instead of by sprint; DEVELOPER and CLAUDE.md for the gate and the
+   new files.
+
+**Decisions** (the product owner approved the whole scope on 2026-10-24: "I agree on all parts. Make it so"; the
+defaults below were not asked separately)
+1. Refactors change no behavior and no wire contract: DTO types keep their names and namespaces, the protocol version
+   stays the same.
+2. The index prototype is a benchmark in `perf/`, not product code. It started with the iterative Cooper-Harvey-Kennedy
+   dominator algorithm; the review (H1) showed it needs a pass per node on lists reachable from both ends, so Phase 2
+   uses semi-NCA, which the prototype now measures next to it (the two agree where Cooper-Harvey-Kennedy converges).
+3. gcdump capture moves to the worker in Phase 2 if the front end's peak for a gcdump of about 10 million nodes is above
+   1 GB; otherwise it stays in the front end and the decision is recorded.
+4. If the gcdump reader would create unknown types, the loader restricts it before Phase 2 (a vendored change if
+   needed).
+5. The gate is a local PowerShell script (no remote or CI yet); its history file is git-ignored.
+6. The sprint runs through wrap and close like Phase 1 (Moderate findings decided and logged), then stops and reports.
+7. Outcomes recorded during the sprint:
+   - Task 3's mapping test is the architecture project's existing mirror tests (every value of each mirrored enum),
+     plus the lowest-flag theory, which moved with the mapping.
+   - Task 6 (after the review): semi-NCA computes the Phase 2 indices in 9.5 s on the Medium fixture (peak 3,514 MB)
+     and 12.9 s on DenseHeap (peak 4,119 MB in memory, 2,360 MB with the graph mapped); computation follows the memory
+     mode, the kept indices are cache sections, and the time budget is 60 s on a Medium-scale real heap (ARCHITECTURE
+     6.4).
+   - Task 7: the capturing front end peaked at 1,191 MB near the gcdump node cap, so gcdump capture moves to the
+     worker in Phase 2 (ADR-023).
+   - Task 8: TraceEvent 4.0 creates only registered types; a crafted gcdump naming another type is refused and the
+     type is never created; no mitigation needed.
+   - Task 10 also fixed the CLI's JSON: `summary` and `diff` report the snapshot kinds, and `IncludesUnreachable` is
+     true only for full dumps (it was always true).
+   - Smoke runs: the Medium open and compare smoke trips the 200 ms lag gate at times with the old and the new main
+     window alike (one run each at 565 and 602 ms, others passing): the known High backlog item, not a regression.
+
+**Review summary** (`docs/reviews/sprint-1.9.md`): 1 High, 7 Moderate, 24 Low after dedupe. H1 (fixed and confirmed): the
+prototyped Cooper-Harvey-Kennedy dominators need a pass per node on lists reachable from both ends, so Phase 2 uses
+semi-NCA, measured next to it. All 7 Moderates fixed now: per-phase memory measurement, DenseHeap and mapped mode
+measured (DenseHeap 12.9 s, peak 4,119 MB in memory, 2,360 MB mapped; Medium 9.5 s, 3,514 MB), frozen objects as roots,
+ADR-023 consequences, per-side CLI JSON flags with a test, the remaining kind checks moved onto the kind handlers, and
+stronger kind tests. The refactors changed no behavior: the Phase 1 tests pass unchanged, the DTO split moved
+declarations only (protocol 6), and the smoke runs match the old window. Tests: 731 (from 712 at 1.8), all passing in
+the gate.
+
+---
+
 ## Sprint 2.1: Reverse references
 
 **Goal**: answer "who references this object or type".
@@ -1422,14 +1515,13 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
-- gcdumps at scale (from 1.8): the vendored writer stops at 10 million nodes, so HeapScope refuses larger gcdumps;
-  raise the cap (a vendored change) once a gcdump capture and load of the Medium dump are measured against the budgets
-  (section 10), including the front end's memory while the MemoryGraph is built.
+- gcdumps at scale (from 1.8, ADR-023 in 1.9): move gcdump capture into the worker (the capturing front end peaked at
+  1,191 MB near the 10 million node cap), then raise the cap (a vendored change) after measuring a gcdump capture and
+  load of the Medium dump against the budgets (section 10).
 - gcdump lost-events check (from 1.8): count the EventPipe session's lost events and fail or mark the capture.
 - gcdump loader memory (from 1.8 review): presize from `NodeIndexLimit`, add references by index rather than address,
   release the MemoryGraph before the build.
 - Generations for gcdumps (from 1.8): place objects by the GC's generation ranges when a writer records them.
-- Confirm that TraceEvent's FastSerialization refuses unregistered type names in a crafted gcdump (from 1.8 review).
 - One capture per target at a time across the Processes page and monitoring runs (`CaptureService` serializes per
   process; rules treat a manual capture as running) (from the 1.7 review M4).
 - Monitoring timelines recorded in `session.json` (run id, process, interval, rules, baseline, start and end), snapshot

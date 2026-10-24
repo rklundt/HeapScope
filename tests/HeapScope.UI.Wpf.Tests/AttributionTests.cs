@@ -44,7 +44,7 @@ public class AttributionTests
     [Fact]
     public void Main_window_shows_the_attribution_notice_linked_to_the_repository()
     {
-        var window = XDocument.Load(Path.Combine(RepoRoot(), "src", "HeapScope.UI.Wpf", "Views", "MainWindow.xaml"));
+        var window = XDocument.Load(Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI.Wpf", "Views", "MainWindow.xaml"));
         var border = window.Descendants(s_wpf + "Border").Single(e => (string?)e.Attribute(s_x + "Name") == "Attribution");
 
         // Docked directly in the window's main panel, always shown.
@@ -77,7 +77,7 @@ public class AttributionTests
     [InlineData("Dark.xaml")]
     public void Attribution_colors_are_opaque_with_at_least_AA_contrast(string theme)
     {
-        var brushes = XDocument.Load(Path.Combine(RepoRoot(), "src", "HeapScope.UI.Wpf", "Themes", theme)).Root!
+        var brushes = XDocument.Load(Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI.Wpf", "Themes", theme)).Root!
             .Elements(s_wpf + "SolidColorBrush")
             .ToDictionary(e => (string)e.Attribute(s_x + "Key")!, e => (string)e.Attribute("Color")!);
 
@@ -110,16 +110,5 @@ public class AttributionTests
     {
         var s = value / 255.0;
         return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
-    }
-
-    private static string RepoRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HeapScope.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        return directory?.FullName ?? throw new InvalidOperationException("Repository root not found.");
     }
 }

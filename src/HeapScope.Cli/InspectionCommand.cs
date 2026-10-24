@@ -99,8 +99,7 @@ internal static partial class CliCommands
                     await WriteCsvAsync(output, columns, rows).ConfigureAwait(false);
                     break;
                 case "json":
-                    await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(
-                        new
+                    await WriteJsonAsync(output, new
                         {
                             inspection.Name,
                             inspection.Title,
@@ -111,8 +110,7 @@ internal static partial class CliCommands
                             result.WastedBytes,
                             result.Note,
                             Rows = JsonRows(columns, rows),
-                        },
-                        s_json)).ConfigureAwait(false);
+                        }).ConfigureAwait(false);
                     break;
                 default:
                     await output.WriteLineAsync($"{inspection.Title}: {SummaryText(result)}").ConfigureAwait(false);
@@ -147,8 +145,7 @@ internal static partial class CliCommands
 
         if (format == "json")
         {
-            await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(
-                lines.Select(l => new
+            await WriteJsonAsync(output, lines.Select(l => new
                 {
                     l.Info.Name,
                     l.Info.Title,
@@ -157,8 +154,7 @@ internal static partial class CliCommands
                     l.Result?.Bytes,
                     l.Result?.WastedBytes,
                     l.Result?.Note,
-                }),
-                s_json)).ConfigureAwait(false);
+                })).ConfigureAwait(false);
             return Success;
         }
 
