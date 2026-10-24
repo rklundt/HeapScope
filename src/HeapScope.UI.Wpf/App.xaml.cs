@@ -67,6 +67,10 @@ public partial class App : System.Windows.Application
             {
                 await RunSmokeOpenAsync(dump);
             }
+            else if (options.SmokeLiveSamples is int samples)
+            {
+                await RunSmokeLiveAsync(samples);
+            }
         }
         catch (Exception ex)
         {
@@ -134,6 +138,54 @@ public partial class App : System.Windows.Application
     /// Opens a dump through the Snapshots page, waits for its overview, checks the dispatcher budget like
     /// <see cref="RunSmokeAsync"/> and closes the app with a result code (sprint 1.2).
     /// </summary>
+    /// <summary>
+    /// Charts <paramref name="count"/> made-up samples on the Live page at 200 a second (sprint 1.7): the page's first
+    /// show is logged as a cold cost; the feed, every sample a redraw of up to 30 minutes of history, is checked.
+    /// </summary>
+    private async Task RunSmokeLiveAsync(int count)
+    {
+        var services = _host!.Services;
+        var logger = services.GetRequiredService<ILogger<App>>();
+        var watchdog = services.GetRequiredService<DispatcherWatchdog>();
+        var shell = services.GetRequiredService<ShellViewModel>();
+        var live = shell.Live ?? throw new InvalidOperationException("The Live page is not registered.");
+
+        shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == live);
+        await Dispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        await Task.Delay(500);
+        logger.LogInformation(
+            "Smoke live warm-up: Live page first shown (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperation.TotalMilliseconds);
+        watchdog.Reset();
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        live.SelectedProcess = new ProcessRow(Environment.ProcessId, "synthetic", string.Empty, string.Empty, 0, string.Empty, false);
+        live.WriteTimeline = false;
+        live.StartCommand.Execute(null);
+        if (live.Run is { } run)
+        {
+            await run.Completion;
+        }
+
+        await Dispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        await Task.Delay(500);
+        var completed = live.Samples.Count == Math.Min(count, LiveViewModel.WindowSamples) && !live.IsRunning;
+        var (lag, operation) = (watchdog.MaxLag, watchdog.MaxOperation);
+        logger.LogInformation(
+            "Smoke live: {Count:N0} samples in {Seconds:N1} s, {Kept:N0} charted ({Status}), maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            count,
+            stopwatch.Elapsed.TotalSeconds,
+            live.Samples.Count,
+            live.Status ?? "ok",
+            lag.TotalMilliseconds,
+            operation.TotalMilliseconds);
+        _exitCode = !completed ? SmokeJobFailed
+            : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
+            : 0;
+        MainWindow?.Close();
+    }
+
     private async Task RunSmokeOpenAsync(string dump)
     {
         var services = _host!.Services;
@@ -479,6 +531,8 @@ public partial class App : System.Windows.Application
         var host = _host;
         try
         {
+            // Monitoring first: once stopped, no rule starts a capture after the jobs are canceled (review of 1.7).
+            host.Services.GetService<ShellViewModel>()?.Live?.StopCommand.Execute(null);
             await CancelRunningJobsAsync(host.Services);
             host.Services.GetService<ShellViewModel>()?.Dispose();
             host.Services.GetService<DispatcherWatchdog>()?.Dispose();

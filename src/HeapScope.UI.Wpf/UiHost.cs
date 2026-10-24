@@ -17,9 +17,11 @@ namespace HeapScope.UI.Wpf;
 /// objects, records the maximum dispatcher lag and exits (sprint 0.3 decision 7).</param>
 /// <param name="SmokeOpenPath">When set (<c>--smoke-open path</c>), the app opens this dump instead, waits for its overview
 /// and exits with the same dispatcher checks (sprint 1.2).</param>
-public sealed record UiOptions(int? SmokeSyntheticObjects, string? SmokeOpenPath = null, string? SmokeComparePath = null, string? SmokeTracePath = null)
+/// <param name="SmokeLiveSamples">When set (<c>--smoke-live N</c>), the Live page charts N synthetic samples fed fast
+/// (sprint 1.7) and the run exits with the dispatcher checks.</param>
+public sealed record UiOptions(int? SmokeSyntheticObjects, string? SmokeOpenPath = null, string? SmokeComparePath = null, string? SmokeTracePath = null, int? SmokeLiveSamples = null)
 {
-    public bool IsSmokeRun => SmokeSyntheticObjects is not null || SmokeOpenPath is not null;
+    public bool IsSmokeRun => SmokeSyntheticObjects is not null || SmokeOpenPath is not null || SmokeLiveSamples is not null;
 }
 
 /// <summary>Builds the generic host (DI, configuration, logging) for the WPF app.</summary>
@@ -37,6 +39,14 @@ internal static class UiHost
         builder.Logging.AddDebug();
         builder.Logging.AddProvider(new FileLoggerProvider(builder.Configuration["Logging:File:Directory"]));
 
+        // The live smoke run charts made-up samples: no process is monitored (sprint 1.7).
+        var smokeLive = builder.Configuration["smoke-live"];
+        if (smokeLive is not null)
+        {
+            builder.Services.AddSingleton<HeapScope.Application.Monitoring.ICounterSource>(
+                new HeapScope.Application.Monitoring.SyntheticCounterSource(int.Parse(smokeLive, NumberStyles.None, CultureInfo.InvariantCulture), perSecond: 200));
+        }
+
         builder.Services.AddHeapScopeApplication();
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SectionName));
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SymbolsSectionName));
@@ -47,11 +57,12 @@ internal static class UiHost
             smoke is null ? null : int.Parse(smoke, NumberStyles.None, CultureInfo.InvariantCulture),
             builder.Configuration["smoke-open"],
             builder.Configuration["smoke-compare"],
-            builder.Configuration["smoke-trace"]));
+            builder.Configuration["smoke-trace"],
+            smokeLive is null ? null : int.Parse(smokeLive, NumberStyles.None, CultureInfo.InvariantCulture)));
 
         builder.Services.AddSingleton<IUiDispatcher>(new WpfUiDispatcher(dispatcher));
         builder.Services.AddSingleton(sp => new DispatcherWatchdog(dispatcher, sp.GetRequiredService<ILogger<DispatcherWatchdog>>()));
-        builder.Services.AddSingleton<IUserInteraction>(_ => smoke is null && builder.Configuration["smoke-open"] is null ? new WpfUserInteraction() : new AutomaticUserInteraction());
+        builder.Services.AddSingleton<IUserInteraction>(_ => smoke is null && builder.Configuration["smoke-open"] is null && smokeLive is null ? new WpfUserInteraction() : new AutomaticUserInteraction());
         builder.Services.AddSingleton<SnapshotsViewModel>(sp => new SnapshotsViewModel(
             sp.GetRequiredService<HeapScope.Application.Snapshots.SnapshotSession>(),
             sp.GetRequiredService<WorkerOperations>(),
@@ -67,6 +78,11 @@ internal static class UiHost
             sp.GetRequiredService<SnapshotsViewModel>(),
             sp.GetRequiredService<IUserInteraction>()));
         builder.Services.AddSingleton<AboutViewModel>();
+        builder.Services.AddSingleton<LiveViewModel>(sp => new LiveViewModel(
+            sp.GetRequiredService<HeapScope.Application.Monitoring.MonitorService>(),
+            sp.GetRequiredService<HeapScope.Application.Sessions.ICaptureService>(),
+            sp.GetRequiredService<IUiDispatcher>(),
+            sp.GetService<ILogger<LiveViewModel>>()));
         builder.Services.AddSingleton<ShellViewModel>();
         builder.Services.AddSingleton<MainWindow>();
         return builder.Build();

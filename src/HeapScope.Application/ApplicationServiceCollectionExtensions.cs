@@ -41,6 +41,11 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetService<Microsoft.Extensions.Logging.ILogger<Sessions.CaptureService>>()));
         services.AddSingleton<Sessions.ICaptureService>(sp => sp.GetRequiredService<Sessions.CaptureService>());
         services.AddSingleton<Sessions.TraceService>();
+        services.TryAddSingleton<Monitoring.ICounterSource, Monitoring.EventPipeCounterSource>();
+        services.AddSingleton(sp => new Monitoring.MonitorService(
+            sp.GetRequiredService<Sessions.ICaptureService>(),
+            sp.GetRequiredService<Monitoring.ICounterSource>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Monitoring.MonitorService>>()));
         return services;
     }
 }

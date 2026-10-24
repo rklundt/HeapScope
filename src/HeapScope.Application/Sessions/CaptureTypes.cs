@@ -60,8 +60,11 @@ public interface ICaptureService
     /// <summary>The .NET processes HeapScope can see, read off the calling thread.</summary>
     Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken);
 
-    /// <summary>Captures a full dump as a tracked job; fails with <see cref="CaptureFailedException"/>.</summary>
-    Jobs.TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null);
+    /// <summary>
+    /// Captures a full dump as a tracked job; fails with <see cref="CaptureFailedException"/>. <paramref name="source"/>
+    /// records why (a rule of a monitoring run is <see cref="SnapshotSource.Timed"/>, sprint 1.7).
+    /// </summary>
+    Jobs.TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual);
 }
 
 /// <summary>A capture failed; the message is plain language with a next step.</summary>

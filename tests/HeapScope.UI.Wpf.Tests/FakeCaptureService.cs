@@ -19,7 +19,7 @@ internal sealed class FakeCaptureService(string sessionsRoot, JobTracker jobs) :
     public Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<ProcessEntry>>([.. Processes.Select(p => p with { NeedsAdministrator = p.Elevation == ProcessElevation.Elevated && !IsHeapScopeElevated })]);
 
-    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null) =>
+    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual) =>
         jobs.Start($"Capture pid {processId}", async (progress, ct) =>
         {
             if (Failure is { } failure)

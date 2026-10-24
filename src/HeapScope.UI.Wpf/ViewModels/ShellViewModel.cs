@@ -34,7 +34,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _crashMessage;
 
-    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about)
+    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about, LiveViewModel? live = null)
     {
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -46,9 +46,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             new NavigationItem("Home", Home),
             new NavigationItem("Snapshots", Snapshots),
             new NavigationItem("Processes", processes ?? throw new ArgumentNullException(nameof(processes))),
+            .. live is null ? Array.Empty<NavigationItem>() : [new NavigationItem("Live", live)],
             new NavigationItem("Jobs", JobsPage),
             new NavigationItem("About", about ?? throw new ArgumentNullException(nameof(about))),
         ];
+        Live = live;
         _selectedItem = NavigationItems[0];
 
         foreach (var job in operations.Jobs.Jobs)
@@ -75,6 +77,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public SnapshotsViewModel Snapshots { get; }
 
     public JobsPageViewModel JobsPage { get; }
+
+    /// <summary>The Live page (sprint 1.7), when the host provides monitoring.</summary>
+    public LiveViewModel? Live { get; }
 
     /// <summary>All jobs, newest first; the jobs panel and the Jobs page bind to it.</summary>
     public ObservableCollection<JobViewModel> Jobs { get; } = [];
@@ -116,6 +121,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 break;
             case HomeViewModel home when home.RefreshSessionsCommand.CanExecute(null):
                 home.RefreshSessionsCommand.Execute(null);
+                break;
+            case LiveViewModel live when !live.IsRunning && live.RefreshCommand.CanExecute(null):
+                live.RefreshCommand.Execute(null);
                 break;
         }
     }

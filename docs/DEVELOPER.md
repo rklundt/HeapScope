@@ -53,6 +53,13 @@ dotnet test --solution HeapScope.sln
   (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
   `finalizable`, `fragmentation`), its cause, fix and rows. An unknown or unavailable inspection exits 1. A dump opened
   from an index cache written before 1.6 has no free space or reference-array marks: reopen it with `open --rebuild`.
+  `monitor --pid <id> [--interval 1] [--duration N] [--every 5m] [--above 500MB] [--growth 100MB|50%]
+  [--rearm once|below|step] [--max N] [--format table|csv]` watches a process's GC heap (the heap now and after the
+  last GC, per generation, LOH, POH), collections, allocations and the last GC's share of time every interval (sprint
+  1.7) and captures full dumps into the current session when a rule fires on the heap after the last GC (labeled with
+  the rule, recorded as timed; `below` re-arms under 90 percent of the threshold); it prints a line per sample, a line per snapshot and,
+  at the end, the timeline file (`counters-<pid>-<time>.csv` in the session folder). Ctrl+C stops; a process that
+  cannot be monitored exits 1.
 - DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
   to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
   `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
@@ -63,6 +70,8 @@ dotnet test --solution HeapScope.sln
   (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
   Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
   `Worker:AttachPipeName` for the UI.
+- Live smoke run: `HeapScope.exe --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
+  (no process, no timeline file) and exits with the same codes as the other smoke runs.
 - UI smoke run: `HeapScope.exe --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
@@ -83,6 +92,9 @@ dotnet test --solution HeapScope.sln
   and Forward (buttons, the mouse's back and forward buttons, Alt+Left and Alt+Right). The instances filter is an
   address prefix (`0x1f2a`), a regular expression on the value (`/^Get.*Async$/`) or text in the value. The types grid's
   "Generations" checkbox shows bytes per generation.
+- Live (sprint 1.7): the Live page monitors a process (pick it, set the sample interval and the snapshot rules, Start):
+  a stacked chart of the GC heap per heap kind over the last 30 minutes with dashed lines at snapshots, the latest
+  values, a "High GC pressure" badge (10 percent or more of the last ten intervals in GC) and a card per snapshot.
 - Inspections (sprint 1.6): the Snapshots page's Inspections tab runs the selected snapshot's inspections the first
   time it is shown (one at a time, in the worker): a tile per inspection with its finding, cause and fix (or why it is
   unavailable), fragmentation bars per heap, and the selected inspection's rows; double-click or Enter opens a row's
