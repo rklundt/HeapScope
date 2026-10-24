@@ -55,6 +55,7 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 ## Commands
 - Build: `dotnet build HeapScope.sln`
 - All tests: `dotnet test --solution HeapScope.sln`
+- Full gate: `./build/gate.ps1` (Debug and Release builds, all tests, history in `artifacts/gate/history.csv`)
 - Fast tests: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`
 - UI: `dotnet run --project src/HeapScope.UI.Wpf`
 - CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `list`, `capture --pid <id> [--kind full|gcdump]`, `open <dump>`,

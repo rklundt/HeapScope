@@ -116,8 +116,7 @@ internal static partial class CliCommands
                     await WriteCsvAsync(output, columns, rows).ConfigureAwait(false);
                     break;
                 case "json":
-                    await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(
-                        new
+                    await WriteJsonAsync(output, new
                         {
                             TypeName = typeName,
                             Module = moduleName,
@@ -127,8 +126,7 @@ internal static partial class CliCommands
                             MatchingObjects = result.Rows.TotalCount,
                             result.ValuesAvailable,
                             Rows = JsonRows(columns, rows),
-                        },
-                        s_json)).ConfigureAwait(false);
+                        }).ConfigureAwait(false);
                     break;
                 default:
                     await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
@@ -208,8 +206,7 @@ internal static partial class CliCommands
 
             if (parseResult.GetValue(format) == "json")
             {
-                await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(
-                    new
+                await WriteJsonAsync(output, new
                     {
                         Address = Hex(details.Address),
                         details.TypeName,
@@ -221,8 +218,7 @@ internal static partial class CliCommands
                         details.FieldsUnavailable,
                         Fields = details.Fields?.Select(JsonField),
                         References = JsonRows(referenceColumns, referenceRows),
-                    },
-                    s_json)).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
                 return Success;
             }
 

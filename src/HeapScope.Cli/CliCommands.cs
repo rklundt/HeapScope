@@ -276,7 +276,7 @@ internal static partial class CliCommands
                     await WriteCsvAsync(output, columns, rows).ConfigureAwait(false);
                     break;
                 case "json":
-                    await WriteJsonAsync(output, summary.Result, columns, rows).ConfigureAwait(false);
+                    await WriteSummaryJsonAsync(output, summary.Result, handle.Descriptor.Kind, columns, rows).ConfigureAwait(false);
                     break;
                 default:
                     await WriteSummaryTableAsync(output, summary.Result, rows).ConfigureAwait(false);
@@ -315,60 +315,23 @@ internal static partial class CliCommands
         }
     }
 
-    private static async Task WriteCsvAsync(TextWriter output, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
-    {
-        await output.WriteLineAsync(string.Join(",", columns.Select(c => Csv(c.Name)))).ConfigureAwait(false);
-        foreach (var row in rows)
-        {
-            await output.WriteLineAsync(string.Join(",", row.Select(Csv))).ConfigureAwait(false);
-        }
-
-        static string Csv(string? value) =>
-            value is null ? string.Empty
-            : value.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\""
-            : value;
-    }
-
-    private static async Task WriteJsonAsync(TextWriter output, TypeSummaryResult result, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
+    private static async Task WriteSummaryJsonAsync(TextWriter output, TypeSummaryResult result, SnapshotKindDto kind, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
         var document = new
         {
             result.TotalObjects,
             result.TotalBytes,
             result.TotalTypes,
-            IncludesUnreachable = true,
+            Kind = kind.ToString(),
+
+            // A full dump counts dead objects not yet collected; a gcdump only the survivors of its collection (1.9).
+            IncludesUnreachable = kind == SnapshotKindDto.FullDump,
             result.UnfilteredRows,
             MatchingRows = result.Rows.TotalCount,
             HeapKinds = result.HeapKinds.Select(k => new { Kind = k.Kind.ToString(), k.Objects, k.Bytes }),
             Rows = JsonRows(columns, rows),
         };
-        await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(document, s_json)).ConfigureAwait(false);
-    }
-
-    /// <summary>Rows as objects keyed by column name, with numbers typed by the column kind.</summary>
-    private static IEnumerable<Dictionary<string, object?>> JsonRows(IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows) =>
-        rows.Select(row => columns.Select((c, i) => (c, i)).ToDictionary(
-            x => x.c.Name,
-            x => x.c.Kind is ResultColumnKind.Text or ResultColumnKind.Address ? (object?)row[x.i]
-                : x.c.Kind == ResultColumnKind.Percent ? double.Parse(row[x.i]!, CultureInfo.InvariantCulture)
-                : long.Parse(row[x.i]!, CultureInfo.InvariantCulture)));
-
-    /// <summary>Fetches the first <paramref name="wanted"/> rows of a result set.</summary>
-    private static async Task<List<IReadOnlyList<string?>>> FetchRowsAsync(ResultSetHandle handle, int wanted, CancellationToken cancellationToken)
-    {
-        var rows = new List<IReadOnlyList<string?>>();
-        while (rows.Count < wanted)
-        {
-            var page = await handle.GetRowsAsync(rows.Count, Math.Min(WorkerProtocol.MaxPageSize, wanted - rows.Count), cancellationToken).ConfigureAwait(false);
-            if (page.Rows.Count == 0)
-            {
-                break;
-            }
-
-            rows.AddRange(page.Rows);
-        }
-
-        return rows;
+        await WriteJsonAsync(output, document).ConfigureAwait(false);
     }
 
     private static Option<string> GroupOption()
@@ -446,10 +409,6 @@ internal static partial class CliCommands
             return await openJob.Result.ConfigureAwait(false);
         }
     }
-
-    private static readonly System.Text.Json.JsonSerializerOptions s_json = new() { WriteIndented = true };
-
-    private static string Truncate(string value, int length) => value.Length <= length ? value : value[..(length - 3)] + "...";
 
     private static Command BuildOpenCommand(Func<IServiceProvider> services)
     {
@@ -628,9 +587,6 @@ internal static partial class CliCommands
             return Failure;
         }
     }
-
-    private static string Mb(long bytes) =>
-        (bytes / (1024.0 * 1024.0)).ToString("N1", CultureInfo.InvariantCulture) + " MB";
 
     internal sealed class ProductVersionAction : SynchronousCommandLineAction
     {

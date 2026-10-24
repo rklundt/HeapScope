@@ -69,6 +69,6 @@ public sealed class InspectionAvailabilityTests
     [InlineData(0, 0)]
     public void The_lowest_flag_is_isolated(int flags, int lowest)
     {
-        InspectionAvailability.LowestFlag(flags).ShouldBe(lowest);
+        ContractMapping.LowestFlag(flags).ShouldBe(lowest);
     }
 }

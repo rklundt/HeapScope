@@ -29,9 +29,8 @@ using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
 using HeapScope.Core.Loading;
-using HeapScope.Loaders.ClrMd;
-using HeapScope.Loaders.GcDump;
 using HeapScope.Storage;
+using HeapScope.Worker.Rpc;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Snapshots;
@@ -45,6 +44,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
 {
     private readonly ConcurrentDictionary<Guid, Entry> _snapshots = new();
     private readonly SemaphoreSlim _loadGate = new(1, 1);
+    private readonly SnapshotKinds _kinds = new(options);
 
     private bool _disposed;
 
@@ -245,12 +245,8 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
 
                 // The snapshot is the file that was opened: a dump moved or copied together with its index cache keeps a
                 // valid fingerprint, but the cache records the path of its first load (sprint 1.2 review).
-                // Full dumps read field values and strings from the dump on demand (sprint 1.5); the reader opens the dump
-                // only when something is inspected.
                 var info = metadata.Info with { SourcePath = path };
-                snapshot = info.Kind == SnapshotKind.FullDump
-                    ? new DumpSnapshot(info, metadata.Capabilities, graph, new ClrMdObjectReader(path, LoaderOptions(), () => EnsureUnchanged(path, fingerprint)))
-                    : new GraphSnapshot(info, metadata.Capabilities, graph);
+                snapshot = _kinds.For(info.Kind).Open(info, metadata.Capabilities, graph, path, () => EnsureUnchanged(path, fingerprint));
                 descriptor = Describe(snapshot, mode, fromCache, writtenCache, stopwatch.Elapsed, notes);
             }
             catch
@@ -313,11 +309,11 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
 
         var mode = MemoryModeSelector.Select(required.Value, MemoryBudget.Current(forced: forced));
         var result = IndexCacheReader.Open(cachePath, fingerprint, mode, cancellationToken);
-        if (result.Success && result.Metadata!.LoaderVersion < LoaderVersion(result.Metadata.Info.Kind))
+        if (result.Success && result.Metadata!.LoaderVersion < _kinds.For(result.Metadata.Info.Kind).LoaderVersion)
         {
             // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
             result.Graph!.Dispose();
-            logger.LogInformation("Index cache {Path} not used: loader version {Old}, current {New}", cachePath, result.Metadata.LoaderVersion, LoaderVersion(result.Metadata.Info.Kind));
+            logger.LogInformation("Index cache {Path} not used: loader version {Old}, current {New}", cachePath, result.Metadata.LoaderVersion, _kinds.For(result.Metadata.Info.Kind).LoaderVersion);
             notes.Add("The index cache was rebuilt: it was written by an older version of HeapScope, whose results for this snapshot could differ.");
             return null;
         }
@@ -345,13 +341,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         Rpc.ThrottledProgress<JobProgress> progress,
         CancellationToken cancellationToken)
     {
-        // The file's first bytes choose the loader, never its extension (sprint 1.8).
-        ISnapshotLoader loader = SnapshotFileSignature.Detect(path) switch
-        {
-            SnapshotKind.FullDump => new ClrMdDumpLoader(LoaderOptions()),
-            SnapshotKind.GcDump => new GcDumpLoader(),
-            _ => throw new SnapshotFormatException(SnapshotFileSignature.DescribeUnknown(path)),
-        };
+        var loader = _kinds.ForFile(path).CreateLoader();
         LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
         HeapGraph? graph = loaded.Graph;
         var metadata = new IndexCacheMetadata(
@@ -429,7 +419,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         }
     }
 
-    private static void AddDataQualityNotes(HeapGraph graph, IndexCacheMetadata metadata, List<string> notes)
+    private void AddDataQualityNotes(HeapGraph graph, IndexCacheMetadata metadata, List<string> notes)
     {
         if (metadata.DebuggableModules is { Count: > 0 } modules)
         {
@@ -442,19 +432,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             notes.Add(string.Create(CultureInfo.InvariantCulture, $"{graph.DroppedReferenceCount:N0} references and {graph.DroppedRootCount:N0} roots did not point to an object and were left out."));
         }
 
-        if (metadata.Info.Kind == SnapshotKind.FullDump && !metadata.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph))
-        {
-            notes.Add("Parts of the managed heap could not be read from this dump, so some objects may be missing and counts are not exact. The dump may be truncated or damaged; capture another full dump if results look wrong.");
-        }
-
-        if (metadata.Info.Kind == SnapshotKind.GcDump)
-        {
-            notes.Add("A gcdump holds the objects that survived the full garbage collection its capture ran, with their types, sizes and references. It has no generations, field values or string text; capture a full dump for those.");
-            if (!metadata.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph))
-            {
-                notes.Add("This gcdump is sampled or incomplete (its writer kept only part of a very large heap, or the runtime's events were lost while it was captured), so some objects or types are missing and counts are not exact. Capture another gcdump, or a full dump, if results look wrong.");
-            }
-        }
+        _kinds.For(metadata.Info.Kind).AddNotes(metadata, notes);
 
         if (metadata.UnreadableObjects > 0)
         {
@@ -469,8 +447,8 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         return new SnapshotDescriptor(
             Guid.NewGuid(),
             info.SourcePath,
-            (SnapshotKindDto)(int)info.Kind,
-            (SnapshotFeatures)(uint)snapshot.Capabilities,
+            info.Kind.ToDto(),
+            snapshot.Capabilities.ToDto(),
             info.ProcessName,
             info.ProcessId,
             info.RuntimeVersion,
@@ -486,15 +464,6 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             elapsed.TotalSeconds,
             [.. notes]);
     }
-
-    private static int LoaderVersion(SnapshotKind kind) =>
-        kind == SnapshotKind.GcDump ? GcDumpLoader.CurrentVersion : ClrMdDumpLoader.CurrentVersion;
-
-    private ClrMdLoaderOptions LoaderOptions() => new()
-    {
-        DacFolder = options.DacFolder,
-        AllowMicrosoftSymbolServer = options.AllowMicrosoftSymbolServer,
-    };
 
     private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor)
     {

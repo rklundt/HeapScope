@@ -261,6 +261,37 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
     }
 
     [Fact]
+    public async Task Cli_json_says_which_kind_each_snapshot_is_and_whether_it_counts_unreachable_objects()
+    {
+        var gcdump = StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder);
+        var full = StaticCacheGcDumps.CopyTo(shared.BaselineFullDump, _folder);
+
+        using var summary = ChildProcess.Start(TestPaths.CliExe, "summary", gcdump, "--format", "json", "--top", "1");
+        (await summary.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(summary.Output);
+        summary.Process.ExitCode.ShouldBe(0, summary.Output);
+        using (var document = Json(summary.Output))
+        {
+            document.RootElement.GetProperty("Kind").GetString().ShouldBe("GcDump");
+            document.RootElement.GetProperty("IncludesUnreachable").GetBoolean().ShouldBeFalse();
+        }
+
+        using var diff = ChildProcess.Start(TestPaths.CliExe, "diff", full, gcdump, "--format", "json", "--top", "1");
+        (await diff.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(diff.Output);
+        diff.Process.ExitCode.ShouldBe(0, diff.Output);
+        using (var document = Json(diff.Output))
+        {
+            var root = document.RootElement;
+            (root.GetProperty("BaselineKind").GetString(), root.GetProperty("CurrentKind").GetString()).ShouldBe(("FullDump", "GcDump"));
+            root.GetProperty("BaselineIncludesUnreachable").GetBoolean().ShouldBeTrue();
+            root.GetProperty("CurrentIncludesUnreachable").GetBoolean().ShouldBeFalse();
+            root.GetProperty("IncludesUnreachable").GetBoolean().ShouldBeFalse("only when both sides do");
+        }
+
+        static System.Text.Json.JsonDocument Json(string output) =>
+            System.Text.Json.JsonDocument.Parse(output[output.IndexOf('{', StringComparison.Ordinal)..(output.LastIndexOf('}') + 1)]);
+    }
+
+    [Fact]
     public async Task Cli_instances_with_a_value_filter_on_a_gcdump_fails()
     {
         var path = StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder);

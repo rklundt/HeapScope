@@ -141,7 +141,7 @@ public sealed class DumpCapturer(
             throw ElevationRequiredException.For(process.ProcessId, process.Name);
         }
 
-        var directory = DirectoryOf(path);
+        var directory = PartialSnapshotFile.DirectoryOf(path, "dump");
         var needed = _estimate(process);
         if (_disk.AvailableBytes(directory) is { } available && available < needed + ReserveBytes)
         {
@@ -160,17 +160,10 @@ public sealed class DumpCapturer(
     public async Task CaptureAsync(DotNetProcess process, string path, IProgress<CaptureProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(process);
-        var fullPath = Path.GetFullPath(path);
-        var directory = DirectoryOf(fullPath);
         progress?.Report(new CaptureProgress("Checking"));
-        Directory.CreateDirectory(directory);
-        var estimate = Preflight(process, fullPath);
-        var partial = fullPath + PartialSuffix;
-        if (File.Exists(fullPath) || File.Exists(partial))
-        {
-            throw new DumpFileExistsException($"{fullPath} already exists; HeapScope never overwrites a dump. Choose another file name.");
-        }
-
+        Directory.CreateDirectory(PartialSnapshotFile.DirectoryOf(path, "dump"));
+        var estimate = Preflight(process, path);
+        var file = PartialSnapshotFile.Reserve(path, "dump");
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new CaptureProgress(
             "Writing dump",
@@ -185,39 +178,22 @@ public sealed class DumpCapturer(
             "The runtime finishes writing the dump, then HeapScope deletes it")));
         try
         {
-            await _writer.WriteAsync(process.ProcessId, partial).ConfigureAwait(false);
+            await _writer.WriteAsync(process.ProcessId, file.PartialPath).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            DeleteWhenReleased(partial);
-            throw Translate(process, directory, ex);
+            file.Discard();
+            throw Translate(process, file.Directory, ex);
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
-            DeleteWhenReleased(partial);
+            file.Discard();
             cancellationToken.ThrowIfCancellationRequested();
         }
 
-        if (!File.Exists(partial))
-        {
-            throw new DumpWriteFailedException($"The runtime reported success but no dump was written to {fullPath}.");
-        }
-
-        try
-        {
-            File.Move(partial, fullPath, overwrite: false);
-        }
-        catch (IOException ex)
-        {
-            DeleteWhenReleased(partial);
-            throw new DumpFileExistsException($"{fullPath} appeared while the dump was written; the new dump was removed. Capture again with another name.", ex);
-        }
+        file.Commit();
     }
-
-    private static string DirectoryOf(string path) =>
-        Path.GetDirectoryName(Path.GetFullPath(path))
-        ?? throw new ArgumentException($"{path} is not a file path; give a file name for the dump.", nameof(path));
 
     private Exception Translate(DotNetProcess process, string directory, Exception ex)
     {
@@ -245,40 +221,5 @@ public sealed class DumpCapturer(
         return ex is IOException
             ? new DumpWriteFailedException($"The dump could not be written to {directory}: {ex.Message}", ex)
             : ex;
-    }
-
-    /// <summary>Deletes a dump file; if the runtime still holds it, retries for up to 30 seconds in the background.</summary>
-    private static void DeleteWhenReleased(string path)
-    {
-        if (TryDelete(path))
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-            while (DateTime.UtcNow < deadline)
-            {
-                await Task.Delay(250).ConfigureAwait(false);
-                if (TryDelete(path))
-                {
-                    return;
-                }
-            }
-        });
-    }
-
-    private static bool TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-            return !File.Exists(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
     }
 }

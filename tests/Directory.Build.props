@@ -9,6 +9,10 @@
     <PackageReference Include="Shouldly" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Helpers every test project shares (sprint 1.9). -->
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="Shouldly" />
   </ItemGroup>

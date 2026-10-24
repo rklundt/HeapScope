@@ -233,64 +233,40 @@ public sealed class GcDumpCapturer(IElevationProbe? elevation = null, IGcDumpWri
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var fullPath = Path.GetFullPath(path);
-        var directory = Path.GetDirectoryName(fullPath)
-            ?? throw new ArgumentException($"{path} is not a file path; give a file name for the gcdump.", nameof(path));
         progress?.Report(new CaptureProgress("Checking"));
         if (process.Elevation == ElevationState.Elevated && !_elevation.IsCurrentProcessElevated)
         {
             throw ElevationRequiredException.For(process.ProcessId, process.Name);
         }
 
-        Directory.CreateDirectory(directory);
-        var partial = fullPath + DumpCapturer.PartialSuffix;
-        if (File.Exists(fullPath) || File.Exists(partial))
-        {
-            throw new DumpFileExistsException($"{fullPath} already exists; HeapScope never overwrites a snapshot. Choose another file name.");
-        }
-
+        var file = PartialSnapshotFile.Reserve(path, "gcdump");
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new CaptureProgress("Collecting heap", null, $"{process.Name} runs a full garbage collection and reports its heap"));
         var limit = timeout ?? DefaultTimeout;
         GcDumpWriteResult result;
         try
         {
-            result = await _writer.WriteAsync(process.ProcessId, partial, limit, cancellationToken).ConfigureAwait(false);
+            result = await _writer.WriteAsync(process.ProcessId, file.PartialPath, limit, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException)
         {
-            TryDelete(partial);
+            file.Discard();
             throw;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            TryDelete(partial);
-            throw new DumpWriteFailedException($"The gcdump could not be written to {directory}: {ex.Message}", ex);
+            file.Discard();
+            throw new DumpWriteFailedException($"The gcdump could not be written to {file.Directory}: {ex.Message}", ex);
         }
 
         if (!result.Success)
         {
-            TryDelete(partial);
+            file.Discard();
             throw Failure(process, limit, result);
         }
 
-        if (!File.Exists(partial))
-        {
-            throw new DumpWriteFailedException($"The heap snapshot finished but no gcdump was written to {fullPath}.");
-        }
-
-        try
-        {
-            File.Move(partial, fullPath, overwrite: false);
-        }
-        catch (IOException ex)
-        {
-            TryDelete(partial);
-            throw File.Exists(fullPath)
-                ? new DumpFileExistsException($"{fullPath} appeared while the gcdump was written; the new gcdump was removed. Capture again with another name.", ex)
-                : new DumpWriteFailedException($"The gcdump could not be moved to {fullPath}: {ex.Message}", ex);
-        }
+        file.Commit();
     }
 
     private static Exception Failure(DotNetProcess process, TimeSpan limit, GcDumpWriteResult result)
@@ -325,17 +301,6 @@ public sealed class GcDumpCapturer(IElevationProbe? elevation = null, IGcDumpWri
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             return false;
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
         }
     }
 }

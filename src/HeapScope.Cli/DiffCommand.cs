@@ -196,7 +196,14 @@ internal static partial class CliCommands
             result.BaselineBytes,
             result.CurrentObjects,
             result.CurrentBytes,
-            IncludesUnreachable = true,
+            BaselineKind = baseline.Descriptor.Kind.ToString(),
+            CurrentKind = current.Descriptor.Kind.ToString(),
+
+            // A full dump counts dead objects not yet collected; a gcdump only the survivors of its collection (1.9). Each
+            // side says so for itself; IncludesUnreachable is true only when both do.
+            BaselineIncludesUnreachable = baseline.Descriptor.Kind == SnapshotKindDto.FullDump,
+            CurrentIncludesUnreachable = current.Descriptor.Kind == SnapshotKindDto.FullDump,
+            IncludesUnreachable = baseline.Descriptor.Kind == SnapshotKindDto.FullDump && current.Descriptor.Kind == SnapshotKindDto.FullDump,
             result.NewRows,
             result.GoneRows,
             result.UnfilteredRows,
@@ -205,7 +212,7 @@ internal static partial class CliCommands
             result.MatchingBytesDelta,
             Rows = JsonRows(columns, rows),
         };
-        await output.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(document, s_json)).ConfigureAwait(false);
+        await WriteJsonAsync(output, document).ConfigureAwait(false);
     }
 
     private static string Signed(long value) => value.ToString("+#,0;-#,0;0", CultureInfo.InvariantCulture);

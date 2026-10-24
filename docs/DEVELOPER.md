@@ -17,6 +17,10 @@ cd heapScope
 dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
+- Full gate (sprint 1.9, the local stand-in for CI while the repository has no remote): `./build/gate.ps1` builds Debug
+  and Release (zero warnings), runs the full suite and appends a line to `artifacts/gate/history.csv` (git-ignored):
+  time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run is named
+  again. Run it before closing a sprint.
 - Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - A test run that never finishes: run the test executable directly with hung test detection, for example
   `tests/HeapScope.UI.Wpf.Tests/bin/Debug/net10.0-windows/HeapScope.UI.Wpf.Tests.exe -longRunning 30 -noAutoReporters`;
@@ -31,15 +35,20 @@ dotnet test --solution HeapScope.sln
   `open <dump> [--rebuild] [--mode auto|memory|mapped] [--top N] [--no-overcommit]` (loads a full dump or reuses
   its index cache, prints the snapshot, notes and largest types), `summary <dump> [--group type|namespace|assembly]
   [--filter text] [--sort bytes|count|name] [--top N | --all] [--format table|csv|json]` (the types summary with
-  bytes per heap kind; the filter follows the UI's rules). Ctrl+C cancels; exit codes 0 ok, 1 failure,
+  bytes per heap kind; the filter follows the UI's rules; its JSON says the snapshot's `Kind` and whether its counts
+  include unreachable objects, `IncludesUnreachable`, true for a full dump only, sprint 1.9). Ctrl+C cancels; exit codes
+  0 ok, 1 failure,
   64 usage, 130 canceled.
   `diff <baseline> <current> [--group] [--filter] [--sort bytes-delta|count-delta|bytes|count|baseline-bytes|baseline-count|name]
   [--top N | --all] [--format table|csv|json] [--fail-on-growth <size|percent>]` compares two dumps by type (ADR-018);
   with `--fail-on-growth 50MB` or `10%` it exits 2 when the matching rows grew by more (CI), 0 otherwise (growth
   exactly at the limit passes; a percent of a zero baseline allows no growth; a `--filter` that matches nothing exits 1
-  instead of passing). Both dumps count unreachable objects not yet collected: for a stable gate, capture both after a
-  full GC in the target (`GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();`). Snapshot notes (incomplete
-  heap segments, dropped references) are printed to stderr for each side, and in the JSON.
+  instead of passing). A full dump counts unreachable objects not yet collected, a gcdump only the survivors of its
+  collection: for a stable gate, capture full dumps after a full GC in the target (`GC.Collect();
+  GC.WaitForPendingFinalizers(); GC.Collect();`) or compare gcdumps. Snapshot notes (incomplete heap segments, dropped
+  references) are printed to stderr for each side, and in the JSON, which also carries `BaselineKind`, `CurrentKind`,
+  `BaselineIncludesUnreachable` and `CurrentIncludesUnreachable` (`IncludesUnreachable` is true only when both are,
+  sprint 1.9).
   `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value]
   [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size, generation and a
   string's text (first 100 characters) or an array's length. Without `--module` the type's only module is found from the

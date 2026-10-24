@@ -31,7 +31,7 @@ internal static class TestPaths
     public const string Configuration = "Release";
 #endif
 
-    public static string RepoRoot { get; } = FindRoot();
+    public static string RepoRoot => global::HeapScope.Tests.Shared.RepoRoot.Path;
 
     public static string WorkerExe => Path.Combine(AppContext.BaseDirectory, "worker", "HeapScope.Worker.exe");
 
@@ -52,15 +52,4 @@ internal static class TestPaths
     public static string DenseHeapExe => Path.Combine(RepoRoot, "fixtures", "DenseHeap", "bin", Configuration, "net10.0", "DenseHeap.exe");
 
     public static string KnownAnswers => Path.Combine(RepoRoot, "fixtures", "KnownAnswers");
-
-    private static string FindRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "HeapScope.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        return dir?.FullName ?? throw new InvalidOperationException("HeapScope.sln not found above the test output folder.");
-    }
 }

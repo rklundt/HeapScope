@@ -1,0 +1,110 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                    xmlns:vm="clr-namespace:HeapScope.UI.Wpf.ViewModels"
+                    xmlns:ctl="clr-namespace:HeapScope.UI.Wpf.Controls"
+                    mc:Ignorable="d">
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="Shared.xaml" />
+  </ResourceDictionary.MergedDictionaries>
+
+  <DataTemplate x:Key="CompareTab" DataType="{x:Type vm:SnapshotsViewModel}">
+    <DockPanel DataContext="{Binding Compare}" Margin="0,8,0,0">
+      <DockPanel.Resources>
+        <ctl:BindingProxy x:Key="Compare" Data="{Binding}" />
+        <Style x:Key="DeltaCell" TargetType="TextBlock" BasedOn="{StaticResource NumberCell}">
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding Trend}" Value="1">
+              <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Trend}" Value="-1">
+              <Setter Property="Foreground" Value="{DynamicResource Brush.Shrink}" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </DockPanel.Resources>
+
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8">
+        <TextBlock Text="Baseline" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+        <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Baseline}" DisplayMemberPath="Title" ToolTip="The earlier snapshot; deltas are current minus baseline." />
+        <Button Content="Swap" Margin="8,0" Padding="10,1" Command="{Binding SwapCommand}" />
+        <TextBlock Text="Current" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+        <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Current}" DisplayMemberPath="Title" />
+      </StackPanel>
+      <TextBlock DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Foreground="{DynamicResource Brush.Subtle}"
+                 Visibility="{Binding Hint, Converter={StaticResource NotEmptyToVisibility}}" />
+
+      <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+        <TextBlock DockPanel.Dock="Left" Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+        <ComboBox DockPanel.Dock="Left" Width="110" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" />
+        <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+        <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
+                 Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
+                 ToolTip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+        <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Totals}" />
+      </DockPanel>
+      <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                 Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+
+      <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
+                EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                ScrollViewer.CanContentScroll="True"
+                ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}"
+                ctl:GridDrill.Command="{Binding OpenRowCommand}" ToolTip="Double-click or Enter opens the type's objects in the current snapshot.">
+        <DataGrid.Columns>
+          <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
+                           ctl:HighlightedText.Filter="{Binding Data.Filter, Source={StaticResource Compare}}"
+                           ctl:HighlightedText.Text="{Binding Name}" />
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+          <DataGridTextColumn Header="Change" Binding="{Binding Change}" Width="60" SortMemberPath="Change">
+            <DataGridTextColumn.HeaderStyle>
+              <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                <Setter Property="ToolTip" Value="new: only in the current snapshot. gone: only in the baseline. copies: the same type is loaded a different number of times (see the Types columns), for example a plugin reloaded while its old copy stays alive." />
+              </Style>
+            </DataGridTextColumn.HeaderStyle>
+          </DataGridTextColumn>
+          <DataGridTextColumn Header="Objects +/-" Binding="{Binding ObjectsDelta, StringFormat=+#\,0;-#\,0;0}" Width="110" SortMemberPath="ObjectsDelta" ElementStyle="{StaticResource DeltaCell}" />
+          <DataGridTextColumn Header="Bytes +/-" Binding="{Binding BytesDelta, StringFormat=+#\,0;-#\,0;0}" Width="130" SortMemberPath="BytesDelta" ElementStyle="{StaticResource DeltaCell}" />
+          <DataGridTextColumn Header="Objects (baseline)" Binding="{Binding BaselineObjects, StringFormat=N0}" Width="120" SortMemberPath="BaselineObjects" ElementStyle="{StaticResource NumberCell}" />
+          <DataGridTextColumn Header="Objects (current)" Binding="{Binding CurrentObjects, StringFormat=N0}" Width="120" SortMemberPath="CurrentObjects" ElementStyle="{StaticResource NumberCell}" />
+          <DataGridTextColumn Header="Bytes (baseline)" Binding="{Binding BaselineBytes, StringFormat=N0}" Width="140" SortMemberPath="BaselineBytes" ElementStyle="{StaticResource NumberCell}" />
+          <DataGridTextColumn Header="Bytes (current)" Binding="{Binding CurrentBytes, StringFormat=N0}" Width="140" SortMemberPath="CurrentBytes" ElementStyle="{StaticResource NumberCell}" />
+          <DataGridTextColumn Header="Types (baseline)" Binding="{Binding BaselineTypes}" Width="100" SortMemberPath="BaselineTypes" ElementStyle="{StaticResource NumberCell}" />
+          <DataGridTextColumn Header="Types (current)" Binding="{Binding CurrentTypes}" Width="100" SortMemberPath="CurrentTypes" ElementStyle="{StaticResource NumberCell}" />
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+  </DataTemplate>
+</ResourceDictionary>

@@ -99,7 +99,7 @@ Capture and sessions (sprint 1.1):
 
 ```
 HeapScope.sln
-build/                         Shared MSBuild targets (worker deployment next to UI and CLI)
+build/                         Shared MSBuild targets (worker deployment next to UI and CLI); gate.ps1, the local full gate
 src/
   HeapScope.Core               Domain model: snapshot abstraction, capability model, compact graph,
                                type table, root model, string table. No dependencies at all.
@@ -116,6 +116,7 @@ src/
   HeapScope.UI.Wpf             WPF shell, views, view models.
   HeapScope.Cli                Command line front end.
 tests/
+  Shared/                      Helpers compiled into every test project (the repository root finder, sprint 1.9)
   HeapScope.Core.Tests
   HeapScope.Analysis.Tests     Synthetic graphs with known answers.
   HeapScope.Storage.Tests
@@ -148,94 +149,105 @@ Changes from the kickoff layout, with reasons:
 - `fixtures/KnownAnswers` makes the known answers a first-class, shared input of tests and detectors.
 - `build/` holds the target that places the worker beside the UI and CLI executables (section 3.1).
 
-Code map of the process layers (sprint 0.3): Contracts holds `IWorkerService`, `WorkerProtocol`, the DTOs,
-`HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`. The worker has `Rpc/` (`WorkerRpcServer`,
-`WorkerService`, `ResultSetStore`, `ThrottledProgress`). Application has `Workers/` (`WorkerHost`,
-`IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`, `Logging/FileLoggerProvider` and
-`WorkerOperations`. UI.Wpf has `ViewModels/` (shell, pages, jobs), `Views/` and `Services/` (dispatcher
-abstraction and watchdog). The CLI has `CliCommands` (`worker ping`, `worker info`, `synthetic`).
+Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sprint that added a piece is in brackets):
 
-Code map additions in sprint 1.3 (types summary): Analysis has `TypeAggregation` (one parallel pass over the objects:
-count, shallow bytes and bytes per heap kind for every type, computed once per snapshot and kept on the snapshot's
-entry in the worker's `SnapshotStore`) and `TypeGroups` (rows by type, namespace or assembly). Type rows are one per type
-table entry (method table), never merged by name: distinct types that share a name (one assembly in two load contexts,
-same-named types in different modules) keep their own rows, named `Name [Module.dll]` and then `#n` in type index order (stable for a snapshot, not across snapshots), so a stale copy of
-a plugin's types is visible on its own row. Namespace and assembly rows merge by design. Totals count every object in
-the dump, unreachable ones included (the UI and CLI say so); a live and dead split comes with the retention analysis
-(2.x). Contracts has `TypeSummaryRequest`,
-`TypeSummaryResult` and `NameFilter`, the one filter rule set shared by the worker (matching) and the UI
-(highlighting): an all lower-case filter is a case-insensitive substring; a filter with capitals matches as typed,
-then as CamelHumps within one identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters. The
-worker's `TypeSummarySource` groups, filters and sorts the cached aggregation per query, so a re-query costs
-microseconds per type. The worker keeps per-snapshot derived data in `Snapshots/DerivedData` on the snapshot's entry,
-dropped in one step when the snapshot closes; each slot is one shared computation with its own lease and a token tied to
-the snapshot's lifetime, so a caller that cancels only stops waiting (reverse references and dominators get slots here
-in 2.x). Application has `ResultSetHandle` (section 4.6). UI.Wpf has `TypeSummaryViewModel` with
-`VirtualRowList` (data virtualization; `TypeRowLayout` maps cells by column name), `Controls/GridHelpers` (header
-click sorting with the arrows driven by the view model's `SortState`, match highlighting, the heap kinds bar) and
-`Themes/` with `Services/ThemeManager`. Only the latest query owns the view: `Show`, a re-query or closing the snapshot
-cancel the running query and the pending filter, and the replaced row list stops its page requests.
-
-Code map additions in sprint 1.4 (snapshot diff, ADR-018): Analysis has `TypeDiff` (rows matched by type name plus module
-file name, summed per key, grouped like the summary). The worker has `TypeDiffSource` (sort by any column name, ties
-by name) and `QueryTypeDiffAsync`, which leases both snapshots and reuses their cached aggregations. Application has
-`SnapshotSession.QueryTypeDiffAsync` (both snapshots reopened after a restart, through `UseBothAsync`) and the
-`SnapshotDiff` record. UI.Wpf has `GridQueryViewModel<TRow>` (the query lifecycle shared by the types and comparison
-grids: debounce, latest query wins, release), the generic `VirtualRowList<TRow>`, and `CompareViewModel` behind the
-Snapshots page's Compare tab (two pickers, the earlier capture as default baseline, swap). The CLI has `diff`.
-
-Code map additions in sprint 1.5 (object inspection and trace recording): Core has `IObjectReader` (fields as a tree of
-`ObjectField`, string text, reference paths) and `DumpSnapshot` (a full-dump `ISnapshot` holding the graph and a reader,
-section 5.1). Loaders.ClrMd has `ClrMdObjectReader` (opens the dump on first use, serialized, disposed with the snapshot)
-and `ClrMdDump` (opening shared with the loader, runtime creation failures wrapped with a next step). The worker has
-`InstancesSource` (object indices of the types with a key, filters by address prefix, regular expression or text, sort
-by any column, holds a snapshot lease), `ReferencesSource` (graph order, named by field path or array index when a
-reader exists) and `QueryInstancesAsync`, `GetObjectAsync`, `QueryReferencesAsync`. Summary and diff rows in Type
-grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances. Capture has
-`TraceRecorder` (EventPipe sessions to `.nettrace`, profiles cpu and gc) behind Application's `TraceService`. UI.Wpf
-splits the grid base into `GridQueryViewModel<TRow>` (query lifecycle, debounced filter, column-name sort, first page
-preloaded before the grid binds) and `TypeGridViewModel<TRow>` (grouping); adds `InstancesViewModel`,
-`ObjectViewModel` (field tree and references) and `NavigatorViewModel` (types, instances, object; back and forward,
-mouse buttons and Alt+arrows); the types, instances and object views are built once with the window and the
-navigator swaps their data. The shell keeps every page once built (switching pages is a visibility change). The CLI
-has `trace`, and `instances` and `object` (`InspectCommands.cs`); `perf/` has the developer tool `trace-report`
-(TraceEvent).
-
-Code map additions in sprint 1.6 (simple inspections, ADR-020): Analysis has `Inspections/` (`IInspection`,
-`InspectionContext`, `InspectionResult`, `InspectionTable` and `RowTable<TRow>`, `InspectionCatalog`; the graph-only
-inspections in `GraphInspections.cs`: large object heap, large arrays, sparse arrays, finalizable objects,
-fragmentation; the reader ones in `ReaderInspections.cs`: empty and oversized collections, duplicate strings). Core's
-reader returns typed values (`ObjectValue`, `ObjectValueKind`, `EnumMember`; `ReadField` by path and `ReadStrings` in
-bulk), `SnapshotInfo.FreeBytes` and `TypeKind.ReferenceArray`; `SyntheticGraphBuilder` makes arrays and strings. The
-worker formats values (`ObjectFormatter`), exposes inspections as result sets (`InspectionSource`) and scopes
-instances (`InstanceScope`). Application has `ListInspectionsAsync`, `RunInspectionAsync` (`InspectionRun`) and
-`QueryInstancesAsync(InstancesQuery)`. UI.Wpf has `InspectionsViewModel` (tiles, fragmentation bars, the selected
-inspection's rows as `InspectionRowItem`s) on a third tab of the Snapshots page, and `GridColumns` (grid columns from
-a result set's columns). The CLI has `inspect` (`InspectionCommand.cs`). Fixtures: `WasteFixtures` (LeakyConsole
-`--waste`) and `Waste.json`.
-
-Code map additions in sprint 1.7 (live counters and timed snapshots, ADR-021): Capture has `CounterMonitor` (an
-EventPipe session on the target's `System.Runtime` EventCounters) and `CounterSampleBuilder` (counter events to one
-`CounterSample` per interval). Application has `Monitoring/`: `HeapSample` (what front ends see), `ICounterSource`
-(`EventPipeCounterSource`, and `SyntheticCounterSource` for the smoke run), `SnapshotRules.cs` (`EveryRule`,
-`AboveRule`, `GrowthRule`, `RearmMode`, `MonitorRules`, `SnapshotRuleEngine` with the GC pressure flag, on
-`HeapSample.RuleBytes`, the heap after the last GC) and
-`MonitorService` with `MonitorRun` (samples and captures as events, one capture at a time, the counters timeline in the
-session folder); `ICaptureService.StartCapture` records a source (`SnapshotSource.Timed` for rules). UI.Wpf has the Live
-page (`LiveViewModel`, `SnapshotCard`) and `TimelineChart` (stacked heap kinds, snapshot markers, one element drawn per
-sample). The CLI has `monitor` (`MonitorCommand.cs`).
-
-Code map additions in sprint 1.8 (gcdump support): Core has `Loading/`, the loader contract both loaders share
-(`ISnapshotLoader`, `LoadResult`, `LoadProgress`, `LoadTimings`, `LoadDiagnostics`, moved from Loaders.ClrMd) and
-`SnapshotFileSignature` (a file's first bytes tell a minidump, `MDMP`, from a gcdump, a FastSerialization stream whose
-first object is a `GCHeapDump`); `Graph/TypeNameForms` (a full dump's type name in the form a gcdump records it).
-`HeapScope.ThirdParty.GcDump` is the vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the
-EventPipe heap dumper), MIT, with its changes listed in its `CHANGES.md`. Capture has `GcDumpCapturer` (the heap
-snapshot over EventPipe, written through a partial file). Loaders.GcDump has `GcDumpLoader`, `RootClass` (pseudo node
-names to root kinds) and `TypeNames` (names normalized to the full dump loader's form). The worker's `SnapshotStore`
-picks the loader by signature; `TypeDiffSource` matches a full dump's names in their gcdump form when the kinds differ.
-`ICaptureService.StartCapture` and `MonitorOptions` take a `SnapshotKindDto`; the Processes and Live pages and the CLI's
-`capture` and `monitor` (`--kind gcdump`) choose it.
+- **Core.** `ISnapshot`, `GraphSnapshot` and `DumpSnapshot` (a full dump: the graph plus a reader, section 5.1) [1.5];
+  `SnapshotInfo` with `FreeBytes` and `SnapshotFacts` [1.6]; the capability model; `IObjectReader` (fields as a tree of
+  `ObjectField`, typed `ObjectValue`s with `ObjectValueKind` and `EnumMember`, `ReadField` by path, `ReadStrings` in bulk,
+  string text, reference paths) [1.5, 1.6]. `Graph/`: the compact graph, `HeapGraphBuilder`, `TypeKind.ReferenceArray`
+  [1.6] and `TypeNameForms` (a full dump's type name in the form a gcdump records it) [1.8]; types without a method
+  table are told apart by name and module [1.8]. `Loading/`: the loader contract both loaders share (`ISnapshotLoader`
+  with its `Version`, `LoadResult`, `LoadProgress`, `LoadTimings`, `LoadDiagnostics`) and `SnapshotFileSignature` (a
+  file's first bytes tell a minidump, `MDMP`, from a gcdump, a FastSerialization stream whose first object is a
+  `GCHeapDump`) [1.8]. `Synthetic/`: `SyntheticGraphs` and `SyntheticGraphBuilder`, which also makes arrays and strings
+  [1.6].
+- **Analysis.** `TypeAggregation`: one parallel pass over the objects, counting objects, shallow bytes and bytes per
+  heap kind for every type, computed once per snapshot and kept on the snapshot's entry in the worker [1.3].
+  `TypeGroups`: rows by type, namespace or assembly. Type rows are one per type table entry (method table), never merged
+  by name: distinct types that share a name (one assembly in two load contexts, same-named types in different modules)
+  keep their own rows, named `Name [Module.dll]` and then `#n` in type index order (stable for a snapshot, not across
+  snapshots), so a stale copy of a plugin's types is visible on its own row; namespace and assembly rows merge by
+  design. Totals count every object in the snapshot: a full dump's unreachable ones included, a gcdump's survivors only
+  (the UI and CLI say which); a live and dead split comes with the retention analysis (2.x) [1.3, 1.8]. `TypeDiff`: rows
+  matched by type name plus module file name, summed per key, grouped like the summary; each side keeps its own names,
+  so a row opens on either side by that side's name; across snapshot kinds the full dump's names are matched in their
+  gcdump form and the "copies" marker is off [1.4, 1.8]. `Inspections/`: `IInspection`, `InspectionContext`,
+  `InspectionResult`, `InspectionTable`, `RowTable<TRow>` and `InspectionCatalog`; the graph-only inspections in
+  `GraphInspections.cs` (large object heap, large arrays, sparse arrays, finalizable objects, fragmentation) and the
+  reader ones in `ReaderInspections.cs` (empty and oversized collections, duplicate strings) [1.6, ADR-020].
+- **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
+  built the graph [1.8].
+- **Capture.** Process discovery and elevation, `DumpSizeEstimator` (the disk preflight's estimate) [1.1]; `DumpCapturer` (full dumps written by the runtime) and `GcDumpCapturer`
+  (the vendored heap snapshot over EventPipe, failures classified, its log lines sent to the HeapScope log) [1.8], both
+  writing through `PartialSnapshotFile` (reserve, never overwrite, commit by rename, discard with retries) [1.9];
+  `TraceRecorder` (EventPipe sessions to `.nettrace`, profiles cpu and gc) [1.5]; `CounterMonitor` (an EventPipe session
+  on the target's `System.Runtime` EventCounters) and `CounterSampleBuilder` (counter events to one `CounterSample` per
+  interval) [1.7].
+- **Loaders.ClrMd.** `ClrMdDumpLoader` (truncated dumps refused or marked incomplete: heap creation failures, objects
+  without a type, segments whose memory is missing, files shorter than their minidump directory) [1.2, 1.8];
+  `ClrMdObjectReader` (opens the dump on first use, serialized, disposed with the snapshot) and `ClrMdDump` (opening
+  shared with the loader, runtime creation failures wrapped with a next step) [1.5]; `MinidumpHeader` [1.2, 1.8];
+  `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2].
+- **Loaders.GcDump.** `GcDumpLoader`, `RootClass` (pseudo node names to root kinds), `TypeNames` (names normalized to
+  the full dump loader's form), `ObservedReadStream` (progress and cancellation while the vendored reader reads) [1.8].
+- **ThirdParty.GcDump.** The vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the EventPipe heap
+  dumper), MIT, with its four changes listed in its `CHANGES.md` [1.8, 1.9].
+- **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
+  [0.3]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
+  [1.9]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
+  filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
+  identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]. Summary and diff rows in Type
+  grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances [1.5].
+- **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`: `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]; `WorkerService` in partial files
+  by area: the worker's own calls and result pages (`WorkerService.cs`), snapshots, summaries and diffs, objects, and
+  inspections [1.9]; `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources:
+  `TypeSummarySource` (groups, filters and sorts the cached aggregation per query, so a re-query costs microseconds per
+  type) [1.3], `TypeDiffSource` (leases both snapshots and reuses their aggregations) [1.4], `InstancesSource` (object
+  indices of the types with a key, filtered by address prefix, regular expression or text, sorted by any column, holding
+  a snapshot lease, scoped by `InstanceScope`) [1.5, 1.6], `ReferencesSource` (graph order, named by field path or array
+  index when a reader exists) [1.5], `InspectionSource` [1.6]; `ColumnSort` (sort by column name, ties by name, unknown
+  columns refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6].
+  `Snapshots/`: `SnapshotStore` (open, cache, memory mode); `SnapshotKinds` (per kind: the loader and its version, the
+  snapshot over a graph, the kind's notes) [1.9]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
+  dropped in one step when it closes: each slot is one shared computation with its own lease and a token tied to the
+  snapshot's lifetime, so a caller that cancels only stops waiting (reverse references and dominators get slots here in
+  2.x) [1.3].
+- **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
+  `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
+  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections) and `ResultSetHandle`
+  (section 4.6) [1.3 to 1.6]; `Sessions/`: `SessionLibrary`, `CaptureService` (per-kind capture settings in one table)
+  [1.1, 1.9] and `TraceService` [1.5]; `Snapshots/GrowthThreshold` (the `--fail-on-growth` CI gate's limit, a size or a
+  percent) [1.4]; `Monitoring/`: `HeapSample` (what front ends see), `ICounterSource`
+  (`EventPipeCounterSource`, and `SyntheticCounterSource` for the smoke run), `SnapshotRules.cs` (`EveryRule`,
+  `AboveRule`, `GrowthRule`, `RearmMode`, `MonitorRules`, `SnapshotRuleEngine` with the GC pressure flag, on
+  `HeapSample.RuleBytes`, the heap after the last GC) and `MonitorService` with `MonitorRun` (samples and captures as
+  events, one capture at a time, the counters timeline in the session folder) [1.7]. `ICaptureService.StartCapture`
+  records a source (`SnapshotSource.Timed` for rules) and takes a `SnapshotKindDto` [1.7, 1.8].
+- **UI.Wpf.** `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>` (the query lifecycle shared by
+  the grids: debounced filter, latest query wins, column-name sort, first page preloaded before the grid binds, release)
+  and `TypeGridViewModel<TRow>` (grouping) over the generic `VirtualRowList<TRow>` (data virtualization) [1.4, 1.5];
+  `TypeSummaryViewModel` (only the latest query owns the view: `Show`, a re-query or closing the snapshot cancel the
+  running query and the pending filter, and the replaced row list stops its page requests) [1.3]; `CompareViewModel`
+  (two pickers, the earlier capture as default baseline, swap) [1.4]; `InstancesViewModel`, `ObjectViewModel` (field tree
+  and references) and `NavigatorViewModel` (types, instances, object; back and forward, mouse buttons and Alt+arrows;
+  the views are built once with the window and the navigator swaps their data) [1.5]; `InspectionsViewModel` (tiles,
+  fragmentation bars, `InspectionRowItem`s) [1.6]; `LiveViewModel` and `SnapshotCard` [1.7]. `Views/`: `MainWindow`
+  (the shell, the attribution strip, ADR-022) and `Pages/`, one resource dictionary per page and per Snapshots tab, with
+  `Shared.xaml` for converters and styles [1.9]; the shell keeps every page once built (switching pages is a visibility
+  change) [1.5]. `Controls/`: `GridHelpers` (header click sorting driven by the view model's `SortState`, match
+  highlighting, the heap kinds bar) [1.3], `GridColumns` (grid columns from a result set's columns) [1.6],
+  `TimelineChart` (stacked heap kinds, snapshot markers, one element drawn per sample) [1.7]. `Services/`: the
+  dispatcher abstraction and watchdog [0.3], `ThemeManager` with `Themes/` [1.3]. `Smoke/SmokeRunner`: the unattended
+  smoke runs, out of `App` [1.9].
+- **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
+  `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
+  `MonitorCommand` [1.7]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
+  writer, rows keyed by column name with typed numbers) [1.9].
+- **perf/HeapScope.Benchmarks.** The budget benchmarks, the developer tool `trace-report` [1.5] and `phase2-indices`,
+  the Phase 2 index prototype (section 6.4) [1.9].
+- **Fixtures.** The leak fixtures and known answers (ADR-013), `WasteFixtures` (LeakyConsole `--waste`) and `Waste.json`
+  [1.6].
+- **build/.** The worker deployment targets and `gate.ps1`, the local full gate (DEVELOPER.md 2) [1.9].
 
 ### 3.1 Dependency rules
 
@@ -527,12 +539,16 @@ Rules:
 - The writer keeps at most 10 million nodes and reports success when it stops there. HeapScope's capture fails instead
   ("more objects than a gcdump can hold"), so it never writes a silently partial gcdump; a capped gcdump from another
   tool loads as incomplete. A cancelled capture ends its session (vendored change 3) and never waits more than 10
-  seconds for it. The vendored code's lines are written to the HeapScope log (Debug, warnings at Warning); its
-  lossy-buffering warning on .NET 10 is printed to the console by the vendored code.
+  seconds for it. The vendored code's lines are written to the HeapScope log (Debug, warnings at Warning), including its
+  lossy-buffering warning on .NET 10 (vendored change 4, sprint 1.9).
 - Every object's heap kind is `Unknown` (no generations), and there is no reader: no field values, no string text, no
   free space, reference-array marks or finalizer registrations (`SnapshotFacts.None`), so the inspections and scopes
   that need them (finalizable objects since review H5) are unavailable with the gcdump explanation. Strings and arrays
   are recognized by name. Reading the file reports progress and honors cancellation (`ObservedReadStream`).
+- A gcdump is untrusted input: its stream names the types to create. TraceEvent 4.0's deserializer creates only types
+  registered with it (the reader registers its own seven) and refuses any other name ("must be registered with the
+  deserializer"); a crafted file naming another type is refused before that type is created (test
+  `A_crafted_gcdump_naming_an_unknown_type_is_refused_without_creating_it`, sprint 1.9).
 - Index caches record the version of the loader that built them (`IndexCacheMetadata.LoaderVersion`,
   `ISnapshotLoader.Version`: full dumps 2 since 1.8, gcdumps 1); the worker rebuilds a cache from an older version with
   a note, so a fix in what a loader records reaches snapshots cached before it (review M7).
@@ -689,11 +705,43 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
 - **Reverse references**: a second CSR (`InEdgeStarts`, `InEdges`) built by counting in-degrees and filling,
   +4 bytes per object and +4 per reference. Stored as an optional index cache section.
 - **Dominators**: `int[] ImmediateDominator` and `ulong[] RetainedSize`, +12 bytes per object, computed
-  with an iterative (non-recursive) Lengauer-Tarjan or Cooper-Harvey-Kennedy over the CSR arrays and a
-  virtual super-root connected to all roots.
+  with iterative (non-recursive) semi-NCA over the CSR arrays and a virtual super-root connected to all retaining
+  roots and frozen objects (chosen in sprint 1.9, measurements below).
 - **Field names on paths**: not stored. Retention paths resolve the referencing field on demand from the
   dump (full dumps only, capability `FieldValues`).
 - Worst case with all 2.x indices for 50M objects: about 62 bytes per object, about 3.1 GB.
+- Measured in sprint 1.9 (`phase2-indices` benchmark, a prototype of the reverse CSR, dominators from a virtual root
+  joined to every retaining root and frozen object, and retained sizes; Release, Server GC, 32 GB machine; each phase
+  starts after a compacting collection and reports its own peak private bytes). Semi-NCA dominators:
+
+  | Graph | Mode | Reverse CSR | Dominators | Retained sizes | Total | Kept indices | Peak private bytes |
+  |---|---|---|---|---|---|---|---|
+  | Medium fixture, 57.5M objects, 1.14 references each | in memory | 0.7 s | 3.6 s | 3.8 s | 9.5 s | 1,128 MB (20.6 B/object) | 3,514 MB |
+  | Medium fixture | mapped | 0.8 s | 3.5 s | 3.8 s | 9.0 s | 1,128 MB | 2,058 MB |
+  | DenseHeap fixture, 54.1M real Roslyn objects, 3.03 references each | in memory | 0.9 s | 8.6 s | 1.9 s | 12.9 s | 1,450 MB (28.1 B/object) | 4,119 MB |
+  | DenseHeap fixture | mapped | 1.0 s | 7.5 s | 2.7 s | 12.2 s | 1,450 MB | 2,360 MB |
+  | Synthetic 50M, 3 random references each | in memory | 20.1 s | 184.6 s | 49.7 s | 256.9 s | 1,335 MB (28 B/object) | 4,121 MB |
+  | A doubly linked list of 1M nodes held from both ends | in memory | 0.0 s | 0.0 s | 0.1 s | 0.1 s | 23 MB | 104 MB |
+
+  Cooper-Harvey-Kennedy (iterative to a fixpoint) gives the same dominators where it converges, but needs about one
+  pass per node on a list reachable from both ends (a deque, a circular list): 30,002 passes and 7 s for 30,000 nodes,
+  not converged after 1,000 passes on 1M nodes (review H1). Real heaps hold such lists (timer queues, linked lists).
+
+  Decisions (sprint 1.9):
+  - Dominators use semi-NCA (Georgiadis, the Lengauer-Tarjan family): one pass over a depth-first preorder with path
+    compression, near-linear on every measured shape (its nearest-common-ancestor climb has quadratic theoretical worst
+    cases, none seen in heaps or the synthetic shapes). Retained sizes are summed in reverse preorder, reusing the
+    dominator pass's vertex order; the depth-first stack and the compression path use pooled or chunked buffers.
+  - Computing needs about 28 bytes per object of working arrays (preorder numbering, parents, semidominators, labels,
+    ancestors) on top of the graph and the reverse CSR; the kept indices are 8 to 12 bytes per object plus 4 per
+    reference. A real dense heap computed in memory peaks just over the 4 GB budget (DenseHeap, 4,119 MB) and well under
+    it with the graph mapped (2,360 MB, no slower here). So the indices are computed with the graph mapped whenever the
+    graph, the reverse CSR and the working arrays together exceed the budget, the memory mode is reconsidered when the
+    indices are computed (not only at open), and the kept indices are index cache sections that follow the memory mode
+    (ADR-015). The paging cost of a mapped computation on a 16 GB machine is to be measured when 2.x builds it.
+  - Time budget: under 60 seconds for a Medium-scale real heap (9 to 13 s measured), as a background job with progress
+    and cancellation, computed once per snapshot and cached. Random references without locality (the synthetic worst
+    case) are slow everywhere (257 s) and not representative of heaps.
 
 ### 6.5 Memory modes (ADR-015)
 - **In-memory**: columns are managed arrays. Fastest. Used while the projected worker footprint fits in the
@@ -892,6 +940,7 @@ Initial budgets (sprints refine them with measurements):
 | Worker private memory, Medium, mapped mode (after load) | < 1 GB | +9 MB private, +202 MB working set for the mapped graph (sprint 0.5, synthetic 50M) |
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); CLI `diff` of Medium against DenseHeap end to end from the index caches 2.8 to 2.9 s, of which the aggregations 0.05 to 0.08 s each (1.4) |
+| Phase 2 indices (reverse references, semi-NCA dominators, retained sizes; prototype, 1.9) | under 60 s and within the 4 GB worker budget on a Medium-scale real heap | Medium 9.5 s, peak 3,514 MB (met in memory); DenseHeap 12.9 s, peak 4,119 MB in memory (missed by 23 MB), 2,360 MB with the graph mapped (met); hence computation follows the memory mode (section 6.4) |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 
 Baseline measured in sprint 0.4 on the fixture sample dumps (`dump-stats`, raw ClrMD walk, no HeapScope graph yet;
@@ -1067,7 +1116,7 @@ sprint 0.1.
 - Consequences: versions verified at 0.1 (section 14); upgrades are deliberate.
 - Amendment (sprint 1.8): TraceEvent ships no gcdump reader or writer; that code exists only as MIT source in PerfView
   and dotnet-gcdump. HeapScope vendors dotnet-gcdump's copy (`src/HeapScope.ThirdParty.GcDump`, dotnet/diagnostics
-  `b1a4548`, from PerfView `76dc28af`) with two changes for the published diagnostics client (its `CHANGES.md`), listed
+  `b1a4548`, from PerfView `76dc28af`) with the changes listed in its `CHANGES.md` (four by sprint 1.9), listed
   in `THIRD-PARTY-NOTICES.md`. An update replaces the files from a newer commit and reapplies the listed changes.
 
 ### ADR-011 Build hygiene
@@ -1221,6 +1270,36 @@ sprint 0.1.
   main screen (ADDITIONAL-TERMS.md 1.2 allows either; the main screen costs no start-up time).
 - Consequences: dependencies must be AGPLv3 compatible (DEVELOPER.md 4); outside contributions need a contributor
   agreement to keep commercial licensing possible; tests check the headers and the notice's text, link and contrast.
+
+### ADR-023 gcdump capture moves to the worker (added in sprint 1.9)
+- Context: gcdump capture (sprint 1.8) runs the vendored dotnet-gcdump code in the process that asks for it, the UI or
+  the CLI, and builds PerfView's in-memory graph there before writing the file. The UI process is meant to stay small
+  and responsive (ADR-007, ADR-019).
+- Measurement (sprint 1.9, Release CLI, LeakyConsole with the static cache leak): about 4 million objects peaked at
+  381 MB private in the capturing process (10 s, a 65 MB gcdump); about 9 million objects, near the writer's 10 million
+  node cap, peaked at 1,191 MB (a 149 MB gcdump).
+- Decision: above the 1 GB threshold set before measuring (sprint 1.9 decision 3), so in Phase 2 gcdump capture runs in
+  the worker: the front end asks the worker to capture, as it asks it to load; the worker's memory budget and
+  out-of-process isolation then cover the in-memory graph. Raising the 10 million node cap waits for that move. Until
+  then capture stays where it is, bounded by the cap.
+- Measurement caveats: one run per size, in the CLI (the UI process starts larger); memory grew faster than the object
+  count (2.25 times the objects, 3.1 times the memory), consistent with the graph's arrays doubling; a capture refused
+  for the node cap reaches the cap in the capturing process first.
+- Consequences, each a decision for the Phase 2 sprint that moves it (sprint 1.9 review):
+  - Layering: the worker gains a reference to ThirdParty.GcDump (or a capture assembly) and the diagnostics client
+    package; the table in 3.1 and the architecture test change with it.
+  - Contract: a capture RPC with progress and cancellation, the failure kinds of `GcDumpCapturer` as error codes, and a
+    protocol version bump.
+  - Priority: the worker runs below normal priority with capped Server GC heaps, while the session's lossy buffering on
+    .NET 10 loses events when the reader falls behind; the capture runs on a normal-priority thread, or in a short-lived
+    child process of the worker.
+  - Isolation: a capture that crashes the worker takes the open snapshots with it (ADR-007 the other way round); a child
+    process avoids that. The choice is made with the measurement of a capture inside the worker.
+  - Memory: the capture's graph competes with loaded snapshots for the budget; it takes the load gate and its memory is
+    checked against the budget like a load.
+  - Elevation: the worker inherits the front end's token, so it can capture what the front end could (ADR-014).
+  - Schedule: with the gcdump scale item before any 2.x sprint that needs gcdumps above the cap.
+  Capture keeps process discovery and full dump capture in the front end, where the runtime writes the file itself.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

@@ -22,9 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Diagnostics;
-using System.Globalization;
 using System.Runtime;
-using HeapScope.Analysis.Inspections;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Synthetic;
@@ -34,8 +32,12 @@ using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>The worker's implementation of <see cref="IWorkerService"/>; an RPC boundary (ARCHITECTURE.md 11).</summary>
-internal sealed class WorkerService(
+/// <summary>
+/// The worker's implementation of <see cref="IWorkerService"/>; an RPC boundary (ARCHITECTURE.md 11). Split by feature area
+/// (sprint 1.9): this file holds the worker's own calls, result pages and shared helpers; snapshots, summaries and diffs,
+/// objects, and inspections have their own files.
+/// </summary>
+internal sealed partial class WorkerService(
     WorkerOptions options,
     ResultSetStore resultSets,
     SnapshotStore snapshots,
@@ -99,263 +101,6 @@ internal sealed class WorkerService(
             }
         });
 
-    public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) =>
-        GuardAsync(() => Task.Run(() => snapshots.Probe(path), cancellationToken));
-
-    public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(() =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            logger.LogInformation("Opening snapshot (rebuild {Rebuild}, mode {Mode})", request.Rebuild, request.Mode);
-            return snapshots.OpenAsync(request, progress, cancellationToken);
-        });
-
-    public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
-    {
-        snapshots.Close(snapshotId);
-        return Task.CompletedTask;
-    }
-
-    public async Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
-        (await QueryTypeSummaryAsync(new TypeSummaryRequest(snapshotId), null, cancellationToken).ConfigureAwait(false)).Rows;
-
-    public Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            var stopwatch = Stopwatch.StartNew();
-            var snapshot = snapshots.TryGet(request.SnapshotId) ?? throw SnapshotNotLoaded(request.SnapshotId);
-
-            // The lease keeps a mapped graph alive while the aggregation and the grouping read it; the result source
-            // itself holds only names and totals. A snapshot closed between the lookup and here refuses the lease.
-            SnapshotLease lease;
-            try
-            {
-                lease = snapshot.AcquireLease();
-            }
-            catch (ObjectDisposedException)
-            {
-                throw SnapshotNotLoaded(request.SnapshotId);
-            }
-
-            using var _ = lease;
-            var throttled = new ThrottledProgress<JobProgress>(progress);
-            var total = snapshot.Graph.ObjectCount;
-            var aggregation = await snapshots.GetAggregationAsync(
-                request.SnapshotId,
-                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
-                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
-            var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
-            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations), cancellationToken).ConfigureAwait(false);
-            throttled.Flush();
-            var rows = resultSets.Add(source);
-            // Unknown (generation not determined) is listed only when present, so the bar always adds up to the total.
-            var kinds = generations
-                ? TypeSummarySource.KindColumns.Prepend(Core.Graph.HeapKind.Unknown)
-                    .Where(k => k != Core.Graph.HeapKind.Unknown || aggregation.KindBytes[(int)k] > 0)
-                    .Select(k => new HeapKindTotal((HeapKindDto)(int)k, aggregation.KindObjects[(int)k], (long)aggregation.KindBytes[(int)k]))
-                    .ToArray()
-                : [];
-            return new TypeSummaryResult(
-                rows,
-                aggregation.TotalObjects,
-                (long)aggregation.TotalBytes,
-                aggregation.Counts.Count(c => c > 0),
-                generations,
-                kinds,
-                stopwatch.Elapsed.TotalSeconds,
-                source.UnfilteredCount);
-        });
-
-    public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            var stopwatch = Stopwatch.StartNew();
-
-            // Both graphs stay leased while their aggregations and names are read; the source keeps only names and totals.
-            var (baseline, baselineLease) = Lease(request.BaselineId);
-            using var _ = baselineLease;
-            var (current, currentLease) = Lease(request.CurrentId);
-            using var __ = currentLease;
-            var throttled = new ThrottledProgress<JobProgress>(progress);
-            var total = baseline.Graph.ObjectCount + (long)current.Graph.ObjectCount;
-            long baselineDone = 0;
-            var baselineAggregation = await snapshots.GetAggregationAsync(
-                request.BaselineId,
-                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone = done, total))),
-                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.BaselineId);
-            var currentAggregation = await snapshots.GetAggregationAsync(
-                request.CurrentId,
-                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone + done, total))),
-                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.CurrentId);
-            var source = await Task.Run(
-                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind),
-                cancellationToken).ConfigureAwait(false);
-            throttled.Flush();
-            var rows = resultSets.Add(source);
-            return new TypeDiffResult(
-                rows,
-                baselineAggregation.TotalObjects,
-                (long)baselineAggregation.TotalBytes,
-                currentAggregation.TotalObjects,
-                (long)currentAggregation.TotalBytes,
-                source.NewRows,
-                source.GoneRows,
-                source.UnfilteredCount,
-                source.MatchingBaselineBytes,
-                source.MatchingBytesDelta,
-                stopwatch.Elapsed.TotalSeconds,
-                baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts));
-        });
-
-    public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            var stopwatch = Stopwatch.StartNew();
-
-            // The set keeps the lease: its pages read the graph and the dump (string values) while it lives.
-            var (snapshot, lease) = Lease(request.SnapshotId);
-            try
-            {
-                snapshot.TryGetService<IObjectReader>(out var reader);
-                if (request.Scope == InstanceScope.Finalizable && !snapshot.Info.Facts.HasFlag(SnapshotFacts.FinalizerRegistrations))
-                {
-                    throw new CapabilityNotSupportedException(InspectionAvailability.Explain("Listing finalizable objects", snapshot.Info));
-                }
-
-                var throttled = new ThrottledProgress<JobProgress>(progress);
-                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled), cancellationToken).ConfigureAwait(false);
-                var rows = resultSets.Add(source, lease);
-                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds);
-            }
-            catch (CapabilityNotSupportedException ex) when (ex.Missing != SnapshotCapabilities.None)
-            {
-                // The source knows what is missing; the reason depends on the snapshot's kind (sprint 1.8).
-                lease.Dispose();
-                throw new CapabilityNotSupportedException(
-                    ex.Missing,
-                    CapabilityDescriptions.ExplainMissing((SnapshotFeatures)(uint)ex.Missing, (SnapshotKindDto)(int)snapshot.Info.Kind));
-            }
-            catch
-            {
-                lease.Dispose();
-                throw;
-            }
-        });
-
-    public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            progress?.Report(new JobProgress("Reading the object", 0, null));
-            var (snapshot, lease) = Lease(request.SnapshotId);
-            using var _ = lease;
-            var graph = snapshot.Graph;
-            if (!graph.TryGetIndex(request.Address, out var index))
-            {
-                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no object at 0x{request.Address:x} in this snapshot."));
-            }
-
-            var type = graph.TypeIndices[index];
-            IReadOnlyList<ObjectFieldDto>? fields = null;
-            string? unavailable = null;
-            string? text = null;
-            if (snapshot.TryGetService<IObjectReader>(out var reader))
-            {
-                (fields, text) = await Task.Run(
-                    () =>
-                    {
-                        var read = reader.ReadFields(request.Address, MaxInspectedElements, MaxFieldText, cancellationToken).Select(ObjectFormatter.ToDto).ToArray();
-                        var str = graph.Types.Kinds[type].HasFlag(Core.Graph.TypeKind.String) ? reader.ReadString(request.Address, MaxInspectedText) : null;
-                        return ((IReadOnlyList<ObjectFieldDto>)read, str);
-                    },
-                    cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                unavailable = CapabilityDescriptions.ExplainMissing(SnapshotFeatures.FieldValues, (SnapshotKindDto)(int)snapshot.Info.Kind);
-            }
-
-            return new ObjectDetails(
-                request.Address,
-                graph.Types.GetName(type),
-                (long)graph.GetSize(index),
-                (HeapKindDto)(int)graph.HeapKinds[index],
-                graph.GetReferences(index).Length,
-                graph.Roots.IsRetained(index),
-                fields,
-                unavailable,
-                text);
-        });
-
-    public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            progress?.Report(new JobProgress("Naming references", 0, null));
-            var (snapshot, lease) = Lease(request.SnapshotId);
-            using var _ = lease;
-            if (!snapshot.Graph.TryGetIndex(request.Address, out var index))
-            {
-                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no object at 0x{request.Address:x} in this snapshot."));
-            }
-
-            snapshot.TryGetService<IObjectReader>(out var reader);
-            var source = await Task.Run(() => ReferencesSource.Create(snapshot.Graph, reader, index, cancellationToken), cancellationToken).ConfigureAwait(false);
-
-            // The source formats pages from the graph, so the set keeps a lease of its own.
-            var owner = snapshot.AcquireLease();
-            return resultSets.Add(source, owner);
-        });
-
-    public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) =>
-        GuardAsync(() =>
-        {
-            var (snapshot, lease) = Lease(snapshotId);
-            using var _ = lease;
-            IReadOnlyList<InspectionInfo> list = [.. InspectionCatalog.All.Select(i => new InspectionInfo(i.Name, i.Title, i.Cause, i.Fix, InspectionAvailability.Explain(i, snapshot.Capabilities, snapshot.Info)))];
-            return Task.FromResult(list);
-        });
-
-    public Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            var inspection = InspectionCatalog.Find(request.Name)
-                ?? throw new ArgumentException($"Unknown inspection {request.Name}. Inspections: {string.Join(", ", InspectionCatalog.All.Select(i => i.Name))}.");
-            var stopwatch = Stopwatch.StartNew();
-
-            // The set keeps the lease: its rows read the graph while it lives.
-            var (snapshot, lease) = Lease(request.SnapshotId);
-            try
-            {
-                if (InspectionAvailability.Explain(inspection, snapshot.Capabilities, snapshot.Info) is { } why)
-                {
-                    throw new CapabilityNotSupportedException(why);
-                }
-
-                snapshot.TryGetService<IObjectReader>(out var reader);
-                var throttled = new ThrottledProgress<JobProgress>(progress);
-                var context = new InspectionContext(
-                    snapshot.Graph,
-                    snapshot.Info,
-                    reader,
-                    new CallbackProgress<InspectionProgress>(p => throttled.Report(new JobProgress(p.Phase, p.Done, p.Total))),
-                    cancellationToken);
-                var result = await Task.Run(() => inspection.Run(context), cancellationToken).ConfigureAwait(false);
-                throttled.Flush();
-                var rows = resultSets.Add(new InspectionSource(result.Rows), lease);
-                return new InspectionResultDto(inspection.Name, result.Count, result.Bytes, result.WastedBytes, result.Note, rows, stopwatch.Elapsed.TotalSeconds);
-            }
-            catch
-            {
-                lease.Dispose();
-                throw;
-            }
-        });
-
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
     {
         if (offset < 0 || count < 0)
@@ -405,15 +150,6 @@ internal sealed class WorkerService(
     }
 
     private Task<T> GuardAsync<T>(Func<Task<T>> body) => WorkerErrors.GuardAsync(body, logger);
-
-    /// <summary>Array elements listed when an object is inspected (more are summarized in one row).</summary>
-    private const int MaxInspectedElements = 100;
-
-    /// <summary>Characters of a string returned with its object.</summary>
-    private const int MaxInspectedText = 10_000;
-
-    /// <summary>Characters of a string shown in a field (longer ones end with "...").</summary>
-    private const int MaxFieldText = 1_000;
 
     /// <summary>A loaded snapshot and a lease on it; a snapshot closed meanwhile refuses the lease.</summary>
     private (ISnapshot Snapshot, SnapshotLease Lease) Lease(Guid snapshotId)

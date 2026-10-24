@@ -135,7 +135,7 @@ namespace Microsoft.Diagnostics.Tools.GCDump
 
                 using (EventPipeSessionController typeFlushSession = new(processId, diagnosticPort, new List<EventPipeProvider> {
                     new("Microsoft-DotNETCore-SampleProfiler", EventLevel.Informational)
-                }, false))
+                }, false, log: log))
                 {
                     log.WriteLine("{0,5:n1}s: Flushing the type table", getElapsed().TotalSeconds);
                     typeFlushSession.Source.AllEvents += (traceEvent) => {
@@ -160,7 +160,7 @@ namespace Microsoft.Diagnostics.Tools.GCDump
 
                 using EventPipeSessionController gcDumpSession = new(processId, diagnosticPort, new List<EventPipeProvider> {
                     new("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, (long)(ClrTraceEventParser.Keywords.GCHeapSnapshot))
-                }, bufferingMode: EventPipeBufferingMode.Block);
+                }, bufferingMode: EventPipeBufferingMode.Block, log: log);
                 log.WriteLine("{0,5:n1}s: gcdump EventPipe Session started", getElapsed().TotalSeconds);
 
                 int gcNum = -1;
@@ -337,8 +337,12 @@ namespace Microsoft.Diagnostics.Tools.GCDump
 
         // HeapScope change (see CHANGES.md): connects by process id only. The diagnostic port and dsrouter path used
         // IpcEndpointConfig and PidIpcEndpoint, which are internal to the Microsoft.Diagnostics.NETCore.Client package.
-        public EventPipeSessionController(int pid, string diagnosticPort, List<EventPipeProvider> providers, bool requestRundown = true, EventPipeBufferingMode bufferingMode = EventPipeBufferingMode.Drop)
+        // HeapScope change (CHANGES.md item 4): warnings go to the dump's log, not to the console.
+        private readonly TextWriter _log;
+
+        public EventPipeSessionController(int pid, string diagnosticPort, List<EventPipeProvider> providers, bool requestRundown = true, EventPipeBufferingMode bufferingMode = EventPipeBufferingMode.Drop, TextWriter log = null)
         {
+            _log = log ?? Console.Error;
             if (!string.IsNullOrEmpty(diagnosticPort))
             {
                 throw new ArgumentException("A diagnostic port is not supported; the session connects by process id.");
@@ -360,7 +364,7 @@ namespace Microsoft.Diagnostics.Tools.GCDump
                 // still be collected. A runtime that understands the command but rejects the payload responds
                 // with BadEncoding (a BadEncodingException, not an UnsupportedCommandException), which is not
                 // caught here and so surfaces normally.
-                Console.Error.WriteLine("Warning: the target runtime does not support non-lossy (Block) buffering, which requires .NET 11+. Falling back to the default lossy buffering; the gcdump may be incomplete on large heaps.");
+                _log.WriteLine("Warning: the target runtime does not support non-lossy (Block) buffering, which requires .NET 11+. Falling back to the default lossy buffering; the gcdump may be incomplete on large heaps.");
                 EventPipeSessionConfiguration fallbackConfig = new(providers, 1024, rundownKeyword: requestRundown ? DefaultRundownKeyword : 0, requestStackwalk: true, bufferingMode: EventPipeBufferingMode.Drop);
                 _session = _client.StartEventPipeSession(fallbackConfig);
             }

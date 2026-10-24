@@ -83,7 +83,7 @@ public static class CapabilityDescriptions
         SnapshotFeatures.StringContents => "String contents are not stored in a gcdump. Capture a full dump to see string text.",
         SnapshotFeatures.Generations => "This snapshot does not record generations. Capture a full dump to see Gen0, Gen1, Gen2, LOH and POH.",
         SnapshotFeatures.ThreadStacks => "Thread stacks are only available in full dumps.",
-        SnapshotFeatures.CompleteGraph => "This gcdump was sampled, so not every object is present. Counts may be estimates.",
+        SnapshotFeatures.CompleteGraph => "This gcdump is sampled or incomplete (its writer kept only part of a very large heap, or the runtime's events were lost while it was captured), so not every object is present. Counts may be estimates.",
         SnapshotFeatures.ExactCounts => "Counts and sizes in this snapshot are scaled estimates, not exact values.",
         SnapshotFeatures.ObjectAddresses => "This snapshot does not record real object addresses.",
         SnapshotFeatures.RootDetails => "This snapshot records root kinds but not static field names or thread ids.",
