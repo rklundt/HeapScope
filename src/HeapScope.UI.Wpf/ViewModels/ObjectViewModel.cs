@@ -113,8 +113,9 @@ public sealed class ReferenceRowItem(int index) : ObservableObject, IIndexedRow
 
 /// <summary>
 /// One object (sprint 1.5): what the graph knows, its fields as a tree when the snapshot reads its dump (the capability
-/// explanation otherwise), its text when it is a string, and its outgoing references; references and field links open
-/// further objects through <see cref="OpenCommand"/>.
+/// explanation otherwise), its text when it is a string, its outgoing references and (sprint 2.1) the objects referencing
+/// it, loaded when the Incoming tab is first shown because the first such query of a snapshot builds its reverse index;
+/// references, referrers and field links open further objects through <see cref="OpenCommand"/>.
 /// </summary>
 public sealed partial class ObjectViewModel : ObservableObject
 {
@@ -122,6 +123,8 @@ public sealed partial class ObjectViewModel : ObservableObject
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _lifetime = new();
     private ResultSetHandle? _references;
+    private ResultSetHandle? _incoming;
+    private bool _incomingStarted;
 
     [ObservableProperty]
     private string? _summary;
@@ -144,6 +147,20 @@ public sealed partial class ObjectViewModel : ObservableObject
     [ObservableProperty]
     private VirtualRowList<ReferenceRowItem> _referenceRows = ReferenceRowItem.CreateList(null, new ResultSetInfo(Guid.Empty, 0, [new(ReferenceColumns.Field, ResultColumnKind.Text), new(ReferenceColumns.Address, ResultColumnKind.Address, true), new(ReferenceColumns.Type, ResultColumnKind.Text), new(ReferenceColumns.Bytes, ResultColumnKind.Bytes)]));
 
+    [ObservableProperty]
+    private VirtualRowList<ReferrerRowItem> _incomingRows = ReferrerRowItem.Empty();
+
+    [ObservableProperty]
+    private string? _incomingTotals;
+
+    /// <summary>Why the incoming rows have no field names, or that the incoming references are being indexed.</summary>
+    [ObservableProperty]
+    private string? _incomingStatus;
+
+    /// <summary>The references tab shown: 0 outgoing, 1 incoming (sprint 2.1). Showing incoming loads it once.</summary>
+    [ObservableProperty]
+    private int _referencesTab;
+
     public ObjectViewModel(SnapshotSession session, SnapshotHandle snapshot, ulong address, ILogger? logger = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
@@ -165,6 +182,9 @@ public sealed partial class ObjectViewModel : ObservableObject
     /// <summary>The load in progress (tests and smoke runs await it).</summary>
     public Task LoadTask { get; private set; } = Task.CompletedTask;
 
+    /// <summary>The incoming references load, once started (tests await it).</summary>
+    public Task IncomingTask { get; private set; } = Task.CompletedTask;
+
     /// <summary>Loads the object and its references.</summary>
     public void Start()
     {
@@ -177,11 +197,71 @@ public sealed partial class ObjectViewModel : ObservableObject
     {
         _lifetime.Cancel();
         ReferenceRows.Cancel();
-        _ = _references?.ReleaseAsync(CancellationToken.None).ContinueWith(
-            t => _logger.LogDebug(t.Exception, "Releasing an object's references failed"),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+        IncomingRows.Cancel();
+        foreach (var set in new[] { _references, _incoming })
+        {
+            _ = set?.ReleaseAsync(CancellationToken.None).ContinueWith(
+                t => _logger.LogDebug(t.Exception, "Releasing an object's references failed"),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+    }
+
+    partial void OnReferencesTabChanged(int value)
+    {
+        if (value == 1 && !_incomingStarted)
+        {
+            _incomingStarted = true;
+            IncomingTask = LoadIncomingAsync(_lifetime.Token);
+        }
+    }
+
+    private async Task LoadIncomingAsync(CancellationToken cancellationToken)
+    {
+        IncomingStatus = "Finding referrers (the first query of a snapshot indexes its incoming references)...";
+        var finished = false;
+
+        // The first query builds the snapshot's index in the worker: its phases replace the busy text (review M7).
+        var progress = new Progress<JobProgress>(p =>
+        {
+            if (!finished && !cancellationToken.IsCancellationRequested)
+            {
+                IncomingStatus = ReferrersText.Progress(p);
+            }
+        });
+        try
+        {
+            var list = await _session.QueryReferrersAsync(Snapshot, Address, progress, cancellationToken);
+            finished = true;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                await list.Rows.ReleaseAsync(CancellationToken.None);
+                return;
+            }
+
+            _incoming = list.Rows;
+            var result = list.Result;
+            IncomingRows = ReferrerRowItem.CreateList(list.Rows, result.Rows, ex => IncomingStatus = ex.Message, _logger);
+            IncomingTotals = string.Create(CultureInfo.CurrentCulture, $"{result.Rows.TotalCount:N0} objects, {result.ReferenceCount:N0} references")
+                + ReferrersText.Incomplete(result.CompleteGraph);
+            IncomingStatus = result.Rows.TotalCount == 0 ? "No object references this one." + ReferrersText.Incomplete(result.CompleteGraph) : result.FieldsNote;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Left the history while loading.
+        }
+        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        {
+            finished = true;
+            IncomingStatus = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            finished = true;
+            _logger.LogError(ex, "Finding an object's referrers failed");
+            IncomingStatus = "The referrers could not be read. Details are in the log.";
+        }
     }
 
     private async Task LoadAsync(CancellationToken cancellationToken)

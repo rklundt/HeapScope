@@ -60,6 +60,17 @@ public sealed class IndexCacheLocator
         return Path.Combine(FallbackRoot, hash + IndexCacheFormat.Extension);
     }
 
+    /// <summary>
+    /// The sidecar of an optional index next to the base cache at <paramref name="cachePath"/> (sprint 2.1):
+    /// <c>app.dmp.hsidx</c> and <c>rev</c> give <c>app.dmp.rev.hsidx</c>.
+    /// </summary>
+    public static string GetSidecarPath(string cachePath, string kind)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(cachePath);
+        ArgumentException.ThrowIfNullOrEmpty(kind);
+        return Path.ChangeExtension(cachePath, "." + kind + IndexCacheFormat.Extension);
+    }
+
     /// <summary>True when a probe file can be created (and is removed) in <paramref name="directory"/>.</summary>
     public static bool CanWriteDirectory(string directory)
     {

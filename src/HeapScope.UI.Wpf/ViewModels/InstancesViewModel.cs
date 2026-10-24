@@ -130,6 +130,9 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     protected override string EmptyText => string.IsNullOrWhiteSpace(Filter) ? "No objects of this type." : "No object matches the filter.";
 
+    /// <summary>Opens who references this type's objects (sprint 2.1); set by the navigator.</summary>
+    public System.Windows.Input.ICommand? ReferencedByCommand { get; set; }
+
     /// <summary>Runs the first query (after the navigator wires the drill-down command).</summary>
     public void Start() => Requery();
 

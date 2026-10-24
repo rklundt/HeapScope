@@ -31,7 +31,8 @@ namespace HeapScope.UI.Wpf.ViewModels;
 
 /// <summary>
 /// The Snapshot tab's subjects and history (sprint 1.5, dotMemory's drill-down): the types grid is the root; opening a
-/// type row shows its instances, opening an instance, a reference or a field link shows that object. Back and Forward
+/// type row shows its instances, opening an instance, a reference, a referrer or a field link shows that object; a type's
+/// instances open who references them (sprint 2.1), whose rows open the referrer type's instances. Back and Forward
 /// move through the history; opening something after going back drops the forward entries (their result sets are
 /// released). At most <see cref="MaxHistory"/> subjects are kept.
 /// </summary>
@@ -73,6 +74,13 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Whether an object is the current subject.</summary>
     public bool IsObjectShown => Current is ObjectViewModel;
 
+    /// <summary>Whether a type's referrers are the current subject (sprint 2.1).</summary>
+    public bool IsTypeReferrersShown => Current is TypeReferrersViewModel;
+
+    /// <summary>The type referrers shown last (the view's data; kept while another subject is shown).</summary>
+    [ObservableProperty]
+    private TypeReferrersViewModel? _shownTypeReferrers;
+
     /// <summary>The instances shown last (the instances view's data; kept while another subject is shown).</summary>
     [ObservableProperty]
     private InstancesViewModel? _shownInstances;
@@ -99,6 +107,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         _history.RemoveRange(1, _history.Count - 1);
         ShownInstances = null;
         ShownObject = null;
+        ShownTypeReferrers = null;
         Move(0);
     }
 
@@ -107,6 +116,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     {
         var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, _loggers?.CreateLogger<InstancesViewModel>());
         instances.OpenRowCommand = OpenInstanceRowCommand;
+        instances.ReferencedByCommand = OpenReferencedByCommand;
         Push(instances);
         instances.Start();
         return instances;
@@ -120,6 +130,16 @@ public sealed partial class NavigatorViewModel : ObservableObject
         Push(obj);
         obj.Start();
         return obj;
+    }
+
+    /// <summary>Shows who references the objects of a type in <paramref name="snapshot"/> (sprint 2.1).</summary>
+    public TypeReferrersViewModel OpenTypeReferrers(SnapshotHandle snapshot, string typeName, string? module)
+    {
+        var referrers = new TypeReferrersViewModel(_session, snapshot, typeName, module, _loggers?.CreateLogger<TypeReferrersViewModel>());
+        referrers.OpenRowCommand = OpenTypeReferrerRowCommand;
+        Push(referrers);
+        referrers.Start();
+        return referrers;
     }
 
     [RelayCommand(CanExecute = nameof(CanGoBack))]
@@ -155,11 +175,30 @@ public sealed partial class NavigatorViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void OpenReferencedBy()
+    {
+        if (Current is InstancesViewModel instances)
+        {
+            OpenTypeReferrers(instances.Snapshot, instances.TypeName, instances.Module);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenTypeReferrerRow(TypeReferrerRowItem? row)
+    {
+        if (row is { IsLoaded: true } && Current is TypeReferrersViewModel referrers)
+        {
+            OpenInstances(referrers.Snapshot, row.TypeName, row.Module);
+        }
+    }
+
+    [RelayCommand]
     private void OpenObjectLink(object? link)
     {
         var address = link switch
         {
             ReferenceRowItem { IsLoaded: true } reference => reference.Address,
+            ReferrerRowItem { IsLoaded: true } referrer => referrer.Address,
             FieldNode { IsLink: true } field => field.Address,
             _ => 0UL,
         };
@@ -201,11 +240,15 @@ public sealed partial class NavigatorViewModel : ObservableObject
             case ObjectViewModel obj:
                 ShownObject = obj;
                 break;
+            case TypeReferrersViewModel referrers:
+                ShownTypeReferrers = referrers;
+                break;
         }
 
         OnPropertyChanged(nameof(IsTypesShown));
         OnPropertyChanged(nameof(IsInstancesShown));
         OnPropertyChanged(nameof(IsObjectShown));
+        OnPropertyChanged(nameof(IsTypeReferrersShown));
         OnPropertyChanged(nameof(Trail));
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
@@ -222,6 +265,9 @@ public sealed partial class NavigatorViewModel : ObservableObject
                 break;
             case ObjectViewModel obj:
                 obj.Close();
+                break;
+            case TypeReferrersViewModel referrers:
+                referrers.Close();
                 break;
         }
     }

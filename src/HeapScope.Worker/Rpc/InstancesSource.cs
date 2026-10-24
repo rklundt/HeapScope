@@ -99,18 +99,11 @@ internal sealed class InstancesSource : IResultSource
         }
 
         var filter = InstanceFilter.Parse(request.Filter);
-        var module = request.Module ?? string.Empty;
-        var matches = new bool[graph.Types.Count];
-        var matchedTypes = 0;
+        var matches = TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matchedTypes);
         var strings = false;
         for (var t = 0; t < matches.Length; t++)
         {
-            if (graph.Types.GetName(t) == request.TypeName && string.Equals(TypeGroups.ModuleKey(graph.Types.GetModule(t)), module, StringComparison.OrdinalIgnoreCase))
-            {
-                matches[t] = true;
-                matchedTypes++;
-                strings |= graph.Types.Kinds[t].HasFlag(TypeKind.String);
-            }
+            strings |= matches[t] && graph.Types.Kinds[t].HasFlag(TypeKind.String);
         }
 
         // Without string text a value filter or sort on strings would silently match or order nothing.

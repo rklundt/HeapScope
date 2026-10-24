@@ -91,6 +91,19 @@ public interface IWorkerService
     /// <summary>The objects one object references, as a result set (sprint 1.5); naming them walks up to a million array elements.</summary>
     Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The objects referencing one object, each once, as a result set (sprint 2.1). The first referrers query of a
+    /// snapshot builds its reverse references index (or opens it from its sidecar); later queries reuse it. An address
+    /// with no object fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<ReferrersResult> QueryReferrersAsync(ReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The objects referencing a type's objects, grouped by their own type, as a result set (sprint 2.1). An unknown sort
+    /// column fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>; a type with no objects gives no rows.
+    /// </summary>
+    Task<TypeReferrersResult> QueryTypeReferrersAsync(TypeReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 

@@ -135,7 +135,11 @@ public sealed class WorkerIpcTests : IAsyncDisposable
     {
         await _host.EnsureStartedAsync(Ct);
 
-        await WaitUntilAsync(() => _logs.Records.Any(r => r.Category == "Worker" && r.Message.Contains("worker", StringComparison.Ordinal) && r.Message.Contains("started", StringComparison.Ordinal)));
+        // 30 s: under the full suite (several workers loading dumps at once, sprint 2.1 added three such classes) the
+        // worker's first log line missed a 10 s wait in two of three gate runs; alone it arrives in under a second.
+        await WaitUntilAsync(
+            () => _logs.Records.Any(r => r.Category == "Worker" && r.Message.Contains("worker", StringComparison.Ordinal) && r.Message.Contains("started", StringComparison.Ordinal)),
+            TimeSpan.FromSeconds(30));
     }
 
     [Fact]

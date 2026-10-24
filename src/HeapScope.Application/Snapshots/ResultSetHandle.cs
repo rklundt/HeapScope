@@ -149,3 +149,9 @@ public sealed record InspectionRun(ResultSetHandle Rows, InspectionResultDto Res
 
 /// <summary>A snapshot comparison: its pageable rows and the totals of the first run (sprint 1.4).</summary>
 public sealed record SnapshotDiff(ResultSetHandle Rows, TypeDiffResult Result);
+
+/// <summary>The objects referencing one object: their pageable rows and the totals of the first run (sprint 2.1).</summary>
+public sealed record ReferrerList(ResultSetHandle Rows, ReferrersResult Result);
+
+/// <summary>The objects referencing a type's objects, by their type: pageable rows and the first run's totals (sprint 2.1).</summary>
+public sealed record TypeReferrerList(ResultSetHandle Rows, TypeReferrersResult Result);

@@ -58,6 +58,14 @@ dotnet test --solution HeapScope.sln
   its first N outgoing references (default 50) named by field. The address is hex with or without `0x`; no object at it
   exits 1. A snapshot without field values (a gcdump) prints the object's graph facts and, on stderr, why the fields are
   missing, and exits 0. Both print dump contents (field values, strings) to the console only, never to the log.
+  `referrers <snapshot> (--address <hex> | --type <name> [--module <file>] [--sort references|objects|targets|bytes|type])
+  [--top N | --all] [--format table|csv|json]` (sprint 2.1) lists who references one object (each referrer once, with
+  its references to it and, on a full dump, the field that holds it, for objects with up to 1,000 referrers) or the
+  objects of a type (one row per referrer type: referring objects, references, targets referenced, bytes). The first
+  such query of a snapshot builds its incoming references index (seconds on a Medium heap, noted on stderr) and saves it
+  as `<snapshot>.rev.hsidx` next to the index cache; later runs reuse it. Exactly one of `--address` and `--type`, or exit
+  64; a type or module that matches nothing exits 1 without building the index. On an incomplete snapshot (a sampled
+  gcdump, a truncated dump) stderr says that referrers may be missing, and the JSON carries `CompleteGraph`.
   `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]` runs the simple inspections (sprint 1.6):
   without a name, every inspection with its time, finding and note (one line each); with a name
   (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
@@ -86,7 +94,8 @@ dotnet test --solution HeapScope.sln
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
   second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
-  also drills down (types, instances, object), shows the Inspections tab ("Smoke inspections": every inspection's
+  also drills down (types, instances, object, the object's incoming references and the type's referrers; sprint 2.1),
+  shows the Inspections tab ("Smoke inspections": every inspection's
   finding and time) and logs the open phase on its own line ("Smoke open phase"); add
   `--smoke-trace <file.nettrace>` to record a CPU trace of the UI during the run. The log records
   "First window rendered N ms after process start" for every run.
@@ -99,7 +108,9 @@ dotnet test --solution HeapScope.sln
   cores. HeapScope's UI opts out (ADR-019); pinning a process (`ProcessorAffinity`) to performance or efficiency cores
   is how that was proven.
 - Inspection: in the Snapshot tab, double-click or Enter opens a type row's objects, an object, or a reference; Back
-  and Forward (buttons, the mouse's back and forward buttons, Alt+Left and Alt+Right). The instances filter is an
+  and Forward (buttons, the mouse's back and forward buttons, Alt+Left and Alt+Right). An object's references have
+  Outgoing and Incoming tabs (sprint 2.1; incoming is loaded when its tab is first shown); a type's objects have a
+  Referenced by button listing the types whose objects reference them, and a row there opens that type's objects. The instances filter is an
   address prefix (`0x1f2a`), a regular expression on the value (`/^Get.*Async$/`) or text in the value. The types grid's
   "Generations" checkbox shows bytes per generation.
 - Live (sprint 1.7): the Live page monitors a process (pick it, set the sample interval and the snapshot rules, Start):
@@ -240,6 +251,11 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   `--cancel-at <phase>` cancels as a phase starts and checks the 2 s cancellation budget.
 - `dump-stats --dump <path> --segments 1`: per segment, the object range, the bytes walked and the gap at its end
   (used to set the incomplete-segment rule).
+- `phase2-indices`: the 1.9 prototype of the Phase 2 indices (reverse references, semi-NCA dominators, retained sizes)
+  on synthetic shapes or an index cache (ARCHITECTURE.md 6.4).
+- `reverse-index --cache <snapshot.hsidx> [--mode memory|mapped] [--dir <folder>]` (sprint 2.1): opens a real index
+  cache, builds its reverse references index, writes it as a sidecar (in `--dir`, deleted afterwards) and reopens it in
+  both modes, with times and private bytes; exit 1 when the build exceeds 60 s or the peak 4 GB.
 
 ## 7. Git conventions
 - Work on `main`; no branches yet (ADR-012).

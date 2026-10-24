@@ -48,6 +48,9 @@ public enum IndexCacheInvalidReason
     FingerprintMismatch,
     ChecksumMismatch,
     IoError,
+
+    /// <summary>A sidecar extends another base cache than the one open (sprint 2.1), or a sidecar was opened as a base cache.</summary>
+    BaseMismatch,
 }
 
 /// <summary>The outcome of opening an index cache. Invalid caches never throw; they report a reason.</summary>

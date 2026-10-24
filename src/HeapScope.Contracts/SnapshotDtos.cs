@@ -58,6 +58,8 @@ public enum SnapshotCacheState
 public sealed record SnapshotProbe(string Path, long FileBytes, SnapshotCacheState CacheState, string CachePath, string? CacheDetail, bool IsOpen);
 
 /// <summary>A loaded snapshot. <see cref="Notes"/> are plain-language data quality notes for the user.</summary>
+/// <param name="CacheIdentity">The identity of the index cache the snapshot was opened from or wrote (sprint 2.1, from the
+/// 1.2 review); 0 when none was written. Optional indices next to the cache record it.</param>
 public sealed record SnapshotDescriptor(
     Guid SnapshotId,
     string Path,
@@ -76,4 +78,5 @@ public sealed record SnapshotDescriptor(
     bool FromCache,
     string? CachePath,
     double OpenSeconds,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    ulong CacheIdentity = 0);

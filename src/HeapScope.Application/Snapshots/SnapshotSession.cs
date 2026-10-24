@@ -301,6 +301,52 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         return new ResultSetHandle(worker, await RunAsync(cancellationToken).ConfigureAwait(false), RunAsync);
     }
 
+    /// <summary>
+    /// The objects referencing one object (sprint 2.1), as rows that survive eviction and worker restarts. The first such
+    /// query of a snapshot builds its reverse references index, or opens it from its sidecar.
+    /// </summary>
+    public async Task<ReferrerList> QueryReferrersAsync(SnapshotHandle handle, ulong address, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ReferrersResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(handle, (service, id, innerCt) => service.QueryReferrersAsync(new ReferrersRequest(id, address), progress, innerCt), ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+
+        // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
+        return new ReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
+    /// <summary>The objects referencing a type's objects, grouped by their own type (sprint 2.1).</summary>
+    public async Task<TypeReferrerList> QueryTypeReferrersAsync(
+        SnapshotHandle handle,
+        string typeName,
+        string? module,
+        string? sortColumn,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        TypeReferrersResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryTypeReferrersAsync(new TypeReferrersRequest(id, typeName, module, sortColumn, descending), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new TypeReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
     public Task<ResultSetInfo> GetTypeSummaryAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.GetTypeSummaryAsync(id, ct), cancellationToken);
@@ -380,6 +426,19 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     {
         var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true);
         var (descriptor, generation) = await OpenInWorkerAsync(request, null, cancellationToken).ConfigureAwait(false);
+
+        // A cache rebuilt meanwhile (another front end, a newer loader, --rebuild) is a different graph: the handle's rows,
+        // totals and addresses would no longer match it (sprint 2.1 review M10).
+        var opened = handle.Descriptor.CacheIdentity;
+        if (opened != 0 && descriptor.CacheIdentity != 0 && descriptor.CacheIdentity != opened)
+        {
+            await worker.InvokeAsync((service, ct) => service.CloseSnapshotAsync(descriptor.SnapshotId, ct), CancellationToken.None).ConfigureAwait(false);
+            throw new WorkerOperationException(
+                HeapScopeErrorCode.SnapshotChanged,
+                $"The index cache of {System.IO.Path.GetFileName(handle.Path)} was rebuilt since it was opened, so its results could differ. Open it again.",
+                null);
+        }
+
         bool closedMeanwhile;
         lock (_gate)
         {
