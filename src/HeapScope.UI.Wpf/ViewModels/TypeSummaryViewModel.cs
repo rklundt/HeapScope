@@ -243,10 +243,14 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} (all objects in the dump, unreachable ones included)");
+                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} ({Scope(snapshot.Descriptor.Kind)})");
             },
             onError => TypeRowItem.CreateList(summary.Rows, result.Rows, onError, Logger));
     }
+
+    // A gcdump's capture ran a full collection first, so it holds survivors only (sprint 1.8).
+    private static string Scope(SnapshotKindDto kind) =>
+        kind == SnapshotKindDto.GcDump ? "the objects that survived the gcdump's collection" : "all objects in the dump, unreachable ones included";
 
     private static string Label(HeapKindDto kind) => kind switch
     {

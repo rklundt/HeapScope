@@ -485,6 +485,8 @@ $RECYCLE.BIN/
 artifacts/
 *.dmp
 *.gcdump
+# Folders such as src/HeapScope.Loaders.GcDump match *.gcdump on Windows (case-insensitive); only files are snapshots.
+!*.gcdump/
 *.hsidx
 *.hsidx.tmp
 logs/

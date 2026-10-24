@@ -34,12 +34,17 @@ namespace HeapScope.Storage;
 /// optional JSON field: caches written before it read as null, so the format version does not change.
 /// </param>
 /// <param name="UnreadableObjects">Heap entries the loader skipped because their type could not be read.</param>
+/// <param name="LoaderVersion">
+/// The <see cref="Core.Loading.ISnapshotLoader.Version"/> of the loader that built the graph (sprint 1.8 review M7): a
+/// cache from an older version of the loader's semantics is rebuilt. Optional in the JSON; older caches read 0.
+/// </param>
 public sealed record IndexCacheMetadata(
     SnapshotInfo Info,
     SnapshotCapabilities Capabilities,
     string WriterVersion,
     IReadOnlyList<string>? DebuggableModules = null,
-    long UnreadableObjects = 0)
+    long UnreadableObjects = 0,
+    int LoaderVersion = 0)
 {
     /// <summary>Informational version of this Storage assembly, without source revision.</summary>
     public static string CurrentWriterVersion { get; } = ReadVersion();

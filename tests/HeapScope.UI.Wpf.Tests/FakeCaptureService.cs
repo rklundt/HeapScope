@@ -24,6 +24,7 @@
 using System.IO;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Sessions;
+using HeapScope.Contracts;
 
 namespace HeapScope.UI.Wpf.Tests;
 
@@ -42,9 +43,13 @@ internal sealed class FakeCaptureService(string sessionsRoot, JobTracker jobs) :
     public Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<ProcessEntry>>([.. Processes.Select(p => p with { NeedsAdministrator = p.Elevation == ProcessElevation.Elevated && !IsHeapScopeElevated })]);
 
-    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual) =>
+    /// <summary>The kinds of the captures started, in order (sprint 1.8).</summary>
+    public List<SnapshotKindDto> Kinds { get; } = [];
+
+    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual, SnapshotKindDto kind = SnapshotKindDto.FullDump) =>
         jobs.Start($"Capture pid {processId}", async (progress, ct) =>
         {
+            Kinds.Add(kind);
             if (Failure is { } failure)
             {
                 throw failure;
@@ -56,9 +61,9 @@ internal sealed class FakeCaptureService(string sessionsRoot, JobTracker jobs) :
                 throw new CaptureFailedException(CaptureFailure.NeedsAdministrator, "Run HeapScope as administrator and capture again.", null);
             }
 
-            var path = outputPath ?? Path.Combine(Library.Current.Folder, $"{process.Name}-{processId}.dmp");
+            var path = outputPath ?? Path.Combine(Library.Current.Folder, $"{process.Name}-{processId}{(kind == SnapshotKindDto.GcDump ? ".gcdump" : ".dmp")}");
             await File.WriteAllBytesAsync(path, new byte[128], ct);
-            var session = Library.AddToCurrent(new SessionSnapshot(Guid.NewGuid(), path, process.Name, processId, process.RuntimeVersion, DateTimeOffset.UtcNow, 128, Label: label));
-            return new CaptureResult(path, 128, process, session);
+            var session = Library.AddToCurrent(new SessionSnapshot(Guid.NewGuid(), path, process.Name, processId, process.RuntimeVersion, DateTimeOffset.UtcNow, 128, Kind: kind, Label: label));
+            return new CaptureResult(path, 128, process, session, Kind: kind);
         });
 }

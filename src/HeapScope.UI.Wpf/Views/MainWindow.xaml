@@ -573,6 +573,8 @@
                       ToolTip="below: again after the heap falls back under the threshold. once: never again. step: again for each further step." />
             <TextBlock Text="at most" VerticalAlignment="Center" Margin="12,0,6,0" />
             <TextBox Width="40" VerticalContentAlignment="Center" Text="{Binding MaxSnapshots, UpdateSourceTrigger=PropertyChanged}" />
+            <CheckBox Content="as gcdumps" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDumps}"
+                      ToolTip="Rules capture gcdumps: the object graph only, much smaller. Each one runs a full garbage collection in the process, which the chart shows." />
             <Button Content="Start" Margin="16,0,0,0" Padding="16,2" Command="{Binding StartCommand}" />
             <Button Content="Stop" Margin="8,0,0,0" Padding="16,2" Command="{Binding StopCommand}" />
           </WrapPanel>
@@ -621,6 +623,8 @@
           <TextBlock FontSize="20" Text="Processes" VerticalAlignment="Center" />
           <Button Content="Refresh" Margin="16,0,0,0" Padding="12,2" Command="{Binding RefreshCommand}" />
           <Button Content="Capture dump" Margin="8,0,0,0" Padding="12,2" Command="{Binding CaptureCommand}" />
+          <CheckBox Content="As gcdump" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDump}"
+                    ToolTip="The object graph only: much smaller and quicker to open, but no field values, string text or generations. The process runs one full garbage collection." />
         </StackPanel>
         <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Info.Background}" BorderBrush="{DynamicResource Brush.Info.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,0,8"
                 Visibility="{Binding ShowElevationHint, Converter={StaticResource BoolToVisibility}}">

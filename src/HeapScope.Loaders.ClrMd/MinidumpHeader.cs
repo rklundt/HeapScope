@@ -62,7 +62,7 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
         if (read < Length || signature != MinidumpSignature)
         {
             throw new SnapshotFormatException(
-                $"{path} is not a Windows memory dump. HeapScope reads full dumps (.dmp) of .NET processes; gcdump files are planned for a later version.");
+                $"{path} is not a Windows memory dump. HeapScope reads full dumps (.dmp) of .NET processes here; gcdumps are read by its gcdump loader.");
         }
 
         var seconds = MemoryMarshal.Read<uint>(bytes[20..]);
@@ -76,4 +76,88 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
 
         return header;
     }
+
+    /// <summary>
+    /// True when the file is shorter than its own directory says (sprint 1.8): a stream, or the memory a memory list
+    /// describes, lies past the end of the file. A dump cut short while written or copied loses whole memory ranges,
+    /// including the GC's own bookkeeping, so its heap can look complete while objects are missing.
+    /// </summary>
+    public static bool IsTruncated(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var length = (ulong)stream.Length;
+        using var reader = new BinaryReader(stream);
+        if (stream.Length < Length)
+        {
+            return true;
+        }
+
+        stream.Position = 8;
+        var streams = reader.ReadUInt32();
+        var directory = reader.ReadUInt32();
+        if ((ulong)directory + ((ulong)streams * 12) > length)
+        {
+            return true;
+        }
+
+        for (var i = 0u; i < streams; i++)
+        {
+            stream.Position = directory + (i * 12);
+            var type = reader.ReadUInt32();
+            var size = reader.ReadUInt32();
+            var rva = reader.ReadUInt32();
+            if ((ulong)rva + size > length)
+            {
+                return true;
+            }
+
+            // Memory data must lie inside the file too (review M3): the full-memory list keeps it in one block after
+            // the descriptors; the plain list (heap dumps without full memory) gives each range its own location. Counts
+            // are bounded by the stream's size, sums by the file length, so a damaged directory cannot overflow them.
+            if (type == Memory64ListStream && size >= 16)
+            {
+                stream.Position = rva;
+                var ranges = Math.Min(reader.ReadUInt64(), (size - 16) / 16UL);
+                var dataRva = reader.ReadUInt64();
+                if (dataRva > length)
+                {
+                    return true;
+                }
+
+                var total = 0UL;
+                for (var r = 0UL; r < ranges; r++)
+                {
+                    reader.ReadUInt64();
+                    total += Math.Min(reader.ReadUInt64(), length);
+                    if (dataRva + total > length)
+                    {
+                        return true;
+                    }
+                }
+            }
+            else if (type == MemoryListStream && size >= 4)
+            {
+                stream.Position = rva;
+                var ranges = Math.Min(reader.ReadUInt32(), (size - 4) / 16U);
+                for (var r = 0u; r < ranges; r++)
+                {
+                    reader.ReadUInt64();
+                    var dataSize = reader.ReadUInt32();
+                    var dataRva = reader.ReadUInt32();
+                    if ((ulong)dataRva + dataSize > length)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>MINIDUMP_STREAM_TYPE of the full-memory list.</summary>
+    private const uint Memory64ListStream = 9;
+
+    /// <summary>MINIDUMP_STREAM_TYPE of the memory list with a location per range.</summary>
+    private const uint MemoryListStream = 5;
 }

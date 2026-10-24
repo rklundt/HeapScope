@@ -169,15 +169,25 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     protected override async Task<GridQuery<DiffRowItem>> RunQueryAsync(CancellationToken cancellationToken)
     {
         var groupBy = GroupBy;
+        var scope = Scope(Baseline!.Handle.Descriptor.Kind, Current!.Handle.Descriptor.Kind);
         var diff = await _session.QueryTypeDiffAsync(Baseline!.Handle, Current!.Handle, groupBy, Filter, SortColumn, Descending, null, cancellationToken);
         var result = diff.Result;
         return new GridQuery<DiffRowItem>(
             diff.Rows,
             () => Totals = string.Create(
                 CultureInfo.CurrentCulture,
-                $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)} ({result.NewRows:N0} new, {result.GoneRows:N0} gone); matching rows {Format.SignedBytes(result.MatchingBytesDelta)}; heap {Format.SignedBytes(result.CurrentBytes - result.BaselineBytes)}, {SignedCount(result.CurrentObjects - result.BaselineObjects)} objects (unreachable ones included{(result.ExactCounts ? string.Empty : "; estimated: a snapshot has sampled counts")})"),
+                $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)} ({result.NewRows:N0} new, {result.GoneRows:N0} gone); matching rows {Format.SignedBytes(result.MatchingBytesDelta)}; heap {Format.SignedBytes(result.CurrentBytes - result.BaselineBytes)}, {SignedCount(result.CurrentObjects - result.BaselineObjects)} objects ({scope}{(result.ExactCounts ? string.Empty : "; estimated: a snapshot is sampled or incomplete")})"),
             onError => DiffRowItem.CreateList(diff.Rows, result.Rows, onError, Logger));
     }
+
+    // What the totals count (sprint 1.8 review): a full dump holds dead objects not yet collected, a gcdump only the
+    // survivors of the collection its capture ran, so a full dump against a gcdump shows garbage as a drop.
+    private static string Scope(SnapshotKindDto baseline, SnapshotKindDto current) => (baseline, current) switch
+    {
+        (SnapshotKindDto.FullDump, SnapshotKindDto.FullDump) => "unreachable ones included",
+        (SnapshotKindDto.GcDump, SnapshotKindDto.GcDump) => "survivors of each gcdump's collection",
+        _ => "a full dump against a gcdump: the dump counts unreachable objects the gcdump's collection removed, and nested types are matched by the gcdump's shorter names",
+    };
 
     /// <summary>Swaps baseline and current.</summary>
     [RelayCommand]

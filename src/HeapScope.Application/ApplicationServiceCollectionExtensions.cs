@@ -51,6 +51,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton<Capture.IElevationProbe>(Capture.WindowsElevationProbe.Instance);
         services.TryAddSingleton<Capture.IProcessDiscovery>(sp => new Capture.ProcessDiscovery(sp.GetRequiredService<Capture.IElevationProbe>()));
         services.TryAddSingleton(sp => new Capture.DumpCapturer(sp.GetRequiredService<Capture.IElevationProbe>()));
+        services.TryAddSingleton(sp => new Capture.GcDumpCapturer(
+            sp.GetRequiredService<Capture.IElevationProbe>(),
+            new Capture.EventPipeGcDumpWriter(sp.GetService<Microsoft.Extensions.Logging.ILogger<Capture.EventPipeGcDumpWriter>>())));
         services.TryAddSingleton(sp => new Sessions.SessionLibrary(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Sessions.SessionOptions>>().Value.Root,
             sp.GetRequiredService<TimeProvider>()));
@@ -61,7 +64,8 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<JobTracker>(),
             sp.GetRequiredService<Capture.IElevationProbe>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetService<Microsoft.Extensions.Logging.ILogger<Sessions.CaptureService>>()));
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Sessions.CaptureService>>(),
+            sp.GetRequiredService<Capture.GcDumpCapturer>()));
         services.AddSingleton<Sessions.ICaptureService>(sp => sp.GetRequiredService<Sessions.CaptureService>());
         services.AddSingleton<Sessions.TraceService>();
         services.TryAddSingleton<Monitoring.ICounterSource, Monitoring.EventPipeCounterSource>();

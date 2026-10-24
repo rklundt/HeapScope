@@ -37,10 +37,13 @@ namespace HeapScope.Application.Sessions;
 /// <param name="Process">The captured process.</param>
 /// <param name="Session">The session it was recorded in, or null when recording failed (the dump is kept).</param>
 /// <param name="Warning">A problem after the dump was written (for example the session could not be updated).</param>
-public sealed record CaptureResult(string Path, long SizeBytes, ProcessEntry Process, Session? Session, string? Warning = null)
+/// <param name="Kind">What was captured: a full dump or a gcdump (sprint 1.8).</param>
+public sealed record CaptureResult(string Path, long SizeBytes, ProcessEntry Process, Session? Session, string? Warning = null, SnapshotKindDto Kind = SnapshotKindDto.FullDump)
 {
     /// <summary>Shown once per capture (ARCHITECTURE.md 12).</summary>
-    public string SecretsNote => $"The dump contains everything in the process's memory, including secrets such as connection strings and tokens. It was written to {Path}; HeapScope never uploads it.";
+    public string SecretsNote => Kind == SnapshotKindDto.GcDump
+        ? $"The gcdump holds the process's object graph: type names, sizes and references, but no field values or string text. It was written to {Path}; HeapScope never uploads it."
+        : $"The dump contains everything in the process's memory, including secrets such as connection strings and tokens. It was written to {Path}; HeapScope never uploads it.";
 }
 
 /// <summary>
@@ -54,6 +57,7 @@ public sealed class CaptureService : ICaptureService
 
     private readonly IProcessDiscovery _discovery;
     private readonly DumpCapturer _capturer;
+    private readonly GcDumpCapturer _gcDumpCapturer;
     private readonly IElevationProbe _elevation;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
@@ -65,10 +69,12 @@ public sealed class CaptureService : ICaptureService
         JobTracker jobs,
         IElevationProbe? elevation = null,
         TimeProvider? timeProvider = null,
-        ILogger<CaptureService>? logger = null)
+        ILogger<CaptureService>? logger = null,
+        GcDumpCapturer? gcDumpCapturer = null)
     {
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _capturer = capturer ?? throw new ArgumentNullException(nameof(capturer));
+        _gcDumpCapturer = gcDumpCapturer ?? new GcDumpCapturer(elevation);
         Library = library ?? throw new ArgumentNullException(nameof(library));
         Jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
         _elevation = elevation ?? WindowsElevationProbe.Instance;
@@ -93,14 +99,22 @@ public sealed class CaptureService : ICaptureService
     }
 
     /// <summary>
-    /// Captures a full dump of <paramref name="processId"/> as a tracked job: into <paramref name="outputPath"/> when
-    /// given, otherwise into the current session folder. The session is created only once the checks have passed, so a
-    /// refused capture leaves no empty session. The target's DAC is copied next to the dump, so the dump stays readable
-    /// after the runtime on this machine is updated (sprint 1.1 review).
+    /// Captures a full dump (or, with <paramref name="kind"/>, a gcdump) of <paramref name="processId"/> as a tracked job:
+    /// into <paramref name="outputPath"/> when given, otherwise into the current session folder. The session is created
+    /// only once the checks have passed, so a refused capture leaves no empty session. The target's DAC is copied next to
+    /// a full dump, so the dump stays readable after the runtime on this machine is updated (sprint 1.1 review); a gcdump
+    /// needs none.
     /// </summary>
-    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual)
+    public TrackedJob<CaptureResult> StartCapture(
+        int processId,
+        string? outputPath = null,
+        string? label = null,
+        SnapshotSource source = SnapshotSource.Manual,
+        SnapshotKindDto kind = SnapshotKindDto.FullDump)
     {
-        var title = string.Create(CultureInfo.InvariantCulture, $"Capture pid {processId}");
+        var gcdump = kind == SnapshotKindDto.GcDump;
+        var extension = gcdump ? GcDumpCapturer.Extension : ".dmp";
+        var title = string.Create(CultureInfo.InvariantCulture, $"Capture {(gcdump ? "gcdump of " : string.Empty)}pid {processId}");
         return Jobs.Start(title, async (progress, ct) =>
         {
             var stopwatch = Stopwatch.StartNew();
@@ -115,23 +129,35 @@ public sealed class CaptureService : ICaptureService
             {
                 if (outputPath is null)
                 {
-                    // Check against the library root before a session folder exists.
+                    // Check against the library root before a session folder exists. A gcdump is a fraction of the heap's
+                    // size, so only a full dump's size is checked against the disk.
                     Directory.CreateDirectory(Library.Root);
-                    _capturer.Preflight(process, Path.Combine(Library.Root, "probe.dmp"));
+                    if (!gcdump)
+                    {
+                        _capturer.Preflight(process, Path.Combine(Library.Root, "probe.dmp"));
+                    }
+
                     createdSession = !Library.HasCurrent;
 
                     // The session is fixed now: opening another one meanwhile does not move this capture.
                     sessionFolder = Library.Current.Folder;
-                    path = UniquePath(sessionFolder, process);
+                    path = UniquePath(sessionFolder, process, extension);
                 }
                 else
                 {
-                    path = Path.GetFullPath(Directory.Exists(outputPath) ? UniquePath(outputPath, process) : outputPath);
+                    path = Path.GetFullPath(Directory.Exists(outputPath) ? UniquePath(outputPath, process, extension) : outputPath);
                     SweepPartialDumps(Path.GetDirectoryName(path));
                 }
 
-                _logger.LogInformation("Capturing {Name} (pid {Pid}) to {Path}", process.Name, process.ProcessId, path);
-                await _capturer.CaptureAsync(process, path, new CaptureProgressAdapter(progress), ct).ConfigureAwait(false);
+                _logger.LogInformation("Capturing a {Kind} of {Name} (pid {Pid}) to {Path}", gcdump ? "gcdump" : "full dump", process.Name, process.ProcessId, path);
+                if (gcdump)
+                {
+                    await _gcDumpCapturer.CaptureAsync(process, path, new CaptureProgressAdapter(progress), null, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _capturer.CaptureAsync(process, path, new CaptureProgressAdapter(progress), ct).ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (Translate(ex) is { } failure)
             {
@@ -167,19 +193,23 @@ public sealed class CaptureService : ICaptureService
             // Assigned in both branches of the try above, which returned or threw otherwise.
             var size = new FileInfo(path!).Length;
             _logger.LogInformation("Captured {Name} (pid {Pid}): {Bytes} bytes in {Seconds:N1} s", process.Name, process.ProcessId, size, stopwatch.Elapsed.TotalSeconds);
-            CopyDac(process, Path.GetDirectoryName(path!)!);
+            if (!gcdump)
+            {
+                CopyDac(process, Path.GetDirectoryName(path!)!);
+            }
+
             try
             {
                 var session = Library.AddTo(sessionFolder ?? Library.Current.Folder, new SessionSnapshot(
                     Guid.NewGuid(), path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
-                    Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
-                return new CaptureResult(path, size, ToEntry(process), session);
+                    Kind: kind, Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
+                return new CaptureResult(path, size, ToEntry(process), session, Kind: kind);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // The dump is valid; only the record failed.
+                // The snapshot is valid; only the record failed.
                 _logger.LogWarning(ex, "The capture {Path} could not be recorded in its session", path);
-                return new CaptureResult(path, size, ToEntry(process), null, $"The dump was written, but the session could not be updated: {ex.Message}");
+                return new CaptureResult(path, size, ToEntry(process), null, $"The snapshot was written, but the session could not be updated: {ex.Message}", kind);
             }
         });
     }
@@ -223,14 +253,14 @@ public sealed class CaptureService : ICaptureService
     }
 
     /// <summary>A file name unique in <paramref name="folder"/> (counter suffix), so quick repeated captures never collide.</summary>
-    private string UniquePath(string folder, DotNetProcess process)
+    private string UniquePath(string folder, DotNetProcess process, string extension)
     {
         var stamp = _time.GetUtcNow().ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var baseName = string.Create(CultureInfo.InvariantCulture, $"{process.Name}-{process.ProcessId}-{stamp}");
-        var path = Path.Combine(folder, baseName + ".dmp");
+        var path = Path.Combine(folder, baseName + extension);
         for (var n = 2; File.Exists(path) || File.Exists(path + DumpCapturer.PartialSuffix); n++)
         {
-            path = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"{baseName}-{n}.dmp"));
+            path = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"{baseName}-{n}{extension}"));
         }
 
         return path;

@@ -5,9 +5,14 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\HeapScope.Core\HeapScope.Core.csproj" />
+    <ProjectReference Include="..\HeapScope.ThirdParty.GcDump\HeapScope.ThirdParty.GcDump.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.Capture.Tests" />
   </ItemGroup>
 </Project>

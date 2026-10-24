@@ -270,7 +270,7 @@ public sealed class SessionLibrary
     }
 
     /// <summary>
-    /// Deletes dumps left half-written (<c>*.dmp.partial</c>) under <paramref name="folder"/> (default: the root) that
+    /// Deletes snapshots left half-written (<c>*.dmp.partial</c>, <c>*.gcdump.partial</c> since 1.8) under <paramref name="folder"/> (default: the root) that
     /// are older than <paramref name="minimumAge"/> and no longer held by a writer: the safety net when HeapScope was
     /// killed while a canceled capture was still being written. Returns the number of files removed.
     /// </summary>
@@ -286,7 +286,8 @@ public sealed class SessionLibrary
         var removed = 0;
         try
         {
-            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", folder is null ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
+            var search = folder is null ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", search).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", search)))
             {
                 try
                 {

@@ -25,6 +25,7 @@ using System.IO;
 using HeapScope.Application;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Sessions;
+using HeapScope.Contracts;
 using HeapScope.Application.Snapshots;
 using HeapScope.UI.Wpf.Services;
 using HeapScope.UI.Wpf.ViewModels;
@@ -88,6 +89,22 @@ public sealed class ProcessesViewModelTests : IDisposable
         question.ShouldContain("never uploads");
         question.ShouldContain("Open the dump now?");
         _worker.Service.Opened.ShouldHaveSingleItem().Path.ShouldBe(_processes.LastCapturePath);
+    }
+
+    [Fact]
+    public async Task Capture_as_gcdump_asks_for_a_gcdump_and_says_what_it_holds()
+    {
+        await _processes.RefreshCommand.ExecuteAsync(null);
+        _processes.Selected = _processes.Processes[0];
+        _processes.CaptureGcDump = true;
+
+        await _processes.CaptureCommand.ExecuteAsync(null);
+
+        _capture.Kinds.ShouldBe([SnapshotKindDto.GcDump]);
+        _processes.LastCapturePath!.ShouldEndWith(".gcdump");
+        var question = _interaction.Questions.ShouldHaveSingleItem();
+        question.ShouldContain("no field values or string text");
+        question.ShouldContain("Open the gcdump now?");
     }
 
     [Fact]

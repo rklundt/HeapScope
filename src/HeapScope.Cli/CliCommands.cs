@@ -149,13 +149,15 @@ internal static partial class CliCommands
         var output = new Option<FileInfo?>("--out") { Description = "Dump file (or existing folder) to write; default: a new file in the session folder." };
         var sessionOption = new Option<string?>("--session") { Description = "Capture into this existing session (folder name or path under the sessions root) instead of a new one." };
         var label = new Option<string?>("--label") { Description = "A label for the snapshot, such as baseline." };
-        var open = new Option<bool>("--open") { Description = "Open the dump after capturing it and print its summary." };
-        var command = new Command("capture", "Capture a full memory dump of a running .NET process (it is paused while the dump is written). Ctrl+C cancels.");
+        var open = new Option<bool>("--open") { Description = "Open the snapshot after capturing it and print its summary." };
+        var kind = KindOption();
+        var command = new Command("capture", "Capture a full memory dump (the process is paused while it is written) or, with --kind gcdump, a gcdump (the process runs one full GC). Ctrl+C cancels.");
         command.Options.Add(pid);
         command.Options.Add(output);
         command.Options.Add(sessionOption);
         command.Options.Add(label);
         command.Options.Add(open);
+        command.Options.Add(kind);
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (stdout, error) =>
         {
             var capture = services().GetRequiredService<ICaptureService>();
@@ -166,7 +168,7 @@ internal static partial class CliCommands
             }
 
             var jobs = services().GetRequiredService<JobTracker>();
-            var job = capture.StartCapture(parseResult.GetValue(pid), parseResult.GetValue(output)?.FullName, parseResult.GetValue(label));
+            var job = capture.StartCapture(parseResult.GetValue(pid), parseResult.GetValue(output)?.FullName, parseResult.GetValue(label), kind: KindOf(parseResult.GetValue(kind)));
             using var progressLine = new ConsoleProgress(jobs, job, error);
             using var cancel = ct.Register(job.Cancel);
             CaptureResult result;
@@ -216,6 +218,16 @@ internal static partial class CliCommands
         }));
         return command;
     }
+
+    /// <summary>What a capture writes (sprint 1.8): a full dump (the default) or a gcdump.</summary>
+    internal static Option<string> KindOption()
+    {
+        var kind = new Option<string>("--kind") { Description = "What to capture: full (a full memory dump) or gcdump (the object graph only: smaller, no field values or string text).", DefaultValueFactory = _ => "full" };
+        kind.AcceptOnlyFromAmong("full", "gcdump");
+        return kind;
+    }
+
+    internal static SnapshotKindDto KindOf(string? kind) => kind == "gcdump" ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump;
 
     private static Command BuildSummaryCommand(Func<IServiceProvider> services)
     {

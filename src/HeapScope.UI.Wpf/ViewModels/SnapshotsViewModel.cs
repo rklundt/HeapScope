@@ -245,7 +245,11 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
 
         if (row.TypeName is null)
         {
-            Compare.Status = "Group by type to open a row's objects.";
+            // In Type grouping a row has no key only when one side merged several of its types under one name: a full
+            // dump's nested types compared with a gcdump, which records them without their declaring type (sprint 1.8).
+            Compare.Status = Compare.GroupBy == TypeGrouping.Type
+                ? "This row joins several types of the full dump under the one name the gcdump records, so it cannot open one type's objects. Find the type in the full dump's own summary."
+                : "Group by type to open a row's objects.";
             return;
         }
 

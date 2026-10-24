@@ -297,6 +297,8 @@ internal sealed class FinalizableObjectsInspection : IInspection
 
     public SnapshotCapabilities Requires => SnapshotCapabilities.ObjectAddresses | SnapshotCapabilities.ExactCounts;
 
+    public SnapshotFacts RequiresFacts => SnapshotFacts.FinalizerRegistrations;
+
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;

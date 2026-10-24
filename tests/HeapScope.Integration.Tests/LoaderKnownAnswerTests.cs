@@ -23,6 +23,7 @@
 
 using Fixtures.Leaks;
 using HeapScope.Core.Graph;
+using HeapScope.Core.Loading;
 using HeapScope.Integration.Tests.Infrastructure;
 using HeapScope.Loaders.ClrMd;
 
@@ -35,7 +36,7 @@ public sealed class LoadedAllLeaksDump : IAsyncLifetime
 
     public AllLeaksDump Source => _dump;
 
-    public DumpLoadResult Result { get; private set; } = null!;
+    public LoadResult Result { get; private set; } = null!;
 
     public HeapGraph Graph => Result.Graph;
 
@@ -339,15 +340,20 @@ public sealed class LoaderKnownAnswerTests(LoadedAllLeaksDump shared) : IClassFi
         exception.Message.ShouldContain("without the managed heap");
     }
 
-    [Fact]
-    public void A_truncated_dump_is_refused_or_loses_complete_and_exact()
+    // Where the cut lands depends on the dump's layout, which changes from run to run: the runtime's GC data may be
+    // gone (refused) or only some heap memory (incomplete). Either is correct, a raw ClrMD exception is not (sprint 1.8).
+    [Theory]
+    [InlineData(3)]
+    [InlineData(6)]
+    [InlineData(9)]
+    public void A_truncated_dump_is_refused_or_loses_complete_and_exact(int tenths)
     {
         using var folder = new TempFolder();
         var path = folder.File("truncated.dmp");
         using (var source = File.OpenRead(shared.Source.DumpPath))
         using (var target = File.Create(path))
         {
-            var buffer = new byte[source.Length * 6 / 10];
+            var buffer = new byte[source.Length * tenths / 10];
             source.ReadExactly(buffer);
             target.Write(buffer);
         }
@@ -355,9 +361,20 @@ public sealed class LoaderKnownAnswerTests(LoadedAllLeaksDump shared) : IClassFi
         try
         {
             var result = new ClrMdDumpLoader().Load(path, cancellationToken: TestContext.Current.CancellationToken);
-            result.Graph.Dispose();
-            result.Capabilities.HasFlag(Core.SnapshotCapabilities.CompleteGraph).ShouldBeFalse();
-            result.Capabilities.HasFlag(Core.SnapshotCapabilities.ExactCounts).ShouldBeFalse();
+            using (result.Graph)
+            {
+                if (result.Capabilities.HasFlag(Core.SnapshotCapabilities.CompleteGraph))
+                {
+                    // The cut missed the heap: claiming a complete graph is then only right if it is the whole heap.
+                    result.Capabilities.HasFlag(Core.SnapshotCapabilities.ExactCounts).ShouldBeTrue();
+                    result.Graph.ObjectCount.ShouldBe(Graph.ObjectCount);
+                    result.Graph.TotalSize.ShouldBe(Graph.TotalSize);
+                }
+                else
+                {
+                    result.Capabilities.HasFlag(Core.SnapshotCapabilities.ExactCounts).ShouldBeFalse();
+                }
+            }
         }
         catch (Exception ex) when (ex is Core.SnapshotFormatException or RuntimeComponentMissingException)
         {

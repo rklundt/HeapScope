@@ -21,6 +21,8 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Contracts;
+
 namespace HeapScope.Application.Sessions;
 
 // Front ends see only Application and Contracts (ARCHITECTURE.md 3.1), so capture results and failures are expressed
@@ -84,10 +86,16 @@ public interface ICaptureService
     Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Captures a full dump as a tracked job; fails with <see cref="CaptureFailedException"/>. <paramref name="source"/>
-    /// records why (a rule of a monitoring run is <see cref="SnapshotSource.Timed"/>, sprint 1.7).
+    /// Captures a full dump, or a gcdump when <paramref name="kind"/> says so (sprint 1.8), as a tracked job; fails with
+    /// <see cref="CaptureFailedException"/>. <paramref name="source"/> records why (a rule of a monitoring run is
+    /// <see cref="SnapshotSource.Timed"/>, sprint 1.7).
     /// </summary>
-    Jobs.TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual);
+    Jobs.TrackedJob<CaptureResult> StartCapture(
+        int processId,
+        string? outputPath = null,
+        string? label = null,
+        SnapshotSource source = SnapshotSource.Manual,
+        SnapshotKindDto kind = SnapshotKindDto.FullDump);
 }
 
 /// <summary>A capture failed; the message is plain language with a next step.</summary>

@@ -23,6 +23,7 @@
 
 using System.Diagnostics;
 using System.Runtime;
+using HeapScope.Core.Loading;
 using HeapScope.Loaders.ClrMd;
 using HeapScope.Storage;
 

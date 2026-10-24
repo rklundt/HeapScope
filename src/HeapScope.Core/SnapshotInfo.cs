@@ -61,4 +61,10 @@ public enum SnapshotFacts
 
     /// <summary>Arrays of references are marked (<see cref="Graph.TypeKind.ReferenceArray"/>).</summary>
     ReferenceArrayMarks = 1 << 1,
+
+    /// <summary>
+    /// Objects registered for finalization carry <see cref="Graph.ObjectFlags.HasFinalizer"/> (sprint 1.8 review H5). A
+    /// gcdump does not record registrations, so a finalizable count there would silently be zero.
+    /// </summary>
+    FinalizerRegistrations = 1 << 2,
 }

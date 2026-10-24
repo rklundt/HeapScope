@@ -30,7 +30,7 @@ namespace HeapScope.Worker.Tests;
 /// <summary>Which inspections run on which snapshots, and the reasons given otherwise (sprint 1.6, ADR-020).</summary>
 public sealed class InspectionAvailabilityTests
 {
-    private static readonly SnapshotInfo s_fullDump = new(SnapshotKind.FullDump, "app.dmp", Facts: SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks);
+    private static readonly SnapshotInfo s_fullDump = new(SnapshotKind.FullDump, "app.dmp", Facts: SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations);
 
     [Fact]
     public void Every_inspection_runs_on_a_full_dump_loaded_by_this_version()
@@ -57,7 +57,9 @@ public sealed class InspectionAvailabilityTests
 
         InspectionAvailability.Explain(InspectionCatalog.Find("sparse-arrays")!, SnapshotCapabilities.FullDump, oldCache).ShouldNotBeNull().ShouldContain("Rebuild");
         InspectionAvailability.Explain(InspectionCatalog.Find("sparse-arrays")!, SnapshotCapabilities.FullDump, oldCache with { Kind = SnapshotKind.GcDump })
-            .ShouldNotBeNull().ShouldContain("does not record");
+            .ShouldNotBeNull().ShouldContain("a gcdump does not record");
+        InspectionAvailability.Explain(InspectionCatalog.Find("finalizable")!, SnapshotCapabilities.FullDump, oldCache with { Kind = SnapshotKind.GcDump })
+            .ShouldBe("Finalizable objects needs data a gcdump does not record. Capture a full dump for it.");
         InspectionAvailability.Explain(InspectionCatalog.Find("fragmentation")!, SnapshotCapabilities.FullDump, oldCache).ShouldBeNull("it still shows pinning, with a note on free space");
     }
 
