@@ -1,3 +1,26 @@
+// HeapScope
+// Copyright (C) 2026 Ray Klundt
+// https://github.com/rklundt/HeapScope
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, version 3 only, with additional terms
+// under Section 7 of that license.
+//
+// Additional terms, including attribution requirements, apply.
+// See the ADDITIONAL-TERMS.md file distributed with this program.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program (see the LICENSE file). If not, see
+// <https://www.gnu.org/licenses/>.
+//
+// Commercial licenses are available. See COMMERCIAL.md.
+
 using System.Reflection;
 
 namespace HeapScope.Contracts;
@@ -6,6 +29,18 @@ namespace HeapScope.Contracts;
 public static class ProductInfo
 {
     public const string Name = "HeapScope";
+
+    /// <summary>The project repository, the target of the attribution link.</summary>
+    public const string RepositoryUrl = "https://github.com/rklundt/HeapScope";
+
+    /// <summary>
+    /// The Attribution Notice that ADDITIONAL-TERMS.md section 1 requires on the main screen and in CLI help, version
+    /// and startup output. Where "HeapScope" cannot be a link, <see cref="AttributionWithUrl"/> shows the URL beside it.
+    /// </summary>
+    public const string AttributionPrefix = "Powered by ";
+    public const string AttributionSuffix = " by Ray Klundt";
+    public const string Attribution = AttributionPrefix + Name + AttributionSuffix;
+    public const string AttributionWithUrl = Attribution + " (" + RepositoryUrl + ")";
 
     /// <summary>The informational version of the HeapScope build, without source revision metadata.</summary>
     public static string Version { get; } = ReadVersion();
