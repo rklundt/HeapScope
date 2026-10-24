@@ -54,6 +54,9 @@ internal sealed class FakeWorkerClient : IWorkerClient
     public Task InvokeAsync(Func<IWorkerService, CancellationToken, Task> call, CancellationToken cancellationToken) =>
         call(Service, cancellationToken);
 
+    /// <summary>Simulates a worker restart that sessions see on their next call (they reopen their snapshots).</summary>
+    public void NewGeneration() => Generation++;
+
     public Task RestartAsync(CancellationToken cancellationToken)
     {
         RestartCount++;
@@ -116,6 +119,9 @@ internal sealed class FakeWorkerService : IWorkerService
     /// <summary>The capture time reported for a path (null when not set).</summary>
     public Func<string, DateTimeOffset?>? CapturedAt { get; set; }
 
+    /// <summary>The index cache identity reported for each open (0 when not set).</summary>
+    public ulong CacheIdentity { get; set; }
+
     /// <summary>When set, the next opens fail with it.</summary>
     public Exception? OpenFailure { get; set; }
 
@@ -129,7 +135,7 @@ internal sealed class FakeWorkerService : IWorkerService
         Opened.Add(request);
         return Task.FromResult(new SnapshotDescriptor(
             Guid.NewGuid(), request.Path, SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
-            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."]));
+            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."], CacheIdentity));
     }
 
     public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
@@ -261,6 +267,59 @@ internal sealed class FakeWorkerService : IWorkerService
             new(ReferenceColumns.Field, ResultColumnKind.Text), new(ReferenceColumns.Address, ResultColumnKind.Address, true),
             new(ReferenceColumns.Type, ResultColumnKind.Text), new(ReferenceColumns.Bytes, ResultColumnKind.Bytes),
         ]));
+    }
+
+    /// <summary>Whether referrer answers come from a complete graph (sprint 2.1 review M9).</summary>
+    public bool CompleteGraph { get; set; } = true;
+
+    /// <summary>Progress reported by referrer queries before they answer.</summary>
+    public JobProgress? ReferrerProgress { get; set; }
+
+    /// <summary>Referrer rows: field, address (0x...), type, bytes, references (sprint 2.1).</summary>
+    public List<IReadOnlyList<string?>> ReferrerRows { get; } = [];
+
+    /// <summary>Referrers queries received.</summary>
+    public List<ReferrersRequest> ReferrerQueries { get; } = [];
+
+    public Task<ReferrersResult> QueryReferrersAsync(ReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ReferrerQueries.Add(request);
+        if (ReferrerProgress is { } report)
+        {
+            progress?.Report(report);
+        }
+
+        var id = Guid.NewGuid();
+        _sets[id] = [.. ReferrerRows];
+        var info = new ResultSetInfo(id, ReferrerRows.Count,
+        [
+            new(ReferrerColumns.Field, ResultColumnKind.Text), new(ReferrerColumns.Address, ResultColumnKind.Address, true),
+            new(ReferrerColumns.Type, ResultColumnKind.Text), new(ReferrerColumns.Bytes, ResultColumnKind.Bytes),
+            new(ReferrerColumns.References, ResultColumnKind.Integer),
+        ]);
+        var references = ReferrerRows.Sum(r => long.Parse(r[4]!, System.Globalization.CultureInfo.InvariantCulture));
+        return Task.FromResult(new ReferrersResult(info, references, null, new ReverseIndexInfo(false, SnapshotMemoryMode.InMemory, 0.2, 1024, true), CompleteGraph));
+    }
+
+    /// <summary>Type referrer rows: type, module, objects, references, targets, bytes (sprint 2.1).</summary>
+    public List<IReadOnlyList<string?>> TypeReferrerRows { get; } = [];
+
+    /// <summary>Type referrers queries received.</summary>
+    public List<TypeReferrersRequest> TypeReferrerQueries { get; } = [];
+
+    public Task<TypeReferrersResult> QueryTypeReferrersAsync(TypeReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        TypeReferrerQueries.Add(request);
+        var id = Guid.NewGuid();
+        _sets[id] = [.. TypeReferrerRows];
+        var info = new ResultSetInfo(id, TypeReferrerRows.Count,
+        [
+            new(TypeReferrerColumns.Type, ResultColumnKind.Text), new(TypeReferrerColumns.Module, ResultColumnKind.Text),
+            new(TypeReferrerColumns.Objects, ResultColumnKind.Integer), new(TypeReferrerColumns.References, ResultColumnKind.Integer),
+            new(TypeReferrerColumns.Targets, ResultColumnKind.Integer), new(TypeReferrerColumns.Bytes, ResultColumnKind.Bytes),
+        ]);
+        var references = TypeReferrerRows.Sum(r => long.Parse(r[3]!, System.Globalization.CultureInfo.InvariantCulture));
+        return Task.FromResult(new TypeReferrersResult(info, 1, 5, references, new ReverseIndexInfo(true, SnapshotMemoryMode.InMemory, 0.1, 1024, true), CompleteGraph));
     }
 
     /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>

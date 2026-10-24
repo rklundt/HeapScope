@@ -62,6 +62,7 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
   `summary <dump> [--group] [--filter] [--sort] [--format table|csv|json]`, `diff <baseline> <current>
   [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
   [--module] [--filter] [--sort] [--format]`, `object <dump> <address> [--references N] [--format text|json]`,
+  `referrers <snapshot> --address <hex> | --type <name> [--module] [--sort] [--format]`,
   `inspect <dump> [<name>] [--top|--all] [--format]`, `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
   [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]
@@ -69,4 +70,4 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 - UI smoke runs: `HeapScope.exe --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]
   [--smoke-trace <file>]` (exit 0 ok, 3 lag, 4 failed). Measure untraced; traces are for finding where time goes.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>` (`graph-build`, `dump-stats`,
-  `stack-roots`, `index-cache`, `load-dump`, `trace-report --trace <file>`)
+  `stack-roots`, `index-cache`, `load-dump`, `phase2-indices`, `reverse-index --cache <hsidx>`, `trace-report --trace <file>`)

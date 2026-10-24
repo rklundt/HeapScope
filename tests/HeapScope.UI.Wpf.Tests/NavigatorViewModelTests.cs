@@ -164,6 +164,78 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Incoming_references_load_when_their_tab_is_first_shown_and_a_referrer_opens()
+    {
+        _worker.Service.ReferrerRows.Add(["_items[2]", "0x5000", "App.Order[]", "64", "2"]);
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        var obj = (ObjectViewModel)Navigator.Current;
+        await obj.LoadTask;
+
+        _worker.Service.ReferrerQueries.ShouldBeEmpty("nothing is indexed until the Incoming tab is shown");
+        obj.ReferencesTab = 1;
+        await obj.IncomingTask;
+        obj.ReferencesTab = 0;
+        obj.ReferencesTab = 1;
+
+        _worker.Service.ReferrerQueries.ShouldHaveSingleItem().Address.ShouldBe(0x1000UL);
+        obj.IncomingTotals.ShouldBe(string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{1:N0} objects, {2:N0} references"));
+        obj.IncomingStatus.ShouldBeNull();
+        var referrer = await FirstRowAsync(obj.IncomingRows);
+        (referrer.Field, referrer.Type, referrer.References).ShouldBe(("_items[2]", "App.Order[]", 2L));
+
+        obj.OpenCommand!.Execute(referrer);
+        Navigator.Current.ShouldBeOfType<ObjectViewModel>().Address.ShouldBe(0x5000UL);
+    }
+
+    [Fact]
+    public async Task An_incomplete_snapshot_says_referrers_may_be_missing_and_progress_reads_as_a_status()
+    {
+        _worker.Service.CompleteGraph = false;
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        var obj = (ObjectViewModel)Navigator.Current;
+        await obj.LoadTask;
+
+        obj.ReferencesTab = 1;
+        await obj.IncomingTask;
+        Navigator.BackCommand.Execute(null);
+        instances.ReferencedByCommand!.Execute(null);
+        var referrers = (TypeReferrersViewModel)Navigator.Current;
+        await referrers.QueryTask;
+
+        obj.IncomingStatus!.ShouldContain("incomplete");
+        referrers.Status!.ShouldContain("incomplete");
+        ReferrersText.Progress(new JobProgress("Indexing incoming references", 21, 50)).ShouldBe(
+            string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Indexing incoming references... {42.0:N0}%"));
+        ReferrersText.Progress(new JobProgress("Mapping the incoming references index", 0, null)).ShouldBe("Mapping the incoming references index...");
+    }
+
+    [Fact]
+    public async Task Referenced_by_lists_referrer_types_whose_rows_open_their_objects()
+    {
+        _worker.Service.TypeReferrerRows.Add(["App.Cache", "App.dll", "1", "2", "2", "100"]);
+        var instances = await OpenInstancesAsync();
+
+        instances.ReferencedByCommand!.Execute(null);
+        var referrers = Navigator.Current.ShouldBeOfType<TypeReferrersViewModel>();
+        await referrers.QueryTask;
+
+        Navigator.IsTypeReferrersShown.ShouldBeTrue();
+        Navigator.ShownTypeReferrers.ShouldBeSameAs(referrers);
+        referrers.Title.ShouldBe("Referrers of App.Order [App.dll]");
+        _worker.Service.TypeReferrerQueries.ShouldHaveSingleItem().ShouldBe(
+            new TypeReferrersRequest(_snapshots.Selected!.Handle.Descriptor.SnapshotId, "App.Order", "App.dll", TypeReferrerColumns.References, true));
+        var row = await FirstRowAsync(referrers.Rows);
+        (row.TypeName, row.Objects, row.References, row.Targets, row.Bytes).ShouldBe(("App.Cache", 1L, 2L, 2L, 100L));
+
+        referrers.OpenRowCommand!.Execute(row);
+        var cacheObjects = Navigator.Current.ShouldBeOfType<InstancesViewModel>();
+        (cacheObjects.TypeName, cacheObjects.Module).ShouldBe(("App.Cache", "App.dll"));
+        Navigator.Trail.Count.ShouldBe(4);
+    }
+
+    [Fact]
     public async Task A_long_list_keeps_a_bounded_window_of_pages()
     {
         for (var i = 1; i < 100 * VirtualRowList.PageSize; i++)

@@ -40,11 +40,12 @@ namespace HeapScope.Worker.Snapshots;
 /// ClrMD and writes the cache; the memory mode follows the budget (ADR-015). Loads are serialized: two first loads would
 /// stack their peaks.
 /// </summary>
-internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator locator, ILogger<SnapshotStore> logger) : IDisposable
+internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLocator locator, ILogger<SnapshotStore> logger) : IDisposable
 {
     private readonly ConcurrentDictionary<Guid, Entry> _snapshots = new();
     private readonly SemaphoreSlim _loadGate = new(1, 1);
     private readonly SnapshotKinds _kinds = new(options);
+    private readonly ReverseIndexBuilder _reverseBuilder = new(logger);
 
     private bool _disposed;
 
@@ -222,16 +223,18 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             HeapGraph graph;
             IndexCacheMetadata metadata;
             MemoryMode mode;
+            ulong identity;
             var fromCache = cached is not null;
             if (cached is not null)
             {
                 graph = cached.Graph!;
                 metadata = cached.Metadata!;
                 mode = cached.Mode;
+                identity = cached.Identity;
             }
             else
             {
-                (graph, metadata, mode, writtenCache) = LoadDump(path, cachePath, fingerprint, forced, notes, throttled, cancellationToken);
+                (graph, metadata, mode, writtenCache, identity) = LoadDump(path, cachePath, fingerprint, forced, notes, throttled, cancellationToken);
 
                 // LoadDump collected before choosing the mode (and again in the mapped transition).
                 collect = false;
@@ -247,7 +250,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
                 // valid fingerprint, but the cache records the path of its first load (sprint 1.2 review).
                 var info = metadata.Info with { SourcePath = path };
                 snapshot = _kinds.For(info.Kind).Open(info, metadata.Capabilities, graph, path, () => EnsureUnchanged(path, fingerprint));
-                descriptor = Describe(snapshot, mode, fromCache, writtenCache, stopwatch.Elapsed, notes);
+                descriptor = Describe(snapshot, mode, fromCache, writtenCache, identity, stopwatch.Elapsed, notes);
             }
             catch
             {
@@ -264,7 +267,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
                 mode,
                 descriptor.ObjectCount,
                 descriptor.ReferenceCount);
-            return new Entry(snapshot, descriptor);
+            return new Entry(snapshot, descriptor, new IndexState(writtenCache, identity, fingerprint, mode, forced));
         }
         finally
         {
@@ -332,7 +335,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         return null;
     }
 
-    private (HeapGraph Graph, IndexCacheMetadata Metadata, MemoryMode Mode, string? CachePath) LoadDump(
+    private (HeapGraph Graph, IndexCacheMetadata Metadata, MemoryMode Mode, string? CachePath, ulong Identity) LoadDump(
         string path,
         string cachePath,
         SnapshotFingerprint fingerprint,
@@ -357,7 +360,8 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         try
         {
             progress.Report(new JobProgress("Writing index cache", 0, null));
-            var written = TryWriteCache(cachePath, graph, metadata, fingerprint, notes, cancellationToken);
+            var identity = TryWriteCache(cachePath, graph, metadata, fingerprint, notes, cancellationToken);
+            var written = identity != 0;
 
             // Decide the mode after the load's garbage is gone, counting the graph's own memory as available: if the
             // snapshot moved to mapped mode, that memory would be freed (sprint 1.2 review). No LOH compaction here: it
@@ -379,7 +383,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
                     notes.Add("The snapshot is held in memory because its index cache could not be written; memory use is higher than usual.");
                 }
 
-                return (graph, metadata, MemoryMode.InMemory, written ? cachePath : null);
+                return (graph, metadata, MemoryMode.InMemory, written ? cachePath : null, identity);
             }
 
             // Switch to mapped mode (ADR-015): drop the built arrays, compact once so the memory really returns to the
@@ -395,7 +399,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
                 throw new SnapshotFormatException($"The index cache just written could not be reopened: {mapped.Detail}");
             }
 
-            return (mapped.Graph!, mapped.Metadata!, MemoryMode.Mapped, cachePath);
+            return (mapped.Graph!, mapped.Metadata!, MemoryMode.Mapped, cachePath, mapped.Identity);
         }
         catch
         {
@@ -404,18 +408,18 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         }
     }
 
-    private bool TryWriteCache(string cachePath, HeapGraph graph, IndexCacheMetadata metadata, SnapshotFingerprint fingerprint, List<string> notes, CancellationToken cancellationToken)
+    /// <summary>Writes the index cache and returns its identity, or 0 (with a note) when it could not be written.</summary>
+    private ulong TryWriteCache(string cachePath, HeapGraph graph, IndexCacheMetadata metadata, SnapshotFingerprint fingerprint, List<string> notes, CancellationToken cancellationToken)
     {
         try
         {
-            IndexCacheWriter.Write(cachePath, graph, metadata, fingerprint, cancellationToken: cancellationToken);
-            return true;
+            return IndexCacheWriter.Write(cachePath, graph, metadata, fingerprint, cancellationToken: cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger.LogWarning(ex, "Index cache {Path} could not be written", cachePath);
             notes.Add($"The index cache could not be written ({ex.Message}); the next open will load the dump again.");
-            return false;
+            return 0;
         }
     }
 
@@ -440,7 +444,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         }
     }
 
-    private static SnapshotDescriptor Describe(ISnapshot snapshot, MemoryMode mode, bool fromCache, string? cachePath, TimeSpan elapsed, List<string> notes)
+    private static SnapshotDescriptor Describe(ISnapshot snapshot, MemoryMode mode, bool fromCache, string? cachePath, ulong identity, TimeSpan elapsed, List<string> notes)
     {
         var info = snapshot.Info;
         var graph = snapshot.Graph;
@@ -462,10 +466,11 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             fromCache,
             cachePath,
             elapsed.TotalSeconds,
-            [.. notes]);
+            [.. notes],
+            identity);
     }
 
-    private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor)
+    private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor, IndexState Index)
     {
         public DerivedData Derived { get; } = new();
     }

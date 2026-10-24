@@ -316,17 +316,38 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
 
         await first.LoadTask;
         await first.ReferenceRows.WhenLoadedAsync();
+
+        // Sprint 2.1, cold: the object's referrers (the first query of a snapshot builds its reverse index in the worker
+        // while the window stays responsive) and who references the type's objects, each view shown for the first time.
+        first.ReferencesTab = 1;
+        await first.IncomingTask;
+        await first.IncomingRows.WhenLoadedAsync();
+        navigator.BackCommand.Execute(null);
+        instances.ReferencedByCommand!.Execute(null);
+        if (navigator.Current is not TypeReferrersViewModel referrers)
+        {
+            return false;
+        }
+
+        await referrers.QueryTask;
+        await referrers.Rows.WhenLoadedAsync();
+
+        // Opening the next object drops the referrers from the forward history (their rows are released), so judge them now.
+        var referrersShown = referrers.Totals is not null;
         await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         logger.LogInformation(
-            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}); first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}), {Incoming}; {Title}: {Totals}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
             instances.TypeName,
             objects.Count,
             first.Title,
             first.Status ?? first.FieldsUnavailable ?? "fields read",
+            first.IncomingTotals ?? first.IncomingStatus,
+            referrers.Title,
+            referrers.Totals ?? referrers.Status,
             watchdog.MaxLag.TotalMilliseconds,
             watchdog.MaxOperation.TotalMilliseconds);
 
-        // Checked part: back to the objects, a re-sort, and another object.
+        // Checked part: back to the objects, a re-sort, and another object with its referrers (the views and the index warm).
         watchdog.Reset();
         navigator.BackCommand.Execute(null);
         instances.SortByCommand.Execute(Contracts.InstanceColumns.Address);
@@ -346,7 +367,11 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
 
         await second.LoadTask;
         await second.ReferenceRows.WhenLoadedAsync();
-        return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null);
+        second.ReferencesTab = 1;
+        await second.IncomingTask;
+        await second.IncomingRows.WhenLoadedAsync();
+        return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null)
+            && first.IncomingTotals is not null && second.IncomingTotals is not null && referrersShown;
     }
 
     /// <summary>

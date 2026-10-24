@@ -21,7 +21,6 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
-using System.Buffers;
 using System.IO.Hashing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -41,28 +40,6 @@ namespace HeapScope.Storage;
 public static class IndexCacheReader
 {
     private const int ChunkBytes = 1 << 26;
-    private const int VerifyBufferBytes = 4 << 20;
-
-    private static readonly Dictionary<IndexSection, int> s_elementSizes = new()
-    {
-        [IndexSection.Addresses] = sizeof(ulong),
-        [IndexSection.TypeIndices] = sizeof(int),
-        [IndexSection.Sizes] = sizeof(uint),
-        [IndexSection.HeapKinds] = sizeof(byte),
-        [IndexSection.ObjectFlags] = sizeof(byte),
-        [IndexSection.EdgeStarts] = sizeof(int),
-        [IndexSection.Edges] = sizeof(int),
-        [IndexSection.LargeSizes] = 16,
-        [IndexSection.Roots] = 12,
-        [IndexSection.TypeNameIds] = sizeof(int),
-        [IndexSection.TypeMethodTables] = sizeof(ulong),
-        [IndexSection.TypeBaseSizes] = sizeof(uint),
-        [IndexSection.TypeComponentSizes] = sizeof(uint),
-        [IndexSection.TypeModuleIds] = sizeof(int),
-        [IndexSection.TypeKinds] = sizeof(ushort),
-        [IndexSection.Strings] = sizeof(byte),
-        [IndexSection.Metadata] = sizeof(byte),
-    };
 
     /// <summary>
     /// Opens a cache. When <paramref name="expected"/> is given, the cache must have been built from a snapshot with
@@ -81,7 +58,7 @@ public static class IndexCacheReader
         {
             // FileShare.Read: nobody can write, rename over or delete the file while it is being read or mapped.
             stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, FileOptions.SequentialScan);
-            var directory = ReadDirectory(stream, expected, out var header, out var failure);
+            var directory = IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected, 0, out var header, out var failure);
             if (directory is null)
             {
                 return failure!;
@@ -94,7 +71,7 @@ public static class IndexCacheReader
 
             // Sequential verification is several times faster than hashing through the mapping and does not grow the
             // worker's working set (gc-specialist review of 0.5).
-            if (VerifySequentially(stream, directory, cancellationToken) is { } corrupted)
+            if (IndexFileDirectory.VerifySequentially(stream, directory, cancellationToken) is { } corrupted)
             {
                 return corrupted;
             }
@@ -132,7 +109,7 @@ public static class IndexCacheReader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return ReadDirectory(stream, expected, out _, out var failure) is null ? failure : null;
+            return IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected, 0, out _, out var failure) is null ? failure : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -150,135 +127,11 @@ public static class IndexCacheReader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return ReadDirectory(stream, expected: null, out _, out _)?.Values.Sum(e => e.ByteLength);
+            return IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected: null, 0, out _, out _)?.Values.Sum(e => e.ByteLength);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
-        }
-    }
-
-    private static Dictionary<IndexSection, SectionEntry>? ReadDirectory(FileStream stream, SnapshotFingerprint? expected, out FileHeader header, out IndexCacheOpenResult? failure)
-    {
-        header = default;
-        var fileLength = stream.Length;
-        if (fileLength < IndexCacheFormat.PageSize)
-        {
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Truncated, "The index cache is shorter than its header.");
-            return null;
-        }
-
-        var region = new byte[IndexCacheFormat.PageSize];
-        stream.Position = 0;
-        stream.ReadExactly(region);
-        header = MemoryMarshal.Read<FileHeader>(region);
-        if (header.Magic != IndexCacheFormat.Magic)
-        {
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.BadMagic, "The file is not a complete HeapScope index cache (it may have been interrupted while being written).");
-            return null;
-        }
-
-        if (header.FormatVersion != IndexCacheFormat.Version)
-        {
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.VersionMismatch, $"The index cache has format version {header.FormatVersion}; this HeapScope reads version {IndexCacheFormat.Version}.");
-            return null;
-        }
-
-        var headerSize = Unsafe.SizeOf<FileHeader>();
-        var entrySize = Unsafe.SizeOf<SectionEntry>();
-        var maxSections = (IndexCacheFormat.PageSize - headerSize) / entrySize;
-        if (header.HeaderRegionLength != IndexCacheFormat.PageSize || header.SectionCount < 0 || header.SectionCount > maxSections)
-        {
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.HeaderCorrupted, "The index cache header is damaged.");
-            return null;
-        }
-
-        var directoryBytes = header.SectionCount * entrySize;
-        var unchecked_ = header;
-        unchecked_.HeaderChecksum = 0;
-        MemoryMarshal.Write(region, in unchecked_);
-        if (XxHash3.HashToUInt64(region.AsSpan(0, headerSize + directoryBytes)) != header.HeaderChecksum)
-        {
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.HeaderCorrupted, "The index cache header is damaged (checksum mismatch).");
-            return null;
-        }
-
-        // Every entry is validated, known or not, with overflow-safe arithmetic, before any offset is used.
-        var directory = new Dictionary<IndexSection, SectionEntry>();
-        foreach (var entry in MemoryMarshal.Cast<byte, SectionEntry>(region.AsSpan(headerSize, directoryBytes)))
-        {
-            var section = (IndexSection)entry.Id;
-            if (!s_elementSizes.TryGetValue(section, out var elementSize) || !directory.TryAdd(section, entry))
-            {
-                failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Malformed, $"The index cache directory has an unknown or repeated section id {entry.Id}.");
-                return null;
-            }
-
-            if (entry.ElementSize != elementSize || entry.ElementCount < 0 || entry.ElementCount > int.MaxValue
-                || entry.ByteLength != entry.ElementCount * elementSize
-                || entry.Offset < IndexCacheFormat.PageSize || entry.Offset % IndexCacheFormat.PageSize != 0)
-            {
-                failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Malformed, $"The index cache section {section} is malformed.");
-                return null;
-            }
-
-            if (entry.Offset > fileLength || entry.ByteLength > fileLength - entry.Offset)
-            {
-                failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Truncated, $"The index cache ends inside section {section}.");
-                return null;
-            }
-        }
-
-        if (directory.Count != s_elementSizes.Count)
-        {
-            var missing = s_elementSizes.Keys.First(s => !directory.ContainsKey(s));
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Malformed, $"The index cache section {missing} is missing.");
-            return null;
-        }
-
-        if (expected is { } fingerprint)
-        {
-            var built = new SnapshotFingerprint(header.SourceLength, header.SourceLastWriteUtcTicks, header.SourceContentHash);
-            if (built.DescribeDifference(fingerprint) is { } difference)
-            {
-                failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.FingerprintMismatch, $"The index cache is out of date: {difference}.");
-                return null;
-            }
-        }
-
-        failure = null;
-        return directory;
-    }
-
-    private static IndexCacheOpenResult? VerifySequentially(FileStream stream, Dictionary<IndexSection, SectionEntry> directory, CancellationToken cancellationToken)
-    {
-        var buffer = ArrayPool<byte>.Shared.Rent(VerifyBufferBytes);
-        try
-        {
-            foreach (var entry in directory.Values.OrderBy(e => e.Offset))
-            {
-                var hash = new XxHash3();
-                stream.Position = entry.Offset;
-                for (var remaining = entry.ByteLength; remaining > 0;)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var chunk = buffer.AsSpan(0, (int)Math.Min(buffer.Length, remaining));
-                    stream.ReadExactly(chunk);
-                    hash.Append(chunk);
-                    remaining -= chunk.Length;
-                }
-
-                if (hash.GetCurrentHashAsUInt64() != entry.Checksum)
-                {
-                    return ChecksumFailure((IndexSection)entry.Id);
-                }
-            }
-
-            return null;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -461,9 +314,6 @@ public static class IndexCacheReader
         return new StringTable(strings);
     }
 
-    private static IndexCacheOpenResult ChecksumFailure(IndexSection section) =>
-        IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.ChecksumMismatch, $"The index cache section {section} is corrupted (checksum mismatch).");
-
     /// <summary>
     /// Reads sections into exact-size arrays through the validated handle, verifying each checksum. After the first
     /// failure it allocates nothing more.
@@ -510,7 +360,7 @@ public static class IndexCacheReader
 
             if (hash.GetCurrentHashAsUInt64() != entry.Checksum)
             {
-                Failure = ChecksumFailure(section);
+                Failure = IndexFileDirectory.ChecksumFailure(section);
                 return [];
             }
 

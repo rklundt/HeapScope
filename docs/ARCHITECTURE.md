@@ -160,7 +160,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   with its `Version`, `LoadResult`, `LoadProgress`, `LoadTimings`, `LoadDiagnostics`) and `SnapshotFileSignature` (a
   file's first bytes tell a minidump, `MDMP`, from a gcdump, a FastSerialization stream whose first object is a
   `GCHeapDump`) [1.8]. `Synthetic/`: `SyntheticGraphs` and `SyntheticGraphBuilder`, which also makes arrays and strings
-  [1.6].
+  [1.6]. `Graph/ReverseReferences` (the incoming references CSR, built by counting and filling, or from an index file's
+  columns) and `HeapGraph.Attach` (an optional index is disposed with the graph, after the snapshot's last lease) [2.1].
 - **Analysis.** `TypeAggregation`: one parallel pass over the objects, counting objects, shallow bytes and bytes per
   heap kind for every type, computed once per snapshot and kept on the snapshot's entry in the worker [1.3].
   `TypeGroups`: rows by type, namespace or assembly. Type rows are one per type table entry (method table), never merged
@@ -175,8 +176,14 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `InspectionResult`, `InspectionTable`, `RowTable<TRow>` and `InspectionCatalog`; the graph-only inspections in
   `GraphInspections.cs` (large object heap, large arrays, sparse arrays, finalizable objects, fragmentation) and the
   reader ones in `ReaderInspections.cs` (empty and oversized collections, duplicate strings) [1.6, ADR-020].
+  `IncomingReferences`: an object's distinct referrers with their reference counts, and a type's referrers grouped by
+  their type name and module (referring objects, references, targets referenced, referrer bytes); `TypeGroups.MatchTypes`
+  finds the method tables of a type key (name and module file name), shared with instances [2.1].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
-  built the graph [1.8].
+  built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
+  uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
+  `TryGetSection<T>`), `IndexFileLayout` (the sections of the base cache and of each sidecar), `IndexFileDirectory` (the
+  header and directory checks both readers share) and `IndexCacheLocator.GetSidecarPath` [2.1].
 - **Capture.** Process discovery and elevation, `DumpSizeEstimator` (the disk preflight's estimate) [1.1]; `DumpCapturer` (full dumps written by the runtime) and `GcDumpCapturer`
   (the vendored heap snapshot over EventPipe, failures classified, its log lines sent to the HeapScope log) [1.8], both
   writing through `PartialSnapshotFile` (reserve, never overwrite, commit by rename, discard with retries) [1.9];
@@ -197,7 +204,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   [1.9]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
   identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]. Summary and diff rows in Type
-  grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances [1.5].
+  grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances [1.5]. Referrers:
+  `ReferrerColumns`, `TypeReferrerColumns`, `ReverseIndexInfo` (sidecar or built, mode, time, size, saved), the
+  requests and results (with `CompleteGraph`), and the descriptor's `CacheIdentity`, which a reopen after a worker
+  restart compares (review M10) [2.1].
 - **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`: `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]; `WorkerService` in partial files
   by area: the worker's own calls and result pages (`WorkerService.cs`), snapshots, summaries and diffs, objects, and
   inspections [1.9]; `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources:
@@ -205,17 +215,22 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   type) [1.3], `TypeDiffSource` (leases both snapshots and reuses their aggregations) [1.4], `InstancesSource` (object
   indices of the types with a key, filtered by address prefix, regular expression or text, sorted by any column, holding
   a snapshot lease, scoped by `InstanceScope`) [1.5, 1.6], `ReferencesSource` (graph order, named by field path or array
-  index when a reader exists) [1.5], `InspectionSource` [1.6]; `ColumnSort` (sort by column name, ties by name, unknown
+  index when a reader exists) [1.5], `InspectionSource` [1.6], `ReferrersSource` (an object's referrers, each once, their
+  fields named for up to 1,000 referrers) and `TypeReferrersSource` (a type's referrers by type, sortable) with
+  `WorkerService.Referrers.cs` [2.1]; `ColumnSort` (sort by column name, ties by name, unknown
   columns refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6].
   `Snapshots/`: `SnapshotStore` (open, cache, memory mode); `SnapshotKinds` (per kind: the loader and its version, the
   snapshot over a graph, the kind's notes) [1.9]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
   dropped in one step when it closes: each slot is one shared computation with its own lease and a token tied to the
-  snapshot's lifetime, so a caller that cancels only stops waiting (reverse references and dominators get slots here in
-  2.x) [1.3].
+  snapshot's lifetime, so a caller that cancels only stops waiting [1.3]; the reverse references slot [2.1] (dominators
+  get theirs in 2.3), with `SharedProgress` sending the computation's progress to every caller waiting for it (review
+  M7). `ReverseIndexBuilder`: the reverse index opened from its sidecar or built, written as a sidecar, mapped when its
+  mode says so, and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
+  identity, fingerprint, memory mode and forced mode, and attaches the result to the graph [2.1].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
-  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections) and `ResultSetHandle`
-  (section 4.6) [1.3 to 1.6]; `Sessions/`: `SessionLibrary`, `CaptureService` (per-kind capture settings in one table)
+  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1]) and
+  `ResultSetHandle` (section 4.6) [1.3 to 1.6]; `Sessions/`: `SessionLibrary`, `CaptureService` (per-kind capture settings in one table)
   [1.1, 1.9] and `TraceService` [1.5]; `Snapshots/GrowthThreshold` (the `--fail-on-growth` CI gate's limit, a size or a
   percent) [1.4]; `Monitoring/`: `HeapSample` (what front ends see), `ICounterSource`
   (`EventPipeCounterSource`, and `SyntheticCounterSource` for the smoke run), `SnapshotRules.cs` (`EveryRule`,
@@ -230,7 +245,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   running query and the pending filter, and the replaced row list stops its page requests) [1.3]; `CompareViewModel`
   (two pickers, the earlier capture as default baseline, swap) [1.4]; `InstancesViewModel`, `ObjectViewModel` (field tree
   and references) and `NavigatorViewModel` (types, instances, object; back and forward, mouse buttons and Alt+arrows;
-  the views are built once with the window and the navigator swaps their data) [1.5]; `InspectionsViewModel` (tiles,
+  the views are built once with the window and the navigator swaps their data) [1.5]; the object's references as
+  Outgoing and Incoming tabs (incoming loaded when its tab is first shown), the instances view's Referenced by, and
+  `TypeReferrersViewModel` (a type's referrer types, whose rows open that type's objects) in `ReferrersViewModels.cs`
+  [2.1]; `InspectionsViewModel` (tiles,
   fragmentation bars, `InspectionRowItem`s) [1.6]; `LiveViewModel` and `SnapshotCard` [1.7]. `Views/`: `MainWindow`
   (the shell, the attribution strip, ADR-022) and `Pages/`, one resource dictionary per page and per Snapshots tab, with
   `Shared.xaml` for converters and styles [1.9]; the shell keeps every page once built (switching pages is a visibility
@@ -241,10 +259,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   smoke runs, out of `App` [1.9].
 - **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
-  `MonitorCommand` [1.7]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
+  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
   writer, rows keyed by column name with typed numbers) [1.9].
 - **perf/HeapScope.Benchmarks.** The budget benchmarks, the developer tool `trace-report` [1.5] and `phase2-indices`,
-  the Phase 2 index prototype (section 6.4) [1.9].
+  the Phase 2 index prototype (section 6.4) [1.9]; `reverse-index`, the reverse references index of a real index cache
+  (build, sidecar write, reopen in both modes) [2.1].
 - **Fixtures.** The leak fixtures and known answers (ADR-013), `WasteFixtures` (LeakyConsole `--waste`) and `Waste.json`
   [1.6].
 - **build/.** The worker deployment targets and `gate.ps1`, the local full gate (DEVELOPER.md 2) [1.9].
@@ -393,6 +412,12 @@ Rules:
   rows; hidden `InspectionColumns` say what a row opens), `InstanceScope` and `SameValueAs` on `InstancesRequest`
   (all, large object heap, finalizable, strings equal to one string), and progress on `GetObjectAsync` and
   `QueryReferencesAsync`.
+  Version 7 (sprint 2.1) added `QueryReferrersAsync` (`ReferrersRequest`; `ReferrersResult` with the reference count,
+  why fields are not named, and `ReverseIndexInfo`; `ReferrerColumns`), `QueryTypeReferrersAsync`
+  (`TypeReferrersRequest` with a sort column named by `TypeReferrerColumns`; `TypeReferrersResult` with the matched
+  types, their objects and the references into them; no index when no type matches) and
+  `SnapshotDescriptor.CacheIdentity`. Both results say whether the graph is complete (`CompleteGraph`), since a sampled
+  gcdump or a truncated dump can miss referrers.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -427,8 +452,8 @@ flagged as the row key), which keeps paging generic. Unknown, released or evicte
 Application's `ResultSetHandle` keeps the query that produced a set and re-runs it once when paging fails that way
 (eviction, or a worker restart through the snapshot session's reopen), so front ends page without knowing about
 eviction. A released handle is finished: paging throws and never re-runs the query, and a re-query in progress at the
-release has its new set released too, so no set is orphaned. The grids (types, compare, instances and an object's
-references) fetch pages of 200 rows as they scroll; each row object is filled with one property change
+release has its new set released too, so no set is orphaned. The grids (types, compare, instances, an object's
+references and referrers, a type's referrers) fetch pages of 200 rows as they scroll; each row object is filled with one property change
 notification, which keeps a page under the dispatcher budget.
 
 Paging cost with the default JSON formatter (sprint 1.3, Release): a 10,000-row page (the maximum, used by the CLI's
@@ -702,8 +727,30 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
 `ISnapshot` for graphs without optional services.
 
 ### 6.4 Extending without redesign (2.x)
-- **Reverse references**: a second CSR (`InEdgeStarts`, `InEdges`) built by counting in-degrees and filling,
-  +4 bytes per object and +4 per reference. Stored as an optional index cache section.
+- **Reverse references** (built in sprint 2.1): a second CSR (`InEdgeStarts`, `InEdges`) built by counting in-degrees
+  and filling, +4 bytes per object and +4 per reference, one entry per reference (a referrer holding an object in two
+  fields appears twice; rows come out sorted by referrer). The worker builds it on the first referrers query of a
+  snapshot, not at open, and keeps it until the snapshot closes, attached to the graph so it is released after the last
+  lease. It is written as the sidecar `<snapshot>.rev.hsidx` when the snapshot has an index cache, and opened from that
+  sidecar on later opens; without an index cache it stays in memory and is rebuilt on the next open. Its memory mode
+  (`ReverseIndexBuilder.ChooseMode`, review M3): a forced open mode wins; next to a mapped graph it is mapped; next to an
+  in-memory graph it stays in memory only when it fits both the memory available on the machine and what is left of
+  the worker's share of physical memory after what the worker already commits. To go mapped, the built index is
+  written, the sidecar is mapped, and only then are the built arrays dropped and returned by a non-compacting gen2
+  collection (no live graph array is copied; 7 to 14 ms measured); if the mapping fails the index stays in memory
+  (review M2). The index is still built in managed arrays first, so building it costs its size in private memory even
+  when it ends up mapped: writing optional indices straight into the sidecar file is a 2.3 decision, where the
+  dominators' working arrays make it matter. Every caller waiting for the shared build gets its progress (review M7),
+  and the UI shows it. Measured on real index caches (`reverse-index`, Release, 32 GB machine, times vary by about 2x
+  between runs): Medium (57.5M objects, 65.7M references) builds in 0.6 to 0.8 s, 470 MB, sidecar written in 0.6 to
+  0.7 s, reopened in 0.1 to 0.2 s mapped (+1 to 6 MB private) or 0.2 to 0.4 s in memory (+472 MB); peak private bytes
+  2,423 MB with the graph in memory, 970 MB mapped. DenseHeap (54.1M objects, 163.9M references) builds in 0.8 to 1.7 s,
+  831 MB, written in 0.7 to 1.9 s, reopened in 0.2 to 0.4 s mapped or 0.4 to 1.1 s in memory; peak 3,454 MB with the
+  graph in memory, 1,695 MB mapped. These peaks are the benchmark process's (it collects between phases and holds no
+  type aggregation or dump reader). In the Release worker on DenseHeap (CLI `referrers --address`), the build took
+  1.45 s and the worker's peak commit after it was 2,644 MB; naming referrer fields then opens the dump reader, whose
+  ClrMD cache is capped at 512 MB. Through the Debug worker on Medium (`referrers --type`): 2.6 s for the first query
+  (build and sidecar write), 0.18 s on the next run from the sidecar. Not measured on a 16 GB machine.
 - **Dominators**: `int[] ImmediateDominator` and `ulong[] RetainedSize`, +12 bytes per object, computed
   with iterative (non-recursive) semi-NCA over the CSR arrays and a virtual super-root connected to all retaining
   roots and frozen objects (chosen in sprint 1.9, measurements below).
@@ -804,11 +851,24 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Identity: the header checksum covers every section checksum, so it identifies the cache's content
   (`IndexCacheOpenResult.Identity`).
 - Optional indices (reverse references in 2.1, dominators in 2.3) go into **sidecar files** next to the base
-  cache (`<cache>.rev.hsidx`, `<cache>.dom.hsidx`), in the same header and directory format, each recording the
-  identity of the base cache it extends. The base file is never rewritten to add them: a mapped base cache is open
-  and cannot be replaced, and rewriting would break the header-last crash safety. A sidecar whose base identity does
-  not match is ignored and rebuilt; a missing sidecar means "not built yet". (Decided in the 0.5 review; the
-  public API for opened caches and optional sections, and an incremental section writer, arrive with 2.1.)
+  cache (`app.dmp.rev.hsidx` beside `app.dmp.hsidx`; `IndexCacheLocator.GetSidecarPath`), in the same header and
+  directory format, each recording the identity of the base cache it extends in the header's `BaseIdentity` (reserved
+  and 0 before 2.1, and still 0 in a base cache, so the format version did not change) and the snapshot's fingerprint.
+  The base file is never rewritten to add them: a mapped base cache is open and cannot be replaced, and rewriting would
+  break the header-last crash safety. A sidecar whose base identity or fingerprint does not match, or that is damaged,
+  is ignored and rebuilt; a missing sidecar means "not built yet". The identity covers every section, the metadata
+  section included (the writer version, the loader version and the path of the first load), so rebuilding the base
+  cache with the same HeapScope build from the same dump at the same path keeps it and its sidecars stay valid, while a
+  new HeapScope version or a moved dump makes them stale (they are rebuilt). Each kind of file has an
+  `IndexFileLayout` (its sections and element sizes; every listed section present, no other allowed), so a sidecar
+  never opens as a base cache or the reverse. Sprint 2.1 implements the pieces the 0.5 review asked for:
+  `IndexCacheFileWriter` writes any index file section by section (temporary file, header last, flush, rename; an
+  uncommitted writer deletes its temporary file; empty trailing sections extend the file to their offset), and
+  `IndexCacheFile` opens any index file with the base cache's checks (sections read into arrays of their element size
+  and verified in one pass in memory, so a section holds up to 2^31 - 1 elements like the graph's columns, review M1;
+  verified sequentially, then viewed from a read-only mapping, when mapped) and hands sections out as columns
+  (`TryGetSection<T>`). `IndexCacheWriter.Write` returns the identity, and the worker's descriptor carries it
+  (`CacheIdentity`, from the 1.2 review).
 - Fingerprint (`SnapshotFingerprint`): snapshot length, last write time UTC and an XxHash3 of the first and last
   MiB; any difference invalidates the cache.
 - Writing: sections go to a temporary file in the target folder, the header is written last, the file is flushed
@@ -941,6 +1001,7 @@ Initial budgets (sprints refine them with measurements):
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); CLI `diff` of Medium against DenseHeap end to end from the index caches 2.8 to 2.9 s, of which the aggregations 0.05 to 0.08 s each (1.4) |
 | Phase 2 indices (reverse references, semi-NCA dominators, retained sizes; prototype, 1.9) | under 60 s and within the 4 GB worker budget on a Medium-scale real heap | Medium 9.5 s, peak 3,514 MB (met in memory); DenseHeap 12.9 s, peak 4,119 MB in memory (missed by 23 MB), 2,360 MB with the graph mapped (met); hence computation follows the memory mode (section 6.4) |
+| Reverse references index (2.1, `reverse-index` on real index caches; the Release worker on DenseHeap) | built well inside the 60 s Phase 2 budget; worker within 4 GB | Medium 0.6 to 0.8 s, 470 MB, benchmark peak 2,423 MB in memory and 970 MB mapped; DenseHeap 0.8 to 1.7 s, 831 MB, benchmark peak 3,454 MB in memory and 1,695 MB mapped; worker peak commit 2,644 MB after building DenseHeap's index in memory, plus up to 512 MB of ClrMD cache when fields are named; reopen from the sidecar 0.1 to 1.1 s; releasing the built index 7 to 14 ms. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 
 Baseline measured in sprint 0.4 on the fixture sample dumps (`dump-stats`, raw ClrMD walk, no HeapScope graph yet;
@@ -1037,7 +1098,9 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
   opt-in is off; with it on, ClrMD's own locator is used.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
-  contents.
+  contents. Its sidecars (sprint 2.1: `<snapshot>.rev.hsidx`, the reverse references) store object indices only and sit
+  next to it, beside the dump or under the fallback cache root; deleting a snapshot by hand means deleting its
+  `.hsidx` files too (the backlog's delete feature covers them).
 - The UI and the CLI say once per capture that the dump contains secrets and where it was written.
 - Dumps live in the session folders under `%LOCALAPPDATA%\HeapScope\sessions` (inheriting the user-only ACL of the
   user's profile) unless `--out` puts them elsewhere; HeapScope never moves them. Deleting snapshots and sessions from

@@ -63,9 +63,52 @@ public enum IndexSection
     TypeKinds = 15,
     Strings = 16,
     Metadata = 17,
+
+    /// <summary>Reverse references sidecar (sprint 2.1): CSR row offsets of each object's referrers.</summary>
+    InEdgeStarts = 18,
+
+    /// <summary>Reverse references sidecar (sprint 2.1): referrer object index per reference.</summary>
+    InEdges = 19,
 }
 
-/// <summary>The fixed part of the header, at offset 0. 64 bytes.</summary>
+/// <summary>
+/// The sections an index file of one kind holds, with their element sizes (sprint 2.1). Every listed section must be
+/// present and no other may appear. The base cache and each optional index (a sidecar next to it) have their own layout.
+/// </summary>
+/// <param name="Name">The file's kind in messages ("reverse references").</param>
+public sealed record IndexFileLayout(string Name, IReadOnlyDictionary<IndexSection, int> ElementSizes)
+{
+    /// <summary>The base index cache: the graph (ARCHITECTURE.md 7).</summary>
+    public static IndexFileLayout Base { get; } = new("base", new Dictionary<IndexSection, int>
+    {
+        [IndexSection.Addresses] = sizeof(ulong),
+        [IndexSection.TypeIndices] = sizeof(int),
+        [IndexSection.Sizes] = sizeof(uint),
+        [IndexSection.HeapKinds] = sizeof(byte),
+        [IndexSection.ObjectFlags] = sizeof(byte),
+        [IndexSection.EdgeStarts] = sizeof(int),
+        [IndexSection.Edges] = sizeof(int),
+        [IndexSection.LargeSizes] = 16,
+        [IndexSection.Roots] = 12,
+        [IndexSection.TypeNameIds] = sizeof(int),
+        [IndexSection.TypeMethodTables] = sizeof(ulong),
+        [IndexSection.TypeBaseSizes] = sizeof(uint),
+        [IndexSection.TypeComponentSizes] = sizeof(uint),
+        [IndexSection.TypeModuleIds] = sizeof(int),
+        [IndexSection.TypeKinds] = sizeof(ushort),
+        [IndexSection.Strings] = sizeof(byte),
+        [IndexSection.Metadata] = sizeof(byte),
+    });
+
+    /// <summary>The reverse references sidecar (<c>.rev.hsidx</c>, sprint 2.1).</summary>
+    public static IndexFileLayout ReverseReferences { get; } = new("reverse references", new Dictionary<IndexSection, int>
+    {
+        [IndexSection.InEdgeStarts] = sizeof(int),
+        [IndexSection.InEdges] = sizeof(int),
+    });
+}
+
+/// <summary>The fixed part of the header, at offset 0. 64 bytes. Sidecars use the same header (sprint 2.1).</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct FileHeader
 {
@@ -80,7 +123,8 @@ internal struct FileHeader
 
     /// <summary>XxHash3 over the header (with this field zero) and the section directory.</summary>
     public ulong HeaderChecksum;
-    public ulong Reserved2;
+    /// <summary>The identity of the base cache a sidecar extends (sprint 2.1); 0 in a base cache (reserved and 0 before).</summary>
+    public ulong BaseIdentity;
 }
 
 /// <summary>One section directory entry, following the header. 40 bytes.</summary>

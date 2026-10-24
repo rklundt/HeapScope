@@ -83,7 +83,7 @@
           </Border>
         </StackPanel>
 
-        <!-- Subjects (sprint 1.5): the types grid, a type's objects, one object; back and forward. -->
+        <!-- Subjects (sprint 1.5): the types grid, a type's objects, one object, a type's referrers (2.1); back and forward. -->
         <DockPanel DataContext="{Binding DataContext.Navigator, RelativeSource={RelativeSource AncestorType=TabControl}}">
           <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
             <Button Content="Back" Padding="8,1" Command="{Binding BackCommand}" ToolTip="Back (Alt+Left or the mouse's back button)" />
@@ -206,6 +206,8 @@
                   <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
                            Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
                            ToolTip="0x1f2a: address prefix. /pattern/: regular expression on the value. Anything else: text in the value (strings)." />
+                  <Button DockPanel.Dock="Right" Content="Referenced by" Padding="8,1" Command="{Binding ReferencedByCommand}"
+                          ToolTip="Which types' objects reference objects of this type" />
                   <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
                 </DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
@@ -293,27 +295,73 @@
                       </TreeView.ItemTemplate>
                     </TreeView>
                   </DockPanel>
-                  <DockPanel Grid.Column="2">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                      <TextBlock Text="References" FontWeight="SemiBold" />
-                      <TextBlock Text="{Binding ReferencesTotals}" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" />
-                    </StackPanel>
-                    <DataGrid ItemsSource="{Binding ReferenceRows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                              GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="False" SelectionMode="Single"
-                              EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                              ScrollViewer.CanContentScroll="True"
-                              ctl:GridDrill.Command="{Binding OpenCommand}" ToolTip="Double-click or Enter opens the referenced object.">
-                      <DataGrid.Columns>
-                        <DataGridTextColumn Header="Field" Binding="{Binding Field}" Width="140" />
-                        <DataGridTextColumn Header="Address" Binding="{Binding AddressText}" Width="140" FontFamily="Consolas" />
-                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
-                        <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="90" ElementStyle="{StaticResource NumberCell}" />
-                      </DataGrid.Columns>
-                    </DataGrid>
-                  </DockPanel>
+                  <!-- Outgoing references (1.5) and the objects referencing this one (2.1, loaded when its tab is first shown). -->
+                  <TabControl Grid.Column="2" SelectedIndex="{Binding ReferencesTab, Mode=TwoWay}">
+                    <TabItem Header="Outgoing">
+                      <DockPanel Margin="0,4,0,0">
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Foreground="{DynamicResource Brush.Subtle}" />
+                        <DataGrid ItemsSource="{Binding ReferenceRows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                  GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="False" SelectionMode="Single"
+                                  EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  ScrollViewer.CanContentScroll="True"
+                                  ctl:GridDrill.Command="{Binding OpenCommand}" ToolTip="Double-click or Enter opens the referenced object.">
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Field" Binding="{Binding Field}" Width="140" />
+                            <DataGridTextColumn Header="Address" Binding="{Binding AddressText}" Width="140" FontFamily="Consolas" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
+                            <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="90" ElementStyle="{StaticResource NumberCell}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+                    </TabItem>
+                    <TabItem Header="Incoming">
+                      <DockPanel Margin="0,4,0,0">
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Foreground="{DynamicResource Brush.Subtle}"
+                                   Visibility="{Binding IncomingTotals, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                                   Visibility="{Binding IncomingStatus, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <DataGrid ItemsSource="{Binding IncomingRows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                  GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="False" SelectionMode="Single"
+                                  EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  ScrollViewer.CanContentScroll="True"
+                                  ctl:GridDrill.Command="{Binding OpenCommand}" ToolTip="Double-click or Enter opens the referencing object.">
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Field" Binding="{Binding Field}" Width="140" />
+                            <DataGridTextColumn Header="Address" Binding="{Binding AddressText}" Width="140" FontFamily="Consolas" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
+                            <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="90" ElementStyle="{StaticResource NumberCell}" />
+                            <DataGridTextColumn Header="Refs" Binding="{Binding References, StringFormat=N0}" Width="50" ElementStyle="{StaticResource NumberCell}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+                    </TabItem>
+                  </TabControl>
                 </Grid>
               </DockPanel>
   
+            </Grid>
+            <Grid Visibility="{Binding IsTypeReferrersShown, Converter={StaticResource BoolToVisibility}}">
+              <DockPanel DataContext="{Binding ShownTypeReferrers}">
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Margin="0,0,0,6" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap"
+                           Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+                <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                          GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
+                          EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True"
+                          ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}"
+                          ctl:GridDrill.Command="{Binding OpenRowCommand}" ToolTip="Double-click or Enter opens the objects of the referencing type.">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Referencing type" Binding="{Binding TypeName}" Width="*" SortMemberPath="Type" />
+                    <DataGridTextColumn Header="Module" Binding="{Binding Module}" Width="180" SortMemberPath="Module" />
+                    <DataGridTextColumn Header="Objects" Binding="{Binding Objects, StringFormat=N0}" Width="100" SortMemberPath="Objects" ElementStyle="{StaticResource NumberCell}" />
+                    <DataGridTextColumn Header="References" Binding="{Binding References, StringFormat=N0}" Width="100" SortMemberPath="References" ElementStyle="{StaticResource NumberCell}" />
+                    <DataGridTextColumn Header="Targets" Binding="{Binding Targets, StringFormat=N0}" Width="100" SortMemberPath="Targets" ElementStyle="{StaticResource NumberCell}" />
+                    <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="120" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
             </Grid>
           </Grid>
         </DockPanel>

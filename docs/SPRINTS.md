@@ -22,7 +22,7 @@ everything else.
 | 1.7 | Live counters and timed snapshots | Closed | 2026-10-23 | sprint-1.7 |
 | 1.8 | gcdump support | Closed | 2026-10-24 | sprint-1.8 |
 | 1.9 | Phase 1 hardening | Closed | 2026-10-24 | sprint-1.9 |
-| 2.1 | Reverse references | Planned | | |
+| 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Planned | | |
 | 2.3 | Dominator tree and retained size | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
@@ -1373,9 +1373,77 @@ budget; cached section reused on reopen.
 
 **Dependencies**: 0.5, 1.2.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [x] Incremental section writer: `IndexCacheFileWriter` (temporary file, sections one at a time, header last, flush and
+   rename) used by `IndexCacheWriter`, whose `Write` now returns the cache identity; the header's last reserved field
+   becomes `BaseIdentity` (0 in a base cache, no format change). Tests: the existing writer tests unchanged (identical
+   bytes), the returned identity equals the reader's, a disposed uncommitted writer leaves no file.
+2. [x] Opened-cache API: `IndexCacheFile` opens any HeapScope index file (the base cache's directory checks, shared with
+   `IndexCacheReader`), in memory or mapped, with `TryGetSection<T>`, `Identity` and `BaseIdentity`; sidecar sections
+   `InEdgeStarts` and `InEdges`; reason `BaseMismatch`; `IndexCacheLocator.GetSidecarPath`. Tests: a sidecar round trip
+   in both modes, a wrong base identity, a missing or unknown section, a checksum mismatch, a base cache refused as a
+   sidecar.
+3. [x] Core `ReverseReferences`: built by counting in-degrees and filling (referrers of each object ascending, one entry per
+   reference), from columns for a cache, `GetReferrers`; `HeapGraph.Attach` disposes an index with the graph after the
+   last lease. Tests: chain, diamond, cycle, self loop, duplicate references, a seeded random graph against a naive count.
+4. [x] Analysis `IncomingReferences`: per object (distinct referrers with their reference counts) and per type (referrers
+   grouped by their type: referring objects, references, targets referenced, referrer bytes). Tests: known answers on
+   synthetic graphs, types matched by name and module.
+5. [x] Worker: the cache identity kept per snapshot and carried by the descriptor; the reverse index as a derived slot,
+   opened from its sidecar or built on first use, written as a sidecar when the base cache was written, kept in the
+   snapshot's memory mode (mapped when it does not fit the budget), build time and memory logged. Tests: built once and
+   shared, the sidecar reused on reopen, a stale sidecar (other base) ignored and rebuilt, both memory modes.
+6. [x] Contracts and RPC (protocol 7): `QueryReferrersAsync` (an object's referrers: field, address, type, bytes,
+   references) and `QueryTypeReferrersAsync` (a type's referrers by type, sortable). Tests: worker tests on synthetic and
+   fixture snapshots, unknown address and type.
+7. [x] Application and CLI: `SnapshotSession` methods; `heapscope-cli referrers <snapshot> --address | --type [--module]`
+   with table, csv and json. Tests: CLI integration on the Small dump and a gcdump.
+8. [x] UI: the object view's references as Outgoing and Incoming tabs (incoming loaded when first shown); the instances
+   view's "Referenced by" opens a referrer types grid whose rows open that type's objects. Tests: view model tests;
+   `--smoke-open` on the Small dump.
+9. [x] Known answers: incoming references of LeakyApi leak objects (referrer types per leak) in the integration tests.
+10. [x] Measurement: the reverse index on the Medium dump (build, write, reopen from the sidecar, both modes; time and
+   memory) recorded in ARCHITECTURE 10.
+11. [x] Docs: ARCHITECTURE (6.4, 7, code map, protocol), DEVELOPER, CLAUDE.md.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Decisions** (Phase 2 autonomy granted by the product owner on 2026-10-24: "go - and yes autonomous - one sprint at a
+time", so the sprint stops after its close; each default below was decided autonomously)
+1. The reverse CSR keeps one entry per reference, so a referrer holding an object in two fields appears twice; the
+   object grid shows each referrer once with a References count and its field paths joined.
+2. Incoming rows of a full dump name the referrer's field that holds the object, for up to 1,000 referrers (the array walk
+   capped as for outgoing references); beyond that and for gcdumps the column is empty and the totals say why.
+3. The per-type grid groups referrers by their type (name and module, ADR-018's key) with referring objects, references,
+   targets referenced and referrer bytes; opening a row shows that type's objects (all of them; "only those referencing
+   the type" goes to the backlog).
+4. Roots are not rows of the incoming grid in 2.1; 2.2 explains roots in plain language. The object summary already says
+   when a root holds it.
+5. The reverse index is built on first use (an incoming query), not at open. It is written as a sidecar only when the
+   base cache was written; it follows the snapshot's memory mode and goes mapped when it would not fit the budget; a
+   sidecar naming another base identity is ignored and rebuilt (a rebuilt base cache has a new identity).
+6. The descriptor carries the base cache identity (1.2 review); the protocol version goes to 7.
+7. Self references count as incoming references.
+8. The frozen-objects-alive rule (6.1) applies when reachability is computed (2.2, 2.3); 2.1 computes none.
+9. Like Phase 1 sprints, Moderate review findings are decided with their recommendation and logged; the sprint stops and
+   reports after `/close-sprint`.
+
+**Review summary** (`docs/reviews/sprint-2.1.md`): 0 High, 11 Moderate, 20 Low after dedupe. Decided autonomously: 9
+Moderates fixed now, M4 (label dependent-handle referrers) deferred to 2.2, and M2's build-into-the-sidecar part to 2.3.
+Fixed:
+- M1: in-memory sidecar sections allocate by element type, so a section holds 2^31 - 1 elements, not 2^31 bytes.
+- M2: going mapped maps the sidecar first and keeps the built index if that fails; no compacting collection (the release
+  takes 7 to 14 ms).
+- M3: the index's mode charges what the worker already commits and honors a forced mode.
+- M5: field naming walks at most 2M array elements per query.
+- M6: worker tests for every index path, the shared build and the mode choice.
+- M7: progress goes to every waiter and the UI shows it.
+- M8: an unknown type or sort column is answered before the index is built; the CLI exits 1 on an unknown type.
+- M9: results say when the graph is incomplete.
+- M10: a reopen refuses a rebuilt cache.
+- M11: the release pause, the DenseHeap mapped peak (1,695 MB) and a Release worker run (build 1.45 s, peak commit 2,644 MB
+  on DenseHeap) are measured, and the budget claim is qualified (32 GB machine).
+
+Measured: Medium index 470 MB, built in 0.6 to 0.8 s; DenseHeap 831 MB in 0.8 to 1.7 s; reopen from the sidecar 0.1 to
+1.1 s. Tests: 792 in the final gate (from 731 at 1.9), all passing; the first gate had one load flake in a worker IPC test.
 
 ---
 
@@ -1387,6 +1455,11 @@ budget; cached section reused on reopen.
 collapsed, field names resolved on demand for full dumps.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a merged paths tree from the object toward its roots with a reachable roots count; the top distinct paths presented as key retention paths; plain-language root kinds.
+
+From the 2.1 review (M4, deferred here): dependent-handle edges are ordinary CSR edges, so a `ConditionalWeakTable` key
+shows as a plain referrer of its value with an empty field. Record which edges come from dependent handles (a sorted
+list of pairs, a loader version bump) so referrers and retention paths label them "(dependent handle)", and check the
+label on the ConditionalWeakTable known answer.
 
 **Acceptance criteria**: each LeakyApi leak's path matches its known-answers path shape and root kind.
 
@@ -1405,6 +1478,12 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a merged paths 
 **Scope**: iterative dominator computation over the CSR, retained sizes, cached section.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): retained bytes columns wherever sizes appear; an "open objects retained by this set" action; a largest retained size tile.
+
+From the 2.1 review (M2, L16, L17): build optional indices straight into their sidecar file (`IndexCacheFileWriter` as
+the file-backed column allocator of 6.3) and check the projected peak (graph, reverse CSR, about 28 bytes per object of
+working arrays) against the budget before starting, so a mapped computation never holds a managed copy; give each
+sidecar layout a semantics version, so a dominators sidecar computed under older rules (retaining roots, frozen objects
+alive, the virtual root) is rebuilt like a cache from an older loader.
 
 **Acceptance criteria**: synthetic graphs with known dominators (including cycles and diamonds); known-answer
 retained sizes for fixtures; Medium within memory budget in both modes.
@@ -1553,7 +1632,8 @@ switches.
   peak and chosen modes recorded (from 1.4).
 - View model tests on a single-threaded synchronization context, and a `TimeProvider` for the filter debounce
   (from 1.3).
-- Delete snapshots and sessions (also their `.hsidx` and sidecars, refused while open) from the UI and CLI, and a
+- Delete snapshots and sessions (also their `.hsidx` and its `*.<kind>.hsidx` sidecars, beside the dump or under the
+  fallback cache root, refused while open) from the UI and CLI, and a
   retention rule for old sessions (from 1.1).
 - Capturing service targets whose account cannot write the user's session folder: write into a folder that grants the
   target's account write access, then move the dump into the session (from 1.1; today the error names the cause and

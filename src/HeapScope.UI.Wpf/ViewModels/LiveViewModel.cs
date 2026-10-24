@@ -328,9 +328,10 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
                 return;
             }
 
-            IsRunning = false;
+            // The final status first: whoever sees IsRunning turn false (a test on another thread) then reads it.
             Status = ended ?? string.Create(CultureInfo.CurrentCulture,
                 $"Stopped after {_samples.Count:N0} samples and {run.Captures.Count(c => c.Result is not null)} snapshots.{(run.TimelinePath is { } path ? " Timeline: " + path : string.Empty)}");
+            IsRunning = false;
         });
     }
 }

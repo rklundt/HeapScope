@@ -122,3 +122,70 @@ public static class ReferenceColumns
 
 /// <summary>The objects one object references, in the graph's order (sprint 1.5).</summary>
 public sealed record ReferencesRequest(Guid SnapshotId, ulong Address);
+
+/// <summary>How the worker got a snapshot's reverse references index for a query (sprint 2.1).</summary>
+/// <param name="FromSidecar">Opened from its sidecar file next to the index cache rather than built.</param>
+/// <param name="Mode">Whether the index is held in memory or mapped from its sidecar.</param>
+/// <param name="Seconds">Time spent getting the index for this query (0 when it was already loaded).</param>
+/// <param name="Bytes">The index's size: 4 bytes per object and 4 per reference.</param>
+/// <param name="Saved">The index is saved next to the index cache, so the next open of the snapshot reuses it.</param>
+public sealed record ReverseIndexInfo(bool FromSidecar, SnapshotMemoryMode Mode, double Seconds, long Bytes, bool Saved);
+
+/// <summary>Column names of a referrers result set (sprint 2.1): the objects referencing one object.</summary>
+public static class ReferrerColumns
+{
+    /// <summary>The referrer's field path or array index holding the object, when the snapshot has field values.</summary>
+    public const string Field = "Field";
+    public const string Address = "Address";
+    public const string Type = "Type";
+    public const string Bytes = "Bytes";
+
+    /// <summary>How many of the referrer's references point at the object (two fields holding it count 2).</summary>
+    public const string References = "References";
+}
+
+/// <summary>The objects referencing one object, each once, in address order (sprint 2.1).</summary>
+public sealed record ReferrersRequest(Guid SnapshotId, ulong Address);
+
+/// <summary>
+/// The answer to a referrers query. <see cref="ReferenceCount"/> counts references (a referrer holding the object twice
+/// counts 2); <see cref="FieldsNote"/> says why the Field column is empty when it is. <see cref="CompleteGraph"/> is false
+/// when the snapshot misses objects (a sampled gcdump, a truncated dump), so referrers may be missing (review M9).
+/// </summary>
+public sealed record ReferrersResult(ResultSetInfo Rows, long ReferenceCount, string? FieldsNote, ReverseIndexInfo Index, bool CompleteGraph);
+
+/// <summary>Column names of a type referrers result set (sprint 2.1): the objects referencing a type, by their type.</summary>
+public static class TypeReferrerColumns
+{
+    /// <summary>The referrers' type name.</summary>
+    public const string Type = "Type";
+
+    /// <summary>The referrers' module file name (with the name, the key of a type, ADR-018).</summary>
+    public const string Module = "Module";
+
+    /// <summary>Distinct referring objects of this type.</summary>
+    public const string Objects = "Objects";
+
+    /// <summary>References from them to the type's objects.</summary>
+    public const string References = "References";
+
+    /// <summary>Distinct objects of the type they reference.</summary>
+    public const string Targets = "Targets";
+
+    /// <summary>Shallow size of the referring objects.</summary>
+    public const string Bytes = "Bytes";
+}
+
+/// <summary>
+/// The objects referencing the objects of a type (name and module, like <see cref="InstancesRequest"/>), grouped by their
+/// own type (sprint 2.1).
+/// </summary>
+/// <param name="SortColumn">A column of <see cref="TypeReferrerColumns"/>; null sorts by references.</param>
+public sealed record TypeReferrersRequest(Guid SnapshotId, string TypeName, string? Module, string? SortColumn = null, bool Descending = true);
+
+/// <summary>
+/// The answer to a type referrers query: the matched types, their objects and the references into them.
+/// <see cref="Index"/> is null when no type matched (the index is not built for nothing, review M8);
+/// <see cref="CompleteGraph"/> as in <see cref="ReferrersResult"/>.
+/// </summary>
+public sealed record TypeReferrersResult(ResultSetInfo Rows, int MatchedTypes, long TargetObjects, long ReferenceCount, ReverseIndexInfo? Index, bool CompleteGraph);

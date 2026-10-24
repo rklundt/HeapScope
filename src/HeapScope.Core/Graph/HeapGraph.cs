@@ -53,6 +53,8 @@ public sealed class HeapGraph : IDisposable
 
     private readonly IDisposable? _owner;
     private readonly ulong _totalSize;
+    private readonly Lock _attachedLock = new();
+    private List<IDisposable>? _attached;
     private int _disposed;
 
     private HeapGraph(
@@ -200,12 +202,47 @@ public sealed class HeapGraph : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Disposes <paramref name="owned"/> together with this graph (sprint 2.1): an optional index over the graph, such as
+    /// <see cref="ReverseReferences"/> mapped from a sidecar, then lives exactly as long as the graph, which a snapshot
+    /// releases only after its last lease. Returns false, without taking ownership, when the graph is already disposed.
+    /// </summary>
+    public bool Attach(IDisposable owned)
+    {
+        ArgumentNullException.ThrowIfNull(owned);
+        lock (_attachedLock)
+        {
+            if (_disposed != 0)
+            {
+                return false;
+            }
+
+            (_attached ??= []).Add(owned);
+            return true;
+        }
+    }
+
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        List<IDisposable>? attached;
+        lock (_attachedLock)
         {
-            _owner?.Dispose();
+            if (_disposed != 0)
+            {
+                return;
+            }
+
+            _disposed = 1;
+            attached = _attached;
+            _attached = null;
         }
+
+        foreach (var owned in attached ?? [])
+        {
+            owned.Dispose();
+        }
+
+        _owner?.Dispose();
     }
 
     private ulong FindLargeSize(int objectIndex)
