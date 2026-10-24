@@ -50,6 +50,7 @@ resets it for the next sprint.
   `summary <dump> [--group] [--filter] [--sort] [--format table|csv|json]`, `diff <baseline> <current>
   [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
   [--module] [--filter] [--sort] [--format]`, `object <dump> <address> [--references N] [--format text|json]`,
+  `inspect <dump> [<name>] [--top|--all] [--format]`,
   `trace --pid <id> [--duration]
   [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
 - UI smoke runs: `HeapScope.exe --smoke-synthetic N` or `--smoke-open <dump> [--smoke-compare <dump>]

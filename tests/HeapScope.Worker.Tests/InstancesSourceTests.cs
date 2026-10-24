@@ -95,6 +95,102 @@ public sealed class InstancesSourceTests : IDisposable
         reader.MaxElements.ShouldBe(ReferencesSource.MaxNamedElements);
     }
 
+    [Fact]
+    public void Scopes_narrow_a_type_to_its_loh_its_finalizable_or_its_equal_strings_and_totals_follow()
+    {
+        var builder = new SyntheticGraphBuilder();
+        builder.Object("App.Buffer", 100_000, HeapKind.LargeObjectHeap, module: "App.dll");
+        builder.Object("App.Buffer", 100, HeapKind.Gen0, module: "App.dll", flags: ObjectFlags.HasFinalizer);
+        var texts = new Dictionary<ulong, string>();
+        SyntheticObject String(string text)
+        {
+            var obj = builder.Object("System.String", 22 + (2 * (ulong)text.Length), module: "System.Private.CoreLib.dll", typeKind: TypeKind.String);
+            texts[obj.Address] = text;
+            return obj;
+        }
+
+        var alpha = String("alpha");
+        String("alpha");
+        String("bravo");
+        String("alphas");
+        using var graph = builder.Build();
+        var reader = new TextReader(texts);
+
+        var loh = InstancesSource.Create(graph, null, new InstancesRequest(Guid.Empty, "App.Buffer", "App.dll", Scope: InstanceScope.LargeObjectHeap), Ct);
+        var finalizable = InstancesSource.Create(graph, null, new InstancesRequest(Guid.Empty, "App.Buffer", "App.dll", Scope: InstanceScope.Finalizable), Ct);
+        var same = InstancesSource.Create(graph, reader, new InstancesRequest(Guid.Empty, "System.String", "System.Private.CoreLib.dll", Scope: InstanceScope.SameValue, SameValueAs: alpha.Address), Ct);
+
+        (loh.Count, loh.TotalObjects, loh.TotalBytes).ShouldBe((1, 1L, 100_000L));
+        (finalizable.Count, finalizable.TotalBytes).ShouldBe((1, 100L));
+        same.Count.ShouldBe(2, "bravo has the same size but other text; alphas has another size");
+        Should.Throw<HeapScope.Core.CapabilityNotSupportedException>(() => InstancesSource.Create(graph, null, new InstancesRequest(Guid.Empty, "System.String", "System.Private.CoreLib.dll", Scope: InstanceScope.SameValue, SameValueAs: alpha.Address), Ct));
+        Should.Throw<ArgumentException>(() => InstancesSource.Create(graph, reader, new InstancesRequest(Guid.Empty, "System.String", "System.Private.CoreLib.dll", Scope: InstanceScope.SameValue, SameValueAs: 0x10), Ct));
+    }
+
+    [Fact]
+    public void Inspection_rows_page_like_any_result_set_with_typed_columns()
+    {
+        var builder = new SyntheticGraphBuilder();
+        builder.Object("App.Buffer", 100_000, HeapKind.LargeObjectHeap, module: "App.dll");
+        using var graph = builder.Build();
+        var result = HeapScope.Analysis.Inspections.InspectionCatalog.Find("loh")!.Run(new HeapScope.Analysis.Inspections.InspectionContext(graph, new HeapScope.Core.SnapshotInfo(HeapScope.Core.SnapshotKind.FullDump, "x"), null, null, Ct));
+
+        var source = new InspectionSource(result.Rows);
+
+        source.Columns.Select(c => (c.Name, c.Kind)).ShouldBe(
+        [
+            ("Type", ResultColumnKind.Text), ("Objects", ResultColumnKind.Integer), ("Bytes", ResultColumnKind.Bytes),
+            (InspectionColumns.TypeName, ResultColumnKind.Text), (InspectionColumns.Module, ResultColumnKind.Text), (InspectionColumns.Scope, ResultColumnKind.Text),
+        ]);
+        source.Columns.Single(c => c.IsKey).Name.ShouldBe("Type");
+        Format(source, 0)[5].ShouldBe(nameof(InstanceScope.LargeObjectHeap), "the scope cell names the contract's instance scope");
+    }
+
+    /// <summary>Answers string reads from a table.</summary>
+    private sealed class TextReader(IReadOnlyDictionary<ulong, string> texts) : IObjectReader
+    {
+        public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, int maxText, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ObjectValue? ReadField(ulong address, string path, int maxText = 1000) => throw new NotSupportedException();
+
+        public string? ReadString(ulong address, int maxLength) => texts.GetValueOrDefault(address);
+
+        public void ReadStrings(IReadOnlyList<ulong> addresses, int maxLength, Action<int, string?> onEach, CancellationToken cancellationToken)
+        {
+            for (var i = 0; i < addresses.Count; i++)
+            {
+                onEach(i, texts.GetValueOrDefault(addresses[i]));
+            }
+        }
+
+        public IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public void ReadStringPieces(IReadOnlyList<ulong> addresses, StringPieceHandler onPiece, CancellationToken cancellationToken)
+        {
+            // Small pieces, so the streaming path is exercised across piece boundaries.
+            for (var i = 0; i < addresses.Count; i++)
+            {
+                if (!texts.TryGetValue(addresses[i], out var text))
+                {
+                    onPiece(i, -1, [], true);
+                    continue;
+                }
+
+                if (text.Length == 0)
+                {
+                    onPiece(i, 0, [], true);
+                    continue;
+                }
+
+                for (var offset = 0; offset < text.Length; offset += 7)
+                {
+                    var count = Math.Min(7, text.Length - offset);
+                    onPiece(i, text.Length, text.AsSpan(offset, count), offset + count >= text.Length);
+                }
+            }
+        }
+    }
+
     public void Dispose() => _graph.Dispose();
 
     /// <summary>Answers reference paths from a table; nothing else is read.</summary>
@@ -102,9 +198,15 @@ public sealed class InstancesSourceTests : IDisposable
     {
         public int MaxElements { get; private set; }
 
-        public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, int maxText, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ObjectValue? ReadField(ulong address, string path, int maxText = 1000) => throw new NotSupportedException();
 
         public string? ReadString(ulong address, int maxLength) => throw new NotSupportedException();
+
+        public void ReadStrings(IReadOnlyList<ulong> addresses, int maxLength, Action<int, string?> onEach, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public void ReadStringPieces(IReadOnlyList<ulong> addresses, StringPieceHandler onPiece, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken)
         {

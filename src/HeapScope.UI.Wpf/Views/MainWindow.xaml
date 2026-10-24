@@ -430,6 +430,90 @@
               </DataGrid>
             </DockPanel>
           </TabItem>
+
+          <!-- Inspections of the selected snapshot (sprint 1.6, ADR-020): tiles with finding, cause and fix, fragmentation
+               bars, and the selected inspection's rows; double-click opens a row's objects on the Snapshot tab. -->
+          <TabItem Header="Inspections">
+            <DockPanel DataContext="{Binding Inspections}" Margin="0,8,0,0">
+              <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,6"
+                         Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+              <ScrollViewer DockPanel.Dock="Left" Width="360" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
+                <StackPanel>
+                  <ListBox ItemsSource="{Binding Tiles}" SelectedItem="{Binding Selected}" BorderThickness="0"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                      <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,6" />
+                      </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6">
+                          <StackPanel>
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap">
+                              <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasFindings}" Value="True">
+                                      <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsAvailable}" Value="False">
+                                      <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding Status}" Foreground="{DynamicResource Brush.Subtle}"
+                                       Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+                            <ItemsControl ItemsSource="{Binding FirstRows}" Margin="0,2,0,0">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <TextBlock Text="{Binding}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding}" />
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                                       Visibility="{Binding Note, Converter={StaticResource NotEmptyToVisibility}}" />
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Text="Fragmentation (free share of each heap)" FontWeight="SemiBold" Margin="0,8,0,4"
+                             Visibility="{Binding HasFragments, Converter={StaticResource BoolToVisibility}}" />
+                  <ItemsControl ItemsSource="{Binding Fragments}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <StackPanel Margin="0,0,0,6">
+                          <TextBlock Text="{Binding Text}" FontSize="11" TextWrapping="Wrap" />
+                          <ProgressBar Height="6" Minimum="0" Maximum="1" Value="{Binding FreeFraction, Mode=OneWay}" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </ScrollViewer>
+
+              <StackPanel DockPanel.Dock="Top" DataContext="{Binding Selected}" Margin="0,0,0,6"
+                          Visibility="{Binding Converter={StaticResource NotEmptyToVisibility}}">
+                <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding Summary}" />
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"><Run Text="Cause: " /><Run Text="{Binding Cause, Mode=OneWay}" /></TextBlock>
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"><Run Text="Fix: " /><Run Text="{Binding Fix, Mode=OneWay}" /></TextBlock>
+              </StackPanel>
+              <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                        GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="False" SelectionMode="Single"
+                        EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                        VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                        ScrollViewer.CanContentScroll="True"
+                        ctl:GridColumns.NumberStyle="{StaticResource NumberCell}" ctl:GridColumns.Source="{Binding Columns}"
+                        ctl:GridDrill.Command="{Binding OpenRowCommand}" ToolTip="Double-click or Enter opens the row's objects on the Snapshot tab." />
+            </DockPanel>
+          </TabItem>
         </TabControl>
       </DockPanel>
     </DataTemplate>

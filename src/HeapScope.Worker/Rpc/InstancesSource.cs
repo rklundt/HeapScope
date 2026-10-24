@@ -124,6 +124,18 @@ internal sealed class InstancesSource : IResultSource
             }
         }
 
+        // A scope (sprint 1.6, what an inspection row opens) narrows the set first; totals then describe the scope.
+        if (request.Scope != InstanceScope.All)
+        {
+            objects = Scoped(graph, reader, objects, request, cancellationToken);
+            total = objects.Length;
+            totalBytes = 0;
+            foreach (var obj in objects)
+            {
+                totalBytes += (long)graph.GetSize(obj);
+            }
+        }
+
         // Filter in place: the kept objects move to the front, still in address order.
         var kept = total;
         if (filter.IsActive)
@@ -154,6 +166,39 @@ internal sealed class InstancesSource : IResultSource
 
         SortByKey(graph, objects, sortColumn, request.Descending, cancellationToken);
         return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes);
+    }
+
+    /// <summary>The objects of the scope: on the large object heap, still to be finalized, or strings equal to one string.</summary>
+    private static int[] Scoped(HeapGraph graph, IObjectReader? reader, int[] objects, InstancesRequest request, CancellationToken cancellationToken)
+    {
+        switch (request.Scope)
+        {
+            case InstanceScope.LargeObjectHeap:
+                return [.. objects.Where(o => graph.HeapKinds[o] == HeapKind.LargeObjectHeap)];
+            case InstanceScope.Finalizable:
+                var ready = HeapScope.Analysis.Inspections.Finalization.ReadyObjects(graph);
+                return [.. objects.Where(o => graph.Flags[o].HasFlag(ObjectFlags.HasFinalizer) || ready.Contains(o))];
+            case InstanceScope.SameValue:
+                if (reader is null)
+                {
+                    throw new CapabilityNotSupportedException(SnapshotCapabilities.StringContents);
+                }
+
+                var modelHash = HeapScope.Analysis.Inspections.StringHashes.Compute(reader, [request.SameValueAs], out var modelValid, cancellationToken);
+                if (!graph.TryGetIndex(request.SameValueAs, out var model) || !modelValid[0])
+                {
+                    throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no string at 0x{request.SameValueAs:x} in this snapshot."));
+                }
+
+                // Equal text means equal size: only strings of the model's size are read, and compared by the same
+                // streamed hash duplicate strings groups by (no text is built, review H2).
+                var size = graph.GetSize(model);
+                var candidates = objects.Where(o => graph.GetSize(o) == size).ToArray();
+                var hashes = HeapScope.Analysis.Inspections.StringHashes.Compute(reader, [.. candidates.Select(o => graph.Addresses[o])], out var valid, cancellationToken);
+                return [.. candidates.Where((_, k) => valid[k] && hashes[k] == modelHash[0])];
+            default:
+                throw new ArgumentException($"Unknown instance scope {request.Scope}.");
+        }
     }
 
     /// <summary>Strings a sort by value may hold (their first <see cref="ValueLength"/> characters each).</summary>

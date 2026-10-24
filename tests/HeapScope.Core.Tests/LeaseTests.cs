@@ -75,9 +75,19 @@ public class LeaseTests
     {
         public bool Disposed { get; private set; }
 
-        public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, CancellationToken cancellationToken) => [];
+        public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, int maxText, CancellationToken cancellationToken) => [];
+
+        public ObjectValue? ReadField(ulong address, string path, int maxText = 1000) => null;
 
         public string? ReadString(ulong address, int maxLength) => null;
+
+        public void ReadStrings(IReadOnlyList<ulong> addresses, int maxLength, Action<int, string?> onEach, CancellationToken cancellationToken)
+        {
+        }
+
+        public void ReadStringPieces(IReadOnlyList<ulong> addresses, StringPieceHandler onPiece, CancellationToken cancellationToken)
+        {
+        }
 
         public IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken) =>
             new Dictionary<ulong, string>();

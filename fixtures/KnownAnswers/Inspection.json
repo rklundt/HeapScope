@@ -35,7 +35,12 @@
     { "path": "Grid[1,2]", "value": "6" },
     { "path": "Pairs[1].Key", "value": "2" },
     { "path": "Pairs[1].Value", "value": "\"two\"" },
-    { "path": "Repeated", "value": "Fixtures.Leaks.InspectionChild[10]" }
+    { "path": "Repeated", "value": "Fixtures.Leaks.InspectionChild[10]" },
+    { "path": "Boxed", "value": "12345 (boxed int)" },
+    { "path": "Access", "value": "Read, Write (3)" },
+    { "path": "LongText", "valuePrefix": "\"xxxxxxxxxx", "length": 1005 },
+    { "path": "Colors", "value": "Fixtures.Leaks.InspectionColor[2]" },
+    { "path": "Colors[1]", "value": "Blue (4)" }
   ],
-  "notes": "Field paths use the names an inspection shows: property names for compiler backing fields, dots into nested structs, [i] for array elements. Values are invariant culture: strings quoted, null as null, chars in single quotes, booleans lower case, enums as Name (value), arrays as element type[length] ([rows,columns] for multi-dimensional arrays, whose elements are [i,j]). Child is a reference: its type is checked, its address varies."
+  "notes": "Field paths use the names an inspection shows: property names for compiler backing fields, dots into nested structs, [i] for array elements. Values are invariant culture: strings quoted, null as null, chars in single quotes, booleans lower case, enums as Name (value) and [Flags] combinations as Name, Name (value), boxed primitives as value (boxed type), strings longer than 1,000 characters cut there with three dots, arrays as element type[length] ([rows,columns] for multi-dimensional arrays, whose elements are [i,j]). Child is a reference: its type is checked, its address varies."
 }

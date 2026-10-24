@@ -18,6 +18,7 @@ internal sealed record KnownAnswer(
     IReadOnlyList<string>? PresentButUnreachable,
     IReadOnlyList<HeapKindAnswer>? HeapKinds,
     IReadOnlyList<FieldAnswer>? Fields,
+    IReadOnlyList<FindingAnswer>? Findings,
     string Notes)
 {
     public const int CurrentFormatVersion = 1;
@@ -84,5 +85,11 @@ internal sealed record RetainedBytes(int Base, int PayloadMultiplier);
 
 internal sealed record HeapKindAnswer(string Type, string Field, string HeapKind);
 
-/// <summary>An expected field of an inspected object: its display path and either its value text or its reference type.</summary>
-internal sealed record FieldAnswer(string Path, string? Value, string? Type);
+/// <summary>
+/// An expected field of an inspected object: its display path and either its value text, its reference type, or (for a
+/// long value) the start of its text and its display length.
+/// </summary>
+internal sealed record FieldAnswer(string Path, string? Value, string? Type, string? ValuePrefix = null, int? Length = null);
+
+/// <summary>What a simple inspection must report (sprint 1.6; README, `findings`).</summary>
+internal sealed record FindingAnswer(string Inspection, string Key, long Count, bool Exact = true);

@@ -201,7 +201,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// The objects of a type (sprint 1.5): every type with this name and module file name (the key of summary and diff
     /// rows). The rows re-run the query when the set is gone, reopening the snapshot after a worker restart.
     /// </summary>
-    public async Task<InstanceList> QueryInstancesAsync(
+    public Task<InstanceList> QueryInstancesAsync(
         SnapshotHandle handle,
         string typeName,
         string? module,
@@ -209,16 +209,26 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         string? sortColumn,
         bool descending,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        QueryInstancesAsync(handle, new InstancesQuery(typeName, module, filter, sortColumn, descending), progress, cancellationToken);
+
+    /// <summary>
+    /// The objects of a type within a scope (sprint 1.6: what an inspection row opens, such as the type's objects on the
+    /// large object heap, or the strings equal to one string).
+    /// </summary>
+    public async Task<InstanceList> QueryInstancesAsync(SnapshotHandle handle, InstancesQuery query, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
-        ArgumentNullException.ThrowIfNull(typeName);
+        ArgumentNullException.ThrowIfNull(query);
         InstancesResult? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
             latest = await UseAsync(
                 handle,
-                (service, id, innerCt) => service.QueryInstancesAsync(new InstancesRequest(id, typeName, module, filter, sortColumn, descending), progress, innerCt),
+                (service, id, innerCt) => service.QueryInstancesAsync(
+                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs),
+                    progress,
+                    innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -227,6 +237,31 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
         return new InstanceList(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
+    /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
+    public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.ListInspectionsAsync(id, ct), cancellationToken);
+
+    /// <summary>
+    /// Runs an inspection (sprint 1.6). Its rows re-run it when the set is gone, reopening the snapshot after a worker
+    /// restart, like any query.
+    /// </summary>
+    public async Task<InspectionRun> RunInspectionAsync(SnapshotHandle handle, string name, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        InspectionResultDto? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(handle, (service, id, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name), progress, innerCt), ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+
+        // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
+        return new InspectionRun(new ResultSetHandle(worker, info, RunAsync), latest!);
     }
 
     /// <summary>One object's details and, when the snapshot reads its dump, its fields (sprint 1.5).</summary>

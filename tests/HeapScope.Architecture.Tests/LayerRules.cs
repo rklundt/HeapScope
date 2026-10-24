@@ -10,7 +10,7 @@ internal static class LayerRules
     private static readonly Dictionary<string, Rule> s_rules = new(StringComparer.Ordinal)
     {
         ["HeapScope.Core"] = new([], [], AllowsMicrosoftExtensions: false),
-        ["HeapScope.Analysis"] = new(["HeapScope.Core"], []),
+        ["HeapScope.Analysis"] = new(["HeapScope.Core"], ["System.IO.Hashing"]),
         ["HeapScope.Storage"] = new(["HeapScope.Core"], ["System.IO.Hashing"]),
         ["HeapScope.Capture"] = new(
             ["HeapScope.Core"],

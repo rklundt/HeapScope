@@ -2,7 +2,8 @@ using System.Globalization;
 using Fixtures.Leaks;
 
 // Usage: LeakyConsole [--leak all|none|Name1,Name2] [--count N] [--payload BYTES] [--publishers N]
-//                     [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--parent-pid PID]
+//                     [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+//                     [--parent-pid PID]
 // Leaks the requested items, prints "READY pid=<pid>" and waits until killed (or until the parent exits), so a test
 // can capture a dump. Late garbage is created after the last full collection, so it is present but unreachable.
 var leakNames = Arg("--leak") ?? "all";
@@ -37,9 +38,21 @@ if (args.Contains("--inspection"))
     InspectionFixtures.Create();
 }
 
+if (args.Contains("--waste"))
+{
+    WasteFixtures.Create();
+}
+
 GC.Collect();
 GC.WaitForPendingFinalizers();
 GC.Collect();
+
+// After the last wait for pending finalizers (it blocks the finalizer thread for good) and before the late garbage
+// (its collection would take that too).
+if (args.Contains("--waste"))
+{
+    WasteFixtures.CreateFinalizerBacklog();
+}
 
 if (lateGarbage > 0)
 {

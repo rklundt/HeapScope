@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "name": "Waste",
+  "kind": "inspection",
+  "description": "Common memory waste with known amounts (LeakyConsole --waste): duplicated strings, empty and oversized collections, large and sparse arrays, finalizable objects and pinned buffers, for the simple inspections.",
+  "types": [
+    { "type": "Fixtures.Leaks.WasteHolder", "perItem": 1 },
+    { "type": "Fixtures.Leaks.WasteFinalizable", "perItem": 30 },
+    { "type": "Fixtures.Leaks.WasteRecord[]", "perItem": 3 },
+    { "type": "Fixtures.Leaks.WasteNode[]", "perItem": 5 }
+  ],
+  "roots": [
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.WasteFixtures", "field": "s_holder", "itemType": "Fixtures.Leaks.WasteHolder" }
+  ],
+  "findings": [
+    { "inspection": "duplicate-strings", "key": "HeapScope waste duplicate A", "count": 50 },
+    { "inspection": "duplicate-strings", "key": "HeapScope waste duplicate B", "count": 30 },
+    { "inspection": "duplicate-strings", "key": "HeapScope waste duplicate C", "count": 20 },
+    { "inspection": "duplicate-strings", "key": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy...", "count": 3 },
+    { "inspection": "loh", "key": "Fixtures.Leaks.WasteRecord[]", "count": 3 },
+    { "inspection": "large-arrays", "key": "Fixtures.Leaks.WasteRecord[]", "count": 3 },
+    { "inspection": "sparse-arrays", "key": "Fixtures.Leaks.WasteNode[]", "count": 4 },
+    { "inspection": "finalizable", "key": "Fixtures.Leaks.WasteFinalizable", "count": 25 },
+    { "inspection": "finalizable", "key": "Fixtures.Leaks.WasteDoomed", "count": 10, "exact": false },
+    { "inspection": "empty-collections", "key": "System.Collections.Generic.List<Fixtures.Leaks.WasteItem>", "count": 1 },
+    { "inspection": "empty-collections", "key": "System.Collections.Generic.Dictionary<System.Int32, Fixtures.Leaks.WasteItem>", "count": 2 },
+    { "inspection": "oversized-collections", "key": "System.Collections.Generic.List<Fixtures.Leaks.WasteItem>", "count": 1 },
+    { "inspection": "oversized-collections", "key": "System.Collections.Generic.Dictionary<System.Int32, Fixtures.Leaks.WasteItem>", "count": 1 },
+    { "inspection": "oversized-collections", "key": "System.Collections.Generic.HashSet<System.Int32>", "count": 1, "exact": false },
+    { "inspection": "oversized-collections", "key": "System.Collections.Generic.Queue<Fixtures.Leaks.WasteItem>", "count": 1 },
+    { "inspection": "oversized-collections", "key": "System.Collections.Generic.Stack<Fixtures.Leaks.WasteItem>", "count": 1 },
+    { "inspection": "fragmentation", "key": "pinned", "count": 2, "exact": false }
+  ],
+  "notes": "Counts mean: copies of a value (duplicate-strings), objects of a type (loh, finalizable) or rows naming objects of that type (large-arrays, sparse-arrays, empty- and oversized-collections); fragmentation counts pinned objects. Five more WasteFinalizable objects have finalization suppressed and must not be reported; WasteDoomed objects are dead and queued behind a finalizer that never returns (at least ten ready, the finalizer thread holds one); a dense WasteNode[] (32 filled slots) and a right-sized List<WasteItem> (4 of 4) must not be reported. The yyy... key is three copies of a 200,000-character string (the row shows its first 100 characters). One empty Dictionary was created empty, the other emptied by removals. Empty and oversized collections are the fixture's own, except HashSet<Int32>, which the runtime may also create (a lower bound)."
+}

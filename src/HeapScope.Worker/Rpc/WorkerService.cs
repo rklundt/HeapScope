@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime;
+using HeapScope.Analysis.Inspections;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Synthetic;
@@ -230,7 +231,7 @@ internal sealed class WorkerService(
                 (fields, text) = await Task.Run(
                     () =>
                     {
-                        var read = reader.ReadFields(request.Address, MaxInspectedElements, cancellationToken).Select(ToDto).ToArray();
+                        var read = reader.ReadFields(request.Address, MaxInspectedElements, MaxFieldText, cancellationToken).Select(ObjectFormatter.ToDto).ToArray();
                         var str = graph.Types.Kinds[type].HasFlag(Core.Graph.TypeKind.String) ? reader.ReadString(request.Address, MaxInspectedText) : null;
                         return ((IReadOnlyList<ObjectFieldDto>)read, str);
                     },
@@ -271,6 +272,52 @@ internal sealed class WorkerService(
             // The source formats pages from the graph, so the set keeps a lease of its own.
             var owner = snapshot.AcquireLease();
             return resultSets.Add(source, owner);
+        });
+
+    public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        GuardAsync(() =>
+        {
+            var (snapshot, lease) = Lease(snapshotId);
+            using var _ = lease;
+            IReadOnlyList<InspectionInfo> list = [.. InspectionCatalog.All.Select(i => new InspectionInfo(i.Name, i.Title, i.Cause, i.Fix, InspectionAvailability.Explain(i, snapshot.Capabilities, snapshot.Info)))];
+            return Task.FromResult(list);
+        });
+
+    public Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            var inspection = InspectionCatalog.Find(request.Name)
+                ?? throw new ArgumentException($"Unknown inspection {request.Name}. Inspections: {string.Join(", ", InspectionCatalog.All.Select(i => i.Name))}.");
+            var stopwatch = Stopwatch.StartNew();
+
+            // The set keeps the lease: its rows read the graph while it lives.
+            var (snapshot, lease) = Lease(request.SnapshotId);
+            try
+            {
+                if (InspectionAvailability.Explain(inspection, snapshot.Capabilities, snapshot.Info) is { } why)
+                {
+                    throw new CapabilityNotSupportedException(why);
+                }
+
+                snapshot.TryGetService<IObjectReader>(out var reader);
+                var throttled = new ThrottledProgress<JobProgress>(progress);
+                var context = new InspectionContext(
+                    snapshot.Graph,
+                    snapshot.Info,
+                    reader,
+                    new CallbackProgress<InspectionProgress>(p => throttled.Report(new JobProgress(p.Phase, p.Done, p.Total))),
+                    cancellationToken);
+                var result = await Task.Run(() => inspection.Run(context), cancellationToken).ConfigureAwait(false);
+                throttled.Flush();
+                var rows = resultSets.Add(new InspectionSource(result.Rows), lease);
+                return new InspectionResultDto(inspection.Name, result.Count, result.Bytes, result.WastedBytes, result.Note, rows, stopwatch.Elapsed.TotalSeconds);
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
         });
 
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
@@ -329,8 +376,8 @@ internal sealed class WorkerService(
     /// <summary>Characters of a string returned with its object.</summary>
     private const int MaxInspectedText = 10_000;
 
-    private static ObjectFieldDto ToDto(ObjectField field) =>
-        new(field.Name, field.TypeName, (ObjectFieldKindDto)(int)field.Kind, field.Value, field.Address, [.. field.Children.Select(ToDto)]);
+    /// <summary>Characters of a string shown in a field (longer ones end with "...").</summary>
+    private const int MaxFieldText = 1_000;
 
     /// <summary>A loaded snapshot and a lease on it; a snapshot closed meanwhile refuses the lease.</summary>
     private (ISnapshot Snapshot, SnapshotLease Lease) Lease(Guid snapshotId)
@@ -425,5 +472,11 @@ internal sealed class WorkerService(
     private sealed class CallbackProgress(Action<long> report) : IProgress<long>
     {
         public void Report(long value) => report(value);
+    }
+
+    /// <summary>Reports synchronously on the reporting thread (<see cref="Progress{T}"/> would post and reorder).</summary>
+    private sealed class CallbackProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

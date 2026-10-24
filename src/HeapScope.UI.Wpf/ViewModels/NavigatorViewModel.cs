@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
+using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.Wpf.ViewModels;
@@ -78,10 +79,10 @@ public sealed partial class NavigatorViewModel : ObservableObject
         Move(0);
     }
 
-    /// <summary>Shows the objects of a type in <paramref name="snapshot"/>.</summary>
-    public InstancesViewModel OpenInstances(SnapshotHandle snapshot, string typeName, string? module)
+    /// <summary>Shows the objects of a type in <paramref name="snapshot"/>, all of them or those in a scope (sprint 1.6).</summary>
+    public InstancesViewModel OpenInstances(SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope = InstanceScope.All, ulong sameValueAs = 0)
     {
-        var instances = new InstancesViewModel(_session, snapshot, typeName, module, _loggers?.CreateLogger<InstancesViewModel>());
+        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, _loggers?.CreateLogger<InstancesViewModel>());
         instances.OpenRowCommand = OpenInstanceRowCommand;
         Push(instances);
         instances.Start();

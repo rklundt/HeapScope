@@ -52,6 +52,22 @@ public sealed class IndexCacheTests : IDisposable
     }
 
     [Fact]
+    public void Free_space_per_heap_kind_survives_a_round_trip_and_an_older_cache_has_none()
+    {
+        using var graph = CreateGraph("rich");
+        var cache = Path.Combine(_directory, "free.hsidx");
+        var metadata = _metadata with { Info = _metadata.Info with { FreeBytes = [0, 10, 20, 3000, 40, 0, 0] } };
+        IndexCacheWriter.Write(cache, graph, metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+
+        var result = IndexCacheReader.Open(cache, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeTrue(result.Detail);
+        using var copy = result.Graph!;
+        result.Metadata!.Info.FreeBytes.ShouldBe([0L, 10L, 20L, 3000L, 40L, 0L, 0L]);
+        _metadata.Info.FreeBytes.ShouldBeNull("metadata written without it (before 1.6) reads as unknown");
+    }
+
+    [Fact]
     public void Writing_twice_produces_identical_bytes()
     {
         using var graph = CreateGraph("rich");

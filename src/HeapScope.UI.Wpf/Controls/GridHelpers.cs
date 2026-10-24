@@ -314,3 +314,92 @@ public sealed class SameToVisibilityConverter : IMultiValueConverter
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Columns built from a result set's column list (sprint 1.6: each inspection has its own). A column shows
+/// <c>Display[i]</c> of the row; numbers are right aligned with <paramref name="NumberStyle"/>.
+/// </summary>
+public static class GridColumns
+{
+    public static readonly DependencyProperty SourceProperty = DependencyProperty.RegisterAttached(
+        "Source",
+        typeof(IReadOnlyList<(ResultColumn Column, int Index)>),
+        typeof(GridColumns),
+        new PropertyMetadata(null, OnSourceChanged));
+
+    public static readonly DependencyProperty NumberStyleProperty = DependencyProperty.RegisterAttached(
+        "NumberStyle", typeof(Style), typeof(GridColumns), new PropertyMetadata(null));
+
+    public static IReadOnlyList<(ResultColumn Column, int Index)>? GetSource(DependencyObject element) =>
+        (IReadOnlyList<(ResultColumn Column, int Index)>?)element.GetValue(SourceProperty);
+
+    public static void SetSource(DependencyObject element, IReadOnlyList<(ResultColumn Column, int Index)>? value) => element.SetValue(SourceProperty, value);
+
+    public static Style? GetNumberStyle(DependencyObject element) => (Style?)element.GetValue(NumberStyleProperty);
+
+    public static void SetNumberStyle(DependencyObject element, Style? value) => element.SetValue(NumberStyleProperty, value);
+
+    /// <summary>A column header from a column name: words split at capitals ("NullSlots" is "Null slots"), percent as "%".</summary>
+    public static string Header(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (name.EndsWith("Percent", StringComparison.Ordinal))
+        {
+            return Header(name[..^"Percent".Length]) + " %";
+        }
+
+        var text = new System.Text.StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(name[i]))
+            {
+                text.Append(' ').Append(char.ToLowerInvariant(name[i]));
+            }
+            else
+            {
+                text.Append(name[i]);
+            }
+        }
+
+        return text.ToString();
+    }
+
+    private static void OnSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not DataGrid grid)
+        {
+            return;
+        }
+
+        grid.Columns.Clear();
+        if (e.NewValue is not IReadOnlyList<(ResultColumn Column, int Index)> columns)
+        {
+            return;
+        }
+
+        var numberStyle = GetNumberStyle(grid);
+        foreach (var (column, index) in columns)
+        {
+            var numeric = column.Kind is ResultColumnKind.Integer or ResultColumnKind.Bytes or ResultColumnKind.Percent or ResultColumnKind.SignedInteger;
+            var text = new DataGridTextColumn
+            {
+                Header = Header(column.Name),
+                Binding = new Binding($"Display[{index.ToString(CultureInfo.InvariantCulture)}]"),
+                Width = numeric ? new DataGridLength(110) : new DataGridLength(1, DataGridLengthUnitType.Star),
+                CanUserSort = false,
+            };
+            if (numeric && numberStyle is not null)
+            {
+                text.ElementStyle = numberStyle;
+            }
+
+            if (column.Kind == ResultColumnKind.Address)
+            {
+                text.FontFamily = new System.Windows.Media.FontFamily("Consolas");
+                text.Width = new DataGridLength(150);
+            }
+
+            grid.Columns.Add(text);
+        }
+    }
+}

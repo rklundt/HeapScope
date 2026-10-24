@@ -5,33 +5,24 @@ using Microsoft.Diagnostics.Runtime;
 namespace HeapScope.Loaders.ClrMd;
 
 /// <summary>
-/// Reads field values, strings and reference paths from a full dump (sprint 1.5, <see cref="IObjectReader"/>). The dump
-/// is opened with ClrMD on first use, not when the snapshot opens, so snapshots nobody inspects cost nothing; reads are
-/// serialized (ClrMD's caches are not meant for concurrent readers) and the dump is released on dispose.
+/// Reads field values, strings and reference paths from a full dump (sprint 1.5, <see cref="IObjectReader"/>), as typed
+/// values (sprint 1.6; the worker formats them). The dump is opened with ClrMD on first use, not when the snapshot
+/// opens, so snapshots nobody inspects cost nothing; reads are serialized (ClrMD's caches are not meant for concurrent
+/// readers) and the dump is released on dispose.
 /// </summary>
 public sealed class ClrMdObjectReader : IObjectReader, IDisposable
 {
-    private const int MaxStringField = 1000;
+    /// <summary>Chunk of strings read per lock acquisition by <see cref="ReadStrings"/>.</summary>
+    private const int StringChunk = 4096;
 
-    private static readonly Dictionary<string, string> s_aliases = new(StringComparer.Ordinal)
-    {
-        ["System.Boolean"] = "bool",
-        ["System.Char"] = "char",
-        ["System.SByte"] = "sbyte",
-        ["System.Byte"] = "byte",
-        ["System.Int16"] = "short",
-        ["System.UInt16"] = "ushort",
-        ["System.Int32"] = "int",
-        ["System.UInt32"] = "uint",
-        ["System.Int64"] = "long",
-        ["System.UInt64"] = "ulong",
-        ["System.Single"] = "float",
-        ["System.Double"] = "double",
-        ["System.String"] = "string",
-        ["System.Object"] = "object",
-        ["System.IntPtr"] = "nint",
-        ["System.UIntPtr"] = "nuint",
-    };
+    /// <summary>Characters per piece of <see cref="ReadStringPieces"/> (128 KB of UTF-16).</summary>
+    private const int PieceChars = 64 * 1024;
+
+    /// <summary>
+    /// Characters streamed per lock acquisition by <see cref="ReadStringPieces"/>: a batch of huge strings releases the
+    /// lock often enough for other reads (pages, the object view) to get in (review of 1.6).
+    /// </summary>
+    private const long CharBudget = 16L * 1024 * 1024;
 
     private readonly string _dumpPath;
     private readonly ClrMdLoaderOptions _options;
@@ -56,7 +47,7 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
     /// <summary>Whether the dump has been opened (tests: nothing is opened until something is read).</summary>
     public bool IsOpen => _runtime is not null;
 
-    public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, CancellationToken cancellationToken)
+    public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, int maxText, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -66,9 +57,52 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
                 return [];
             }
 
+            var context = new ReadContext(maxElements, maxText, cancellationToken);
             return obj.IsArray
-                ? Elements(obj.AsArray(), maxElements, cancellationToken)
-                : Fields(type, obj.Address, interior: false, maxElements, depth: 0, cancellationToken);
+                ? Elements(obj.AsArray(), context)
+                : Fields(type, obj.Address, interior: false, depth: 0, context);
+        }
+    }
+
+    public ObjectValue? ReadField(ulong address, string path, int maxText = 1000)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        lock (_gate)
+        {
+            var obj = Object(address);
+            var context = new ReadContext(0, maxText, CancellationToken.None);
+            var steps = path.Split('.');
+            var type = obj.Type;
+            var at = obj.Address;
+            var interior = false;
+            for (var i = 0; i < steps.Length; i++)
+            {
+                if (type is null || FindField(type, steps[i]) is not { } field)
+                {
+                    return null;
+                }
+
+                var value = Value(field, at, interior, depth: 0, context, out var structType, out var target);
+                if (i == steps.Length - 1)
+                {
+                    return value;
+                }
+
+                if (structType is not null)
+                {
+                    (type, at, interior) = (structType, value.Address, true);
+                }
+                else if (target is { IsNull: false, IsValid: true } next)
+                {
+                    (type, at, interior) = (next.Type, next.Address, false);
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
+            return null;
         }
     }
 
@@ -79,6 +113,99 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
             var obj = Object(address);
             return obj.Type?.IsString == true ? obj.AsString(maxLength) : null;
         }
+    }
+
+    public void ReadStrings(IReadOnlyList<ulong> addresses, int maxLength, Action<int, string?> onEach, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(addresses);
+        ArgumentNullException.ThrowIfNull(onEach);
+        for (var start = 0; start < addresses.Count; start += StringChunk)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var end = Math.Min(start + StringChunk, addresses.Count);
+            var texts = new string?[end - start];
+            lock (_gate)
+            {
+                EnsureOpen();
+                for (var i = start; i < end; i++)
+                {
+                    var obj = _runtime!.Heap.GetObject(addresses[i]);
+                    texts[i - start] = obj.IsValid && obj.Type?.IsString == true ? obj.AsString(maxLength) : null;
+                }
+            }
+
+            // Outside the lock: the handler may be slow (hashing) and must not block other readers.
+            for (var i = start; i < end; i++)
+            {
+                onEach(i, texts[i - start]);
+            }
+        }
+    }
+
+    public void ReadStringPieces(IReadOnlyList<ulong> addresses, StringPieceHandler onPiece, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(addresses);
+        ArgumentNullException.ThrowIfNull(onPiece);
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(PieceChars * 2);
+        try
+        {
+            var next = 0;
+            while (next < addresses.Count)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var end = Math.Min(next + StringChunk, addresses.Count);
+                lock (_gate)
+                {
+                    EnsureOpen();
+                    long streamed = 0;
+                    while (next < end && streamed < CharBudget)
+                    {
+                        streamed += Stream(next, addresses[next], buffer, onPiece, cancellationToken);
+                        next++;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>Reads one string's UTF-16 characters straight from the dump, after its method table and length; returns its length.</summary>
+    private int Stream(int index, ulong address, byte[] buffer, StringPieceHandler onPiece, CancellationToken cancellationToken)
+    {
+        var obj = _runtime!.Heap.GetObject(address);
+        if (!obj.IsValid || obj.Type is not { IsString: true } type || type.GetFieldByName("_stringLength") is not { } lengthField)
+        {
+            onPiece(index, -1, [], last: true);
+            return 0;
+        }
+
+        var length = lengthField.Read<int>(obj.Address, interior: false);
+        if (length <= 0)
+        {
+            onPiece(index, 0, [], last: true);
+            return 0;
+        }
+
+        var first = obj.Address + (ulong)_target!.DataReader.PointerSize + sizeof(int);
+        for (var offset = 0; offset < length; offset += PieceChars)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(PieceChars, length - offset);
+            var bytes = buffer.AsSpan(0, count * 2);
+            if (_target.DataReader.Read(first + ((ulong)offset * 2), bytes) != bytes.Length)
+            {
+                // Part of the text is missing from the dump: the string is not readable as a whole.
+                onPiece(index, -1, [], last: true);
+                return length;
+            }
+
+            onPiece(index, length, System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(bytes), offset + count >= length);
+        }
+
+        return length;
     }
 
     public IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken)
@@ -152,6 +279,13 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
 
     private ClrObject Object(ulong address)
     {
+        EnsureOpen();
+        var obj = _runtime!.Heap.GetObject(address);
+        return obj.IsValid ? obj : throw new ArgumentException($"There is no object at 0x{address:x} in the dump.", nameof(address));
+    }
+
+    private void EnsureOpen()
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_runtime is null)
         {
@@ -168,111 +302,147 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
                 throw;
             }
         }
-
-        var obj = _runtime.Heap.GetObject(address);
-        return obj.IsValid ? obj : throw new ArgumentException($"There is no object at 0x{address:x} in the dump.", nameof(address));
     }
 
-    private static List<ObjectField> Fields(ClrType type, ulong address, bool interior, int maxElements, int depth, CancellationToken cancellationToken)
+    private static List<ObjectField> Fields(ClrType type, ulong address, bool interior, int depth, ReadContext context)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        context.CancellationToken.ThrowIfCancellationRequested();
         var fields = new List<ObjectField>();
         foreach (var field in type.Fields)
         {
-            fields.Add(Field(field, address, interior, maxElements, depth, cancellationToken));
+            var value = Value(field, address, interior, depth, context, out var structType, out var target);
+            IReadOnlyList<ObjectField> children = structType is not null && depth < 8
+                ? Fields(structType, value.Address, interior: true, depth + 1, context)
+                : value.Kind == ObjectValueKind.Array && depth < 1
+                    ? Elements(target.AsArray(), context)
+                    : [];
+            fields.Add(new ObjectField(DisplayName(field.Name ?? "?"), field.Type?.Name ?? field.ElementType.ToString(), value, children));
         }
 
         return fields;
     }
 
-    private static ObjectField Field(ClrInstanceField field, ulong address, bool interior, int maxElements, int depth, CancellationToken cancellationToken)
+    /// <summary>
+    /// A field's value. <paramref name="structType"/> is set for an embedded struct (its fields start at the value's
+    /// address); <paramref name="target"/> is the referenced object for references.
+    /// </summary>
+    private static ObjectValue Value(ClrInstanceField field, ulong address, bool interior, int depth, ReadContext context, out ClrType? structType, out ClrObject target)
     {
-        var name = DisplayName(field.Name ?? "?");
-        var typeName = field.Type?.Name ?? field.ElementType.ToString();
+        structType = null;
+        target = default;
         if (field.IsObjectReference)
         {
-            var target = field.ReadObject(address, interior);
-            return Reference(name, typeName, target, maxElements, depth, cancellationToken);
+            target = field.ReadObject(address, interior);
+            return Reference(target, context);
         }
 
         if (field.IsValueType && field.ElementType == ClrElementType.Struct)
         {
             var value = field.ReadStruct(address, interior);
-            if (value.Type is not { } structType || depth >= 8)
-            {
-                return new ObjectField(name, typeName, ObjectFieldKind.Struct, "?", 0, []);
-            }
-
-            return new ObjectField(name, structType.Name ?? typeName, ObjectFieldKind.Struct, Alias(structType.Name), 0, Fields(structType, value.Address, interior: true, maxElements, depth + 1, cancellationToken));
+            structType = value.Type;
+            return new ObjectValue(ObjectValueKind.Struct) { TypeName = value.Type?.Name ?? field.Type?.Name, Address = value.Address };
         }
 
-        return new ObjectField(name, typeName, ObjectFieldKind.Primitive, Primitive(field.ElementType, field.Type, new FieldSource(field, address, interior)), 0, []);
+        return Primitive(field.ElementType, field.Type, new FieldSource(field, address, interior));
     }
 
-    private static ObjectField Reference(string name, string declaredType, ClrObject target, int maxElements, int depth, CancellationToken cancellationToken)
+    private static ObjectValue Reference(ClrObject target, ReadContext context)
     {
         if (target.IsNull)
         {
-            return new ObjectField(name, declaredType, ObjectFieldKind.Null, "null", 0, []);
+            return ObjectValue.Null;
         }
 
         if (target.Type is not { } type)
         {
-            // A reference to something that is not an object here (a truncated or damaged dump): say so, never "null".
-            return new ObjectField(name, declaredType, ObjectFieldKind.Primitive, string.Create(CultureInfo.InvariantCulture, $"0x{target.Address:x} (not a valid object in this dump)"), 0, []);
+            // A reference to something that is not an object here (a truncated or damaged dump): never "null".
+            return new ObjectValue(ObjectValueKind.Invalid) { Address = target.Address };
         }
 
         if (type.IsString)
         {
-            return new ObjectField(name, declaredType, ObjectFieldKind.String, Quote(target.AsString(MaxStringField)), target.Address, []);
+            var length = type.GetFieldByName("_stringLength") is { } lengthField ? lengthField.Read<int>(target.Address, interior: false) : 0;
+            var text = target.AsString(context.MaxText);
+            return new ObjectValue(ObjectValueKind.String) { TypeName = type.Name, Address = target.Address, Text = text, TextLength = Math.Max(length, text?.Length ?? 0) };
         }
 
         if (target.IsArray)
         {
             var array = target.AsArray();
-            var elements = depth < 1 ? Elements(array, maxElements, cancellationToken) : [];
-            return new ObjectField(name, type.Name ?? declaredType, ObjectFieldKind.Array, ArrayText(type, array), target.Address, elements);
+            return new ObjectValue(ObjectValueKind.Array)
+            {
+                TypeName = type.Name,
+                ElementTypeName = type.ComponentType?.Name,
+                Address = target.Address,
+                Dimensions = [.. Enumerable.Range(0, array.Rank).Select(array.GetLength)],
+            };
         }
 
-        return new ObjectField(name, declaredType, ObjectFieldKind.Reference, type.Name ?? "?", target.Address, []);
+        // A boxed primitive or enum: its value is the box's only field (m_value, or value__ for enums).
+        if (type.IsValueType && (type.IsPrimitive || type.IsEnum) && type.Fields.Length == 1 && type.Fields[0] is { } inner)
+        {
+            return new ObjectValue(ObjectValueKind.Boxed)
+            {
+                TypeName = type.Name,
+                Address = target.Address,
+                Boxed = Primitive(inner.ElementType, type.IsEnum ? type : inner.Type, new FieldSource(inner, target.Address, interior: false)),
+            };
+        }
+
+        return new ObjectValue(ObjectValueKind.Reference) { TypeName = type.Name, Address = target.Address };
     }
 
-    private static List<ObjectField> Elements(ClrArray array, int maxElements, CancellationToken cancellationToken)
+    private static List<ObjectField> Elements(ClrArray array, ReadContext context)
     {
         var component = array.Type.ComponentType;
         var elements = new List<ObjectField>();
-        var count = Math.Min(array.Length, maxElements);
+        var count = Math.Min(array.Length, context.MaxElements);
         for (var i = 0; i < count; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            context.CancellationToken.ThrowIfCancellationRequested();
             var slot = new ArraySlot(array, i);
-            var name = slot.Name;
+            var declared = component?.Name ?? "?";
             if (component is null)
             {
-                elements.Add(new ObjectField(name, "?", ObjectFieldKind.Primitive, "?", 0, []));
+                elements.Add(new ObjectField(slot.Name, declared, new ObjectValue(ObjectValueKind.Unknown), []));
             }
             else if (component.IsObjectReference)
             {
-                elements.Add(Reference(name, component.Name ?? "?", slot.Object(), maxElements, depth: 1, cancellationToken));
+                // Elements of elements are not expanded: an array's own children are one level.
+                elements.Add(new ObjectField(slot.Name, declared, Reference(slot.Object(), context), []));
             }
             else if (component.IsValueType && component.ElementType == ClrElementType.Struct)
             {
                 var value = slot.Struct();
-                elements.Add(new ObjectField(name, component.Name ?? "?", ObjectFieldKind.Struct, Alias(component.Name), 0,
-                    value.Type is { } structType ? Fields(structType, value.Address, interior: true, maxElements, depth: 1, cancellationToken) : []));
+                elements.Add(new ObjectField(slot.Name, declared, new ObjectValue(ObjectValueKind.Struct) { TypeName = value.Type?.Name ?? declared, Address = value.Address },
+                    value.Type is { } structType ? Fields(structType, value.Address, interior: true, depth: 1, context) : []));
             }
             else
             {
-                elements.Add(new ObjectField(name, component.Name ?? "?", ObjectFieldKind.Primitive, Primitive(component.ElementType, component, slot), 0, []));
+                elements.Add(new ObjectField(slot.Name, declared, Primitive(component.ElementType, component, slot), []));
             }
         }
 
         if (array.Length > count)
         {
-            elements.Add(new ObjectField(string.Empty, string.Empty, ObjectFieldKind.More, string.Create(CultureInfo.InvariantCulture, $"{array.Length - count:N0} more"), 0, []));
+            elements.Add(new ObjectField(string.Empty, string.Empty, new ObjectValue(ObjectValueKind.More) { Unsigned = (ulong)(array.Length - count) }, []));
         }
 
         return elements;
+    }
+
+    /// <summary>A field of <paramref name="type"/> by its raw name or its display name (backing fields as properties).</summary>
+    private static ClrInstanceField? FindField(ClrType type, string name)
+    {
+        foreach (var field in type.Fields)
+        {
+            if (field.Name == name || (field.Name is { } raw && DisplayName(raw) == name))
+            {
+                return field;
+            }
+        }
+
+        return null;
     }
 
     private static void CollectStructPaths(Dictionary<ulong, PathNames> paths, ClrType type, ulong address, string prefix, int depth, bool interior = true)
@@ -337,56 +507,70 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
             : string.Create(CultureInfo.InvariantCulture, $"{string.Join(", ", _first)} and {_total - Shown:N0} more");
     }
 
-    private static string Primitive(ClrElementType elementType, ClrType? type, IValueSource source)
+    private static ObjectValue Primitive(ClrElementType elementType, ClrType? type, IValueSource source)
     {
-        var text = elementType switch
+        var name = type?.Name;
+        var value = elementType switch
         {
-            ClrElementType.Boolean => source.Read<bool>() ? "true" : "false",
-            ClrElementType.Char => "'" + source.Read<char>() + "'",
-            ClrElementType.Int8 => source.Read<sbyte>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.UInt8 => source.Read<byte>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.Int16 => source.Read<short>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.UInt16 => source.Read<ushort>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.Int32 => source.Read<int>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.UInt32 => source.Read<uint>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.Int64 => source.Read<long>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.UInt64 => source.Read<ulong>().ToString(CultureInfo.InvariantCulture),
-            ClrElementType.Float => source.Read<float>().ToString("R", CultureInfo.InvariantCulture),
-            ClrElementType.Double => source.Read<double>().ToString("R", CultureInfo.InvariantCulture),
+            ClrElementType.Boolean => new ObjectValue(ObjectValueKind.Boolean) { Boolean = source.Read<bool>() },
+            ClrElementType.Char => new ObjectValue(ObjectValueKind.Char) { Char = source.Read<char>() },
+            ClrElementType.Int8 => new ObjectValue(ObjectValueKind.Integer) { Integer = source.Read<sbyte>() },
+            ClrElementType.UInt8 => new ObjectValue(ObjectValueKind.Unsigned) { Unsigned = source.Read<byte>() },
+            ClrElementType.Int16 => new ObjectValue(ObjectValueKind.Integer) { Integer = source.Read<short>() },
+            ClrElementType.UInt16 => new ObjectValue(ObjectValueKind.Unsigned) { Unsigned = source.Read<ushort>() },
+            ClrElementType.Int32 => new ObjectValue(ObjectValueKind.Integer) { Integer = source.Read<int>() },
+            ClrElementType.UInt32 => new ObjectValue(ObjectValueKind.Unsigned) { Unsigned = source.Read<uint>() },
+            ClrElementType.Int64 => new ObjectValue(ObjectValueKind.Integer) { Integer = source.Read<long>() },
+            ClrElementType.UInt64 => new ObjectValue(ObjectValueKind.Unsigned) { Unsigned = source.Read<ulong>() },
+            ClrElementType.Float => new ObjectValue(ObjectValueKind.Floating) { Floating = source.Read<float>() },
+            ClrElementType.Double => new ObjectValue(ObjectValueKind.Floating) { Floating = source.Read<double>() },
             ClrElementType.NativeInt or ClrElementType.NativeUInt or ClrElementType.Pointer or ClrElementType.FunctionPointer =>
-                string.Create(CultureInfo.InvariantCulture, $"0x{source.Read<ulong>():x}"),
-            _ => "?",
+                new ObjectValue(ObjectValueKind.Pointer) { Unsigned = source.Read<ulong>() },
+            _ => new ObjectValue(ObjectValueKind.Unknown),
         };
 
-        return type?.IsEnum == true ? EnumText(type, text) : text;
+        value = value with { TypeName = name ?? ElementTypeName(elementType) };
+        return type?.IsEnum == true ? value with { EnumMembers = EnumMembers(type) } : value;
     }
 
-    private static string EnumText(ClrType type, string number)
+    private static List<EnumMember> EnumMembers(ClrType type)
     {
-        if (!decimal.TryParse(number, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-        {
-            return number;
-        }
-
+        var members = new List<EnumMember>();
         foreach (var (name, constant) in type.AsEnum().EnumerateValues())
         {
-            if (constant is not null && Convert.ToDecimal(constant, CultureInfo.InvariantCulture) == value)
+            if (constant is not null)
             {
-                return $"{name} ({number})";
+                members.Add(new EnumMember(name, constant switch
+                {
+                    ulong u => u,
+                    long l => unchecked((ulong)l),
+                    _ => unchecked((ulong)Convert.ToInt64(constant, CultureInfo.InvariantCulture)),
+                }));
             }
         }
 
-        return number;
+        return members;
     }
 
-    /// <summary>An array as element type and length, <c>int[5]</c>, or its dimensions, <c>int[2,3]</c>.</summary>
-    private static string ArrayText(ClrType arrayType, ClrArray array) =>
-        string.Create(CultureInfo.InvariantCulture, $"{Alias(arrayType.ComponentType?.Name)}[{(array.Rank == 1 ? array.Length.ToString(CultureInfo.InvariantCulture) : string.Join(",", Enumerable.Range(0, array.Rank).Select(array.GetLength)))}]");
+    private static string ElementTypeName(ClrElementType elementType) => elementType switch
+    {
+        ClrElementType.Boolean => "System.Boolean",
+        ClrElementType.Char => "System.Char",
+        ClrElementType.Int8 => "System.SByte",
+        ClrElementType.UInt8 => "System.Byte",
+        ClrElementType.Int16 => "System.Int16",
+        ClrElementType.UInt16 => "System.UInt16",
+        ClrElementType.Int32 => "System.Int32",
+        ClrElementType.UInt32 => "System.UInt32",
+        ClrElementType.Int64 => "System.Int64",
+        ClrElementType.UInt64 => "System.UInt64",
+        ClrElementType.Float => "System.Single",
+        ClrElementType.Double => "System.Double",
+        _ => elementType.ToString(),
+    };
 
-    private static string Alias(string? typeName) =>
-        typeName is null ? "?" : s_aliases.TryGetValue(typeName, out var alias) ? alias : typeName;
-
-    private static string Quote(string? text) => text is null ? "null" : "\"" + text + "\"";
+    /// <summary>What a read needs to know: element and text cuts, and cancellation.</summary>
+    private readonly record struct ReadContext(int MaxElements, int MaxText, CancellationToken CancellationToken);
 
     /// <summary>Reads one unmanaged value from a field or an array element.</summary>
     private interface IValueSource

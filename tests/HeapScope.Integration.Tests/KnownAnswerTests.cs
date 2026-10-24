@@ -33,7 +33,8 @@ public sealed class AllLeaksDump : IAsyncLifetime
             "--semantics", SemanticItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--runtime-semantics", RuntimeItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--late-garbage", LateGarbageItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--inspection"))
+            "--inspection",
+            "--waste"))
         {
             fixture.CaptureDump(path);
         }
@@ -54,7 +55,7 @@ public sealed class AllLeaksDump : IAsyncLifetime
 [Trait("Category", "Integration")]
 public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLeaksDump>
 {
-    private static readonly string[] s_semanticNames = ["ConditionalWeakTable", "EmbeddedStruct", "Inspection", "LateGarbage", "RuntimeKinds"];
+    private static readonly string[] s_semanticNames = ["ConditionalWeakTable", "EmbeddedStruct", "Inspection", "LateGarbage", "RuntimeKinds", "Waste"];
 
     private const uint FinalizerRunBit = 0x4000_0000;
 
@@ -76,7 +77,12 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
             answer.FormatVersion.ShouldBe(KnownAnswer.CurrentFormatVersion, name);
             answer.Name.ShouldBe(name);
             answer.Types.ShouldNotBeEmpty();
-            answer.Kind.ShouldBeOneOf("leak", "semantics");
+            answer.Kind.ShouldBeOneOf("leak", "semantics", "inspection");
+            if (answer.Kind == "inspection")
+            {
+                answer.Findings.ShouldNotBeNull(name);
+            }
+
             if (answer.Kind == "leak")
             {
                 answer.Roots.ShouldNotBeNull();
@@ -101,7 +107,84 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
         var box = sample.ReadValueTypeField("<Box>k__BackingField");
         box.ReadValueTypeField("<TopLeft>k__BackingField").ReadField<int>("<Y>k__BackingField").ShouldBe(2);
         sample.ReadObjectField("<Numbers>k__BackingField").AsArray().Length.ShouldBe(5);
+        sample.ReadObjectField("<Grid>k__BackingField").AsArray().Rank.ShouldBe(2);
+        sample.ReadObjectField("<Boxed>k__BackingField").Type!.Name.ShouldBe("System.Int32");
+        sample.ReadField<int>("<Access>k__BackingField").ShouldBe(3);
+        sample.ReadObjectField("<LongText>k__BackingField").AsString(5_000)!.Length.ShouldBe(1_500);
+        sample.ReadObjectField("<Colors>k__BackingField").AsArray().Length.ShouldBe(2);
         Dump.Instances("Fixtures.Leaks.InspectionSample").Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public void The_waste_fixture_holds_every_known_finding()
+    {
+        // Raw ClrMD, independent of HeapScope's inspections (sprint 1.6): each finding's count, from the heap itself.
+        var answer = KnownAnswer.Load("Waste");
+        Dump.CountTypes(answer.Types.Select(t => t.Type)).ShouldBe(answer.Types.ToDictionary(t => t.Type, t => (long)t.PerItem));
+        var mismatches = new List<string>();
+        foreach (var finding in answer.Findings!)
+        {
+            var actual = finding.Inspection switch
+            {
+                "duplicate-strings" => Dump.Heap.EnumerateObjects().LongCount(o => o.Type?.IsString == true && Shown(o.AsString(int.MaxValue)) == finding.Key),
+                "loh" => Dump.Instances(finding.Key).LongCount(o => Dump.Heap.GetSegmentByAddress(o.Address)!.Kind == GCSegmentKind.Large),
+                "large-arrays" => Dump.Instances(finding.Key).LongCount(o => o.Size >= 85_000),
+                "sparse-arrays" => Dump.Instances(finding.Key).LongCount(o => IsSparse(o.AsArray())),
+                "finalizable" => Dump.Heap.EnumerateFinalizableObjects().LongCount(o => o.Type?.Name == finding.Key && (Dump.ReadObjectHeader(o.Address) & FinalizerRunBit) == 0)
+                    + Dump.Heap.EnumerateFinalizerRoots().LongCount(r => r.Object.Type?.Name == finding.Key),
+                "empty-collections" => Dump.Instances(finding.Key).LongCount(o => CollectionShape(o) is (0, > 0)),
+                "oversized-collections" => Dump.Instances(finding.Key).LongCount(o => CollectionShape(o) is ( > 0, var capacity) c && capacity >= (2 * c.Count) + 16),
+                "fragmentation" => Dump.Runtime.EnumerateHandles().Count(h => h.HandleKind is ClrHandleKind.Pinned or ClrHandleKind.AsyncPinned && h.Object.Type?.Name == "System.Byte[]")
+                    + Dump.Heap.EnumerateObjects().LongCount(o => o.Type?.Name == "System.Byte[]" && Dump.Heap.GetSegmentByAddress(o.Address)!.Kind == GCSegmentKind.Pinned),
+                _ => throw new InvalidOperationException($"Unknown inspection {finding.Inspection}."),
+            };
+            if (finding.Exact ? actual != finding.Count : actual < finding.Count)
+            {
+                mismatches.Add($"{finding.Inspection} {finding.Key}: {actual}, expected {(finding.Exact ? string.Empty : "at least ")}{finding.Count}");
+            }
+        }
+
+        mismatches.ShouldBeEmpty();
+        Dump.Heap.EnumerateFinalizableObjects().Count(o => o.Type?.Name == "Fixtures.Leaks.WasteFinalizable").ShouldBe(30, "suppressed objects stay registered");
+        Dump.Instances("System.Collections.Generic.List<Fixtures.Leaks.WasteItem>").Select(CollectionShape).ShouldContain((4, 4), "the right-sized list");
+
+        // A value as the inspection shows it: the first 100 characters, then "..." (only fixture text is this long).
+        static string? Shown(string? text) => text is { Length: > 100 } ? text[..100] + "..." : text;
+
+        static bool IsSparse(ClrArray array)
+        {
+            if (array.Length < 16)
+            {
+                return false;
+            }
+
+            var nulls = 0;
+            for (var i = 0; i < array.Length; i++)
+            {
+                nulls += array.GetObjectValue(i).IsNull ? 1 : 0;
+            }
+
+            return nulls * 2 >= array.Length;
+        }
+
+        // Count and capacity of the covered BCL collections (field names of .NET 10's System.Private.CoreLib).
+        static (int Count, int Capacity) CollectionShape(ClrObject collection)
+        {
+            var name = collection.Type!.Name!;
+            static int Length(ClrObject array) => array.IsNull ? 0 : array.AsArray().Length;
+            return name switch
+            {
+                _ when name.StartsWith("System.Collections.Generic.List<", StringComparison.Ordinal) =>
+                    (collection.ReadField<int>("_size"), Length(collection.ReadObjectField("_items"))),
+                _ when name.StartsWith("System.Collections.Generic.Dictionary<", StringComparison.Ordinal)
+                    || name.StartsWith("System.Collections.Generic.HashSet<", StringComparison.Ordinal) =>
+                    (collection.ReadField<int>("_count") - collection.ReadField<int>("_freeCount"), Length(collection.ReadObjectField("_entries"))),
+                _ when name.StartsWith("System.Collections.Generic.Queue<", StringComparison.Ordinal)
+                    || name.StartsWith("System.Collections.Generic.Stack<", StringComparison.Ordinal) =>
+                    (collection.ReadField<int>("_size"), Length(collection.ReadObjectField("_array"))),
+                _ => throw new InvalidOperationException($"Not a covered collection: {name}."),
+            };
+        }
     }
 
     [Theory]

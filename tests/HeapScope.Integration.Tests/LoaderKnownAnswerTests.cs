@@ -55,6 +55,11 @@ public sealed class LoaderKnownAnswerTests(LoadedAllLeaksDump shared) : IClassFi
         Graph.DroppedRootCount.ShouldBe(0);
         result.Diagnostics.UnreadableObjects.ShouldBe(0);
         result.Diagnostics.DebuggableModules.ShouldNotContain("Leaks.dll", "fixtures are always optimized");
+
+        // Free space per heap kind (sprint 1.6) is exactly the free objects ClrMD walks.
+        var free = result.Info.FreeBytes.ShouldNotBeNull();
+        free.Count.ShouldBe(Enum.GetValues<Core.Graph.HeapKind>().Length);
+        free.Sum().ShouldBe(shared.Source.Dump.Heap.Segments.SelectMany(s => s.EnumerateObjects()).Where(o => o.IsFree).Sum(o => (long)o.Size));
     }
 
     [Fact]

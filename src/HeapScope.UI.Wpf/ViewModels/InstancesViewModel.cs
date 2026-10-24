@@ -65,12 +65,20 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     private string? _valuesExplanation;
 
     public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, ILogger? logger = null)
+        : this(session, snapshot, typeName, module, InstanceScope.All, 0, logger)
+    {
+    }
+
+    /// <summary>The objects of a type within a scope (sprint 1.6: what an inspection row opens).</summary>
+    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, ILogger? logger = null)
         : base(InstanceColumns.Bytes, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         TypeName = typeName ?? throw new ArgumentNullException(nameof(typeName));
         Module = module;
+        Scope = scope;
+        SameValueAs = sameValueAs;
     }
 
     public SnapshotHandle Snapshot { get; }
@@ -79,8 +87,19 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     public string? Module { get; }
 
-    /// <summary>The navigation title: the type, with its module.</summary>
-    public string Title => string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]";
+    public InstanceScope Scope { get; }
+
+    /// <summary>With <see cref="InstanceScope.SameValue"/>: the string whose equal copies are listed.</summary>
+    public ulong SameValueAs { get; }
+
+    /// <summary>The navigation title: the type, with its module and scope.</summary>
+    public string Title => (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]") + Scope switch
+    {
+        InstanceScope.LargeObjectHeap => " on the large object heap",
+        InstanceScope.Finalizable => " to be finalized",
+        InstanceScope.SameValue => string.Create(CultureInfo.InvariantCulture, $" equal to 0x{SameValueAs:x}"),
+        _ => string.Empty,
+    };
 
     protected override bool CanQuery => true;
 
@@ -95,7 +114,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     protected override async Task<GridQuery<InstanceRowItem>> RunQueryAsync(CancellationToken cancellationToken)
     {
-        var list = await _session.QueryInstancesAsync(Snapshot, TypeName, Module, Filter, SortColumn, Descending, null, cancellationToken);
+        var list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, SortColumn, Descending, Scope, SameValueAs), null, cancellationToken);
         var result = list.Result;
         return new GridQuery<InstanceRowItem>(
             list.Rows,

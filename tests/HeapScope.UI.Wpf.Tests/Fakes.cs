@@ -240,6 +240,84 @@ internal sealed class FakeWorkerService : IWorkerService
         ]));
     }
 
+    /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>
+    public List<InspectionInfo> Inspections { get; } =
+    [
+        new("duplicate-strings", "Duplicate strings", "Same text held many times.", "Reuse one instance.", null),
+        new("loh", "Large object heap", "Large objects.", "Pool them.", null),
+        new("empty-collections", "Empty collections", "Allocated, unused.", "Create lazily.", "Field values are not stored in a gcdump."),
+        new("large-arrays", "Large arrays", "Large.", "Pool them.", null),
+        new("fragmentation", "Fragmentation", "Gaps.", "Pin briefly.", null),
+    ];
+
+    /// <summary>Rows per inspection: the first cell is the key, then the columns of <see cref="InspectionColumnsFor"/>.</summary>
+    public Dictionary<string, List<IReadOnlyList<string?>>> InspectionRows { get; } = new(StringComparer.Ordinal)
+    {
+        ["duplicate-strings"] = [["alpha", "3", "32", "64", "0x10", "System.String", "System.Private.CoreLib.dll", "SameValue"]],
+        ["loh"] = [["App.Buffer", "2", "300000", "App.Buffer", "App.dll", "LargeObjectHeap"]],
+        ["large-arrays"] = [["0x20", "System.Byte[]", "100000", "100024", "LargeObjectHeap"]],
+        ["fragmentation"] =
+        [
+            ["Gen0", "1000", "100", "9.09", "0", "0"],
+            ["Gen2", "8000", "3000", "27.27", "1", "1000"],
+        ],
+    };
+
+    /// <summary>Inspections run, by name.</summary>
+    public List<string> InspectionRuns { get; } = [];
+
+    /// <summary>When set, inspection runs wait for it (or their cancellation).</summary>
+    public TaskCompletionSource? InspectionGate { get; set; }
+
+    public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InspectionInfo>>([.. Inspections]);
+
+    public async Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        InspectionRuns.Add(request.Name);
+        if (InspectionGate is { } gate)
+        {
+            await gate.Task.WaitAsync(cancellationToken);
+        }
+
+        if (Inspections.SingleOrDefault(i => i.Name == request.Name) is not { Unavailable: null })
+        {
+            throw new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.CapabilityNotSupported, "Not available.", null);
+        }
+
+        var rows = InspectionRows.GetValueOrDefault(request.Name) ?? [];
+        var id = Guid.NewGuid();
+        _sets[id] = [.. rows];
+        var columns = InspectionColumnsFor(request.Name);
+        return new InspectionResultDto(request.Name, rows.Count, 1000, request.Name == "loh" ? null : 64, null, new ResultSetInfo(id, rows.Count, columns), 0.1);
+    }
+
+    /// <summary>The worker's columns for the fake's inspections.</summary>
+    public static IReadOnlyList<ResultColumn> InspectionColumnsFor(string name) => name switch
+    {
+        "duplicate-strings" =>
+        [
+            new("Value", ResultColumnKind.Text), new("Copies", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Wasted", ResultColumnKind.Bytes),
+            new(InspectionColumns.Address, ResultColumnKind.Address, true), new(InspectionColumns.TypeName, ResultColumnKind.Text),
+            new(InspectionColumns.Module, ResultColumnKind.Text), new(InspectionColumns.Scope, ResultColumnKind.Text),
+        ],
+        "large-arrays" =>
+        [
+            new(InspectionColumns.Address, ResultColumnKind.Address, true), new("Type", ResultColumnKind.Text), new("Length", ResultColumnKind.Integer),
+            new("Bytes", ResultColumnKind.Bytes), new("Generation", ResultColumnKind.Text),
+        ],
+        InspectionNames.Fragmentation =>
+        [
+            new(InspectionColumns.Heap, ResultColumnKind.Text, true), new(InspectionColumns.Live, ResultColumnKind.Bytes), new(InspectionColumns.Free, ResultColumnKind.Bytes),
+            new("FreePercent", ResultColumnKind.Percent), new(InspectionColumns.PinnedObjects, ResultColumnKind.Integer), new(InspectionColumns.PinnedBytes, ResultColumnKind.Bytes),
+        ],
+        _ =>
+        [
+            new("Type", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes),
+            new(InspectionColumns.TypeName, ResultColumnKind.Text), new(InspectionColumns.Module, ResultColumnKind.Text), new(InspectionColumns.Scope, ResultColumnKind.Text),
+        ],
+    };
+
     /// <summary>Diff rows: name, change, baseline objects, current objects, objects delta, baseline bytes, current bytes, bytes delta.</summary>
     public List<IReadOnlyList<string?>> DiffRows { get; } = [];
 

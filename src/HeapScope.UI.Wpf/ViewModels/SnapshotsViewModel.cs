@@ -78,7 +78,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isOpening;
 
-    /// <summary>The detail tab: 0 the selected snapshot, 1 the comparison.</summary>
+    /// <summary>The detail tab: 0 the selected snapshot, 1 the comparison, 2 the selected snapshot's inspections.</summary>
     [ObservableProperty]
     private int _selectedTab;
 
@@ -98,6 +98,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         Navigator = new NavigatorViewModel(session, Types, loggers);
         Compare = new CompareViewModel(session, Snapshots, loggers?.CreateLogger<CompareViewModel>());
         Compare.OpenRowCommand = OpenCompareRowCommand;
+        Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>()) { Open = OpenInspectionTarget };
     }
 
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; } = [];
@@ -110,6 +111,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
 
     /// <summary>The comparison of two open snapshots (sprint 1.4).</summary>
     public CompareViewModel Compare { get; }
+
+    /// <summary>The selected snapshot's inspections (sprint 1.6); they run when their tab is shown.</summary>
+    public InspectionsViewModel Inspections { get; }
 
     public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
 
@@ -185,6 +189,23 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
     {
         Navigator.Reset();
         Types.Show(value?.Handle);
+        Inspections.Show(value?.Handle);
+    }
+
+    partial void OnSelectedTabChanged(int value) => Inspections.IsActive = value == 2;
+
+    /// <summary>Opens an inspection row on the Snapshot tab: the objects of its type in its scope, or its object.</summary>
+    private void OpenInspectionTarget(SnapshotHandle snapshot, InspectionTarget target)
+    {
+        SelectedTab = 0;
+        if (target.TypeName is { } typeName)
+        {
+            Navigator.OpenInstances(snapshot, typeName, target.Module, target.Scope, target.Address);
+        }
+        else
+        {
+            Navigator.OpenObject(snapshot, target.Address);
+        }
     }
 
     /// <summary>

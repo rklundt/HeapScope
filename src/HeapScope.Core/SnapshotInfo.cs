@@ -8,6 +8,11 @@ namespace HeapScope.Core;
 /// <param name="RuntimeVersion">Version of the .NET runtime in the captured process, when known.</param>
 /// <param name="PointerSize">Pointer size of the captured process in bytes.</param>
 /// <param name="CapturedAtUtc">When the snapshot was captured, when known.</param>
+/// <param name="FreeBytes">
+/// Free space (the GC's free objects) per heap kind, indexed by <see cref="Graph.HeapKind"/>, for the fragmentation
+/// summary (sprint 1.6); null when unknown (index caches written before 1.6, snapshots without segments).
+/// </param>
+/// <param name="Facts">What the loader recorded beyond the graph (sprint 1.6 review); none for older index caches.</param>
 public sealed record SnapshotInfo(
     SnapshotKind Kind,
     string SourcePath,
@@ -15,4 +20,22 @@ public sealed record SnapshotInfo(
     int? ProcessId = null,
     string? RuntimeVersion = null,
     int PointerSize = 8,
-    DateTimeOffset? CapturedAtUtc = null);
+    DateTimeOffset? CapturedAtUtc = null,
+    IReadOnlyList<long>? FreeBytes = null,
+    SnapshotFacts Facts = SnapshotFacts.None);
+
+/// <summary>
+/// Facts a loader records beyond the graph (sprint 1.6): an inspection that needs one is unavailable without it (ADR-020),
+/// for example on an index cache written before the loader recorded it.
+/// </summary>
+[Flags]
+public enum SnapshotFacts
+{
+    None = 0,
+
+    /// <summary>Free space per heap kind (<see cref="SnapshotInfo.FreeBytes"/>).</summary>
+    FreeSpace = 1 << 0,
+
+    /// <summary>Arrays of references are marked (<see cref="Graph.TypeKind.ReferenceArray"/>).</summary>
+    ReferenceArrayMarks = 1 << 1,
+}

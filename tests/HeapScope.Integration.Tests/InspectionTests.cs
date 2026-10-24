@@ -57,6 +57,8 @@ public sealed class InspectionTests : IClassFixture<AllLeaksDump>, IAsyncDisposa
         {
             var ok = fields.TryGetValue(expected.Path, out var actual)
                 && (expected.Value is null || actual.Value == expected.Value)
+                && (expected.ValuePrefix is null || actual.Value.StartsWith(expected.ValuePrefix, StringComparison.Ordinal))
+                && (expected.Length is null || actual.Value.Length == expected.Length)
                 && (expected.Type is null || (actual.Kind == ObjectFieldKindDto.Reference && actual.Value == expected.Type));
             if (!ok)
             {

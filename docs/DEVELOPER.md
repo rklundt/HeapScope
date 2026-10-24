@@ -48,6 +48,11 @@ dotnet test --solution HeapScope.sln
   its first N outgoing references (default 50) named by field. The address is hex with or without `0x`; no object at it
   exits 1. A snapshot without field values (a gcdump) prints the object's graph facts and, on stderr, why the fields are
   missing, and exits 0. Both print dump contents (field values, strings) to the console only, never to the log.
+  `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]` runs the simple inspections (sprint 1.6):
+  without a name, every inspection with its time, finding and note (one line each); with a name
+  (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
+  `finalizable`, `fragmentation`), its cause, fix and rows. An unknown or unavailable inspection exits 1. A dump opened
+  from an index cache written before 1.6 has no free space or reference-array marks: reopen it with `open --rebuild`.
 - DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
   to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
   `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
@@ -62,7 +67,8 @@ dotnet test --solution HeapScope.sln
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
   second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
-  also drills down (types, instances, object) and logs the open phase on its own line ("Smoke open phase"); add
+  also drills down (types, instances, object), shows the Inspections tab ("Smoke inspections": every inspection's
+  finding and time) and logs the open phase on its own line ("Smoke open phase"); add
   `--smoke-trace <file.nettrace>` to record a CPU trace of the UI during the run. The log records
   "First window rendered N ms after process start" for every run.
 - Traces: `heapscope-cli trace --pid <id> [--duration 30] [--profile cpu|gc] [--out file.nettrace]` records an
@@ -77,6 +83,10 @@ dotnet test --solution HeapScope.sln
   and Forward (buttons, the mouse's back and forward buttons, Alt+Left and Alt+Right). The instances filter is an
   address prefix (`0x1f2a`), a regular expression on the value (`/^Get.*Async$/`) or text in the value. The types grid's
   "Generations" checkbox shows bytes per generation.
+- Inspections (sprint 1.6): the Snapshots page's Inspections tab runs the selected snapshot's inspections the first
+  time it is shown (one at a time, in the worker): a tile per inspection with its finding, cause and fix (or why it is
+  unavailable), fragmentation bars per heap, and the selected inspection's rows; double-click or Enter opens a row's
+  objects (a type in its scope, equal strings, or one object) on the Snapshot tab.
 - Theme: the UI follows the Windows app theme (light or dark) at startup; `--Ui:Theme Light|Dark` or the
   `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI.Wpf/Themes/Light.xaml` and `Dark.xaml`, which
   must define the same keys (a test checks it); views use `DynamicResource`, never literal colors.
@@ -111,10 +121,13 @@ of debuggable code) and exit when the process given as parent exits.
   leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
   `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
 - `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2 --count N
-  --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--parent-pid P]`;
+  --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+  [--parent-pid P]`;
   prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
   embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and
-  parked thread fixtures, `--late-garbage` dead table entries and weak-only objects created after the last full GC.
+  parked thread fixtures, `--late-garbage` dead table entries and weak-only objects created after the last full GC,
+  `--inspection` one object with fields of every kind (1.5), `--waste` duplicated strings, empty and oversized
+  collections, large and sparse arrays, finalizable objects and pinned buffers with known amounts (1.6, `Waste.json`).
 - `fixtures/LoadGen`: `LoadGen --url <url> --requests N --concurrency C [--dump <path> --pid <pid>
   [--dump-type Full|WithHeap]]` drives `POST /work`, then optionally writes a dump of the target.
 - `fixtures/scripts/New-SampleDump.ps1 -Tier Small|Medium [-Port N]` builds the fixtures, checks the port, runs

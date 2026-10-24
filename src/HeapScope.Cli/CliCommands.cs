@@ -81,6 +81,7 @@ internal static partial class CliCommands
         root.Subcommands.Add(BuildDiffCommand(services));
         root.Subcommands.Add(BuildInstancesCommand(services));
         root.Subcommands.Add(BuildObjectCommand(services));
+        root.Subcommands.Add(BuildInspectCommand(services));
         root.Subcommands.Add(BuildTraceCommand(services));
         root.Subcommands.Add(BuildListCommand(services));
         root.Subcommands.Add(BuildCaptureCommand(services));
