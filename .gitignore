@@ -493,3 +493,6 @@ logs/
 
 # Working context for resuming after a conversation compact (CLAUDE.md); never committed.
 CURRENT-CONTEXT.md
+
+# Local launcher; not part of the product.
+run.bat
