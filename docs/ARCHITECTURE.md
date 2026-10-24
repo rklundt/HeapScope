@@ -200,6 +200,19 @@ navigator swaps their data. The shell keeps every page once built (switching pag
 has `trace`, and `instances` and `object` (`InspectCommands.cs`); `perf/` has the developer tool `trace-report`
 (TraceEvent).
 
+Code map additions in sprint 1.6 (simple inspections, ADR-020): Analysis has `Inspections/` (`IInspection`,
+`InspectionContext`, `InspectionResult`, `InspectionTable` and `RowTable<TRow>`, `InspectionCatalog`; the graph-only
+inspections in `GraphInspections.cs`: large object heap, large arrays, sparse arrays, finalizable objects,
+fragmentation; the reader ones in `ReaderInspections.cs`: empty and oversized collections, duplicate strings). Core's
+reader returns typed values (`ObjectValue`, `ObjectValueKind`, `EnumMember`; `ReadField` by path and `ReadStrings` in
+bulk), `SnapshotInfo.FreeBytes` and `TypeKind.ReferenceArray`; `SyntheticGraphBuilder` makes arrays and strings. The
+worker formats values (`ObjectFormatter`), exposes inspections as result sets (`InspectionSource`) and scopes
+instances (`InstanceScope`). Application has `ListInspectionsAsync`, `RunInspectionAsync` (`InspectionRun`) and
+`QueryInstancesAsync(InstancesQuery)`. UI.Wpf has `InspectionsViewModel` (tiles, fragmentation bars, the selected
+inspection's rows as `InspectionRowItem`s) on a third tab of the Snapshots page, and `GridColumns` (grid columns from
+a result set's columns). The CLI has `inspect` (`InspectionCommand.cs`). Fixtures: `WasteFixtures` (LeakyConsole
+`--waste`) and `Waste.json`.
+
 ### 3.1 Dependency rules
 
 ```mermaid
@@ -227,7 +240,7 @@ flowchart TD
 | Project | May reference (solution) | May reference (packages, besides Microsoft.Extensions.*) |
 |---|---|---|
 | Core | nothing | nothing |
-| Analysis | Core | none |
+| Analysis | Core | System.IO.Hashing (duplicate strings, sprint 1.6) |
 | Storage | Core | System.IO.Hashing |
 | Capture | Core | Microsoft.Diagnostics.NETCore.Client, TraceEvent |
 | Loaders.ClrMd | Core | Microsoft.Diagnostics.Runtime |
@@ -336,6 +349,11 @@ Rules:
   capability explanation), `QueryReferencesAsync` (`ReferenceColumns`), the hidden key columns `TypeName` and `Module`
   on summary and diff rows, and the type summary's sort by column name (`TypeSummaryColumns`; `TypeSummarySort`
   retired).
+  Version 6 (sprint 1.6) added `ListInspectionsAsync` (`InspectionInfo` with the reason an inspection is unavailable)
+  and `RunInspectionAsync` (`InspectionRequest`; `InspectionResultDto` with count, bytes, wasted bytes, a note and the
+  rows; hidden `InspectionColumns` say what a row opens), `InstanceScope` and `SameValueAs` on `InstancesRequest`
+  (all, large object heap, finalizable, strings equal to one string), and progress on `GetObjectAsync` and
+  `QueryReferencesAsync`.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -408,9 +426,23 @@ public interface ISnapshot : IDisposable
   It reports `FieldValues` and `StringContents`;
   `ThreadStacks` stays missing until a feature needs it. `CapabilityDescriptions.ExplainMissing` takes the snapshot
   kind, so a full dump says "not available in this version yet" instead of "capture a full dump".
-- Field values are formatted for display in the invariant culture: strings quoted, `null`, chars in single quotes,
-  booleans lower case, enums as `Name (value)`, arrays as `elementType[length]`; compiler backing fields are named by
-  their property; nested structs are child rows; arrays list their first 100 elements, then a "N more" row.
+- The reader returns typed values (sprint 1.6, `ObjectValue`): kind, the number, character, boolean or text, the
+  address, an array's dimensions and element type, an enum's constants, a box's value. It also reads one value by a
+  dotted path through structs and referenced objects (`ReadField`, used by the collection inspections) and many
+  strings at once (`ReadStrings`, short cuts only, one lock acquisition per 4,096 strings). Full text of any size is
+  streamed in pieces of one pooled 128 KB buffer (`ReadStringPieces`, the lock released after 4,096 strings or 16M
+  characters) and hashed incrementally (`StringHashes`, used by duplicate strings and the equal-strings scope): no
+  string is built, so equal-size large payloads cost no memory beyond the buffer (sprint 1.6 review H2). The worker's `ObjectFormatter` turns values into display text in the invariant culture: strings quoted and
+  cut at 1,000 characters with "...", `null`, chars in single quotes, booleans lower case, enums as `Name (value)` and
+  flag combinations as `Read, Write (3)`, boxed primitives as `12345 (boxed int)`, arrays as `int[5]` or `int[2,3]`,
+  references to non-objects as `0x... (not a valid object in this dump)`; compiler backing fields are named by their
+  property; nested structs are child rows; arrays list their first 100 elements, then a "N more" row.
+- Since 1.6 the loader records free space per heap kind (`SnapshotInfo.FreeBytes`, the GC's free objects, stored in
+  the index cache metadata) and marks arrays of references (`TypeKind.ReferenceArray`): a reference array's non-null
+  slots are its outgoing references. It records both as `SnapshotFacts` on `SnapshotInfo`; index caches written before
+  1.6 have none, so sparse arrays is unavailable there ("reopen the dump with Rebuild") and fragmentation notes that
+  free space is unknown. Objects ready for the finalizer thread are the `FinalizerQueue` roots; the finalizable
+  inspection and scope count them with the registered ones.
 - A full dump whose heap could not be read completely (unreadable objects, or a segment walk that covered noticeably
   less than the segment, for example a truncated file) loses `CompleteGraph` and `ExactCounts` and carries a note.
   A minidump without heap memory (MINIDUMP_TYPE without full or private read-write memory) is refused at open.
@@ -842,6 +874,11 @@ pass every time: longest operation 43 to 53 ms, probe lag 80 to 158 ms. Instance
 (6.6M strings, Release CLI, from the index cache): a text filter 3.8 s and a regular expression 4.5 s end to end,
 against 1.9 s for opening alone; values are read and tested one at a time, and only a sort by value keeps text (at
 most 250,000 strings).
+Inspections (sprint 1.6, Release CLI `inspect`, all eight, from a freshly rebuilt index cache): Medium (57.5M objects)
+7 s end to end, of which duplicate strings 2.7 s, finalizable and fragmentation 0.6 s each, the rest 0.1 to 0.2 s;
+DenseHeap (54M objects) 15 s end to end, duplicate strings 5.1 s, collections 1.4 s, finalizable 1.4 s, fragmentation
+1.5 s. In the UI the Small smoke run's inspections phase took 2.4 s with a longest dispatcher operation of 23 ms.
+Rebuilding Medium's cache with free space and reference-array marks: 37 s (first load 19 s from the dump).
 
 ## 11. Error handling and logging
 - Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file
@@ -877,7 +914,8 @@ most 250,000 strings).
 - Traces (`trace`, `--smoke-trace`, sprint 1.5) hold method and type names and event data such as exception messages,
   not heap contents; the CLI says so after each one, and they are written where the user asks (never uploaded).
 - Inspecting an object reads its field values and string text from the dump on demand (sprint 1.5); they are shown,
-  never written to the index cache or the log.
+  never written to the index cache or the log. The same holds for inspections (sprint 1.6): duplicate strings shows
+  the first 100 characters of each duplicated value in the UI and the CLI only; logs record counts and sizes.
 
 ## 13. Architecture Decision Records
 
@@ -1040,6 +1078,26 @@ sprint 0.1.
   every 25 ms (a posted no-op, microseconds each), now unthrottled; slowing the probe while the window is idle or in
   the background outside smoke runs is in the backlog (sprint 1.5 review M7).
 
+### ADR-020 Inspections are Analysis plugins with declared capabilities (added in sprint 1.6)
+- Context: dotMemory's inspections (duplicate strings, sparse arrays, finalizable objects, fragmentation) are its
+  quickest route to a finding, and Phase 2's leak detectors (sprint 2.6) take the same shape. Some need only the graph,
+  others read values from the dump; gcdumps (1.8) cannot answer the latter.
+- Decision: an inspection is an `IInspection` in Analysis: a CLI name, a title, a one-line cause and fix, the
+  capabilities it requires, and a run over the graph and, when available, the typed reader. Its rows are a typed table
+  formatted per page; hidden columns (`TypeName`, `Module`, `Scope`, or an `Address`) say what a row opens. The worker
+  lists inspections with the reason each unavailable one cannot run and refuses to run those
+  (`CapabilityNotSupported`); front ends show them as unavailable, never as empty. Results are result sets, computed
+  on demand and not persisted.
+- Requirements are capabilities and loader facts (`SnapshotFacts`); one rule (`InspectionAvailability`) explains a
+  missing one for listing and for running. Contracts owns the names front ends rely on (`InspectionColumns`,
+  `InspectionNames`); Analysis mirrors them, checked by the architecture tests.
+- Consequences: new inspections and the 2.6 detectors are one class each, testable on synthetic graphs with known
+  answers; the UI and CLI need no change to show them (fragmentation is also drawn as bars, by its contract name).
+  Inspections that read the dump are bounded by the reader's speed (duplicate strings reads every string whose size
+  occurs twice or more). The context grows additively for 2.x: derived data per snapshot (reverse references,
+  dominators) through the context, an optional baseline snapshot for growth detectors, and requirements beyond
+  capabilities; runs may become asynchronous then.
+
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
 authoritative list.
@@ -1047,7 +1105,7 @@ authoritative list.
 | Package | Version | License | Used by |
 |---|---|---|---|
 | Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.13 | MIT | Worker, Application, Cli, UI.Wpf |
-| System.IO.Hashing | 10.0.13 | MIT | Storage |
+| System.IO.Hashing | 10.0.13 | MIT | Storage, Analysis |
 | StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.Wpf |
 | System.CommandLine | 2.0.13 | MIT | Cli |

@@ -68,6 +68,16 @@ public interface IWorkerService
     /// <summary>The objects one object references, as a result set (sprint 1.5); naming them walks up to a million array elements.</summary>
     Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
+    Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs one inspection; its rows are a result set. An unknown name fails with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/>, an unavailable one with
+    /// <see cref="HeapScopeErrorCode.CapabilityNotSupported"/> (sprint 1.6).
+    /// </summary>
+    Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>
     /// Returns rows [offset, offset + count) of a result set; count is capped at
     /// <see cref="WorkerProtocol.MaxPageSize"/>. Unknown, released or evicted sets fail with

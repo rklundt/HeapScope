@@ -16,7 +16,7 @@ public sealed class SyntheticGraphBuilder
     /// <summary>Address of the first synthetic object.</summary>
     public const ulong BaseAddress = 0x0001_0000;
 
-    private readonly List<(string Type, ulong Size, HeapKind Kind, ObjectFlags Flags, string? Module, ulong MethodTable)> _objects = [];
+    private readonly List<(string Type, ulong Size, HeapKind Kind, ObjectFlags Flags, string? Module, ulong MethodTable, TypeKind TypeKind, uint BaseSize, uint ComponentSize)> _objects = [];
     private readonly List<List<ulong>> _references = [];
     private readonly List<(ulong Address, RootKind Kind, RootFlags Flags, string? Detail)> _roots = [];
     private readonly List<(ulong Primary, ulong Secondary)> _dependentHandles = [];
@@ -33,16 +33,26 @@ public sealed class SyntheticGraphBuilder
         HeapKind heapKind = HeapKind.Gen0,
         ObjectFlags flags = ObjectFlags.None,
         string? module = null,
-        ulong methodTable = 0)
+        ulong methodTable = 0,
+        TypeKind typeKind = TypeKind.None,
+        uint baseSize = 0,
+        uint componentSize = 0)
     {
         ArgumentNullException.ThrowIfNull(typeName);
         var address = _nextAddress;
         var span = Math.Max(size, 8UL);
         _nextAddress += (span + 7) & ~7UL;
-        _objects.Add((typeName, size, heapKind, flags, module, methodTable));
+        _objects.Add((typeName, size, heapKind, flags, module, methodTable, typeKind, baseSize == 0 ? (uint)Math.Min(size, uint.MaxValue) : baseSize, componentSize));
         _references.Add([]);
         return new SyntheticObject(_objects.Count - 1, address);
     }
+
+    /// <summary>
+    /// Creates an array of <paramref name="length"/> elements of <paramref name="componentSize"/> bytes (sprint 1.6): a
+    /// 24-byte base, like x64 arrays; <paramref name="references"/> marks an array of references.
+    /// </summary>
+    public SyntheticObject Array(string typeName, long length, uint componentSize, bool references = false, HeapKind heapKind = HeapKind.Gen0) =>
+        Object(typeName, 24 + ((ulong)length * componentSize), heapKind, typeKind: TypeKind.Array | (references ? TypeKind.ReferenceArray : TypeKind.None), baseSize: 24, componentSize: componentSize);
 
     /// <summary>Adds a reference from one object to another (duplicates allowed, like repeated fields).</summary>
     public SyntheticGraphBuilder Reference(SyntheticObject from, SyntheticObject to)
@@ -83,9 +93,9 @@ public sealed class SyntheticGraphBuilder
     {
         using var builder = new HeapGraphBuilder();
         var address = BaseAddress;
-        foreach (var (type, size, kind, flags, module, methodTable) in _objects)
+        foreach (var (type, size, kind, flags, module, methodTable, typeKind, baseSize, componentSize) in _objects)
         {
-            var typeIndex = builder.Types.GetOrAdd(type, methodTable, baseSize: (uint)Math.Min(size, uint.MaxValue), module: module);
+            var typeIndex = builder.Types.GetOrAdd(type, methodTable, baseSize, componentSize, module, typeKind);
             builder.AddObject(address, typeIndex, size, kind, flags);
             address += (Math.Max(size, 8UL) + 7) & ~7UL;
         }

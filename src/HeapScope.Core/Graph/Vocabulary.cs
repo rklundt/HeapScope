@@ -41,6 +41,12 @@ public enum TypeKind : ushort
     ValueTypeBox = 1 << 2,
     Delegate = 1 << 3,
     Exception = 1 << 4,
+
+    /// <summary>
+    /// An array whose elements are references (sprint 1.6): its non-null slots are its outgoing references. Index caches
+    /// written before 1.6 lack the flag.
+    /// </summary>
+    ReferenceArray = 1 << 5,
 }
 
 /// <summary>Why a root exists (ARCHITECTURE.md 6.1). Dependent handles are edges, never roots.</summary>

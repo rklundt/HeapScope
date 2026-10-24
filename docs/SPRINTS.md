@@ -18,7 +18,7 @@ everything else.
 | 1.3 | Heap summary by type | Closed | 2026-10-23 | sprint-1.3 |
 | 1.4 | Snapshot diff | Closed | 2026-10-23 | sprint-1.4 |
 | 1.5 | Object search and inspection | Closed | 2026-10-23 | sprint-1.5 |
-| 1.6 | Simple inspections | Planned | | |
+| 1.6 | Simple inspections | Closed | 2026-10-23 | sprint-1.6 |
 | 1.7 | Live counters and timed snapshots | Planned | | |
 | 1.8 | gcdump support | Planned | | |
 | 2.1 | Reverse references | Planned | | |
@@ -1001,9 +1001,86 @@ and 1,000 character cuts, and an enum array.
 
 **Dependencies**: 1.5.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Inspections in this sprint: LOH contents (by type), large arrays (85,000 bytes or more, the LOH threshold, largest
+   first), sparse arrays (reference arrays of at least 16 slots with at least half of them null), finalizable objects
+   (by type), empty collections, oversized collections, duplicate strings; plus a fragmentation summary (free bytes
+   per heap kind, pinned objects and bytes) shown as a bar, not a list.
+2. An inspection is an Analysis plugin (`IInspection`: name, title, required capabilities, run over the graph and an
+   optional typed reader, result = count, wasted bytes, one-line cause and fix, and rows). Graph-only inspections need
+   no dump; duplicate strings needs `StringContents`; collections need `FieldValues`. A missing capability makes the
+   inspection unavailable with the capability explanation (never silently empty). Recorded as ADR-020.
+3. Duplicate strings group by full content: a 64-bit XxHash3 of the UTF-16 text plus the length as the key (no string
+   kept per object; a collision would merge two values, odds negligible at heap sizes, documented). Wasted bytes per
+   value are (count - 1) times the size of one copy. Only values with two or more copies are rows.
+4. Collections covered: `List<T>`, `Dictionary<TKey,TValue>`, `HashSet<T>`, `Queue<T>`, `Stack<T>` (BCL generic field
+   layouts read through the typed reader; other collection types are ignored, not guessed). Empty: count 0 (wasted:
+   the backing array, if any). Oversized: capacity at least 2 times count plus 16, wasted = unused slots times the
+   element size.
+5. Inspections run on demand per snapshot (the Inspections tab or CLI `inspect`); results are result sets like any
+   query, not persisted in the index cache.
+6. Free bytes per heap kind are recorded by the loader (free objects are already walked) and stored in the index cache
+   metadata as an optional field (additive, format unchanged); a cache written before 1.6 shows "free space unknown,
+   reopen with Rebuild". Pinned objects come from pinned and async pinned handle roots and the pinned object heap.
+7. Typed reader API (from the 1.5 review M6): Core's reader returns typed values (`ObjectValue`: kind, integer or
+   floating value, character, boolean, address, text) instead of display text, adds a field by path and string text in
+   bulk; display formatting moves into the worker (unit-testable without a dump).
+8. Drill-down from inspection rows: `InstancesRequest` gains a scope (all, LOH only, finalizable only) and
+   `SameValueAs` (strings equal to the string at an address); rows naming one object open that object. Protocol 6.
+9. UI: a third tab "Inspections" on the Snapshots page: tiles (title, count, wasted bytes, cause, fix, first rows),
+   the fragmentation bar, and the selected inspection's full grid; double-click opens the row on the Snapshot tab.
+10. CLI: `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]`; without a name it prints every
+    inspection's summary line; an unavailable inspection prints why and exits 1 when named, is listed as unavailable
+    otherwise.
+11. Fixture: LeakyConsole `--waste` (`WasteFixtures`: repeated strings, empty and oversized collections of each covered
+    kind, LOH arrays, sparse arrays, finalizable objects, a pinned buffer), known answer `Waste.json` with kind
+    `inspection` and a `findings` section (inspection name, row key, minimum count or exact count). The Inspection known
+    answer gains the 1.5 review M15 cases.
+12. (While implementing) Reference arrays are marked in the type table (`TypeKind.ReferenceArray`, set by the loader):
+    a reference array's non-null slots are its outgoing references, so sparse arrays need no dump reads. Caches
+    written before 1.6 lack the flag and the free space; the inspections say so ("reopen with Rebuild").
+13. (While implementing) The fragmentation bar uses the fragmentation inspection's rows (per heap kind: live, free,
+    pinned), so the snapshot descriptor does not change.
+14. (From the review) Loader facts are explicit: `SnapshotFacts` on `SnapshotInfo` (free space, reference-array marks)
+    and `IInspection.RequiresFacts`; an inspection missing a fact is unavailable with its own reason. Finalizable counts
+    objects ready for the finalizer thread too; string text for hashing is streamed, never built.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Fixtures and known answers: `WasteFixtures`, LeakyConsole `--waste`, `Waste.json` (`findings`), the M15 fields in
+   `InspectionFixtures` and `Inspection.json`, README rows. Tests: `KnownAnswerTests` verifies every finding and field
+   with ClrMD directly.
+2. [x] Typed reader: Core `ObjectValue`, reader returns typed fields, field by path, strings in bulk; worker
+   formatting (`ObjectFormatter`). Tests: formatter unit tests (every kind, culture invariant, truncation); reader
+   integration tests on the Inspection dump (typed values, paths, bulk strings).
+3. [x] Loader free space and pinning: free bytes per heap kind in the load result and the index cache metadata
+   (optional); pinned summary from roots and POH. Tests: loader test (free bytes present, per kind sums within the
+   segments); cache round trip; an old cache without it.
+4. [x] Analysis inspections: `IInspection`, `InspectionResult`, the seven inspections and the fragmentation summary.
+   Tests: synthetic graph known answers for the graph-only ones; fake typed reader for duplicates and collections;
+   capability requirements.
+5. [x] Contracts and worker, protocol 6: list inspections (availability and reason), run one (summary plus rows as a
+   result set, progress, cancellation), heap layout on the descriptor, `InstancesRequest` scope and `SameValueAs`.
+   Tests: worker source tests; IPC round trip; unavailable inspection refused with `CapabilityNotSupported`.
+6. [x] Application: session queries with re-query after eviction and reopen. Tests: integration after a worker
+   restart.
+7. [x] UI: Inspections tab (tiles, fragmentation bar, grid, drill-down). Tests: view model tests with fakes; the smoke
+   open shows the inspections within the dispatcher budget.
+8. [x] CLI `inspect`. Tests: output and exit codes against the waste dump.
+9. [x] Integration: every inspection against the waste dump matches `Waste.json`. Docs: ARCHITECTURE (code map, 4.4,
+   5.1, ADR-020, measurements: inspections on Medium), DEVELOPER, CLAUDE, the known answers README.
+
+**Review summary**: 3 High, 18 Moderate, 19 Low (`docs/reviews/sprint-1.6.md`).
+- Fixed (High, each confirmed by its reviewer): finalizable objects include those ready for the finalizer thread (a
+  stuck finalizer fixture); duplicate strings and the equal-strings scope hash text streamed from the dump in pieces
+  (no string built, sorted hashes per size group); availability is one tested rule (capabilities and loader facts).
+- Fixed (Moderate): loader facts (`SnapshotFacts`); the wire vocabulary in Contracts with mirror tests; the Inspections
+  tab ignores late results of a canceled run, logs failures, refreshes a tile selected while running, has blank
+  placeholder cells; stack pins counted; collection layouts skip arrays and nested types; per-type totals in arrays;
+  sparse null slots clamped with a note; the reader lock released after 16M characters; fixture and test gaps closed.
+- Deferred: keeping inspection results across eviction, dependent-handle edges in sparse arrays, async pinned buffers,
+  bulk collection reads, a hidden flag on result columns, to the backlog; the end-to-end gcdump checks to 1.8.
+- Measured: `inspect` on Medium 7 s and DenseHeap 15 s (all eight, Release, from the index cache); the Small smoke
+  run's inspections phase 2.4 s with a longest dispatcher operation of 23 ms.
 
 ---
 
@@ -1216,6 +1293,14 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- Inspection results kept per snapshot (compact rows) so an evicted set re-query rebuilds only the result set, with
+  progress shown (from the 1.6 review M3).
+- Sparse arrays: count dependent-handle edges apart from fields; a fixture array that is a weak table key (1.6 M12).
+- Pinning: expand async pinned handles to their user buffers; overlapped I/O and stack pin fixtures (1.6 M13, M14).
+- Collection inspections: field offsets resolved once per type, bulk reads under one lock, shapes shared by the empty
+  and oversized inspections; a single string larger than the reader's lock budget read in several acquisitions (1.6
+  M15, M18).
+- A hidden flag on result columns (`ResultColumn`), replacing the naming convention (1.5 L2, 1.6 M2).
 - A types row opens only its own method table's objects (from the 1.5 review M3): a hidden snapshot-local type index
   on summary rows and an optional index on `InstancesRequest`; diff rows keep the name and module key.
 - Slow the dispatcher watchdog's 25 ms probe while the window is idle or in the background outside smoke runs (from

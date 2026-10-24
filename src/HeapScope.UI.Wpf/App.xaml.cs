@@ -208,6 +208,13 @@ public partial class App : System.Windows.Application
                 Combine();
             }
 
+            if (completed)
+            {
+                completed = await RunSmokeInspectionsAsync(snapshots, watchdog, logger);
+                await Task.Delay(500);
+                Combine();
+            }
+
             if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
             {
                 completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
@@ -314,6 +321,38 @@ public partial class App : System.Windows.Application
         await second.LoadTask;
         await second.ReferenceRows.WhenLoadedAsync();
         return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null);
+    }
+
+    /// <summary>
+    /// Shows the Inspections tab (sprint 1.6): every inspection runs in the worker while the tab stays responsive; the
+    /// rows of the selected one are fetched as the grid would. Returns whether every available inspection finished.
+    /// </summary>
+    private static async Task<bool> RunSmokeInspectionsAsync(SnapshotsViewModel snapshots, DispatcherWatchdog watchdog, ILogger logger)
+    {
+        watchdog.Reset();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        snapshots.SelectedTab = 2;
+        var inspections = snapshots.Inspections;
+        await inspections.RunTask;
+        var rows = inspections.Rows;
+        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
+        {
+            rows.GetRow(i);
+        }
+
+        await rows.WhenLoadedAsync();
+        await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        var finished = inspections.Tiles.Count > 0 && inspections.Tiles.All(t => !t.IsAvailable || (t.Run is not null && t.Status is null));
+        logger.LogInformation(
+            "Smoke inspections: {Count} inspections in {Seconds:N1} s ({Findings}), selected {Selected}; maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            inspections.Tiles.Count,
+            stopwatch.Elapsed.TotalSeconds,
+            string.Join("; ", inspections.Tiles.Select(t => $"{t.Info.Name}: {t.Status ?? t.Summary}")),
+            inspections.Selected?.Title ?? "none",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperation.TotalMilliseconds);
+        snapshots.SelectedTab = 0;
+        return finished;
     }
 
     /// <summary>

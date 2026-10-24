@@ -22,6 +22,15 @@ public enum InspectionColor
     Blue = 4,
 }
 
+[Flags]
+public enum InspectionAccess
+{
+    None = 0,
+    Read = 1,
+    Write = 2,
+    Execute = 4,
+}
+
 public readonly record struct InspectionPoint(int X, int Y);
 
 public readonly record struct InspectionBox(InspectionPoint TopLeft, InspectionPoint BottomRight, string Label);
@@ -64,6 +73,18 @@ public sealed class InspectionSample
 
     /// <summary>Ten slots holding one object: its references name the first slots and count the rest.</summary>
     public InspectionChild[] Repeated { get; } = Enumerable.Repeat(new InspectionChild(7), 10).ToArray();
+
+    /// <summary>A boxed primitive in an object field (sprint 1.6): shown with its value.</summary>
+    public object Boxed { get; } = 12345;
+
+    /// <summary>A [Flags] combination: shown by its flag names.</summary>
+    public InspectionAccess Access { get; } = InspectionAccess.Read | InspectionAccess.Write;
+
+    /// <summary>A string longer than the field display cut (1,000 characters).</summary>
+    public string LongText { get; } = new('x', 1_500);
+
+    /// <summary>An array of enums.</summary>
+    public InspectionColor[] Colors { get; } = [InspectionColor.Red, InspectionColor.Blue];
 }
 
 public sealed class InspectionChild(int id)

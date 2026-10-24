@@ -48,7 +48,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
         cancellationToken.ThrowIfCancellationRequested();
 
         using var builder = new HeapGraphBuilder();
-        var (unreadable, incompleteSegments) = AddObjects(heap, builder, progress, cancellationToken);
+        var (unreadable, incompleteSegments, freeBytes) = AddObjects(heap, builder, progress, cancellationToken);
         var objects = stopwatch.Elapsed - open;
 
         builder.FreezeObjects(cancellationToken);
@@ -83,7 +83,9 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
             ProcessId(target),
             clr.Version.ToString(),
             target.DataReader.PointerSize,
-            header.CapturedAtUtc);
+            header.CapturedAtUtc,
+            freeBytes,
+            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks);
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
         var capabilities = unreadable > 0 || incompleteSegments > 0
@@ -107,8 +109,10 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
     /// <summary>The absolute part of the incomplete-segment test.</summary>
     internal const ulong IncompleteSegmentBytes = 1024 * 1024;
 
-    private static (long Unreadable, int IncompleteSegments) AddObjects(ClrHeap heap, HeapGraphBuilder builder, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
+    private static (long Unreadable, int IncompleteSegments, long[] FreeBytes) AddObjects(ClrHeap heap, HeapGraphBuilder builder, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
     {
+        // Free objects are the gaps the GC left between live ones (fragmentation, sprint 1.6), per heap kind.
+        var free = new long[Enum.GetValues<HeapKind>().Length];
         var finalizable = FinalizableObjects(heap, cancellationToken);
         var typeIndices = new Dictionary<ulong, int>();
         long total = 0;
@@ -134,6 +138,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
                 walked += obj.Size;
                 if (obj.IsFree)
                 {
+                    free[(int)(fixedKind ?? GenerationKind(segment.GetGeneration(obj.Address)))] += (long)obj.Size;
                     continue;
                 }
 
@@ -170,7 +175,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
         }
 
         progress?.Report(new LoadProgress("Reading objects", total, total));
-        return (unreadable, incomplete);
+        return (unreadable, incomplete, free);
     }
 
     private static HashSet<ulong> FinalizableObjects(ClrHeap heap, CancellationToken cancellationToken)
@@ -446,6 +451,10 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
         if (type.IsArray)
         {
             kind |= TypeKind.Array;
+            if (type.ComponentType?.IsObjectReference == true)
+            {
+                kind |= TypeKind.ReferenceArray;
+            }
         }
 
         if (type.IsString)

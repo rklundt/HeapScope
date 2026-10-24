@@ -199,6 +199,10 @@ public sealed class ResultSetHandleTests
 
         public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
 
+        public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task ShutdownAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task CrashForTestingAsync(CancellationToken cancellationToken) => throw new NotSupportedException();

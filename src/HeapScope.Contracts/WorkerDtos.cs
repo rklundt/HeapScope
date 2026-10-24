@@ -269,13 +269,72 @@ public static class InstanceColumns
 /// </summary>
 /// <param name="Module">The module file name; null or empty matches types without one.</param>
 /// <param name="SortColumn">A column of <see cref="InstanceColumns"/>; null sorts by bytes.</param>
+/// <param name="Scope">Which of the type's objects (sprint 1.6): all, those on the large object heap, those still to be
+/// finalized, or strings with the same text as the one at <paramref name="SameValueAs"/>.</param>
 public sealed record InstancesRequest(
     Guid SnapshotId,
     string TypeName,
     string? Module,
     string? Filter = null,
     string? SortColumn = null,
-    bool Descending = true);
+    bool Descending = true,
+    InstanceScope Scope = InstanceScope.All,
+    ulong SameValueAs = 0);
+
+/// <summary>Which objects of a type an instances query lists (sprint 1.6; inspection rows open these).</summary>
+public enum InstanceScope
+{
+    All = 0,
+    LargeObjectHeap = 1,
+    Finalizable = 2,
+
+    /// <summary>Strings whose text equals the string at <see cref="InstancesRequest.SameValueAs"/>.</summary>
+    SameValue = 3,
+}
+
+/// <summary>An inspection the worker offers for a snapshot (sprint 1.6).</summary>
+/// <param name="Name">The CLI name (<c>duplicate-strings</c>).</param>
+/// <param name="Unavailable">Why it cannot run on this snapshot (a missing capability), or null.</param>
+public sealed record InspectionInfo(string Name, string Title, string Cause, string Fix, string? Unavailable);
+
+/// <summary>Runs one inspection on a snapshot (sprint 1.6).</summary>
+public sealed record InspectionRequest(Guid SnapshotId, string Name);
+
+/// <summary>
+/// An inspection's answer: findings, the bytes they cover, the bytes they waste (null when waste does not apply or is
+/// unknown), a note on what could not be measured, and the rows (columns in <see cref="InspectionColumns"/>).
+/// </summary>
+public sealed record InspectionResultDto(string Name, long Count, long Bytes, long? WastedBytes, string? Note, ResultSetInfo Rows, double ElapsedSeconds);
+
+/// <summary>
+/// Column names of inspection rows. <see cref="TypeName"/>, <see cref="Module"/> and <see cref="Scope"/> are hidden: a
+/// row with them opens the objects of that type in that <see cref="InstanceScope"/> (with <see cref="Address"/> for
+/// <see cref="InstanceScope.SameValue"/>); a row with only an <see cref="Address"/> opens that object.
+/// </summary>
+public static class InspectionColumns
+{
+    public const string Address = "Address";
+    public const string TypeName = "TypeName";
+    public const string Module = "Module";
+    public const string Scope = "Scope";
+
+    /// <summary>Columns of the <see cref="InspectionNames.Fragmentation"/> rows, which the UI draws as bars.</summary>
+    public const string Heap = "Heap";
+    public const string Live = "Live";
+    public const string Free = "Free";
+    public const string PinnedObjects = "PinnedObjects";
+    public const string PinnedBytes = "PinnedBytes";
+
+    /// <summary>Whether a column says what a row opens rather than being shown.</summary>
+    public static bool IsHidden(string column) => column is TypeName or Module or Scope;
+}
+
+/// <summary>Names of inspections that front ends present in their own way (sprint 1.6).</summary>
+public static class InspectionNames
+{
+    /// <summary>Per heap kind rows (live, free, pinned) shown as bars as well as a grid.</summary>
+    public const string Fragmentation = "fragmentation";
+}
 
 /// <summary>
 /// The answer to an instances query. Totals cover every object of the matched types (before the filter);

@@ -123,7 +123,8 @@ public class LayeringTests
     {
         LayerRules.CheckAssemblyReference("HeapScope.UI.Wpf", "StreamJsonRpc").ShouldNotBeNull();
         LayerRules.CheckAssemblyReference("HeapScope.Core", "Microsoft.Extensions.Logging.Abstractions").ShouldNotBeNull();
-        LayerRules.CheckAssemblyReference("HeapScope.Analysis", "System.IO.Hashing").ShouldNotBeNull();
+        LayerRules.CheckAssemblyReference("HeapScope.Analysis", "StreamJsonRpc").ShouldNotBeNull();
+        LayerRules.CheckAssemblyReference("HeapScope.Analysis", "System.IO.Hashing").ShouldBeNull("duplicate strings hash text (sprint 1.6)");
         LayerRules.CheckAssemblyReference("HeapScope.Storage", "System.IO.Hashing").ShouldBeNull();
     }
 

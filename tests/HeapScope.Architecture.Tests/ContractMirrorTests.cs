@@ -45,6 +45,21 @@ public class ContractMirrorTests
     }
 
     [Fact]
+    public void Inspection_vocabulary_mirrors_the_wire()
+    {
+        // Sprint 1.6 review: the scope cells name the contract's instance scopes, the shared column names match, and the
+        // fragmentation inspection is the one front ends draw as bars.
+        var scopes = typeof(HeapScope.Analysis.Inspections.InspectionScopes).GetFields().Select(f => (string)f.GetRawConstantValue()!).ToList();
+        scopes.ShouldAllBe(s => Enum.IsDefined(Enum.Parse<InstanceScope>(s)));
+        scopes.ShouldBe(Enum.GetNames<InstanceScope>().Where(n => n != nameof(InstanceScope.All)), ignoreOrder: true);
+
+        var wire = typeof(InspectionColumns).GetFields().ToDictionary(f => f.Name, f => (string)f.GetRawConstantValue()!);
+        var analysis = typeof(HeapScope.Analysis.Inspections.InspectionColumns).GetFields().ToDictionary(f => f.Name, f => (string)f.GetRawConstantValue()!);
+        wire.ShouldAllBe(c => analysis.ContainsKey(c.Key) && analysis[c.Key] == c.Value);
+        HeapScope.Analysis.Inspections.InspectionCatalog.Find(InspectionNames.Fragmentation).ShouldNotBeNull();
+    }
+
+    [Fact]
     public void Every_single_feature_has_a_specific_explanation()
     {
         foreach (var feature in Enum.GetValues<SnapshotFeatures>().Where(f => f != SnapshotFeatures.None))

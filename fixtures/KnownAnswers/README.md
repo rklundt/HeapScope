@@ -11,7 +11,7 @@ then tested against the same files.
 |---|---|---|
 | `formatVersion` | all | `1`. Bump on any incompatible change. |
 | `name` | all | Leak name (`ILeak.Name`) or semantic fixture name; equals the file name. |
-| `kind` | all | `leak` or `semantics` (later: `inspection`, `clean`). |
+| `kind` | all | `leak`, `semantics` or `inspection` (later: `clean`). |
 | `description` | all | What the fixture does. |
 | `types` | all | Fixture-owned types and instances per item (`perItem`). A dump of N items has exactly `N * perItem` instances. `types[0]` is the item type. |
 | `census` | leaks | Every type an item creates, including BCL types. `exact: false` means other code creates the type too (or it is recreated, like dictionary nodes on resize), so only a lower bound on growth holds. `shallowBytes` is the x64 instance size where fixed. |
@@ -22,7 +22,8 @@ then tested against the same files.
 | `minRetainedBytesPerItem` | leaks, rooted semantics | Lower bound of the retained size of one `types[0]` instance: `base + payloadMultiplier * payloadBytes`. Retained size is the dominator definition: bytes that become unreachable when that instance is removed. |
 | `presentButUnreachable` | late garbage | Types present in the dump that no retaining root reaches. |
 | `heapKinds` | runtime kinds | For each listed type, the object in `field` must be in the given GC segment kind. |
-| `fields` | inspection | Field values of the fixture's one object as an inspection shows them: `path` (property names for backing fields, dots into nested structs, `[i]` for array elements and `[i,j]` for multi-dimensional ones) and either `value` (the display text) or `type` (a reference's runtime type; addresses vary). Added in 1.5; optional, so the format version stays 1. |
+| `fields` | inspection | Field values of the fixture's one object as an inspection shows them: `path` (property names for backing fields, dots into nested structs, `[i]` for array elements and `[i,j]` for multi-dimensional ones) and either `value` (the display text) or `type` (a reference's runtime type; addresses vary). Added in 1.5; optional, so the format version stays 1. A long value may be given as `valuePrefix` plus the display `length`. |
+| `findings` | inspection | What the simple inspections must report (sprint 1.6): `inspection` (its CLI name), `key` (the row's type name, or a string's value for `duplicate-strings`, or `pinned` for `fragmentation`), `count` and `exact` (default true; false means a lower bound). The count is copies of the value (`duplicate-strings`), objects of the type (`loh`, `finalizable`), rows naming objects of the type (`large-arrays`, `sparse-arrays`, `empty-collections`, `oversized-collections`) or pinned objects (`fragmentation`). Optional, so the format version stays 1. |
 | `notes` | all | What the analysis must and must not conclude. |
 
 ## Path shape grammar
