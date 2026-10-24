@@ -54,7 +54,7 @@ public class TextRulesTests
     }
 
     // Every source file we own starts with the license header of docs/licensing/SOURCE-HEADER.txt, in its own comment
-    // syntax (LICENSE, ADDITIONAL-TERMS.md). Vendored code under a ThirdParty folder keeps its own header.
+    // syntax (LICENSE, ADDITIONAL-TERMS.md). Vendored code (a ThirdParty project or folder) keeps its own header.
     [Fact]
     public void Every_source_file_starts_with_the_license_header()
     {
@@ -64,7 +64,7 @@ public class TextRulesTests
         foreach (var file in Directory.EnumerateFiles(RepoPaths.Root, "*", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(RepoPaths.Root, file);
-            if (IsIgnored(relative) || relative.Split(Path.DirectorySeparatorChar).Contains("ThirdParty")
+            if (IsIgnored(relative) || relative.Split(Path.DirectorySeparatorChar).Any(p => p.Contains("ThirdParty", StringComparison.Ordinal))
                 || Path.GetExtension(file) is not (".cs" or ".xaml" or ".ps1"))
             {
                 continue;

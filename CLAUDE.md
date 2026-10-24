@@ -2,7 +2,7 @@
 
 HeapScope is a Windows desktop memory profiler for modern .NET applications (.NET 10, WPF, x64), replacing
 the core of JetBrains dotMemory. Primary use case: find what is growing and why it is retained in an ASP.NET
-Core API run locally under replayed traffic. Snapshots (full dumps, later gcdumps) are loaded by an
+Core API run locally under replayed traffic. Snapshots (full dumps and gcdumps) are loaded by an
 out-of-process x64 worker into a compact struct-of-arrays object graph, cached on disk, and explored through a
 WPF app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when available.
 
@@ -57,12 +57,12 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 - All tests: `dotnet test --solution HeapScope.sln`
 - Fast tests: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`
 - UI: `dotnet run --project src/HeapScope.UI.Wpf`
-- CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `list`, `capture --pid <id>`, `open <dump>`,
+- CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `list`, `capture --pid <id> [--kind full|gcdump]`, `open <dump>`,
   `summary <dump> [--group] [--filter] [--sort] [--format table|csv|json]`, `diff <baseline> <current>
   [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
   [--module] [--filter] [--sort] [--format]`, `object <dump> <address> [--references N] [--format text|json]`,
   `inspect <dump> [<name>] [--top|--all] [--format]`, `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
-  [--max] [--duration]`,
+  [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]
   [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
 - UI smoke runs: `HeapScope.exe --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]

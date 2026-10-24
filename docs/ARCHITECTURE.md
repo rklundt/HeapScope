@@ -107,7 +107,8 @@ src/
   HeapScope.Storage            On-disk index cache format, versioning, read/write.
   HeapScope.Capture            Process discovery, dump/gcdump capture, live counters, timed snapshots.
   HeapScope.Loaders.ClrMd      Full dump -> compact graph.
-  HeapScope.Loaders.GcDump     gcdump -> compact graph (created in sprint 1.8).
+  HeapScope.Loaders.GcDump     gcdump -> compact graph (sprint 1.8).
+  HeapScope.ThirdParty.GcDump  Vendored MIT gcdump reader and writer from dotnet/diagnostics (PerfView code), sprint 1.8.
   HeapScope.Contracts          IPC DTOs and service interfaces shared by UI, worker and CLI.
   HeapScope.Worker             Out-of-process analysis host (x64).
   HeapScope.Application        Use cases: worker client and lifecycle, job tracking, sessions, capture
@@ -224,6 +225,18 @@ session folder); `ICaptureService.StartCapture` records a source (`SnapshotSourc
 page (`LiveViewModel`, `SnapshotCard`) and `TimelineChart` (stacked heap kinds, snapshot markers, one element drawn per
 sample). The CLI has `monitor` (`MonitorCommand.cs`).
 
+Code map additions in sprint 1.8 (gcdump support): Core has `Loading/`, the loader contract both loaders share
+(`ISnapshotLoader`, `LoadResult`, `LoadProgress`, `LoadTimings`, `LoadDiagnostics`, moved from Loaders.ClrMd) and
+`SnapshotFileSignature` (a file's first bytes tell a minidump, `MDMP`, from a gcdump, a FastSerialization stream whose
+first object is a `GCHeapDump`); `Graph/TypeNameForms` (a full dump's type name in the form a gcdump records it).
+`HeapScope.ThirdParty.GcDump` is the vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the
+EventPipe heap dumper), MIT, with its changes listed in its `CHANGES.md`. Capture has `GcDumpCapturer` (the heap
+snapshot over EventPipe, written through a partial file). Loaders.GcDump has `GcDumpLoader`, `RootClass` (pseudo node
+names to root kinds) and `TypeNames` (names normalized to the full dump loader's form). The worker's `SnapshotStore`
+picks the loader by signature; `TypeDiffSource` matches a full dump's names in their gcdump form when the kinds differ.
+`ICaptureService.StartCapture` and `MonitorOptions` take a `SnapshotKindDto`; the Processes and Live pages and the CLI's
+`capture` and `monitor` (`--kind gcdump`) choose it.
+
 ### 3.1 Dependency rules
 
 ```mermaid
@@ -240,6 +253,8 @@ flowchart TD
     Wk --> Sto[Storage]
     Wk --> LC[Loaders.ClrMd]
     Wk --> LG[Loaders.GcDump]
+    LG --> TP[ThirdParty.GcDump]
+    Cap --> TP
     Wk --> Core
     Ana --> Core
     Sto --> Core
@@ -253,9 +268,10 @@ flowchart TD
 | Core | nothing | nothing |
 | Analysis | Core | System.IO.Hashing (duplicate strings, sprint 1.6) |
 | Storage | Core | System.IO.Hashing |
-| Capture | Core | Microsoft.Diagnostics.NETCore.Client, TraceEvent |
+| Capture | Core, ThirdParty.GcDump | Microsoft.Diagnostics.NETCore.Client, TraceEvent |
 | Loaders.ClrMd | Core | Microsoft.Diagnostics.Runtime |
-| Loaders.GcDump | Core | Microsoft.Diagnostics.Tracing.TraceEvent |
+| Loaders.GcDump | Core, ThirdParty.GcDump | Microsoft.Diagnostics.Tracing.TraceEvent |
+| ThirdParty.GcDump | nothing | Microsoft.Diagnostics.NETCore.Client, TraceEvent (vendored code, sprint 1.8) |
 | Contracts | nothing (ADR-016) | StreamJsonRpc attributes only (no transport code) |
 | Worker | Core, Contracts, Analysis, Storage, Loaders.* | StreamJsonRpc |
 | Application | Core, Contracts, Capture | StreamJsonRpc |
@@ -455,7 +471,9 @@ public interface ISnapshot : IDisposable
   free space is unknown. Objects ready for the finalizer thread are the `FinalizerQueue` roots; the finalizable
   inspection and scope count them with the registered ones.
 - A full dump whose heap could not be read completely (unreadable objects, or a segment walk that covered noticeably
-  less than the segment, for example a truncated file) loses `CompleteGraph` and `ExactCounts` and carries a note.
+  less than the segment, a segment whose memory is not in the file, or a file shorter than its own minidump directory
+  says, sprint 1.8) loses `CompleteGraph` and `ExactCounts` and carries a note. ClrMD failing to create the heap at all is
+  refused with `SnapshotFormatException`.
   A minidump without heap memory (MINIDUMP_TYPE without full or private read-write memory) is refused at open.
 
 ### 5.2 Capabilities
@@ -480,7 +498,51 @@ Rules:
 - Analysis entry points declare their required capabilities; calling one without them throws
   `CapabilityNotSupportedException` and the CLI reports it with a non-zero exit code.
 - Diffs across snapshot kinds are allowed on type summaries; the result carries the intersection of both
-  snapshots' capabilities.
+  snapshots' capabilities (`ExactCounts` only when both are exact). A gcdump names a nested type without its declaring
+  type (`Entry<System.Int32, X>[]` for `Dictionary<System.Int32, X>+Entry[]`), so a diff of a full dump and a gcdump
+  matches the full dump's names in that form (`TypeNameForms.AsGcDumpName`). Each row keeps the name each side used:
+  it opens on the full dump side by the full dump's own name, and a row that joins several full dump types under one
+  gcdump name (for example several `<>c` classes of one module) cannot open one type's objects and says so. Across
+  kinds the "copies" marker is off: mapped names join types, so type counts per row say nothing about copies.
+
+### 5.3 gcdumps (sprint 1.8)
+- A gcdump is what dotnet-gcdump and PerfView write: the capture opens an EventPipe session with the GC heap snapshot
+  keywords, the runtime runs one full blocking collection and reports every surviving object, its type, size and
+  references, and the roots. HeapScope captures them with the vendored dotnet-gcdump code (`GcDumpCapturer`, 30 second
+  default timeout, no file left on failure or cancellation). On .NET 10 the session cannot use lossless buffering (that
+  needs .NET 11), so a very large heap can lose events; nodes that were referenced but never described then make the
+  load drop `CompleteGraph` and `ExactCounts`.
+- The file is a graph of nodes. Nodes with addresses and a description are objects; nodes without an address, and COM
+  callable wrappers (`[CCW 0x... for type X]`, described at the native IUnknown address), are pseudo nodes that form the
+  root tree, and the loader maps their names to root kinds (`RootClass`): `[local vars]` to thread stack roots,
+  `[static var Type.field]` to static field roots, `[strong Handles]`, `[pinning Handles]`, `[finalizer Handles]`,
+  `[COM/WinRT Objects]` and CCWs to the handle kinds, `[Dependent Handles]` to a retaining other root (section 6.1),
+  `[other Handles]` and the rest to other roots. Weak handles are not written. .NET 10 does write static roots, but
+  names them by the value's type, not the declaring type (`Dictionary<...>.s_cache`), so their detail reads
+  `s_cache (Dictionary<System.Int32, X>)`. Runtime callable wrappers (`[RCW X]`) are objects: the loader restores the
+  name, removes the 1,000 bytes the writer adds for the native part, and skips the child at the COM object's IUnknown.
+  Nodes that were referenced but never described (lost events), and `UNKNOWN 0x...` types (lost type events), make the
+  load drop `CompleteGraph` and `ExactCounts`. The writer stores sizes as int; the loader reads them unsigned, which
+  recovers objects up to 4 GB.
+- The writer keeps at most 10 million nodes and reports success when it stops there. HeapScope's capture fails instead
+  ("more objects than a gcdump can hold"), so it never writes a silently partial gcdump; a capped gcdump from another
+  tool loads as incomplete. A cancelled capture ends its session (vendored change 3) and never waits more than 10
+  seconds for it. The vendored code's lines are written to the HeapScope log (Debug, warnings at Warning); its
+  lossy-buffering warning on .NET 10 is printed to the console by the vendored code.
+- Every object's heap kind is `Unknown` (no generations), and there is no reader: no field values, no string text, no
+  free space, reference-array marks or finalizer registrations (`SnapshotFacts.None`), so the inspections and scopes
+  that need them (finalizable objects since review H5) are unavailable with the gcdump explanation. Strings and arrays
+  are recognized by name. Reading the file reports progress and honors cancellation (`ObservedReadStream`).
+- Index caches record the version of the loader that built them (`IndexCacheMetadata.LoaderVersion`,
+  `ISnapshotLoader.Version`: full dumps 2 since 1.8, gcdumps 1); the worker rebuilds a cache from an older version with
+  a note, so a fix in what a loader records reaches snapshots cached before it (review M7).
+- Type names: the writer joins generic arguments without a space, writes compiler names' `<>` as `[]`, splits arrays
+  above 1 KB and 10 KB into nodes named `T[] (Bytes > 10K)`, and drops the declaring types of nested types. The loader
+  undoes the first three (`TypeNames.Normalize`); the last cannot be undone. Types without a method table are told apart
+  by name and module.
+- Sampled gcdumps (PerfView can write them; HeapScope and dotnet-gcdump never sample) are loaded as recorded, without
+  scaling; they lose `CompleteGraph` and `ExactCounts` and carry a note. Every gcdump carries a note that it holds the
+  survivors of a collection and has no generations, field values or string text.
 
 ## 6. Compact graph format (ADR-005)
 
@@ -522,6 +584,9 @@ Supporting tables:
   secondary alive only while its primary is reachable. Loaders add an ordinary edge primary -> secondary in the
   CSR during the reference pass and never record the secondary as a root. Exactly one mechanism is used: either
   ClrMD's reference enumeration including dependent handles, or explicit edges from the handle table, not both.
+  Exception (sprint 1.8 review M11): a gcdump records a dependent handle's value without its key, and only when the key
+  was alive; every object in a gcdump survived its collection, so the gcdump loader records such a value as a retaining
+  `Other` root ("dependent handle value (key not recorded)") rather than letting it look like garbage.
 - **Static fields.** On modern .NET the GC sees no static field roots: reference statics live in runtime
   allocated `object[]` storage. Measured on .NET 10 with the sprint 0.4 fixtures, that storage is reached through a
   **strong handle** (`StrongHandle -> System.Object[] -> static value`), not a pinned handle. The full dump loader
@@ -1000,6 +1065,10 @@ sprint 0.1.
 - Context: reading dumps and talking to runtimes is complex; Microsoft's libraries are the reference.
 - Decision: ClrMD, Microsoft.Diagnostics.NETCore.Client, TraceEvent, latest stable at sprint 0.1.
 - Consequences: versions verified at 0.1 (section 14); upgrades are deliberate.
+- Amendment (sprint 1.8): TraceEvent ships no gcdump reader or writer; that code exists only as MIT source in PerfView
+  and dotnet-gcdump. HeapScope vendors dotnet-gcdump's copy (`src/HeapScope.ThirdParty.GcDump`, dotnet/diagnostics
+  `b1a4548`, from PerfView `76dc28af`) with two changes for the published diagnostics client (its `CHANGES.md`), listed
+  in `THIRD-PARTY-NOTICES.md`. An update replaces the files from a newer commit and reapplies the listed changes.
 
 ### ADR-011 Build hygiene
 - Decision: Central Package Management, shared `Directory.Build.props`, nullable enabled, warnings as
@@ -1147,7 +1216,7 @@ sprint 0.1.
   window as selectable text in the body font size, theme text on the opaque surface color (contrast above 13:1 in both
   themes); the CLI prints it, with the URL, after help and version output and, on a console, to stderr at startup.
   `ProductInfo` holds the text and URL. Third-party code and packages keep their own licenses, listed in
-  `THIRD-PARTY-NOTICES.md`; vendored code lives under `ThirdParty` folders.
+  `THIRD-PARTY-NOTICES.md`; vendored code lives in a `ThirdParty` project or folder (the gcdump code, sprint 1.8).
 - Alternatives: MIT (no attribution on screen, no copyleft); GPLv3 (no network clause); a splash screen instead of the
   main screen (ADDITIONAL-TERMS.md 1.2 allows either; the main screen costs no start-up time).
 - Consequences: dependencies must be AGPLv3 compatible (DEVELOPER.md 4); outside contributions need a contributor

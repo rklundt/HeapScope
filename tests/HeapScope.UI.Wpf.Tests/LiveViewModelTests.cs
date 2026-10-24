@@ -26,6 +26,7 @@ using System.Threading.Channels;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Monitoring;
 using HeapScope.Application.Sessions;
+using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Controls;
 using HeapScope.UI.Wpf.Services;
 using HeapScope.UI.Wpf.ViewModels;
@@ -80,6 +81,22 @@ public sealed class LiveViewModelTests : IAsyncDisposable
             _live.StartCommand.Execute(null);
             (_live.Status, _live.IsRunning).ShouldBe((message, false), $"{field} = {text}");
         }
+    }
+
+    [Fact]
+    public async Task Rules_capture_gcdumps_when_asked()
+    {
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+        _live.Above = "500MB";
+        _live.CaptureGcDumps = true;
+
+        _live.StartCommand.Execute(null);
+        await _feed.SendAsync(600 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.Snapshots.Count == 1);
+        _live.StopCommand.Execute(null);
+
+        _capture.Kinds.ShouldBe([SnapshotKindDto.GcDump]);
     }
 
     [Fact]

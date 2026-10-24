@@ -20,7 +20,7 @@ everything else.
 | 1.5 | Object search and inspection | Closed | 2026-10-23 | sprint-1.5 |
 | 1.6 | Simple inspections | Closed | 2026-10-23 | sprint-1.6 |
 | 1.7 | Live counters and timed snapshots | Closed | 2026-10-23 | sprint-1.7 |
-| 1.8 | gcdump support | Planned | | |
+| 1.8 | gcdump support | Closed | 2026-10-24 | sprint-1.8 |
 | 2.1 | Reverse references | Planned | | |
 | 2.2 | Retention paths | Planned | | |
 | 2.3 | Dominator tree and retained size | Planned | | |
@@ -1181,9 +1181,85 @@ From the 1.2 review: a loader contract in Core (`LoadResult`, `LoadProgress`, `L
 
 **Dependencies**: 1.2, 1.4.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [x] Truncated dumps are refused, not crashed on: ClrMD's `InvalidDataException` when the runtime's heap cannot be
+   created becomes `SnapshotFormatException` with a next step. Tests: the truncated dump test at 30, 60 and 90 percent
+   of the file, each either refused or incomplete.
+2. [x] Vendor the gcdump code: `src/HeapScope.ThirdParty.GcDump` (dotnet/diagnostics `b1a4548`, PerfView `76dc28af`,
+   MIT, original headers kept), `CHANGES.md` listing every change, `THIRD-PARTY-NOTICES.md` entry, layering table and
+   architecture test rules (Capture and Loaders.GcDump may reference it; it references only TraceEvent and the
+   diagnostics client). Tests: architecture tests (layering, license headers skip vendored code).
+3. [x] Loader contract in Core: `ISnapshotLoader`, `LoadResult`, `LoadProgress`, `LoadTimings`, `LoadDiagnostics` move
+   from Loaders.ClrMd; `SnapshotFileSignature.Detect` tells a minidump (`MDMP`) from a gcdump (FastSerialization
+   header). Tests: Core tests for both signatures, an unknown file and an empty one; the ClrMD loader tests unchanged.
+4. [x] gcdump capture in Capture (`GcDumpCapturer`): a heap snapshot over EventPipe written as `.gcdump` through a
+   partial file, timeout and cancellation, partial file removed on failure. Tests: integration capture of LeakyConsole
+   (file starts with the gcdump signature, partial gone); cancellation leaves no file.
+5. [x] `HeapScope.Loaders.GcDump`: gcdump to `HeapGraph`. Objects are the nodes with addresses; the root tree's
+   pseudo nodes become root kinds (statics with their field name, locals, strong, pinned, finalizer, ref-counted);
+   capabilities `ObjectGraph | ObjectAddresses`, plus `CompleteGraph | ExactCounts` when not sampled; strings and
+   arrays marked by name. Tests: known answers on a LeakyConsole gcdump (type counts of every leak, static roots by
+   field name), capabilities, a sampled gcdump loses complete and exact (synthetic file written by the vendored writer).
+6. [x] Worker: the snapshot store picks the loader by file signature; a gcdump is a `GraphSnapshot` and gets an index
+   cache like a dump. Tests: open a gcdump through the worker (descriptor kind and features), reopen from the cache,
+   an unknown file refused with a message.
+7. [x] Capture kind end to end: a `SnapshotKindDto` (full dump, gcdump) on `StartCapture`, sessions record it;
+   CLI `capture --kind gcdump` and `monitor --kind gcdump`; UI capture choice on the Processes and Live pages. Tests: CLI
+   capture of a gcdump; view model tests for the kind; monitor rule captures pass the kind.
+8. [x] Capability-driven views on a gcdump (deferred tests of 1.5 and 1.6): `GetObjectAsync` returns no fields and the
+   explanation; CLI `object` prints the note and exits 0; an instances value filter is refused with
+   `CapabilityNotSupported` and CLI `instances` exits 1; unavailable inspections are refused end to end with the
+   gcdump text; the generations bar and field tree show the reason in the UI.
+9. [x] Diffs across gcdumps and mixed kinds: type rows match across kinds (module by file name). Tests: diff of two
+   LeakyConsole gcdumps ranks the leaking type first; a mixed diff (dump against gcdump) carries the intersection of
+   capabilities and matches the leak type.
+10. [x] Docs: ARCHITECTURE (layout, loader contract, gcdump mapping, ADR-010 amendment), DEVELOPER (vendored code),
+   CLAUDE.md commands, CURRENT-CONTEXT.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Decisions** (all decided autonomously, Phase 1 autonomy)
+1. The vendored code is its own project, `HeapScope.ThirdParty.GcDump`, because both Capture (writing) and
+   Loaders.GcDump (reading) need it and the layer rules forbid one referencing the other. Its files keep the MIT
+   headers; the project builds without analyzers or a nullable context.
+2. Two changes to the vendored code, both in `EventPipeDotNetHeapDumper.cs` and listed in `CHANGES.md`: sessions connect
+   by process id only (the diagnostic port path used types internal to the published diagnostics client), and the
+   rundown keyword is a local constant (internal in the package).
+3. The capture follows dotnet-gcdump: one forced full GC, the heap snapshot keywords, a 30 second default timeout. On
+   .NET 10 the runtime has no lossless buffering for this session (that needs .NET 11), so a very large heap can lose
+   events; the capture writes the vendored code's lines to the log (review M1) and fails on the writer's 10 million
+   node cap (review H3). A lost-events check is a backlog item.
+4. gcdumps have no generations (section 5.2): every object is `HeapKind.Unknown`, the generations view shows the
+   reason. Segment ranges in the file could place objects later (backlog).
+5. Root details are partial: statics carry their field name and the value's type as the root detail (the runtime
+   names statics by the value's type, review M12), other roots their kind only; `RootDetails` stays off. Weak references
+   are not in a gcdump.
+6. Sampled gcdumps (written by PerfView) are loaded as they are, without scaling; they lose `CompleteGraph` and
+   `ExactCounts` and carry the note. dotnet-gcdump and HeapScope never sample.
+7. No reference-array marks or free space from a gcdump (`SnapshotFacts.None`): sparse arrays and fragmentation explain
+   why they are unavailable.
+8. The loader is chosen by the file's first bytes, never by its extension.
+9. A gcdump's dependent handle values are recorded as retaining other roots (changed in review M11): the file drops
+   the handle's key but writes the value only when the key was alive, and every gcdump object survived its collection,
+   so a non-retaining root would make them look like garbage.
+10. gcdump type names are normalized to the full dump loader's form where the writer's changes can be undone (generic
+   argument spacing, `[]c` for `<>c`, size-bucket nodes merged into their type). Nested types lose their declaring type
+   in the file, so a diff of a full dump and a gcdump matches the full dump's names in the gcdump's form
+   (`TypeNameForms.AsGcDumpName`); each row keeps each side's own name to open its objects (review H2).
+11. Found while widening the truncated dump test (task 1): an object without a readable type in a truncated heap threw
+   from ClrMD's size; the loader now counts it as unreadable before reading its size, and a load that claims a complete
+   graph must equal the untruncated load. The full run then found cuts that remove the GC's own region list, so the
+   heap looked complete with objects missing; the loader now also probes each segment's memory in the file and checks
+   the minidump's directory against the file length (`MinidumpHeader.IsTruncated`), and a truncated file never claims a
+   complete graph.
+
+**Review summary** (`docs/reviews/sprint-1.8.md`): 5 High, 14 Moderate, 19 Low after dedupe. Fixed and confirmed:
+H1 a canceled gcdump capture hung (vendored change 3, bounded wait), H2 mixed diff rows opened an empty list (each side
+keeps its own names), H3 the vendored writer's silent 10 million node cap (the capture now fails), H4 COM wrappers loaded
+as objects, H5 finalizable objects showed zero on gcdumps (a loader fact). All 14 Moderates fixed now (capture failure
+reasons and logging, multi-dimensional names, heap dump truncation, capture tests, partial gcdump sweep, no copies
+marker across kinds, loader version in index caches, Compare wording, gcdump read progress and cancellation, sizes of 2
+to 4 GB, retaining dependent handle values, static root details, lost type events, a COM loader test). Deferred to the
+backlog: raising the 10 million node cap with a Medium measurement, a lost-events check, loader allocations, generations
+for gcdumps, a FastSerialization safety check. Tests: 712 (from 620 at 1.7), all passing.
 
 ---
 
@@ -1346,6 +1422,14 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- gcdumps at scale (from 1.8): the vendored writer stops at 10 million nodes, so HeapScope refuses larger gcdumps;
+  raise the cap (a vendored change) once a gcdump capture and load of the Medium dump are measured against the budgets
+  (section 10), including the front end's memory while the MemoryGraph is built.
+- gcdump lost-events check (from 1.8): count the EventPipe session's lost events and fail or mark the capture.
+- gcdump loader memory (from 1.8 review): presize from `NodeIndexLimit`, add references by index rather than address,
+  release the MemoryGraph before the build.
+- Generations for gcdumps (from 1.8): place objects by the GC's generation ranges when a writer records them.
+- Confirm that TraceEvent's FastSerialization refuses unregistered type names in a crafted gcdump (from 1.8 review).
 - One capture per target at a time across the Processes page and monitoring runs (`CaptureService` serializes per
   process; rules treat a manual capture as running) (from the 1.7 review M4).
 - Monitoring timelines recorded in `session.json` (run id, process, interval, rules, baseline, start and end), snapshot

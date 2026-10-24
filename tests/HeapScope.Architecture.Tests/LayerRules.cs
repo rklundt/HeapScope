@@ -36,10 +36,16 @@ internal static class LayerRules
         ["HeapScope.Analysis"] = new(["HeapScope.Core"], ["System.IO.Hashing"]),
         ["HeapScope.Storage"] = new(["HeapScope.Core"], ["System.IO.Hashing"]),
         ["HeapScope.Capture"] = new(
-            ["HeapScope.Core"],
+            ["HeapScope.Core", "HeapScope.ThirdParty.GcDump"],
             ["Microsoft.Diagnostics.NETCore.Client", "Microsoft.Diagnostics.Tracing.TraceEvent"]),
         ["HeapScope.Loaders.ClrMd"] = new(["HeapScope.Core"], ["Microsoft.Diagnostics.Runtime"]),
-        ["HeapScope.Loaders.GcDump"] = new(["HeapScope.Core"], ["Microsoft.Diagnostics.Tracing.TraceEvent"]),
+        ["HeapScope.Loaders.GcDump"] = new(["HeapScope.Core", "HeapScope.ThirdParty.GcDump"], ["Microsoft.Diagnostics.Tracing.TraceEvent"]),
+
+        // Vendored gcdump reader and writer (sprint 1.8, THIRD-PARTY-NOTICES.md): diagnostics libraries only.
+        ["HeapScope.ThirdParty.GcDump"] = new(
+            [],
+            ["Microsoft.Diagnostics.NETCore.Client", "Microsoft.Diagnostics.Tracing.TraceEvent"],
+            AllowsMicrosoftExtensions: false),
         ["HeapScope.Contracts"] = new([], ["StreamJsonRpc"]),
         ["HeapScope.Worker"] = new(
             [

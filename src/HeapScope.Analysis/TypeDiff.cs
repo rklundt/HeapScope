@@ -28,8 +28,13 @@ namespace HeapScope.Analysis;
 /// <summary>
 /// One row of a snapshot diff: a type, namespace or assembly in the baseline and the current snapshot.
 /// <paramref name="BaselineTypes"/> and <paramref name="CurrentTypes"/> count the distinct types (method tables) summed
-/// into the row on each side.
+/// into the row on each side. In Type grouping, <paramref name="TypeName"/> and <paramref name="Module"/> are the key that
+/// opens the row's objects on the side front ends open (the current snapshot, or the baseline for a gone row), as that
+/// side names the type; null when the row merges several types of that side under one name (sprint 1.8: a full dump's
+/// nested types in a diff against a gcdump).
 /// </summary>
+/// <param name="ComparesCopies">False when the two sides are different snapshot kinds: their types are matched by mapped
+/// names, so the number of types per row says nothing about copies (sprint 1.8 review).</param>
 public sealed record DiffRow(
     string Name,
     long BaselineCount,
@@ -39,7 +44,8 @@ public sealed record DiffRow(
     int BaselineTypes = 1,
     int CurrentTypes = 1,
     string? TypeName = null,
-    string? Module = null)
+    string? Module = null,
+    bool ComparesCopies = true)
 {
     public long CountDelta => CurrentCount - BaselineCount;
 
@@ -56,7 +62,7 @@ public sealed record DiffRow(
     /// a different number of times, such as a stale copy of a plugin kept alive next to its reloaded copy. The summed
     /// counts alone could hide it (the old copy shrinking while the new one grows).
     /// </summary>
-    public bool CopiesChanged => !IsNew && !IsGone && BaselineTypes != CurrentTypes;
+    public bool CopiesChanged => ComparesCopies && !IsNew && !IsGone && BaselineTypes != CurrentTypes;
 }
 
 /// <summary>
@@ -66,7 +72,17 @@ public sealed record DiffRow(
 /// </summary>
 public static class TypeDiff
 {
-    public static List<DiffRow> Build(HeapGraph baselineGraph, TypeAggregation baseline, HeapGraph currentGraph, TypeAggregation current, GroupKey groupBy)
+    /// <param name="baselineNames">Maps the baseline's type names before matching, or null (sprint 1.8: a full dump's names in
+    /// their gcdump form when it is compared with a gcdump, <see cref="TypeNameForms.AsGcDumpName"/>).</param>
+    /// <param name="currentNames">Maps the current snapshot's type names before matching, or null.</param>
+    public static List<DiffRow> Build(
+        HeapGraph baselineGraph,
+        TypeAggregation baseline,
+        HeapGraph currentGraph,
+        TypeAggregation current,
+        GroupKey groupBy,
+        Func<string, string>? baselineNames = null,
+        Func<string, string>? currentNames = null)
     {
         ArgumentNullException.ThrowIfNull(baselineGraph);
         ArgumentNullException.ThrowIfNull(baseline);
@@ -74,28 +90,36 @@ public static class TypeDiff
         ArgumentNullException.ThrowIfNull(current);
 
         var rows = new Dictionary<(string Name, string Module), Totals>();
-        Collect(baselineGraph, baseline, groupBy, rows, isBaseline: true);
-        Collect(currentGraph, current, groupBy, rows, isBaseline: false);
+        Collect(baselineGraph, baseline, groupBy, baselineNames, rows, isBaseline: true);
+        Collect(currentGraph, current, groupBy, currentNames, rows, isBaseline: false);
 
         // A type name seen with more than one module shows the module, so the rows stay distinguishable.
         var modulesPerName = rows.Keys.GroupBy(k => k.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         var byType = groupBy == GroupKey.Type;
-        return [.. rows.Select(r => new DiffRow(
-            modulesPerName[r.Key.Name] > 1 ? $"{r.Key.Name} [{(r.Key.Module.Length > 0 ? r.Key.Module : "unknown module")}]" : r.Key.Name,
-            r.Value.BaseCount,
-            r.Value.BaseBytes,
-            r.Value.CurCount,
-            r.Value.CurBytes,
-            r.Value.BaseTypes,
-            r.Value.CurTypes,
-            byType ? r.Key.Name : null,
-            byType ? r.Key.Module : null))];
+        var mapped = baselineNames is not null || currentNames is not null;
+        return [.. rows.Select(r =>
+        {
+            // The side front ends open: the current snapshot, or the baseline when the type is gone.
+            var open = r.Value.CurCount == 0 ? r.Value.BaseName : r.Value.CurName;
+            return new DiffRow(
+                modulesPerName[r.Key.Name] > 1 ? $"{r.Key.Name} [{(r.Key.Module.Length > 0 ? r.Key.Module : "unknown module")}]" : r.Key.Name,
+                r.Value.BaseCount,
+                r.Value.BaseBytes,
+                r.Value.CurCount,
+                r.Value.CurBytes,
+                r.Value.BaseTypes,
+                r.Value.CurTypes,
+                byType && open is not Ambiguous ? open ?? r.Key.Name : null,
+                byType && open is not Ambiguous ? r.Key.Module : null,
+                ComparesCopies: !mapped);
+        })];
     }
 
     private static void Collect(
         HeapGraph graph,
         TypeAggregation aggregation,
         GroupKey groupBy,
+        Func<string, string>? names,
         Dictionary<(string Name, string Module), Totals> rows,
         bool isBaseline)
     {
@@ -107,19 +131,34 @@ public static class TypeDiff
             }
 
             var module = TypeGroups.ModuleKey(graph.Types.GetModule(t));
+            var original = graph.Types.GetName(t);
+            var name = names is null ? original : names(original);
             var key = groupBy switch
             {
-                GroupKey.Namespace => (TypeGroups.NamespaceOf(graph.Types.GetName(t)), string.Empty),
+                GroupKey.Namespace => (TypeGroups.NamespaceOf(name), string.Empty),
                 GroupKey.Assembly => (module.Length > 0 ? module : "(unknown assembly)", string.Empty),
-                _ => (graph.Types.GetName(t), module),
+                _ => (name, module),
             };
 
             rows.TryGetValue(key, out var row);
             rows[key] = isBaseline
-                ? row with { BaseCount = row.BaseCount + aggregation.Counts[t], BaseBytes = row.BaseBytes + aggregation.Bytes[t], BaseTypes = row.BaseTypes + 1 }
-                : row with { CurCount = row.CurCount + aggregation.Counts[t], CurBytes = row.CurBytes + aggregation.Bytes[t], CurTypes = row.CurTypes + 1 };
+                ? row with { BaseCount = row.BaseCount + aggregation.Counts[t], BaseBytes = row.BaseBytes + aggregation.Bytes[t], BaseTypes = row.BaseTypes + 1, BaseName = Merge(row.BaseName, original) }
+                : row with { CurCount = row.CurCount + aggregation.Counts[t], CurBytes = row.CurBytes + aggregation.Bytes[t], CurTypes = row.CurTypes + 1, CurName = Merge(row.CurName, original) };
         }
     }
 
-    private readonly record struct Totals(long BaseCount, ulong BaseBytes, int BaseTypes, long CurCount, ulong CurBytes, int CurTypes);
+    /// <summary>Marks a row whose side merged differently named types (an instances query takes one name).</summary>
+    private const string Ambiguous = "\0ambiguous";
+
+    private static string Merge(string? seen, string original) => seen is null || seen == original ? original : Ambiguous;
+
+    private readonly record struct Totals(
+        long BaseCount,
+        ulong BaseBytes,
+        int BaseTypes,
+        long CurCount,
+        ulong CurBytes,
+        int CurTypes,
+        string? BaseName,
+        string? CurName);
 }

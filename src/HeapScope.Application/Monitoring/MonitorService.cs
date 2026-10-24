@@ -24,6 +24,7 @@
 using System.Globalization;
 using HeapScope.Application.Sessions;
 using HeapScope.Capture;
+using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -119,8 +120,11 @@ public sealed class SyntheticCounterSource(int count, int perSecond) : ICounterS
     }
 }
 
-/// <summary>How to monitor: the sample interval, the snapshot rules, and whether to write the timeline file.</summary>
-public sealed record MonitorOptions(TimeSpan Interval, MonitorRules Rules, bool WriteTimeline = true)
+/// <summary>
+/// How to monitor: the sample interval, the snapshot rules, whether to write the timeline file, and what rules capture
+/// (sprint 1.8: full dumps, or gcdumps, which are smaller but force a full GC in the target that shows in its counters).
+/// </summary>
+public sealed record MonitorOptions(TimeSpan Interval, MonitorRules Rules, bool WriteTimeline = true, SnapshotKindDto CaptureKind = SnapshotKindDto.FullDump)
 {
     public static MonitorOptions Default { get; } = new(TimeSpan.FromSeconds(1), MonitorRules.None);
 }
@@ -346,7 +350,7 @@ public sealed class MonitorRun : IAsyncDisposable
         try
         {
             _logger.LogInformation("Monitoring pid {Pid}: {Rule} fired, capturing", ProcessId, rule.Label);
-            var captured = await _capture.StartCapture(ProcessId, label: rule.Label, source: SnapshotSource.Timed).Result.ConfigureAwait(false);
+            var captured = await _capture.StartCapture(ProcessId, label: rule.Label, source: SnapshotSource.Timed, kind: Options.CaptureKind).Result.ConfigureAwait(false);
             result = new MonitorCapture(at, rule.Label, captured, null);
         }
         catch (CaptureFailedException ex)

@@ -8,6 +8,7 @@
     <ProjectReference Include="..\..\fixtures\Leaks\Leaks.csproj" />
     <!-- The loader and the index cache are tested in process against fixture dumps (sprint 1.2). -->
     <ProjectReference Include="..\..\src\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Loaders.GcDump\HeapScope.Loaders.GcDump.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
     <!-- Build order only: the tests start these executables from their own output folders. -->
     <ProjectReference Include="..\..\src\HeapScope.Cli\HeapScope.Cli.csproj" ReferenceOutputAssembly="false" Private="false" />

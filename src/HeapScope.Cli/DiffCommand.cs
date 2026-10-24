@@ -168,7 +168,7 @@ internal static partial class CliCommands
     private static async Task WriteDiffTableAsync(TextWriter output, TypeDiffResult result, List<IReadOnlyList<string?>> rows)
     {
         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-            $"Baseline {result.BaselineObjects:N0} objects, {Mb(result.BaselineBytes)}; current {result.CurrentObjects:N0} objects, {Mb(result.CurrentBytes)}; delta {Signed(result.CurrentObjects - result.BaselineObjects)} objects, {Signed(result.CurrentBytes - result.BaselineBytes)} bytes (all objects in each dump, unreachable ones included)")).ConfigureAwait(false);
+            $"Baseline {result.BaselineObjects:N0} objects, {Mb(result.BaselineBytes)}; current {result.CurrentObjects:N0} objects, {Mb(result.CurrentBytes)}; delta {Signed(result.CurrentObjects - result.BaselineObjects)} objects, {Signed(result.CurrentBytes - result.BaselineBytes)} bytes (every object each snapshot holds: a full dump includes unreachable ones, a gcdump only survivors of its collection)")).ConfigureAwait(false);
         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
             $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} rows match ({result.NewRows:N0} new, {result.GoneRows:N0} gone overall), showing {rows.Count:N0}; matching rows grew by {Signed(result.MatchingBytesDelta)} bytes")).ConfigureAwait(false);
         await output.WriteLineAsync($"{"Objects delta",14} {"Bytes delta",16} {"Objects",12} {"Bytes",16} {"Change",6}  Name").ConfigureAwait(false);

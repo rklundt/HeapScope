@@ -54,6 +54,29 @@ public sealed class SessionLibraryTests : IDisposable
     }
 
     [Fact]
+    public void Old_half_written_dumps_and_gcdumps_are_swept_and_fresh_ones_kept()
+    {
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        var old = _time.GetUtcNow().UtcDateTime.AddHours(-1);
+        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial")];
+        foreach (var file in stale)
+        {
+            File.WriteAllBytes(file, new byte[10]);
+            File.SetLastWriteTimeUtc(file, old);
+        }
+
+        var fresh = Path.Combine(folder, "c.gcdump.partial");
+        File.WriteAllBytes(fresh, new byte[10]);
+        File.SetLastWriteTimeUtc(fresh, _time.GetUtcNow().UtcDateTime);
+
+        library.SweepPartialDumps().ShouldBe(2);
+
+        stale.ShouldAllBe(f => !File.Exists(f));
+        File.Exists(fresh).ShouldBeTrue();
+    }
+
+    [Fact]
     public void Snapshots_outside_the_session_folder_keep_their_full_path()
     {
         var library = new SessionLibrary(_root, _time);

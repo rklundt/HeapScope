@@ -28,6 +28,7 @@ using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Monitoring;
 using HeapScope.Application.Sessions;
 using HeapScope.Application.Snapshots;
+using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -80,6 +81,10 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     [ObservableProperty]
     private string? _maxSnapshots;
+
+    /// <summary>Rules capture gcdumps instead of full dumps (sprint 1.8). Each forces a full GC, which the chart shows.</summary>
+    [ObservableProperty]
+    private bool _captureGcDumps;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand))]
@@ -168,7 +173,12 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         HighGcPressure = false;
         Latest = null;
         ChartVersion++;
-        _run = _monitor.Start(process.ProcessId, new MonitorOptions(TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds)), rules, WriteTimeline), attached =>
+        var options = new MonitorOptions(
+            TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds)),
+            rules,
+            WriteTimeline,
+            CaptureGcDumps ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump);
+        _run = _monitor.Start(process.ProcessId, options, attached =>
         {
             _run = attached;
             attached.SampleReceived += (_, sample) => _dispatcher.Post(() => OnSample(attached, sample));

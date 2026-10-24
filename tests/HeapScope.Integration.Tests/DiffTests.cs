@@ -183,7 +183,7 @@ public sealed class DiffTests(LeakyApiPair pair) : IClassFixture<LeakyApiPair>, 
         var table = await RunCliAsync("diff", pair.Baseline, pair.Current, "--top", "5");
         table.Code.ShouldBe(0, table.Output);
         table.Output.ShouldContain("System.Byte[]");
-        table.Output.ShouldContain("unreachable ones included");
+        table.Output.ShouldContain("a full dump includes unreachable ones");
 
         var json = await RunCliAsync("diff", pair.Baseline, pair.Current, "--format", "json", "--filter", "StaticCacheEntry", "--sort", "count-delta");
         json.Code.ShouldBe(0, json.Output);

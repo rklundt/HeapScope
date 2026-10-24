@@ -47,7 +47,8 @@ public sealed class MetadataTests : IDisposable
             SnapshotCapabilities.FullDump,
             IndexCacheMetadata.CurrentWriterVersion,
             ["App.dll", "Library.dll"],
-            UnreadableObjects: 3);
+            UnreadableObjects: 3,
+            LoaderVersion: 2);
         using var graph = SyntheticGraphs.Chain(10);
         var cache = snapshot + IndexCacheFormat.Extension;
 
@@ -58,6 +59,7 @@ public sealed class MetadataTests : IDisposable
         result.Graph!.Dispose();
         result.Metadata!.DebuggableModules.ShouldBe(["App.dll", "Library.dll"]);
         result.Metadata.UnreadableObjects.ShouldBe(3);
+        result.Metadata.LoaderVersion.ShouldBe(2);
     }
 
     [Fact]
@@ -71,6 +73,7 @@ public sealed class MetadataTests : IDisposable
 
         document.Metadata.DebuggableModules.ShouldBeNull();
         document.Metadata.UnreadableObjects.ShouldBe(0);
+        document.Metadata.LoaderVersion.ShouldBe(0, "caches written before 1.8 are rebuilt by the worker");
         document.Metadata.WriterVersion.ShouldBe("0.5.0");
     }
 

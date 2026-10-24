@@ -82,9 +82,10 @@ internal static partial class CliCommands
         });
         var format = new Option<string>("--format") { Description = "Output: table or csv.", DefaultValueFactory = _ => "table" };
         format.AcceptOnlyFromAmong("table", "csv");
+        var kind = KindOption();
 
-        var command = new Command("monitor", "Watch a process's GC heap, collections and allocations every interval, and capture full dumps into the current session when rules fire. Ctrl+C stops. Exit codes: 0 ok, 1 error, 64 usage, 130 canceled.");
-        foreach (var option in new Option[] { pid, interval, duration, every, above, growth, rearm, max, format })
+        var command = new Command("monitor", "Watch a process's GC heap, collections and allocations every interval, and capture full dumps (or gcdumps, --kind gcdump) into the current session when rules fire. Ctrl+C stops. Exit codes: 0 ok, 1 error, 64 usage, 130 canceled.");
+        foreach (var option in new Option[] { pid, interval, duration, every, above, growth, rearm, max, format, kind })
         {
             command.Options.Add(option);
         }
@@ -124,7 +125,7 @@ internal static partial class CliCommands
             var gate = new object();
             await using var run = monitor.Start(
                 parseResult.GetValue(pid),
-                new MonitorOptions(TimeSpan.FromSeconds(parseResult.GetValue(interval)), new MonitorRules(rules, parseResult.GetValue(max))),
+                new MonitorOptions(TimeSpan.FromSeconds(parseResult.GetValue(interval)), new MonitorRules(rules, parseResult.GetValue(max)), CaptureKind: KindOf(parseResult.GetValue(kind))),
                 attached =>
                 {
                     attached.SampleReceived += (_, s) =>

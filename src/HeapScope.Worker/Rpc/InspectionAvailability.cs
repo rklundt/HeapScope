@@ -51,9 +51,16 @@ internal static class InspectionAvailability
             return null;
         }
 
+        return Explain(inspection.Title, info);
+    }
+
+    /// <summary>Why a feature named <paramref name="title"/> lacks a loader fact on this snapshot.</summary>
+    public static string Explain(string title, SnapshotInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(info);
         return info.Kind == SnapshotKind.FullDump
-            ? $"{inspection.Title} needs data HeapScope records since version 1.6, and this snapshot's index cache is older. Reopen the dump with Rebuild."
-            : $"{inspection.Title} needs data this kind of snapshot does not record.";
+            ? $"{title} needs data newer versions of HeapScope record, and this snapshot's index cache is older. Reopen the dump with Rebuild."
+            : $"{title} needs data a gcdump does not record. Capture a full dump for it.";
     }
 
     /// <summary>The lowest set bit of a flags value.</summary>

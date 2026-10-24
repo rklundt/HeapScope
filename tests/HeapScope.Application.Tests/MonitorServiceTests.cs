@@ -77,6 +77,21 @@ public sealed class MonitorServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Rules_capture_the_kind_the_run_was_started_with()
+    {
+        var run = new MonitorService(_capture, _feed).Start(
+            42,
+            new MonitorOptions(TimeSpan.FromSeconds(1), new MonitorRules([new AboveRule(500 * Mb)]), WriteTimeline: false, CaptureKind: SnapshotKindDto.GcDump));
+
+        await _feed.SendAsync(600 * Mb);
+        await run.CaptureTask;
+        run.Stop();
+        await run.Completion;
+
+        _capture.Kinds.ShouldBe([SnapshotKindDto.GcDump]);
+    }
+
+    [Fact]
     public async Task A_failed_capture_is_recorded_and_does_not_count_toward_the_maximum()
     {
         _capture.Failure = new CaptureFailedException(CaptureFailure.TargetExited, "The process exited.", null);
@@ -231,11 +246,14 @@ public sealed class MonitorServiceTests : IDisposable
 
         public List<(string? Label, SnapshotSource Source)> Taken { get; } = [];
 
+        public List<SnapshotKindDto> Kinds { get; } = [];
+
 
         public Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ProcessEntry>>([]);
 
-        public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual)
+        public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual, SnapshotKindDto kind = SnapshotKindDto.FullDump)
         {
+            Kinds.Add(kind);
             var failure = Failure;
             var gate = Gate;
             var job = jobs.Start($"Capture pid {processId}", async (progress, ct) =>

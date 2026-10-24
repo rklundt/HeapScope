@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\HeapScope.Core\HeapScope.Core.csproj" />
+    <ProjectReference Include="..\HeapScope.ThirdParty.GcDump\HeapScope.ThirdParty.GcDump.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.Integration.Tests" />
+  </ItemGroup>
+</Project>

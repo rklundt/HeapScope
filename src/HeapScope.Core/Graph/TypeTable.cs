@@ -80,7 +80,9 @@ public sealed class TypeTableBuilder(StringTableBuilder strings)
 {
     private readonly StringTableBuilder _strings = strings ?? throw new ArgumentNullException(nameof(strings));
     private readonly Dictionary<ulong, int> _byMethodTable = [];
-    private readonly Dictionary<string, int> _byName = new(StringComparer.Ordinal);
+    // Types without a method table (synthetic graphs, gcdumps) are told apart by name and module (sprint 1.8): two
+    // assemblies may define the same type name.
+    private readonly Dictionary<(string Name, string? Module), int> _byName = [];
     private readonly List<int> _nameIds = [];
     private readonly List<ulong> _methodTables = [];
     private readonly List<uint> _baseSizes = [];
@@ -100,7 +102,7 @@ public sealed class TypeTableBuilder(StringTableBuilder strings)
         TypeKind kind = TypeKind.None)
     {
         ArgumentNullException.ThrowIfNull(name);
-        if (methodTable != 0 ? _byMethodTable.TryGetValue(methodTable, out var existing) : _byName.TryGetValue(name, out existing))
+        if (methodTable != 0 ? _byMethodTable.TryGetValue(methodTable, out var existing) : _byName.TryGetValue((name, module), out existing))
         {
             return existing;
         }
@@ -118,7 +120,7 @@ public sealed class TypeTableBuilder(StringTableBuilder strings)
         }
         else
         {
-            _byName.Add(name, index);
+            _byName.Add((name, module), index);
         }
 
         return index;

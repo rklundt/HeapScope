@@ -25,6 +25,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Sessions;
+using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Services;
 
 namespace HeapScope.UI.Wpf.ViewModels;
@@ -68,6 +69,10 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
     [ObservableProperty]
     private bool _showElevationHint;
 
+    /// <summary>Capture a gcdump instead of a full dump (sprint 1.8): the object graph only, smaller, no field values.</summary>
+    [ObservableProperty]
+    private bool _captureGcDump;
+
     public ObservableCollection<ProcessRow> Processes { get; } = [];
 
     /// <summary>The path of the last successful capture (tests).</summary>
@@ -108,13 +113,16 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
     {
         var target = Selected!;
         IsBusy = true;
-        Status = $"Capturing {target.Name} (pid {target.ProcessId}). The process is paused while its memory is written to disk.";
+        var gcdump = CaptureGcDump;
+        Status = gcdump
+            ? $"Capturing a gcdump of {target.Name} (pid {target.ProcessId}). The process runs one full garbage collection and reports its heap."
+            : $"Capturing {target.Name} (pid {target.ProcessId}). The process is paused while its memory is written to disk.";
         try
         {
-            var result = await _capture.StartCapture(target.ProcessId).Result;
+            var result = await _capture.StartCapture(target.ProcessId, kind: gcdump ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump).Result;
             LastCapturePath = result.Path;
             Status = $"Captured {System.IO.Path.GetFileName(result.Path)} ({Format.Bytes(result.SizeBytes)}).{(result.Warning is null ? string.Empty : " " + result.Warning)}";
-            if (_interaction.Confirm("Capture complete", $"{result.SecretsNote}\n\nOpen the dump now?"))
+            if (_interaction.Confirm("Capture complete", $"{result.SecretsNote}\n\nOpen the {(gcdump ? "gcdump" : "dump")} now?"))
             {
                 await _snapshots.OpenPathAsync(result.Path);
             }

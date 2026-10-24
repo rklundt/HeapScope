@@ -190,7 +190,7 @@ internal sealed class WorkerService(
                 new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone + done, total))),
                 cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.CurrentId);
             var source = await Task.Run(
-                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request),
+                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind),
                 cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);
@@ -220,10 +220,23 @@ internal sealed class WorkerService(
             try
             {
                 snapshot.TryGetService<IObjectReader>(out var reader);
+                if (request.Scope == InstanceScope.Finalizable && !snapshot.Info.Facts.HasFlag(SnapshotFacts.FinalizerRegistrations))
+                {
+                    throw new CapabilityNotSupportedException(InspectionAvailability.Explain("Listing finalizable objects", snapshot.Info));
+                }
+
                 var throttled = new ThrottledProgress<JobProgress>(progress);
                 var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled), cancellationToken).ConfigureAwait(false);
                 var rows = resultSets.Add(source, lease);
                 return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds);
+            }
+            catch (CapabilityNotSupportedException ex) when (ex.Missing != SnapshotCapabilities.None)
+            {
+                // The source knows what is missing; the reason depends on the snapshot's kind (sprint 1.8).
+                lease.Dispose();
+                throw new CapabilityNotSupportedException(
+                    ex.Missing,
+                    CapabilityDescriptions.ExplainMissing((SnapshotFeatures)(uint)ex.Missing, (SnapshotKindDto)(int)snapshot.Info.Kind));
             }
             catch
             {

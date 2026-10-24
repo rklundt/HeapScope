@@ -6,8 +6,18 @@ notices must be preserved under any license of HeapScope, including a commercial
 
 ## Vendored source code
 
-None yet. Vendored code lives under a `ThirdParty` folder, keeps its original license header, and is listed here with
-its origin (repository, path and commit) and license.
+Vendored code lives in a `ThirdParty` project or folder, keeps its original license header, and is listed here with its
+origin (repository, path and commit) and license.
+
+### gcdump reader and writer (`src/HeapScope.ThirdParty.GcDump`)
+
+- Files: `DotNetHeapDumpGraphReader.cs`, `DotNetHeapInfo.cs`, `EventPipeDotNetHeapDumper.cs`, `GCHeapDump.cs`,
+  `Graph.cs`, `MemoryGraph.cs`, `README.md`.
+- Origin: https://github.com/dotnet/diagnostics, `src/Tools/dotnet-gcdump/DotNetHeapDump`, commit
+  `b1a45488914403094e274adb33f103f273a9d69c`, which copies them from https://github.com/microsoft/perfview at commit
+  `76dc28af873e27aa8c4f9ce8efa0971a2c738165`.
+- License: MIT, Copyright (c) .NET Foundation and Contributors (text below and in the project's `LICENSE.TXT`).
+- Changes: listed in the project's `CHANGES.md`.
 
 ## NuGet packages shipped with HeapScope
 
@@ -59,7 +69,7 @@ lookup; review their redistribution terms before HeapScope is distributed.
 
 ## MIT License
 
-Applies to every package marked MIT above, with the copyright line given for it.
+Applies to the vendored gcdump code and to every package marked MIT above, with the copyright line given for it.
 
 ```
 Copyright (c) <copyright holders listed above>

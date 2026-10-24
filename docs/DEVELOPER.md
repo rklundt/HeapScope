@@ -24,8 +24,9 @@ dotnet test --solution HeapScope.sln
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
-  `capture --pid <id> [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full dump into this
-  run's session folder, an existing session, or `--out`; the target is paused while it is written),
+  `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
+  dump into this run's session folder, an existing session, or `--out`; the target is paused while it is written; with
+  `--kind gcdump` a gcdump instead, sprint 1.8: the object graph only, the target runs one full GC),
   `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]`,
   `open <dump> [--rebuild] [--mode auto|memory|mapped] [--top N] [--no-overcommit]` (loads a full dump or reuses
   its index cache, prints the snapshot, notes and largest types), `summary <dump> [--group type|namespace|assembly]
@@ -54,7 +55,7 @@ dotnet test --solution HeapScope.sln
   `finalizable`, `fragmentation`), its cause, fix and rows. An unknown or unavailable inspection exits 1. A dump opened
   from an index cache written before 1.6 has no free space or reference-array marks: reopen it with `open --rebuild`.
   `monitor --pid <id> [--interval 1] [--duration N] [--every 5m] [--above 500MB] [--growth 100MB|50%]
-  [--rearm once|below|step] [--max N] [--format table|csv]` watches a process's GC heap (the heap now and after the
+  [--rearm once|below|step] [--max N] [--format table|csv] [--kind full|gcdump]` watches a process's GC heap (the heap now and after the
   last GC, per generation, LOH, POH), collections, allocations and the last GC's share of time every interval (sprint
   1.7) and captures full dumps into the current session when a rule fires on the heap after the last GC (labeled with
   the rule, recorded as timed; `below` re-arms under 90 percent of the threshold); it prints a line per sample, a line per snapshot and,
@@ -110,7 +111,7 @@ dotnet test --solution HeapScope.sln
 - Ctrl+C in tests: `LoadGen --launch <exe> [args]` runs a program with Ctrl+C enabled (children of the test host
   inherit "ignore Ctrl+C"), and `LoadGen --ctrl-c <pid>` sends Ctrl+C to that program's console.
 - A canceled capture waits for the runtime to finish writing and then deletes the dump: the CLI waits up to an hour
-  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`) is swept at the next start.
+  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`, `*.gcdump.partial`) is swept at the next start.
 - Logs: `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (UI and CLI, including forwarded worker lines);
   override with `--Logging:File:Directory <dir>` (UI) or the `Logging__File__Directory` environment variable.
 - Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
@@ -180,7 +181,10 @@ of debuggable code) and exit when the process given as parent exits.
 - **Text**: no em dashes or en dashes in code, comments, docs or UI text. Use a hyphen or a comma.
 - **License header**: every `.cs`, `.xaml` and `.ps1` file we own starts with the header in
   `docs/licensing/SOURCE-HEADER.txt`, in the file's comment syntax (copy it from any existing file). Vendored code lives
-  under a `ThirdParty` folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test enforces it.
+  in a `ThirdParty` project or folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test enforces it.
+- **Vendored code** (`src/HeapScope.ThirdParty.GcDump`, sprint 1.8): built without analyzers or a nullable context.
+  Change it only when unavoidable, mark each change with a `HeapScope change` comment and list it in the project's
+  `CHANGES.md`. Wrap it in our own types (`GcDumpCapturer`, `GcDumpLoader`); nothing else uses it directly.
 - **Attribution**: the "Powered by HeapScope by Ray Klundt" notice (ADR-022) stays on the main window, unchanged; CLI
   help, version and console startup print it. UI changes are checked against it; a test checks its text, link,
   colors and contrast.

@@ -10,6 +10,7 @@
     <ProjectReference Include="..\HeapScope.Analysis\HeapScope.Analysis.csproj" />
     <ProjectReference Include="..\HeapScope.Storage\HeapScope.Storage.csproj" />
     <ProjectReference Include="..\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
+    <ProjectReference Include="..\HeapScope.Loaders.GcDump\HeapScope.Loaders.GcDump.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="HeapScope.Worker.Tests" />

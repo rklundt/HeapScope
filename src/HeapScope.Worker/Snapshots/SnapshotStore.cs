@@ -28,7 +28,9 @@ using System.Runtime;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
+using HeapScope.Core.Loading;
 using HeapScope.Loaders.ClrMd;
+using HeapScope.Loaders.GcDump;
 using HeapScope.Storage;
 using Microsoft.Extensions.Logging;
 
@@ -311,6 +313,15 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
 
         var mode = MemoryModeSelector.Select(required.Value, MemoryBudget.Current(forced: forced));
         var result = IndexCacheReader.Open(cachePath, fingerprint, mode, cancellationToken);
+        if (result.Success && result.Metadata!.LoaderVersion < LoaderVersion(result.Metadata.Info.Kind))
+        {
+            // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
+            result.Graph!.Dispose();
+            logger.LogInformation("Index cache {Path} not used: loader version {Old}, current {New}", cachePath, result.Metadata.LoaderVersion, LoaderVersion(result.Metadata.Info.Kind));
+            notes.Add("The index cache was rebuilt: it was written by an older version of HeapScope, whose results for this snapshot could differ.");
+            return null;
+        }
+
         if (result.Success)
         {
             return result;
@@ -334,15 +345,22 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         Rpc.ThrottledProgress<JobProgress> progress,
         CancellationToken cancellationToken)
     {
-        var loader = new ClrMdDumpLoader(LoaderOptions());
-        DumpLoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
+        // The file's first bytes choose the loader, never its extension (sprint 1.8).
+        ISnapshotLoader loader = SnapshotFileSignature.Detect(path) switch
+        {
+            SnapshotKind.FullDump => new ClrMdDumpLoader(LoaderOptions()),
+            SnapshotKind.GcDump => new GcDumpLoader(),
+            _ => throw new SnapshotFormatException(SnapshotFileSignature.DescribeUnknown(path)),
+        };
+        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
         HeapGraph? graph = loaded.Graph;
         var metadata = new IndexCacheMetadata(
             loaded.Info,
             loaded.Capabilities,
             IndexCacheMetadata.CurrentWriterVersion,
             loaded.Diagnostics.DebuggableModules,
-            loaded.Diagnostics.UnreadableObjects);
+            loaded.Diagnostics.UnreadableObjects,
+            loader.Version);
 
         // Nothing else may reference the built graph, or the mapped transition below cannot free it.
         loaded = null;
@@ -429,6 +447,15 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             notes.Add("Parts of the managed heap could not be read from this dump, so some objects may be missing and counts are not exact. The dump may be truncated or damaged; capture another full dump if results look wrong.");
         }
 
+        if (metadata.Info.Kind == SnapshotKind.GcDump)
+        {
+            notes.Add("A gcdump holds the objects that survived the full garbage collection its capture ran, with their types, sizes and references. It has no generations, field values or string text; capture a full dump for those.");
+            if (!metadata.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph))
+            {
+                notes.Add("This gcdump is sampled or incomplete (its writer kept only part of a very large heap, or the runtime's events were lost while it was captured), so some objects or types are missing and counts are not exact. Capture another gcdump, or a full dump, if results look wrong.");
+            }
+        }
+
         if (metadata.UnreadableObjects > 0)
         {
             notes.Add(string.Create(CultureInfo.InvariantCulture, $"{metadata.UnreadableObjects:N0} heap entries could not be read and were left out."));
@@ -459,6 +486,9 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             elapsed.TotalSeconds,
             [.. notes]);
     }
+
+    private static int LoaderVersion(SnapshotKind kind) =>
+        kind == SnapshotKind.GcDump ? GcDumpLoader.CurrentVersion : ClrMdDumpLoader.CurrentVersion;
 
     private ClrMdLoaderOptions LoaderOptions() => new()
     {

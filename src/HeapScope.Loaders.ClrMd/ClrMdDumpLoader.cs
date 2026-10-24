@@ -27,6 +27,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
+using HeapScope.Core.Loading;
 using Microsoft.Diagnostics.Runtime;
 
 namespace HeapScope.Loaders.ClrMd;
@@ -37,7 +38,7 @@ namespace HeapScope.Loaders.ClrMd;
 /// then roots (GC roots, weak handles and static fields). Synchronous and CPU bound; callers run it on a worker
 /// thread. Cancellation is checked at least every 64K objects.
 /// </summary>
-public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
+public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnapshotLoader
 {
     private const int CheckInterval = 1 << 16;
 
@@ -46,7 +47,17 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
     /// <summary>Loads <paramref name="dumpPath"/>; the caller owns the returned graph.</summary>
     /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
     /// <exception cref="SnapshotFormatException">The file is not a readable .NET dump.</exception>
-    public DumpLoadResult Load(string dumpPath, IProgress<LoadProgress>? progress = null, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 2 since sprint 1.8: truncated dumps lose CompleteGraph and ExactCounts, finalizer registrations are a fact. Caches
+    /// written before (version 0) are rebuilt.
+    /// </summary>
+    public const int CurrentVersion = 2;
+
+    public SnapshotKind Kind => SnapshotKind.FullDump;
+
+    public int Version => CurrentVersion;
+
+    public LoadResult Load(string dumpPath, IProgress<LoadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(dumpPath);
         var fullPath = Path.GetFullPath(dumpPath);
@@ -61,7 +72,18 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
         using var target = ClrMdDump.OpenDataTarget(fullPath, _options);
         var clr = ClrMdDump.FirstRuntime(target, fullPath);
         using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options);
-        var heap = runtime.Heap;
+        ClrHeap heap;
+        try
+        {
+            heap = runtime.Heap;
+        }
+        catch (InvalidDataException ex)
+        {
+            // ClrMD cannot create the heap when the runtime's GC data is missing from the file, for example a dump cut
+            // short while it was written or copied (sprint 1.8).
+            throw new SnapshotFormatException("The managed heap could not be read from this dump: the file looks truncated or damaged. Capture another dump.", ex);
+        }
+
         if (!heap.CanWalkHeap)
         {
             throw new SnapshotFormatException("The dump was taken while a garbage collection was running, so its heap cannot be walked. Capture another dump.");
@@ -108,13 +130,13 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
             target.DataReader.PointerSize,
             header.CapturedAtUtc,
             freeBytes,
-            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks);
+            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations);
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
-        var capabilities = unreadable > 0 || incompleteSegments > 0
+        var capabilities = unreadable > 0 || incompleteSegments > 0 || MinidumpHeader.IsTruncated(fullPath)
             ? SnapshotCapabilities.FullDump & ~(SnapshotCapabilities.CompleteGraph | SnapshotCapabilities.ExactCounts)
             : SnapshotCapabilities.FullDump;
-        return new DumpLoadResult(
+        return new LoadResult(
             graph,
             info,
             capabilities,
@@ -158,17 +180,19 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
                     progress?.Report(new LoadProgress("Reading objects", done + (long)(obj.Address - segment.ObjectRange.Start), total));
                 }
 
-                walked += obj.Size;
-                if (obj.IsFree)
-                {
-                    free[(int)(fixedKind ?? GenerationKind(segment.GetGeneration(obj.Address)))] += (long)obj.Size;
-                    continue;
-                }
-
+                // An object without a readable type has no size either (ClrMD throws for it), so it is counted before
+                // its size is read; a truncated dump has many (sprint 1.8).
                 var type = obj.Type;
                 if (type is null)
                 {
                     unreadable++;
+                    continue;
+                }
+
+                walked += obj.Size;
+                if (obj.IsFree)
+                {
+                    free[(int)(fixedKind ?? GenerationKind(segment.GetGeneration(obj.Address)))] += (long)obj.Size;
                     continue;
                 }
 
@@ -191,7 +215,8 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
 
             done += (long)segment.ObjectRange.Length;
             var missing = segment.ObjectRange.Length > walked ? segment.ObjectRange.Length - walked : 0;
-            if (missing > IncompleteSegmentBytes && missing > segment.ObjectRange.Length * IncompleteSegmentShare)
+            if ((missing > IncompleteSegmentBytes && missing > segment.ObjectRange.Length * IncompleteSegmentShare)
+                || !IsInDump(heap.Runtime.DataTarget.DataReader, segment.ObjectRange))
             {
                 incomplete++;
             }
@@ -199,6 +224,33 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
 
         progress?.Report(new LoadProgress("Reading objects", total, total));
         return (unreadable, incomplete, free);
+    }
+
+    /// <summary>The page granularity of the memory probe below.</summary>
+    internal const ulong ProbeStride = 64 * 1024;
+
+    /// <summary>
+    /// True when the dump holds the memory of <paramref name="range"/>, probed one byte every
+    /// <see cref="ProbeStride"/> and at its last byte (sprint 1.8). A truncated dump loses whole memory ranges: the walk
+    /// can then stop early by less than the incomplete-segment margin, or find no objects at all, and still look complete.
+    /// </summary>
+    private static bool IsInDump(IDataReader reader, MemoryRange range)
+    {
+        if (range.Length == 0)
+        {
+            return true;
+        }
+
+        Span<byte> probe = stackalloc byte[1];
+        for (var address = range.Start; address < range.End; address += ProbeStride)
+        {
+            if (reader.Read(address, probe) != 1)
+            {
+                return false;
+            }
+        }
+
+        return reader.Read(range.End - 1, probe) == 1;
     }
 
     private static HashSet<ulong> FinalizableObjects(ClrHeap heap, CancellationToken cancellationToken)

@@ -24,6 +24,7 @@
 using System.Globalization;
 using HeapScope.Analysis;
 using HeapScope.Contracts;
+using HeapScope.Core;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Worker.Rpc;
@@ -89,7 +90,17 @@ internal sealed class TypeDiffSource : IResultSource
     /// <summary>Bytes delta of the rows that pass the filter.</summary>
     public long MatchingBytesDelta => _rows.Sum(r => r.BytesDelta);
 
-    public static TypeDiffSource Create(HeapGraph baselineGraph, TypeAggregation baseline, HeapGraph currentGraph, TypeAggregation current, TypeDiffRequest request)
+    /// <param name="baselineKind">The baseline's snapshot kind: when the two kinds differ, the full dump's type names are
+    /// matched in their gcdump form (sprint 1.8), because a gcdump cannot name nested types fully.</param>
+    /// <param name="currentKind">The current snapshot's kind.</param>
+    public static TypeDiffSource Create(
+        HeapGraph baselineGraph,
+        TypeAggregation baseline,
+        HeapGraph currentGraph,
+        TypeAggregation current,
+        TypeDiffRequest request,
+        SnapshotKind baselineKind = SnapshotKind.FullDump,
+        SnapshotKind currentKind = SnapshotKind.FullDump)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(request.GroupBy))
@@ -116,7 +127,15 @@ internal sealed class TypeDiffSource : IResultSource
                 nameof(request)),
         };
 
-        var rows = TypeDiff.Build(baselineGraph, baseline, currentGraph, current, (GroupKey)(int)request.GroupBy);
+        Func<string, string>? asGcDump = baselineKind == currentKind ? null : TypeNameForms.AsGcDumpName;
+        var rows = TypeDiff.Build(
+            baselineGraph,
+            baseline,
+            currentGraph,
+            current,
+            (GroupKey)(int)request.GroupBy,
+            baselineKind == SnapshotKind.FullDump ? asGcDump : null,
+            currentKind == SnapshotKind.FullDump ? asGcDump : null);
         var unfiltered = rows.Count;
         var newRows = rows.Count(r => r.IsNew);
         var goneRows = rows.Count(r => r.IsGone);
