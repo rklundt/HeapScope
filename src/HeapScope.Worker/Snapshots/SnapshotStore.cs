@@ -212,7 +212,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
                 collect = false;
             }
 
-            GraphSnapshot snapshot;
+            ISnapshot snapshot;
             SnapshotDescriptor descriptor;
             try
             {
@@ -220,7 +220,12 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
 
                 // The snapshot is the file that was opened: a dump moved or copied together with its index cache keeps a
                 // valid fingerprint, but the cache records the path of its first load (sprint 1.2 review).
-                snapshot = new GraphSnapshot(metadata.Info with { SourcePath = path }, metadata.Capabilities, graph);
+                // Full dumps read field values and strings from the dump on demand (sprint 1.5); the reader opens the dump
+                // only when something is inspected.
+                var info = metadata.Info with { SourcePath = path };
+                snapshot = info.Kind == SnapshotKind.FullDump
+                    ? new DumpSnapshot(info, metadata.Capabilities, graph, new ClrMdObjectReader(path, LoaderOptions(), () => EnsureUnchanged(path, fingerprint)))
+                    : new GraphSnapshot(info, metadata.Capabilities, graph);
                 descriptor = Describe(snapshot, mode, fromCache, writtenCache, stopwatch.Elapsed, notes);
             }
             catch
@@ -248,6 +253,28 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
                 // OS (ARCHITECTURE.md 9). A successful load already collected inside LoadDump.
                 GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
             }
+        }
+    }
+
+    /// <summary>
+    /// Field values and strings are read at the graph's addresses, so they must come from the dump the graph was built
+    /// from: the reader opens the dump lazily, possibly hours after the snapshot opened (sprint 1.5 review H5).
+    /// </summary>
+    private static void EnsureUnchanged(string path, SnapshotFingerprint opened)
+    {
+        SnapshotFingerprint now;
+        try
+        {
+            now = SnapshotFingerprint.Compute(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new SnapshotChangedException($"The dump {path} cannot be read any more ({ex.Message}), so field values are not available. Put the dump back, or close the snapshot.", ex);
+        }
+
+        if (now != opened)
+        {
+            throw new SnapshotChangedException($"The dump {path} changed since this snapshot was opened, so its field values would not match. Close the snapshot and open the dump again.");
         }
     }
 
@@ -284,11 +311,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         Rpc.ThrottledProgress<JobProgress> progress,
         CancellationToken cancellationToken)
     {
-        var loader = new ClrMdDumpLoader(new ClrMdLoaderOptions
-        {
-            DacFolder = options.DacFolder,
-            AllowMicrosoftSymbolServer = options.AllowMicrosoftSymbolServer,
-        });
+        var loader = new ClrMdDumpLoader(LoaderOptions());
         DumpLoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
         HeapGraph? graph = loaded.Graph;
         var metadata = new IndexCacheMetadata(
@@ -389,7 +412,7 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
         }
     }
 
-    private static SnapshotDescriptor Describe(GraphSnapshot snapshot, MemoryMode mode, bool fromCache, string? cachePath, TimeSpan elapsed, List<string> notes)
+    private static SnapshotDescriptor Describe(ISnapshot snapshot, MemoryMode mode, bool fromCache, string? cachePath, TimeSpan elapsed, List<string> notes)
     {
         var info = snapshot.Info;
         var graph = snapshot.Graph;
@@ -414,7 +437,13 @@ internal sealed class SnapshotStore(WorkerOptions options, IndexCacheLocator loc
             [.. notes]);
     }
 
-    private sealed record Entry(GraphSnapshot Snapshot, SnapshotDescriptor Descriptor)
+    private ClrMdLoaderOptions LoaderOptions() => new()
+    {
+        DacFolder = options.DacFolder,
+        AllowMicrosoftSymbolServer = options.AllowMicrosoftSymbolServer,
+    };
+
+    private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor)
     {
         public DerivedData Derived { get; } = new();
     }

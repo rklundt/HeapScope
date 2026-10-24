@@ -111,12 +111,22 @@ public enum TypeGrouping
     Assembly = 2,
 }
 
-/// <summary>Columns a type summary can be sorted by.</summary>
-public enum TypeSummarySort
+/// <summary>
+/// Column names of a type summary result set (sorting takes any of them, sprint 1.5). In Type grouping the rows also carry
+/// the hidden <see cref="TypeName"/> and <see cref="Module"/> columns: the key that opens a row's instances.
+/// </summary>
+public static class TypeSummaryColumns
 {
-    Bytes = 0,
-    Count = 1,
-    Name = 2,
+    public const string Name = "Name";
+    public const string Objects = "Objects";
+    public const string Bytes = "Bytes";
+    public const string Percent = "Percent";
+
+    /// <summary>The raw type name (without the module suffix of colliding names).</summary>
+    public const string TypeName = "TypeName";
+
+    /// <summary>The module file name, empty when the type has none.</summary>
+    public const string Module = "Module";
 }
 
 /// <summary>
@@ -141,13 +151,13 @@ public enum HeapKindDto
 /// Keeps rows whose name matches (<see cref="NameFilter"/>): an all lower-case filter ignores case; a filter with capitals
 /// matches as typed or as CamelHumps; <c>*</c> matches any run of characters, ignoring case.
 /// </param>
-/// <param name="Sort">Sort column.</param>
+/// <param name="SortColumn">A result column name (<see cref="TypeSummaryColumns"/>); null sorts by bytes.</param>
 /// <param name="Descending">Sort direction.</param>
 public sealed record TypeSummaryRequest(
     Guid SnapshotId,
     TypeGrouping GroupBy = TypeGrouping.Type,
     string? Filter = null,
-    TypeSummarySort Sort = TypeSummarySort.Bytes,
+    string? SortColumn = null,
     bool Descending = true);
 
 /// <summary>Totals for one heap kind.</summary>
@@ -193,6 +203,12 @@ public static class TypeDiffColumns
     public const string Change = "Change";
     public const string BaselineTypes = "BaselineTypes";
     public const string CurrentTypes = "CurrentTypes";
+
+    /// <summary>Hidden key column in Type grouping: the raw type name (sprint 1.5).</summary>
+    public const string TypeName = "TypeName";
+
+    /// <summary>Hidden key column in Type grouping: the module file name, empty when none (sprint 1.5).</summary>
+    public const string Module = "Module";
     public const string BaselineObjects = "BaselineObjects";
     public const string CurrentObjects = "CurrentObjects";
     public const string ObjectsDelta = "ObjectsDelta";
@@ -233,6 +249,88 @@ public sealed record TypeDiffResult(
     long MatchingBytesDelta,
     double ElapsedSeconds,
     bool ExactCounts);
+
+/// <summary>Column names of an instances result set (sprint 1.5).</summary>
+public static class InstanceColumns
+{
+    public const string Address = "Address";
+    public const string Type = "Type";
+    public const string Bytes = "Bytes";
+    public const string Generation = "Generation";
+
+    /// <summary>A string's text (when the snapshot has string contents) or an array's length.</summary>
+    public const string Value = "Value";
+}
+
+/// <summary>
+/// The objects of a type (sprint 1.5): every type whose name and module file name match, the key of the summary and
+/// diff rows (ADR-018). The filter is an address prefix (<c>0x1f2a</c>), a regular expression on the value
+/// (<c>/^Get.*Async$/</c>) or a case-insensitive substring of the value.
+/// </summary>
+/// <param name="Module">The module file name; null or empty matches types without one.</param>
+/// <param name="SortColumn">A column of <see cref="InstanceColumns"/>; null sorts by bytes.</param>
+public sealed record InstancesRequest(
+    Guid SnapshotId,
+    string TypeName,
+    string? Module,
+    string? Filter = null,
+    string? SortColumn = null,
+    bool Descending = true);
+
+/// <summary>
+/// The answer to an instances query. Totals cover every object of the matched types (before the filter);
+/// <see cref="ValuesAvailable"/> is false when the snapshot cannot read string text, so string values are empty and
+/// value filters match nothing.
+/// </summary>
+public sealed record InstancesResult(ResultSetInfo Rows, long TotalObjects, long TotalBytes, int MatchedTypes, bool ValuesAvailable, double ElapsedSeconds);
+
+/// <summary>What an <see cref="ObjectFieldDto"/> holds (mirrors Core's <c>ObjectFieldKind</c>).</summary>
+public enum ObjectFieldKindDto
+{
+    Primitive = 0,
+    String = 1,
+    Null = 2,
+    Reference = 3,
+    Struct = 4,
+    Array = 5,
+    More = 6,
+}
+
+/// <summary>A field or array element of an inspected object, formatted for display (sprint 1.5).</summary>
+/// <param name="Address">The referenced object for references, strings and arrays; 0 otherwise.</param>
+public sealed record ObjectFieldDto(string Name, string TypeName, ObjectFieldKindDto Kind, string Value, ulong Address, IReadOnlyList<ObjectFieldDto> Children);
+
+/// <summary>Inspects one object (sprint 1.5).</summary>
+public sealed record ObjectRequest(Guid SnapshotId, ulong Address);
+
+/// <summary>
+/// An object: what the graph knows (type, size, heap kind, outgoing reference count, whether a root holds it) and, when
+/// the snapshot can read the dump, its fields (<see cref="Fields"/>) and string text (<see cref="Text"/>, the first 10,000
+/// characters). <see cref="FieldsUnavailable"/> explains why fields are missing.
+/// </summary>
+public sealed record ObjectDetails(
+    ulong Address,
+    string TypeName,
+    long Bytes,
+    HeapKindDto HeapKind,
+    int ReferenceCount,
+    bool IsRooted,
+    IReadOnlyList<ObjectFieldDto>? Fields,
+    string? FieldsUnavailable,
+    string? Text);
+
+/// <summary>Column names of a references result set (sprint 1.5).</summary>
+public static class ReferenceColumns
+{
+    /// <summary>The field path or array index holding the reference, when the snapshot has field values.</summary>
+    public const string Field = "Field";
+    public const string Address = "Address";
+    public const string Type = "Type";
+    public const string Bytes = "Bytes";
+}
+
+/// <summary>The objects one object references, in the graph's order (sprint 1.5).</summary>
+public sealed record ReferencesRequest(Guid SnapshotId, ulong Address);
 
 /// <summary>A result set held by the worker, fetched with <see cref="IWorkerService.GetRowsAsync"/>.</summary>
 public sealed record ResultSetInfo(Guid Id, int TotalCount, IReadOnlyList<ResultColumn> Columns);

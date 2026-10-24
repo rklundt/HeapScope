@@ -17,7 +17,7 @@ namespace HeapScope.UI.Wpf;
 /// objects, records the maximum dispatcher lag and exits (sprint 0.3 decision 7).</param>
 /// <param name="SmokeOpenPath">When set (<c>--smoke-open path</c>), the app opens this dump instead, waits for its overview
 /// and exits with the same dispatcher checks (sprint 1.2).</param>
-public sealed record UiOptions(int? SmokeSyntheticObjects, string? SmokeOpenPath = null, string? SmokeComparePath = null)
+public sealed record UiOptions(int? SmokeSyntheticObjects, string? SmokeOpenPath = null, string? SmokeComparePath = null, string? SmokeTracePath = null)
 {
     public bool IsSmokeRun => SmokeSyntheticObjects is not null || SmokeOpenPath is not null;
 }
@@ -46,7 +46,8 @@ internal static class UiHost
         builder.Services.AddSingleton(new UiOptions(
             smoke is null ? null : int.Parse(smoke, NumberStyles.None, CultureInfo.InvariantCulture),
             builder.Configuration["smoke-open"],
-            builder.Configuration["smoke-compare"]));
+            builder.Configuration["smoke-compare"],
+            builder.Configuration["smoke-trace"]));
 
         builder.Services.AddSingleton<IUiDispatcher>(new WpfUiDispatcher(dispatcher));
         builder.Services.AddSingleton(sp => new DispatcherWatchdog(dispatcher, sp.GetRequiredService<ILogger<DispatcherWatchdog>>()));
@@ -56,8 +57,7 @@ internal static class UiHost
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<IUiDispatcher>(),
             sp.GetRequiredService<IUserInteraction>(),
-            sp.GetRequiredService<ILogger<TypeSummaryViewModel>>(),
-            sp.GetRequiredService<ILogger<CompareViewModel>>()));
+            sp.GetRequiredService<ILoggerFactory>()));
         builder.Services.AddSingleton<HomeViewModel>(sp => new HomeViewModel(
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<SnapshotsViewModel>(),

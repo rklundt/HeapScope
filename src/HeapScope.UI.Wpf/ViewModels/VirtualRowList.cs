@@ -19,13 +19,16 @@ public static class VirtualRowList
 {
     /// <summary>Rows per page fetched from the worker.</summary>
     public const int PageSize = 200;
+
+    /// <summary>Pages kept loaded (10,000 rows); farther pages are dropped and fetched again when needed (sprint 1.5).</summary>
+    public const int MaxPages = 50;
 }
 
 /// <summary>
 /// A list of a result set's rows for a virtualizing grid (sprint 1.3, generic since 1.4): the count is known up front,
-/// rows are created when the grid asks for them and filled by fetching their page from the worker. Rows the grid has
-/// asked for are kept for the life of the list (one list per query); a bounded window of pages is a backlog item for
-/// the object lists of 1.5. <see cref="Cancel"/> ends the list when a newer query replaces it: page requests in flight
+/// rows are created when the grid asks for them and filled by fetching their page from the worker. At most
+/// <see cref="VirtualRowList.MaxPages"/> pages stay loaded: the pages farthest from the last one asked for are dropped
+/// (rows on screen are always near it), so a list of millions of instances holds a few thousand rows. <see cref="Cancel"/> ends the list when a newer query replaces it: page requests in flight
 /// stop, and their rows and errors are dropped.
 /// </summary>
 public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
@@ -39,6 +42,7 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
     private readonly Action<Exception>? _onError;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _lifetime = new();
+    private int _lastPage;
 
     /// <param name="rows">The result set, or null for an empty list.</param>
     /// <param name="count">Rows in the result set.</param>
@@ -94,6 +98,7 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
     {
         var item = GetRowWithoutFetch(index);
         var page = index / VirtualRowList.PageSize;
+        _lastPage = page;
         if (_rows is not null && !_lifetime.IsCancellationRequested && !_pages.ContainsKey(page))
         {
             // Reserve the slot first: a load that fails synchronously removes it, and must stay removed so the page can
@@ -104,9 +109,25 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
             {
                 _pages[page] = load;
             }
+
+            DropFarPages();
         }
 
         return item;
+    }
+
+    /// <summary>
+    /// Fetches the first page before a grid shows the list, so its rows are laid out once, already filled, instead of
+    /// laid out empty and again when the page arrives (sprint 1.5: the second pass doubled the work after a query).
+    /// </summary>
+    public Task PreloadAsync()
+    {
+        if (Count > 0)
+        {
+            GetRow(0);
+        }
+
+        return WhenLoadedAsync();
     }
 
     /// <summary>Ends the list: page requests in flight stop and their results are dropped.</summary>
@@ -157,8 +178,9 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
         try
         {
             var result = await _rows!.GetRowsAsync(start, Math.Min(VirtualRowList.PageSize, Count - start), token);
-            if (token.IsCancellationRequested)
+            if (token.IsCancellationRequested || !_pages.ContainsKey(page))
             {
+                // Replaced by a newer query, or dropped from the window while loading.
                 return;
             }
 
@@ -181,6 +203,21 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
             }
 
             _onError?.Invoke(ex);
+        }
+    }
+
+    private void DropFarPages()
+    {
+        while (_pages.Count > VirtualRowList.MaxPages)
+        {
+            var farthest = _pages.Keys.MaxBy(p => Math.Abs(p - _lastPage));
+            _pages.Remove(farthest);
+            var start = farthest * VirtualRowList.PageSize;
+            var end = Math.Min(Count, start + VirtualRowList.PageSize);
+            for (var i = start; i < end; i++)
+            {
+                _items.Remove(i);
+            }
         }
     }
 

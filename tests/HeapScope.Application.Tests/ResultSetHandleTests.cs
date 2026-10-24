@@ -193,6 +193,12 @@ public sealed class ResultSetHandleTests
 
         public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
 
+        public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task ShutdownAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task CrashForTestingAsync(CancellationToken cancellationToken) => throw new NotSupportedException();

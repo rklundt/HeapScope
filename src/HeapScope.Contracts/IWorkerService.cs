@@ -52,6 +52,23 @@ public interface IWorkerService
     Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The objects of a type as a result set (sprint 1.5). Unknown snapshots fail with
+    /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/>; an invalid filter or sort column with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One object's details and, when the snapshot has field values, its fields (sprint 1.5). An address with no object
+    /// fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>. The first inspection of a snapshot opens its dump,
+    /// which can take seconds: <paramref name="progress"/> says so.
+    /// </summary>
+    Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>The objects one object references, as a result set (sprint 1.5); naming them walks up to a million array elements.</summary>
+    Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns rows [offset, offset + count) of a result set; count is capped at
     /// <see cref="WorkerProtocol.MaxPageSize"/>. Unknown, released or evicted sets fail with
     /// <see cref="HeapScopeErrorCode.ResultSetNotFound"/>.

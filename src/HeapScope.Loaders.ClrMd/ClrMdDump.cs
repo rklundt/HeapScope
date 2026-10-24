@@ -1,0 +1,75 @@
+using System.Runtime.InteropServices;
+using HeapScope.Core;
+using Microsoft.Diagnostics.Runtime;
+
+namespace HeapScope.Loaders.ClrMd;
+
+/// <summary>Opens a dump with ClrMD the same way for the loader and the object reader (ADR-017 DAC lookup).</summary>
+internal static class ClrMdDump
+{
+    /// <summary>Opens the dump with the memory-mapped reader and the local-only file locator unless downloads are on.</summary>
+    /// <exception cref="SnapshotFormatException">The file is not a readable memory dump.</exception>
+    public static DataTarget OpenDataTarget(string path, ClrMdLoaderOptions options)
+    {
+        var targetOptions = new DataTargetOptions();
+        targetOptions.CacheOptions.MaxDumpCacheSize = options.MaxDumpCacheBytes;
+        targetOptions.UseLockFreeMemoryMapReader = true;
+        if (!options.AllowMicrosoftSymbolServer)
+        {
+            targetOptions.FileLocator = LocalOnlyFileLocator.Instance;
+        }
+
+        try
+        {
+            return DataTarget.LoadDump(path, targetOptions);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or IOException && ex is not FileNotFoundException)
+        {
+            throw new SnapshotFormatException($"{path} is not a readable memory dump: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>The dump's first .NET runtime.</summary>
+    /// <exception cref="SnapshotFormatException">The dump holds no .NET runtime.</exception>
+    public static ClrInfo FirstRuntime(DataTarget target, string path) =>
+        target.ClrVersions.Length > 0
+            ? target.ClrVersions[0]
+            : throw new SnapshotFormatException($"No .NET runtime was found in {path}. HeapScope reads dumps of .NET (Core) processes.");
+
+    /// <summary>
+    /// Creates the runtime with a local DAC (ADR-017), or a downloaded one when allowed. A DAC that is found but fails to
+    /// load (wrong build, damaged file) is reported with a next step (from the 1.2 review).
+    /// </summary>
+    /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
+    /// <exception cref="SnapshotFormatException">The runtime could not be opened with the DAC found.</exception>
+    public static ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath, ClrMdLoaderOptions options)
+    {
+        var dac = clr.DebuggingLibraries.FirstOrDefault(d =>
+            d.Kind == DebugLibraryKind.Dac && d.Platform == OSPlatform.Windows);
+        var fileName = dac?.FileName is { Length: > 0 } name ? Path.GetFileName(name) : "mscordaccore.dll";
+        var request = new DacRequest(
+            fileName,
+            dac?.IndexTimeStamp ?? 0,
+            dac?.IndexFileSize ?? 0,
+            clr.Version.ToString(),
+            Path.GetDirectoryName(clr.ModuleInfo.FileName));
+        var directories = DacLocator.CandidateDirectories(request, dumpPath, options);
+        var path = DacLocator.Find(request, directories, out var searched);
+        if (path is null && !options.AllowMicrosoftSymbolServer)
+        {
+            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched);
+        }
+
+        try
+        {
+            return path is not null ? clr.CreateRuntime(path) : clr.CreateRuntime();
+        }
+        catch (Exception ex) when (ex is ClrDiagnosticsException or InvalidOperationException or IOException or BadImageFormatException or DllNotFoundException)
+        {
+            throw new SnapshotFormatException(
+                $"The .NET {request.RuntimeVersion} runtime in the dump could not be opened with {path ?? fileName}: {ex.Message} "
+                + "Make sure the DAC is the one from that exact runtime version (Symbols:DacFolder), then open the dump again.",
+                ex);
+        }
+    }
+}

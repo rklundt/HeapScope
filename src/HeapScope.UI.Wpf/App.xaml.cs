@@ -37,6 +37,9 @@ public partial class App : System.Windows.Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // An interactive tool: never let Windows move the UI to efficiency cores when the window is in the background.
+        NativeMethods.DisableExecutionSpeedThrottling();
+
         base.OnStartup(e);
         try
         {
@@ -67,7 +70,15 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex)
         {
-            // async void event handler: every exception must be handled here.
+            // async void event handler: every exception must be handled here. A smoke run is unattended: no dialog, it
+            // fails with its exit code and the log says why (sprint 1.5 review).
+            if (e.Args.Any(a => a.StartsWith("--smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                _host?.Services.GetService<ILoggerFactory>()?.CreateLogger<App>().LogError(ex, "Smoke run failed");
+                Shutdown(SmokeJobFailed);
+                return;
+            }
+
             MessageBox.Show($"HeapScope could not start: {ex.Message}", "HeapScope", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
@@ -131,33 +142,97 @@ public partial class App : System.Windows.Application
         var home = services.GetRequiredService<HomeViewModel>();
         var snapshots = services.GetRequiredService<SnapshotsViewModel>();
 
-        // Warm-up as in RunSmokeAsync, so one-time cold costs are not counted.
+        // Warm-up as in RunSmokeAsync, so one-time cold costs are not counted: a tiny job, then the Snapshots page shown
+        // once (pages are built on first show and kept, sprint 1.5). The cold first show is logged, not checked.
         home.ObjectCount = 10_000;
         await home.RunSyntheticCommand.ExecuteAsync(null);
         await Dispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         await Task.Delay(500);
         watchdog.Reset();
-
-        await snapshots.OpenPathAsync(dump);
-        await snapshots.Types.QueryTask;
-
-        // Touch the first rows as the grid would, and wait for their page.
-        var rows = snapshots.Types.Rows;
-        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
-        {
-            rows.GetRow(i);
-        }
-
-        await rows.WhenLoadedAsync();
-        var completed = snapshots.Selected is not null && rows.Count > 0 && rows.GetRow(0).IsLoaded;
-        if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
-        {
-            completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
-        }
-
+        var shell = services.GetRequiredService<ShellViewModel>();
+        shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+        await Dispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         await Task.Delay(500);
-        var lag = watchdog.MaxLag;
-        var operation = watchdog.MaxOperation;
+        logger.LogInformation(
+            "Smoke warm-up: Snapshots page first shown (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperation.TotalMilliseconds);
+        watchdog.Reset();
+
+        // --smoke-trace records this process from here to the end of the run (sprint 1.5), for diagnosing lags.
+        using var traceStop = new CancellationTokenSource();
+        var trace = services.GetRequiredService<UiOptions>().SmokeTracePath is { } tracePath
+            ? services.GetRequiredService<HeapScope.Application.Sessions.TraceService>()
+                .RecordAsync(Environment.ProcessId, tracePath, HeapScope.Application.Sessions.TraceKind.Cpu, TimeSpan.FromMinutes(10), traceStop.Token)
+            : null;
+
+        // The trace stops however the run ends: a failing step must not leave it recording (sprint 1.5 review).
+        VirtualRowList<TypeRowItem> rows;
+        bool completed;
+        TimeSpan lag;
+        TimeSpan operation;
+        try
+        {
+            await snapshots.OpenPathAsync(dump);
+            await snapshots.Types.QueryTask;
+
+            // Touch the first rows as the grid would, and wait for their page.
+            rows = snapshots.Types.Rows;
+            for (var i = 0; i < Math.Min(rows.Count, 50); i++)
+            {
+                rows.GetRow(i);
+            }
+
+            await rows.WhenLoadedAsync();
+            completed = snapshots.Selected is not null && rows.Count > 0 && rows.GetRow(0).IsLoaded;
+            await Task.Delay(500);
+
+            // The phases below reset the watchdog after their cold first show, so the checked maxima are combined here: the
+            // open and the types grid, then each phase's warm part.
+            lag = watchdog.MaxLag;
+            operation = watchdog.MaxOperation;
+            logger.LogInformation(
+                "Smoke open phase: maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+                lag.TotalMilliseconds,
+                operation.TotalMilliseconds);
+            void Combine()
+            {
+                lag = lag > watchdog.MaxLag ? lag : watchdog.MaxLag;
+                operation = operation > watchdog.MaxOperation ? operation : watchdog.MaxOperation;
+            }
+
+            if (completed)
+            {
+                completed = await RunSmokeDrillAsync(snapshots, watchdog, logger);
+                await Task.Delay(500);
+                Combine();
+            }
+
+            if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
+            {
+                completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
+                await Task.Delay(500);
+                Combine();
+            }
+
+        }
+        finally
+        {
+            if (trace is not null)
+            {
+                await traceStop.CancelAsync();
+                try
+                {
+                    var recorded = await trace;
+                    logger.LogInformation("Smoke trace written: {Path} ({Bytes:N0} bytes)", recorded.Path, recorded.Bytes);
+                }
+                catch (Exception ex) when (ex is HeapScope.Application.Sessions.CaptureFailedException or OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Smoke trace failed");
+                }
+            }
+        }
+
         logger.LogInformation(
             "Smoke open: snapshot shown {Completed} ({Status}), {Pages} of {TotalPages} row pages fetched, maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
             completed,
@@ -170,6 +245,75 @@ public partial class App : System.Windows.Application
             : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
             : 0;
         MainWindow?.Close();
+    }
+
+    /// <summary>
+    /// Drills down as a user would (sprint 1.5): the largest type's objects, the largest object, its references. The first
+    /// showing of each view is logged as a cold cost; a re-sort of the objects and a second object are the checked part.
+    /// Returns whether every step showed its data.
+    /// </summary>
+    private static async Task<bool> RunSmokeDrillAsync(SnapshotsViewModel snapshots, DispatcherWatchdog watchdog, ILogger logger)
+    {
+        var navigator = snapshots.Navigator;
+        var type = snapshots.Types.Rows.GetRow(0);
+        navigator.OpenTypeRowCommand.Execute(type);
+        if (navigator.Current is not InstancesViewModel instances)
+        {
+            return false;
+        }
+
+        await instances.QueryTask;
+        var objects = instances.Rows;
+        for (var i = 0; i < Math.Min(objects.Count, 50); i++)
+        {
+            objects.GetRow(i);
+        }
+
+        await objects.WhenLoadedAsync();
+        if (objects.Count == 0)
+        {
+            return false;
+        }
+
+        navigator.OpenInstanceRowCommand.Execute(objects.GetRow(0));
+        if (navigator.Current is not ObjectViewModel first)
+        {
+            return false;
+        }
+
+        await first.LoadTask;
+        await first.ReferenceRows.WhenLoadedAsync();
+        await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        logger.LogInformation(
+            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}); first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            instances.TypeName,
+            objects.Count,
+            first.Title,
+            first.Status ?? first.FieldsUnavailable ?? "fields read",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperation.TotalMilliseconds);
+
+        // Checked part: back to the objects, a re-sort, and another object.
+        watchdog.Reset();
+        navigator.BackCommand.Execute(null);
+        instances.SortByCommand.Execute(Contracts.InstanceColumns.Address);
+        await instances.QueryTask;
+        objects = instances.Rows;
+        for (var i = 0; i < Math.Min(objects.Count, 50); i++)
+        {
+            objects.GetRow(i);
+        }
+
+        await objects.WhenLoadedAsync();
+        navigator.OpenInstanceRowCommand.Execute(objects.GetRow(objects.Count > 1 ? 1 : 0));
+        if (navigator.Current is not ObjectViewModel second)
+        {
+            return false;
+        }
+
+        await second.LoadTask;
+        await second.ReferenceRows.WhenLoadedAsync();
+        return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null);
     }
 
     /// <summary>

@@ -27,7 +27,9 @@ Follow these steps exactly.
 7. **Low / Trivial.** List them in the review file only. Do not fix them and do not raise them.
 8. **Docs.** Update ARCHITECTURE.md, DEVELOPER.md, SPRINTS.md (including the sprint's Review summary: counts by
    severity, what was fixed, what was deferred, measured numbers) and CLAUDE.md so they match what was built.
-   Add ADRs for significant decisions made during the sprint.
+   Add ADRs for significant decisions made during the sprint. Move anything durable from `CURRENT-CONTEXT.md`
+   (decisions, measurements, findings) into these docs, and update `CURRENT-CONTEXT.md` to say the sprint is
+   Wrapping.
 9. **Finish.** Run build and tests one last time. Set the sprint status to Wrapping. Tell the human it is ready
    for `/close-sprint`.
 

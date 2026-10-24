@@ -40,6 +40,7 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<TimeProvider>(),
             sp.GetService<Microsoft.Extensions.Logging.ILogger<Sessions.CaptureService>>()));
         services.AddSingleton<Sessions.ICaptureService>(sp => sp.GetRequiredService<Sessions.CaptureService>());
+        services.AddSingleton<Sessions.TraceService>();
         return services;
     }
 }

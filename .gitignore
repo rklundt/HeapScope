@@ -489,3 +489,5 @@ artifacts/
 *.hsidx.tmp
 logs/
 
+# Working context for resuming after a conversation compact (CLAUDE.md); never committed.
+CURRENT-CONTEXT.md

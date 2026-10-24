@@ -183,6 +183,23 @@ by name) and `QueryTypeDiffAsync`, which leases both snapshots and reuses their 
 grids: debounce, latest query wins, release), the generic `VirtualRowList<TRow>`, and `CompareViewModel` behind the
 Snapshots page's Compare tab (two pickers, the earlier capture as default baseline, swap). The CLI has `diff`.
 
+Code map additions in sprint 1.5 (object inspection and trace recording): Core has `IObjectReader` (fields as a tree of
+`ObjectField`, string text, reference paths) and `DumpSnapshot` (a full-dump `ISnapshot` holding the graph and a reader,
+section 5.1). Loaders.ClrMd has `ClrMdObjectReader` (opens the dump on first use, serialized, disposed with the snapshot)
+and `ClrMdDump` (opening shared with the loader, runtime creation failures wrapped with a next step). The worker has
+`InstancesSource` (object indices of the types with a key, filters by address prefix, regular expression or text, sort
+by any column, holds a snapshot lease), `ReferencesSource` (graph order, named by field path or array index when a
+reader exists) and `QueryInstancesAsync`, `GetObjectAsync`, `QueryReferencesAsync`. Summary and diff rows in Type
+grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances. Capture has
+`TraceRecorder` (EventPipe sessions to `.nettrace`, profiles cpu and gc) behind Application's `TraceService`. UI.Wpf
+splits the grid base into `GridQueryViewModel<TRow>` (query lifecycle, debounced filter, column-name sort, first page
+preloaded before the grid binds) and `TypeGridViewModel<TRow>` (grouping); adds `InstancesViewModel`,
+`ObjectViewModel` (field tree and references) and `NavigatorViewModel` (types, instances, object; back and forward,
+mouse buttons and Alt+arrows); the types, instances and object views are built once with the window and the
+navigator swaps their data. The shell keeps every page once built (switching pages is a visibility change). The CLI
+has `trace`, and `instances` and `object` (`InspectCommands.cs`); `perf/` has the developer tool `trace-report`
+(TraceEvent).
+
 ### 3.1 Dependency rules
 
 ```mermaid
@@ -314,6 +331,11 @@ Rules:
   Version 4 (sprint 1.4) added `QueryTypeDiffAsync` (`TypeDiffRequest` with a sort column named by
   `TypeDiffColumns`, validated by the worker; `TypeDiffResult` with both sides' totals, new and gone row counts, the
   matching rows' baseline bytes and delta, and `ExactCounts`).
+  Version 5 (sprint 1.5) added `QueryInstancesAsync` (`InstancesRequest`: snapshot, type name, module file name,
+  filter, sort column; `InstancesResult`), `GetObjectAsync` (`ObjectDetails` with `ObjectFieldDto` trees or the
+  capability explanation), `QueryReferencesAsync` (`ReferenceColumns`), the hidden key columns `TypeName` and `Module`
+  on summary and diff rows, and the type summary's sort by column name (`TypeSummaryColumns`; `TypeSummarySort`
+  retired).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -338,14 +360,18 @@ sets are typed sources (`IResultSource`: compact arrays such as indices, counts 
 for the requested page, never stored as one string per cell. The store evicts least recently used sets beyond 32
 sets or an estimated 256 MB, whichever comes first (the newest set is always kept). A set can carry an owner, for
 example a snapshot lease, disposed on release or eviction. Producers must stay compact (indices, counts, sizes),
-because the newest set is kept even when it alone exceeds the byte budget; a source that reads graph columns takes
-its own snapshot lease for each page it formats. Cells cross the pipe as invariant-culture strings with
+because the newest set is kept even when it alone exceeds the byte budget. Sources that read the graph or the dump
+while formatting (instances, references) are safe against a release or eviction during a page: the store counts the
+pages being formatted from each set, and a set removed meanwhile has its owner (the snapshot lease) disposed by the
+last of them (sprint 1.5 review H2). Paging has the worker's error contract, because instance pages read string
+values from the dump. Cells cross the pipe as invariant-culture strings with
 typed column descriptors (`ResultColumn`: Text, Integer, Bytes, Percent, Address, SignedInteger; one column may be
 flagged as the row key), which keeps paging generic. Unknown, released or evicted sets fail with `ResultSetNotFound`.
 Application's `ResultSetHandle` keeps the query that produced a set and re-runs it once when paging fails that way
 (eviction, or a worker restart through the snapshot session's reopen), so front ends page without knowing about
 eviction. A released handle is finished: paging throws and never re-runs the query, and a re-query in progress at the
-release has its new set released too, so no set is orphaned. The grids (types and compare) fetch pages of 200 rows as they scroll; each row object is filled with one property change
+release has its new set released too, so no set is orphaned. The grids (types, compare, instances and an object's
+references) fetch pages of 200 rows as they scroll; each row object is filled with one property change
 notification, which keeps a page under the dispatcher budget.
 
 Paging cost with the default JSON formatter (sprint 1.3, Release): a 10,000-row page (the maximum, used by the CLI's
@@ -369,13 +395,22 @@ public interface ISnapshot : IDisposable
 ```
 - Loaders produce a `HeapGraph` through `HeapGraphBuilder` and wrap it in an `ISnapshot`.
 - Capabilities that need the original file (field values, string contents) are exposed through optional
-  services obtained with `snapshot.TryGetService<IFieldValueReader>(out var reader)`. A gcdump snapshot
+  services obtained with `snapshot.TryGetService<IObjectReader>(out var reader)`. A gcdump snapshot
   simply does not provide them.
 - `GraphSnapshot` (an `ISnapshot` with no services) strips `FieldValues`, `StringContents` and `ThreadStacks`
-  from whatever capabilities it is given, so it can never claim what it cannot answer. In sprint 1.2 every snapshot,
-  first load or index cache, is a `GraphSnapshot`, so full dumps report those three as missing; a full-dump
-  `ISnapshot` that reopens the dump for those services is planned for 1.5. `CapabilityDescriptions.ExplainMissing`
-  takes the snapshot kind, so a full dump says "not available in this version yet" instead of "capture a full dump".
+  from whatever capabilities it is given, so it can never claim what it cannot answer (synthetic graphs, tests).
+  Since sprint 1.5 every full dump, first load or index cache, is a `DumpSnapshot`: the graph plus a
+  `ClrMdObjectReader` over the dump file, which opens the dump with ClrMD only when something is inspected, serializes
+  its reads and is disposed with the graph after the last lease. Before it opens the dump it checks the file's
+  fingerprint against the one the snapshot opened with, and fails with `SnapshotChanged` when the dump was replaced
+  (review H5). Multi-dimensional arrays are read by indices and named `[i,j]`; a reference's names keep the first
+  three paths and a count ("[0], [1], [2] and 7 more"), so an array of one shared object stays linear (review H1, H4).
+  It reports `FieldValues` and `StringContents`;
+  `ThreadStacks` stays missing until a feature needs it. `CapabilityDescriptions.ExplainMissing` takes the snapshot
+  kind, so a full dump says "not available in this version yet" instead of "capture a full dump".
+- Field values are formatted for display in the invariant culture: strings quoted, `null`, chars in single quotes,
+  booleans lower case, enums as `Name (value)`, arrays as `elementType[length]`; compiler backing fields are named by
+  their property; nested structs are child rows; arrays list their first 100 elements, then a "N more" row.
 - A full dump whose heap could not be read completely (unreadable objects, or a segment walk that covered noticeably
   less than the segment, for example a truncated file) loses `CompleteGraph` and `ExactCounts` and carries a note.
   A minidump without heap memory (MINIDUMP_TYPE without full or private read-write memory) is refused at open.
@@ -669,6 +704,30 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   render about 1 s, first job row about 130 to 190 ms, first showing of the Compare tab with rows 97 to 238 ms (1.4)
   (backlog: UI cold start). `--smoke-compare <dump>` (with `--smoke-open`) logs that first show and checks a warm
   re-query of the comparison.
+- **Hybrid CPUs (ADR-019, sprint 1.5)**: on a CPU with performance and efficiency cores, Windows runs the threads of a
+  window that is not in the foreground on efficiency cores (EcoQoS). The UI thread then did the same layout 2.5 to 5
+  times slower (measured by pinning the UI process: performance cores 42 to 44 ms, efficiency cores 118 to 127 ms and up
+  to 250 ms under contention), which was the run-to-run variance of earlier smoke runs. The UI process opts out of
+  execution speed throttling at startup (`SetProcessInformation`, `ProcessPowerThrottling`); the worker does not.
+- **Grids (sprint 1.5)**: a grid's first page is fetched before the grid binds to the new rows (one layout of filled
+  rows, not an empty layout and a second pass), and the rows are bound after a yield at background priority so a
+  pending render runs as its own operation. The types grid shows bytes per generation only on request (a
+  "Generations" checkbox, off by default; the six columns were half the layout time). Highlighting a filter match sets
+  `TextBlock.Text` unless the cell has a match (the first access to `Inlines` forces a synchronous layout pass). The
+  object view's field tree is virtualized. `VirtualRowList` keeps at most 50 pages (10,000 rows) and drops the pages
+  farthest from the last one asked for.
+- **Pages and views are built once (sprint 1.5)**: the shell builds each page on first show and keeps it, so switching
+  pages neither rebuilds grids (about 100 ms on the Snapshots page) nor loses scroll and expanded state; the Snapshots
+  page keeps its snapshot panel laid out (hidden) without a snapshot, so templates are applied when the page is built.
+  The navigator's types, instances and object views are built with the window; navigating swaps their data.
+- **Smoke runs measure phases**: `--smoke-open` warms up with a synthetic job and the Snapshots page shown once (logged
+  as a cold cost), then checks the open phase (logged on its own line), a drill-down (largest type's instances, the
+  largest object, its references; the first show is logged as a cold cost, a re-sort and a second object are checked)
+  and, with `--smoke-compare`, the comparison. The checked maxima of all phases are combined for the exit code.
+  `--smoke-trace <file>` also records a CPU trace of the run (sprint 1.5); tracing slows the UI enough that traced runs
+  are for finding where time goes, never for checking the budget. Measured after these changes (Release, 24 logical
+  cores): Medium and DenseHeap smoke with drill-down and comparison, longest operation 36 to 63 ms, lag 49 to 128 ms,
+  every run within the gates.
 - **Leases**: `GraphSnapshot.Dispose` never blocks; the last lease released disposes the graph (section 7).
 - **Libraries** (everything below UI): `ConfigureAwait(false)` on every await; every async method takes a
   `CancellationToken`.
@@ -774,6 +833,16 @@ continue, the CLI prints the warning (or fails with `--no-overcommit`). `Snapsho
 rule for both front ends; it asks the worker (`ProbeSnapshotAsync`) whether a valid index cache exists where the
 locator puts it, so a reopen from cache never warns.
 
+Comparing (sprint 1.4): `diff` of Medium against DenseHeap from their index caches takes 2.8 to 2.9 s end to end.
+Inspecting (sprint 1.5): the UI smoke drill on Medium opens the instances of `System.Byte[]` (16M objects), the largest
+object and its references; after the responsiveness changes of section 8 the longest checked dispatcher operation is
+36 to 63 ms and probe lag 49 to 128 ms across Medium and DenseHeap runs (Release and published ReadyToRun builds).
+With the full test suite running at the same time (the 1.5 review re-measure), Debug smoke runs on Small and DenseHeap
+pass every time: longest operation 43 to 53 ms, probe lag 80 to 158 ms. Instances of `System.String` on Medium
+(6.6M strings, Release CLI, from the index cache): a text filter 3.8 s and a regular expression 4.5 s end to end,
+against 1.9 s for opening alone; values are read and tested one at a time, and only a sort by value keeps text (at
+most 250,000 strings).
+
 ## 11. Error handling and logging
 - Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file
   `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (`FileLoggerProvider` in Application; directory
@@ -805,6 +874,10 @@ locator puts it, so a reopen from cache never warns.
   user's profile) unless `--out` puts them elsewhere; HeapScope never moves them. Deleting snapshots and sessions from
   the UI and CLI, and a retention rule, are backlog items; until then, the folders can be deleted by hand.
 - Elevated targets require HeapScope to run elevated (ADR-014). HeapScope never tries to elevate silently.
+- Traces (`trace`, `--smoke-trace`, sprint 1.5) hold method and type names and event data such as exception messages,
+  not heap contents; the CLI says so after each one, and they are written where the user asks (never uploaded).
+- Inspecting an object reads its field values and string text from the dump on demand (sprint 1.5); they are shown,
+  never written to the index cache or the log.
 
 ## 13. Architecture Decision Records
 
@@ -955,6 +1028,17 @@ sprint 0.1.
   captured after a full GC in the target. Drilling into a row opens that type's objects in either snapshot (1.5), not
   "the new ones". An allocation-tracking live session (2.x at the earliest) could add identity later as a separate
   source.
+
+### ADR-019 The UI process is never power-throttled (added in sprint 1.5)
+- Context: on hybrid CPUs (performance and efficiency cores) Windows schedules the threads of a process whose window is
+  not in the foreground on efficiency cores. HeapScope's UI thread then laid out the same grid 2.5 to 5 times slower, so
+  the dispatcher budget held or failed depending on where the scheduler put the thread.
+- Decision: the UI process opts out of execution speed throttling at startup. The worker keeps its below-normal priority
+  and may run on efficiency cores (its throughput work is parallel; the UI's work is latency).
+- Consequences: smoke runs measure the code, not the scheduler; users see the same responsiveness with the window in the
+  background. Slightly higher power use while the UI is active. An idle UI still runs the dispatcher watchdog's probe
+  every 25 ms (a posted no-op, microseconds each), now unthrottled; slowing the probe while the window is idle or in
+  the background outside smoke runs is in the backlog (sprint 1.5 review M7).
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

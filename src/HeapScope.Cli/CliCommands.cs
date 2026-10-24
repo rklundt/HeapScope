@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.Cli;
 
 /// <summary>
-/// Builds the command tree (ADR-008). Exit codes: 0 success, 1 failure, 2 `diff --fail-on-growth` threshold exceeded,
+/// Builds the command tree (ADR-008; inspection commands in InspectCommands.cs). Exit codes: 0 success, 1 failure, 2 `diff --fail-on-growth` threshold exceeded,
 /// 64 usage error (EX_USAGE), 130 canceled.
 /// </summary>
 internal static partial class CliCommands
@@ -79,6 +79,9 @@ internal static partial class CliCommands
         root.Subcommands.Add(BuildOpenCommand(services));
         root.Subcommands.Add(BuildSummaryCommand(services));
         root.Subcommands.Add(BuildDiffCommand(services));
+        root.Subcommands.Add(BuildInstancesCommand(services));
+        root.Subcommands.Add(BuildObjectCommand(services));
+        root.Subcommands.Add(BuildTraceCommand(services));
         root.Subcommands.Add(BuildListCommand(services));
         root.Subcommands.Add(BuildCaptureCommand(services));
         return root;
@@ -222,7 +225,7 @@ internal static partial class CliCommands
                 handle,
                 Enum.Parse<TypeGrouping>(parseResult.GetValue(group)!, ignoreCase: true),
                 parseResult.GetValue(filter),
-                Enum.Parse<TypeSummarySort>(parseResult.GetValue(sort)!, ignoreCase: true),
+                parseResult.GetValue(sort) switch { "name" => TypeSummaryColumns.Name, "count" => TypeSummaryColumns.Objects, _ => TypeSummaryColumns.Bytes },
                 descending: parseResult.GetValue(sort) != "name",
                 progress: null,
                 ct).ConfigureAwait(false);

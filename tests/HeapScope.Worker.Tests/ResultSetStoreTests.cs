@@ -105,6 +105,43 @@ public class ResultSetStoreTests
         await Should.ThrowAsync<OperationCanceledException>(() => WorkerErrors.GuardAsync<int>(() => throw new OperationCanceledException()));
     }
 
+    [Fact]
+    public async Task A_set_released_while_a_page_is_formatted_keeps_its_owner_until_the_page_is_done()
+    {
+        var store = new ResultSetStore();
+        var owner = new Owner();
+        using var formatting = new ManualResetEventSlim();
+        using var proceed = new ManualResetEventSlim();
+        var info = store.Add(new BlockingSource(formatting, proceed), owner);
+
+        var page = Task.Run(() => store.TryGetPage(info.Id, 0, 1), TestContext.Current.CancellationToken);
+        formatting.Wait(TestContext.Current.CancellationToken);
+        store.Release(info.Id);
+
+        owner.Disposed.ShouldBeFalse("the page still reads the snapshot the owner keeps alive");
+        proceed.Set();
+        (await page).ShouldNotBeNull().Rows.Count.ShouldBe(1);
+        owner.Disposed.ShouldBeTrue("the last reader disposes the owner of a released set");
+        store.TryGetPage(info.Id, 0, 1).ShouldBeNull();
+    }
+
+    /// <summary>Signals when it starts formatting and waits to be let go, like a source reading the dump.</summary>
+    private sealed class BlockingSource(ManualResetEventSlim formatting, ManualResetEventSlim proceed) : IResultSource
+    {
+        public IReadOnlyList<ResultColumn> Columns { get; } = [new("Index", ResultColumnKind.Integer)];
+
+        public int Count => 1;
+
+        public long EstimatedBytes => 100;
+
+        public void FormatRow(int index, string?[] cells)
+        {
+            formatting.Set();
+            proceed.Wait(TimeSpan.FromSeconds(30));
+            cells[0] = "0";
+        }
+    }
+
     private sealed class CountingSource(int count, long bytes = 100) : IResultSource
     {
         public IReadOnlyList<ResultColumn> Columns { get; } = [new("Index", ResultColumnKind.Integer)];

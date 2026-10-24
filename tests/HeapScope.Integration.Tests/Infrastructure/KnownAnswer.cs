@@ -17,6 +17,7 @@ internal sealed record KnownAnswer(
     RetainedBytes? MinRetainedBytesPerItem,
     IReadOnlyList<string>? PresentButUnreachable,
     IReadOnlyList<HeapKindAnswer>? HeapKinds,
+    IReadOnlyList<FieldAnswer>? Fields,
     string Notes)
 {
     public const int CurrentFormatVersion = 1;
@@ -82,3 +83,6 @@ internal sealed record RuntimeRoot(string RootKind, string Container);
 internal sealed record RetainedBytes(int Base, int PayloadMultiplier);
 
 internal sealed record HeapKindAnswer(string Type, string Field, string HeapKind);
+
+/// <summary>An expected field of an inspected object: its display path and either its value text or its reference type.</summary>
+internal sealed record FieldAnswer(string Path, string? Value, string? Type);

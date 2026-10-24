@@ -35,11 +35,9 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
         var stopwatch = Stopwatch.StartNew();
         progress?.Report(new LoadProgress("Opening dump", 0, null));
         var header = MinidumpHeader.Read(fullPath);
-        using var target = OpenDataTarget(fullPath);
-        var clr = target.ClrVersions.Length > 0
-            ? target.ClrVersions[0]
-            : throw new SnapshotFormatException($"No .NET runtime was found in {fullPath}. HeapScope reads dumps of .NET (Core) processes.");
-        using var runtime = CreateRuntime(clr, fullPath);
+        using var target = ClrMdDump.OpenDataTarget(fullPath, _options);
+        var clr = ClrMdDump.FirstRuntime(target, fullPath);
+        using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options);
         var heap = runtime.Heap;
         if (!heap.CanWalkHeap)
         {
@@ -97,52 +95,6 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null)
             capabilities,
             new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments),
             new LoadTimings(open, objects, references, roots, build));
-    }
-
-    private DataTarget OpenDataTarget(string path)
-    {
-        var options = new DataTargetOptions();
-        options.CacheOptions.MaxDumpCacheSize = _options.MaxDumpCacheBytes;
-        options.UseLockFreeMemoryMapReader = true;
-        if (!_options.AllowMicrosoftSymbolServer)
-        {
-            options.FileLocator = LocalOnlyFileLocator.Instance;
-        }
-
-        try
-        {
-            return DataTarget.LoadDump(path, options);
-        }
-        catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or IOException && ex is not FileNotFoundException)
-        {
-            throw new SnapshotFormatException($"{path} is not a readable memory dump: {ex.Message}", ex);
-        }
-    }
-
-    private ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath)
-    {
-        var dac = clr.DebuggingLibraries.FirstOrDefault(d =>
-            d.Kind == DebugLibraryKind.Dac && d.Platform == OSPlatform.Windows);
-        var fileName = dac?.FileName is { Length: > 0 } name ? Path.GetFileName(name) : "mscordaccore.dll";
-        var request = new DacRequest(
-            fileName,
-            dac?.IndexTimeStamp ?? 0,
-            dac?.IndexFileSize ?? 0,
-            clr.Version.ToString(),
-            Path.GetDirectoryName(clr.ModuleInfo.FileName));
-        var directories = DacLocator.CandidateDirectories(request, dumpPath, _options);
-        var path = DacLocator.Find(request, directories, out var searched);
-        if (path is not null)
-        {
-            return clr.CreateRuntime(path);
-        }
-
-        if (_options.AllowMicrosoftSymbolServer)
-        {
-            return clr.CreateRuntime();
-        }
-
-        throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched);
     }
 
     /// <summary>

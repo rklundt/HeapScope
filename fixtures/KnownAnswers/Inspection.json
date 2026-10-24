@@ -1,0 +1,41 @@
+{
+  "formatVersion": 1,
+  "name": "Inspection",
+  "kind": "semantics",
+  "description": "One InspectionSample with fields of every kind and known values (LeakyConsole --inspection), for field inspection.",
+  "types": [
+    { "type": "Fixtures.Leaks.InspectionSample", "perItem": 1 }
+  ],
+  "roots": [
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.InspectionFixtures", "field": "s_sample", "itemType": "Fixtures.Leaks.InspectionSample" }
+  ],
+  "fields": [
+    { "path": "Number", "value": "42" },
+    { "path": "Big", "value": "9000000000" },
+    { "path": "Ratio", "value": "0.25" },
+    { "path": "Flag", "value": "true" },
+    { "path": "Letter", "value": "'Q'" },
+    { "path": "Small", "value": "7" },
+    { "path": "Color", "value": "Green (2)" },
+    { "path": "Text", "value": "\"HeapScope inspection\"" },
+    { "path": "Missing", "value": "null" },
+    { "path": "Box.TopLeft.X", "value": "1" },
+    { "path": "Box.TopLeft.Y", "value": "2" },
+    { "path": "Box.BottomRight.X", "value": "30" },
+    { "path": "Box.BottomRight.Y", "value": "40" },
+    { "path": "Box.Label", "value": "\"box\"" },
+    { "path": "Numbers", "value": "int[5]" },
+    { "path": "Numbers[0]", "value": "3" },
+    { "path": "Numbers[4]", "value": "5" },
+    { "path": "Words", "value": "string[2]" },
+    { "path": "Words[1]", "value": "\"beta\"" },
+    { "path": "Child", "type": "Fixtures.Leaks.InspectionChild" },
+    { "path": "Grid", "value": "int[2,3]" },
+    { "path": "Grid[0,0]", "value": "1" },
+    { "path": "Grid[1,2]", "value": "6" },
+    { "path": "Pairs[1].Key", "value": "2" },
+    { "path": "Pairs[1].Value", "value": "\"two\"" },
+    { "path": "Repeated", "value": "Fixtures.Leaks.InspectionChild[10]" }
+  ],
+  "notes": "Field paths use the names an inspection shows: property names for compiler backing fields, dots into nested structs, [i] for array elements. Values are invariant culture: strings quoted, null as null, chars in single quotes, booleans lower case, enums as Name (value), arrays as element type[length] ([rows,columns] for multi-dimensional arrays, whose elements are [i,j]). Child is a reference: its type is checked, its address varies."
+}

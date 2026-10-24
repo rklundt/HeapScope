@@ -8,7 +8,8 @@ namespace HeapScope.Worker.Rpc;
 /// <summary>
 /// Summary rows (per type, namespace or assembly) held as compact arrays and formatted only for the requested page
 /// (ARCHITECTURE.md 4.6). Columns: name (key), objects, bytes, percent of all bytes, then bytes per heap kind when the
-/// snapshot has generations (sprint 1.3).
+/// snapshot has generations (sprint 1.3), then in Type grouping the hidden type name and module that open a row's
+/// instances (sprint 1.5). Sorting takes any column by name.
 /// </summary>
 internal sealed class TypeSummarySource : IResultSource
 {
@@ -18,29 +19,37 @@ internal sealed class TypeSummarySource : IResultSource
 
     private static readonly ResultColumn[] s_baseColumns =
     [
-        new("Name", ResultColumnKind.Text, IsKey: true),
-        new("Objects", ResultColumnKind.Integer),
-        new("Bytes", ResultColumnKind.Bytes),
-        new("Percent", ResultColumnKind.Percent),
+        new(TypeSummaryColumns.Name, ResultColumnKind.Text, IsKey: true),
+        new(TypeSummaryColumns.Objects, ResultColumnKind.Integer),
+        new(TypeSummaryColumns.Bytes, ResultColumnKind.Bytes),
+        new(TypeSummaryColumns.Percent, ResultColumnKind.Percent),
     ];
 
-    private static readonly ResultColumn[] s_generationColumns =
-        [.. s_baseColumns, .. KindColumns.Select(k => new ResultColumn(k.ToString(), ResultColumnKind.Bytes))];
+    private static readonly ResultColumn[] s_kindColumns = [.. KindColumns.Select(k => new ResultColumn(k.ToString(), ResultColumnKind.Bytes))];
+
+    private static readonly ResultColumn[] s_keyColumns =
+    [
+        new(TypeSummaryColumns.TypeName, ResultColumnKind.Text),
+        new(TypeSummaryColumns.Module, ResultColumnKind.Text),
+    ];
 
     private readonly SummaryRow[] _rows;
     private readonly ulong _totalBytes;
     private readonly bool _generations;
+    private readonly bool _byType;
 
-    private TypeSummarySource(SummaryRow[] rows, int unfilteredCount, ulong totalBytes, bool generations)
+    private TypeSummarySource(SummaryRow[] rows, int unfilteredCount, ulong totalBytes, bool generations, bool byType)
     {
         _rows = rows;
         UnfilteredCount = unfilteredCount;
         _totalBytes = totalBytes;
         _generations = generations;
-        EstimatedBytes = rows.Sum(r => 48L + (2L * r.Name.Length) + (8L * r.BytesByKind.Length));
+        _byType = byType;
+        Columns = ColumnsFor(generations, byType);
+        EstimatedBytes = rows.Sum(r => 48L + (2L * r.Name.Length) + (8L * r.BytesByKind.Length) + (byType ? 2L * r.Name.Length : 0));
     }
 
-    public IReadOnlyList<ResultColumn> Columns => _generations ? s_generationColumns : s_baseColumns;
+    public IReadOnlyList<ResultColumn> Columns { get; }
 
     public int Count => _rows.Length;
 
@@ -58,24 +67,19 @@ internal sealed class TypeSummarySource : IResultSource
     {
         ArgumentNullException.ThrowIfNull(aggregation);
         ArgumentNullException.ThrowIfNull(request);
-        if (!Enum.IsDefined(request.GroupBy) || !Enum.IsDefined(request.Sort))
+        if (!Enum.IsDefined(request.GroupBy))
         {
-            throw new ArgumentOutOfRangeException(nameof(request), $"Unknown grouping {(int)request.GroupBy} or sort {(int)request.Sort}.");
+            throw new ArgumentOutOfRangeException(nameof(request), $"Unknown grouping {(int)request.GroupBy}.");
         }
 
+        var byType = request.GroupBy == TypeGrouping.Type;
+        var compare = Comparer(request.SortColumn ?? TypeSummaryColumns.Bytes, generations, byType);
         var rows = TypeGroups.Build(graph, aggregation, (GroupKey)(int)request.GroupBy);
         var unfiltered = rows.Count;
         if (!string.IsNullOrWhiteSpace(request.Filter))
         {
             rows.RemoveAll(r => !NameFilter.IsMatch(r.Name, request.Filter));
         }
-
-        Comparison<SummaryRow> compare = request.Sort switch
-        {
-            TypeSummarySort.Count => (a, b) => a.Count.CompareTo(b.Count),
-            TypeSummarySort.Name => (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase),
-            _ => (a, b) => a.Bytes.CompareTo(b.Bytes),
-        };
 
         // Ties by name keep the order stable between queries.
         rows.Sort((a, b) =>
@@ -84,7 +88,7 @@ internal sealed class TypeSummarySource : IResultSource
             return primary != 0 ? primary : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
         });
 
-        return new TypeSummarySource([.. rows], unfiltered, aggregation.TotalBytes, generations);
+        return new TypeSummarySource([.. rows], unfiltered, aggregation.TotalBytes, generations, byType);
     }
 
     public void FormatRow(int index, string?[] cells)
@@ -94,12 +98,48 @@ internal sealed class TypeSummarySource : IResultSource
         cells[1] = row.Count.ToString(CultureInfo.InvariantCulture);
         cells[2] = row.Bytes.ToString(CultureInfo.InvariantCulture);
         cells[3] = (_totalBytes == 0 ? 0 : 100.0 * row.Bytes / _totalBytes).ToString("0.##", CultureInfo.InvariantCulture);
+        var next = 4;
         if (_generations)
         {
             for (var k = 0; k < KindColumns.Length; k++)
             {
-                cells[4 + k] = row.BytesByKind[(int)KindColumns[k]].ToString(CultureInfo.InvariantCulture);
+                cells[next++] = row.BytesByKind[(int)KindColumns[k]].ToString(CultureInfo.InvariantCulture);
             }
         }
+
+        if (_byType)
+        {
+            cells[next++] = row.TypeName;
+            cells[next] = row.Module;
+        }
+    }
+
+    private static ResultColumn[] ColumnsFor(bool generations, bool byType) =>
+        [.. s_baseColumns, .. generations ? s_kindColumns : [], .. byType ? s_keyColumns : []];
+
+    private static Comparison<SummaryRow> Comparer(string column, bool generations, bool byType)
+    {
+        switch (column)
+        {
+            case TypeSummaryColumns.Name:
+                return (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            case TypeSummaryColumns.Objects:
+                return (a, b) => a.Count.CompareTo(b.Count);
+            case TypeSummaryColumns.Bytes or TypeSummaryColumns.Percent:
+                return (a, b) => a.Bytes.CompareTo(b.Bytes);
+            case TypeSummaryColumns.TypeName when byType:
+                return (a, b) => string.CompareOrdinal(a.TypeName, b.TypeName);
+            case TypeSummaryColumns.Module when byType:
+                return (a, b) => string.Compare(a.Module, b.Module, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var kindColumn = Array.FindIndex(s_kindColumns, c => c.Name == column);
+        if (generations && kindColumn >= 0)
+        {
+            var kind = (int)KindColumns[kindColumn];
+            return (a, b) => a.BytesByKind[kind].CompareTo(b.BytesByKind[kind]);
+        }
+
+        throw new ArgumentException($"Unknown sort column {column}. Sort by one of: {string.Join(", ", ColumnsFor(generations, byType).Select(c => c.Name))}.");
     }
 }

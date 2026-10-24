@@ -7,7 +7,16 @@ namespace HeapScope.Analysis;
 /// <paramref name="BaselineTypes"/> and <paramref name="CurrentTypes"/> count the distinct types (method tables) summed
 /// into the row on each side.
 /// </summary>
-public sealed record DiffRow(string Name, long BaselineCount, ulong BaselineBytes, long CurrentCount, ulong CurrentBytes, int BaselineTypes = 1, int CurrentTypes = 1)
+public sealed record DiffRow(
+    string Name,
+    long BaselineCount,
+    ulong BaselineBytes,
+    long CurrentCount,
+    ulong CurrentBytes,
+    int BaselineTypes = 1,
+    int CurrentTypes = 1,
+    string? TypeName = null,
+    string? Module = null)
 {
     public long CountDelta => CurrentCount - BaselineCount;
 
@@ -47,14 +56,17 @@ public static class TypeDiff
 
         // A type name seen with more than one module shows the module, so the rows stay distinguishable.
         var modulesPerName = rows.Keys.GroupBy(k => k.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var byType = groupBy == GroupKey.Type;
         return [.. rows.Select(r => new DiffRow(
-            modulesPerName[r.Key.Name] > 1 ? $"{r.Key.Name} [{r.Key.Module}]" : r.Key.Name,
+            modulesPerName[r.Key.Name] > 1 ? $"{r.Key.Name} [{(r.Key.Module.Length > 0 ? r.Key.Module : "unknown module")}]" : r.Key.Name,
             r.Value.BaseCount,
             r.Value.BaseBytes,
             r.Value.CurCount,
             r.Value.CurBytes,
             r.Value.BaseTypes,
-            r.Value.CurTypes))];
+            r.Value.CurTypes,
+            byType ? r.Key.Name : null,
+            byType ? r.Key.Module : null))];
     }
 
     private static void Collect(
@@ -71,11 +83,11 @@ public static class TypeDiff
                 continue;
             }
 
-            var module = graph.Types.GetModule(t) is { Length: > 0 } m ? Path.GetFileName(m) : "unknown module";
+            var module = TypeGroups.ModuleKey(graph.Types.GetModule(t));
             var key = groupBy switch
             {
                 GroupKey.Namespace => (TypeGroups.NamespaceOf(graph.Types.GetName(t)), string.Empty),
-                GroupKey.Assembly => (graph.Types.GetModule(t) is { Length: > 0 } ? module : "(unknown assembly)", string.Empty),
+                GroupKey.Assembly => (module.Length > 0 ? module : "(unknown assembly)", string.Empty),
                 _ => (graph.Types.GetName(t), module),
             };
 

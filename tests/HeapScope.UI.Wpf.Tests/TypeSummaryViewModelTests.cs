@@ -34,7 +34,7 @@ public sealed class TypeSummaryViewModelTests : IDisposable
     {
         await ShowAsync();
 
-        _worker.Service.SummaryQueries.ShouldHaveSingleItem().ShouldBe(new TypeSummaryRequest(_worker.Service.SummaryQueries[0].SnapshotId, TypeGrouping.Type, null, TypeSummarySort.Bytes, true));
+        _worker.Service.SummaryQueries.ShouldHaveSingleItem().ShouldBe(new TypeSummaryRequest(_worker.Service.SummaryQueries[0].SnapshotId, TypeGrouping.Type, null, "Bytes", true));
         _types.Rows.Count.ShouldBe(451);
         _types.Totals!.ShouldContain("451 of 451 types");
         _types.HasGenerations.ShouldBeTrue();
@@ -71,7 +71,7 @@ public sealed class TypeSummaryViewModelTests : IDisposable
         _types.SortByCommand.Execute("Name");
         await _types.QueryTask;
 
-        _worker.Service.SummaryQueries.Skip(1).Select(q => (q.Sort, q.Descending)).ShouldBe([(TypeSummarySort.Name, false), (TypeSummarySort.Name, true)]);
+        _worker.Service.SummaryQueries.Skip(1).Select(q => (q.SortColumn, q.Descending)).ShouldBe([("Name", false), ("Name", true)]);
     }
 
     [Fact]
@@ -163,12 +163,15 @@ public sealed class TypeSummaryViewModelTests : IDisposable
     {
         await ShowAsync();
         var oldRows = _types.Rows;
-        _worker.Service.PageGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var oldRow = oldRows.GetRow(0);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _worker.Service.PageGate = gate;
+        var oldRow = oldRows.GetRow(oldRows.Count - 1); // past the preloaded first page
 
+        // Only the old page waits: the new query preloads its first page before it replaces the rows.
+        _worker.Service.PageGate = null;
         _types.SortByCommand.Execute("Name");
         await _types.QueryTask;
-        _worker.Service.PageGate.SetResult();
+        gate.SetResult();
         await oldRows.WhenLoadedAsync();
 
         oldRow.IsLoaded.ShouldBeFalse();
@@ -182,15 +185,16 @@ public sealed class TypeSummaryViewModelTests : IDisposable
     {
         await ShowAsync();
         _worker.Service.PageFailure = new FormatException("bad cell");
+        var last = _types.Rows.Count - 1; // past the preloaded first page
 
-        _types.Rows.GetRow(0);
+        _types.Rows.GetRow(last);
         await _types.Rows.WhenLoadedAsync();
 
         _types.Status.ShouldNotBeNull().ShouldContain("could not be loaded");
         _worker.Service.PageFailure = null;
-        _types.Rows.GetRow(0);
+        _types.Rows.GetRow(last);
         await _types.Rows.WhenLoadedAsync();
-        _types.Rows.GetRow(0).IsLoaded.ShouldBeTrue();
+        _types.Rows.GetRow(last).IsLoaded.ShouldBeTrue();
     }
 
     [Fact]

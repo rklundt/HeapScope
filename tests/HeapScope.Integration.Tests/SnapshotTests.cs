@@ -131,7 +131,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     {
         var handle = await _session.StartOpen(_dump).Result;
 
-        var summary = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, TypeSummarySort.Bytes, true, null, Ct);
+        var summary = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, "Bytes", true, null, Ct);
         var rows = await AllRowsAsync(summary.Rows);
 
         summary.Result.TotalObjects.ShouldBe(handle.Descriptor.ObjectCount);
@@ -141,7 +141,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         rows.Sum(r => long.Parse(r[2]!, CultureInfo.InvariantCulture)).ShouldBe(summary.Result.TotalBytes);
         summary.Result.HasGenerations.ShouldBeTrue();
         summary.Result.HeapKinds.Sum(k => k.Bytes).ShouldBe(summary.Result.TotalBytes);
-        summary.Rows.Info.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent", "Gen0", "Gen1", "Gen2", "LargeObjectHeap", "PinnedObjectHeap", "Frozen"]);
+        summary.Rows.Info.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent", "Gen0", "Gen1", "Gen2", "LargeObjectHeap", "PinnedObjectHeap", "Frozen", "TypeName", "Module"]);
         summary.Rows.Info.Columns[0].IsKey.ShouldBeTrue();
         rows.Select(r => long.Parse(r[2]!, CultureInfo.InvariantCulture)).ShouldBeInOrder(SortDirection.Descending);
 
@@ -160,9 +160,9 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     {
         var handle = await _session.StartOpen(_dump).Result;
 
-        var filtered = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, "SCE", TypeSummarySort.Name, false, null, Ct);
+        var filtered = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, "SCE", "Name", false, null, Ct);
         var filteredRows = await AllRowsAsync(filtered.Rows);
-        var byNamespace = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Namespace, null, TypeSummarySort.Count, true, null, Ct);
+        var byNamespace = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Namespace, null, "Objects", true, null, Ct);
         var namespaceRows = await AllRowsAsync(byNamespace.Rows);
 
         filteredRows.ShouldNotBeEmpty();
@@ -178,7 +178,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     public async Task A_result_set_that_is_gone_is_queried_again_transparently()
     {
         var handle = await _session.StartOpen(_dump).Result;
-        var summary = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, TypeSummarySort.Bytes, true, null, Ct);
+        var summary = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, "Bytes", true, null, Ct);
         var first = (await summary.Rows.GetRowsAsync(0, 5, Ct)).Rows;
 
         // Evicted (released here) in the same worker, then lost with a worker restart.

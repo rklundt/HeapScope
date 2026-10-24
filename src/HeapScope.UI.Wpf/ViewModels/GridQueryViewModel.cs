@@ -1,16 +1,16 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
-using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.UI.Wpf.ViewModels;
 
 /// <summary>
-/// The query lifecycle shared by the types grid and the comparison grid (sprint 1.3, shared since 1.4): grouping and a
-/// debounced filter re-query the worker; only the latest query owns the view (an older query's result, error or page is
-/// dropped); a replaced result set is released.
+/// The query lifecycle every worker-backed grid shares (sprint 1.3, split in 1.5): a debounced filter and column-name
+/// sorting re-query the worker; only the latest query owns the view (an older query's result, error or page is dropped);
+/// a replaced result set is released. <see cref="TypeGridViewModel{TRow}"/> adds grouping for the type grids.
 /// </summary>
 public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     where TRow : class, IIndexedRow
@@ -26,9 +26,6 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     private VirtualRowList<TRow> _rows = EmptyRows();
 
     [ObservableProperty]
-    private TypeGrouping _groupBy = TypeGrouping.Type;
-
-    [ObservableProperty]
     private string? _filter;
 
     [ObservableProperty]
@@ -37,45 +34,51 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     [ObservableProperty]
     private string? _totals;
 
-    protected GridQueryViewModel(ILogger? logger)
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SortState))]
+    private string _sortColumn;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SortState))]
+    private bool _descending = true;
+
+    protected GridQueryViewModel(string sortColumn, ILogger? logger)
     {
+        _sortColumn = sortColumn ?? throw new ArgumentNullException(nameof(sortColumn));
         Logger = logger ?? NullLogger.Instance;
     }
-
-    /// <summary>The groupings the selector offers.</summary>
-    public IReadOnlyList<TypeGrouping> Groupings { get; } = Enum.GetValues<TypeGrouping>();
 
     /// <summary>The query in progress, if any (tests and smoke runs await it).</summary>
     public Task QueryTask { get; private set; } = Task.CompletedTask;
 
+    /// <summary>Opens a row as a new subject (double-click or Enter); set by whoever hosts the grid.</summary>
+    public System.Windows.Input.ICommand? OpenRowCommand { get; set; }
+
+    /// <summary>
+    /// The sorted column's <c>SortMemberPath</c> and direction ("Bytes|desc"); the grid shows its header arrow from this,
+    /// so the arrow always matches the order the worker used.
+    /// </summary>
+    public string SortState => SortColumn + (Descending ? "|desc" : "|asc");
+
     protected ILogger Logger { get; }
 
-    /// <summary>Whether there is something to query (a snapshot, or two).</summary>
+    /// <summary>Whether there is something to query.</summary>
     protected abstract bool CanQuery { get; }
 
     /// <summary>Text while a query runs.</summary>
     protected abstract string BusyText { get; }
 
-    protected static string Plural(TypeGrouping grouping) => grouping switch
-    {
-        TypeGrouping.Namespace => "namespaces",
-        TypeGrouping.Assembly => "assemblies",
-        _ => "types",
-    };
+    /// <summary>Text when a query returns no rows.</summary>
+    protected virtual string EmptyText => string.IsNullOrWhiteSpace(Filter) ? "Nothing to show." : "Nothing matches the filter.";
 
-    protected static string Singular(TypeGrouping grouping) => grouping switch
-    {
-        TypeGrouping.Namespace => "namespace",
-        TypeGrouping.Assembly => "assembly",
-        _ => "type",
-    };
+    /// <summary>Releases the grid's current set (the grid left the navigation history).</summary>
+    public void Close() => ClearResults();
 
     /// <summary>Runs the query with the current settings; the result is applied only if it is still the latest.</summary>
     protected abstract Task<GridQuery<TRow>> RunQueryAsync(CancellationToken cancellationToken);
 
-    /// <summary>An empty list of this grid's rows (it never creates a row).</summary>
-    private static VirtualRowList<TRow> EmptyRows() =>
-        new(null, 0, _ => throw new InvalidOperationException("An empty list has no rows."), (_, _) => { });
+    /// <summary>Whether a column is first sorted largest first; names and text sort ascending.</summary>
+    protected virtual bool SortsDescendingFirst(string column) => true;
 
     /// <summary>Runs the query again with the current settings (a no-op when there is nothing to query).</summary>
     protected void Requery()
@@ -108,7 +111,27 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     {
     }
 
-    partial void OnGroupByChanged(TypeGrouping value) => Requery();
+    /// <summary>Sorts by a grid column (its result column name): a second click on the same column flips the direction.</summary>
+    [RelayCommand]
+    private void SortBy(string? column)
+    {
+        if (string.IsNullOrEmpty(column))
+        {
+            return;
+        }
+
+        if (column == SortColumn)
+        {
+            Descending = !Descending;
+        }
+        else
+        {
+            SortColumn = column;
+            Descending = SortsDescendingFirst(column);
+        }
+
+        Requery();
+    }
 
     partial void OnFilterChanged(string? value)
     {
@@ -120,6 +143,9 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskSchedulerExtensions.FromCurrentSynchronizationContextOrDefault());
     }
+
+    private static VirtualRowList<TRow> EmptyRows() =>
+        new(null, 0, _ => throw new InvalidOperationException("An empty list has no rows."), (_, _) => { });
 
     private void CancelPending()
     {
@@ -152,10 +178,23 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
             var previous = _current;
             _current = query.Handle;
             Release(previous);
+            var rows = query.CreateRows(ex => Status = PageError(ex));
+            await rows.PreloadAsync();
+
+            // Let a pending render (the page or panel that started this query appearing) run first, so its layout and the
+            // grid's rows are two dispatcher operations rather than one twice as long (sprint 1.5 smoke runs).
+            await TaskSchedulerExtensions.YieldToRenderAsync();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // A newer query took over while the first page loaded; it releases this set as the previous one.
+                rows.Cancel();
+                return;
+            }
+
             query.Apply();
             Rows.Cancel();
-            Rows = query.CreateRows(ex => Status = PageError(ex));
-            Status = query.Handle.Info.TotalCount == 0 ? $"No {Singular(GroupBy)} matches the filter." : null;
+            Rows = rows;
+            Status = query.Handle.Info.TotalCount == 0 ? EmptyText : null;
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -167,7 +206,7 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "A grid query failed");
+            Logger.LogError(ex, "A {Grid} query failed", GetType().Name);
             Status = "The query failed. Details are in the log; try again, or reopen the snapshot.";
         }
     }
@@ -196,4 +235,12 @@ internal static class TaskSchedulerExtensions
 {
     public static TaskScheduler FromCurrentSynchronizationContextOrDefault() =>
         SynchronizationContext.Current is null ? TaskScheduler.Default : TaskScheduler.FromCurrentSynchronizationContext();
+
+    /// <summary>
+    /// On the dispatcher, continues after pending render and input work (background priority); elsewhere (tests) at once.
+    /// </summary>
+    public static Task YieldToRenderAsync() =>
+        SynchronizationContext.Current is System.Windows.Threading.DispatcherSynchronizationContext
+            ? System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.Background).Task
+            : Task.CompletedTask;
 }

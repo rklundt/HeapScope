@@ -6,7 +6,8 @@ namespace HeapScope.Worker.Rpc;
 /// Result sets held by the worker for paged retrieval (ARCHITECTURE.md 4.6). Sets are typed sources, formatted
 /// per page. Least recently used sets are evicted when either the set count or the estimated byte budget is
 /// exceeded, so a client that never releases cannot grow the worker without bound. A set may carry an owner
-/// (for example a snapshot lease) that is disposed when the set is released or evicted.
+/// (for example a snapshot lease) that is disposed when the set is released or evicted, or, when a page is being
+/// formatted at that moment, after that page: sources read the graph and the dump while formatting (sprint 1.5 review).
 /// </summary>
 internal sealed class ResultSetStore
 {
@@ -75,7 +76,7 @@ internal sealed class ResultSetStore
 
         foreach (var old in evicted)
         {
-            old.Owner?.Dispose();
+            old.DisposeOwnerIfIdle();
         }
 
         return new ResultSetInfo(set.Id, source.Count, source.Columns);
@@ -95,8 +96,41 @@ internal sealed class ResultSetStore
             _recency.Remove(node);
             _recency.AddFirst(node);
             set = node.Value;
+            set.Readers++;
         }
 
+        try
+        {
+            return FormatPage(set, offset, count);
+        }
+        finally
+        {
+            bool last;
+            lock (_gate)
+            {
+                last = --set.Readers == 0 && set.Removed;
+            }
+
+            if (last)
+            {
+                set.Owner?.Dispose();
+            }
+        }
+    }
+
+    public void Release(Guid id)
+    {
+        StoredResultSet? removed;
+        lock (_gate)
+        {
+            removed = RemoveLocked(id);
+        }
+
+        removed?.DisposeOwnerIfIdle();
+    }
+
+    private static ResultPage FormatPage(StoredResultSet set, int offset, int count)
+    {
         var total = set.Source.Count;
         var start = Math.Min(offset, total);
         var length = Math.Min(Math.Min(count, WorkerProtocol.MaxPageSize), total - start);
@@ -109,18 +143,7 @@ internal sealed class ResultSetStore
             rows[i] = cells;
         }
 
-        return new ResultPage(id, start, total, rows);
-    }
-
-    public void Release(Guid id)
-    {
-        StoredResultSet? removed;
-        lock (_gate)
-        {
-            removed = RemoveLocked(id);
-        }
-
-        removed?.Owner?.Dispose();
+        return new ResultPage(set.Id, start, total, rows);
     }
 
     private StoredResultSet? RemoveLocked(Guid id)
@@ -132,8 +155,33 @@ internal sealed class ResultSetStore
 
         _recency.Remove(node);
         _bytes -= node.Value.Source.EstimatedBytes;
+        node.Value.Removed = true;
+        node.Value.IdleWhenRemoved = node.Value.Readers == 0;
         return node.Value;
     }
 
-    private sealed record StoredResultSet(Guid Id, IResultSource Source, IDisposable? Owner);
+    /// <summary>A stored set and the pages being formatted from it (<see cref="Readers"/>, guarded by the store's lock).</summary>
+    private sealed class StoredResultSet(Guid id, IResultSource source, IDisposable? owner)
+    {
+        public Guid Id { get; } = id;
+
+        public IResultSource Source { get; } = source;
+
+        public IDisposable? Owner { get; } = owner;
+
+        public int Readers { get; set; }
+
+        public bool Removed { get; set; }
+
+        /// <summary>No page was being formatted when the set was removed: the remover disposes the owner, else the last reader does.</summary>
+        public bool IdleWhenRemoved { get; set; }
+
+        public void DisposeOwnerIfIdle()
+        {
+            if (IdleWhenRemoved)
+            {
+                Owner?.Dispose();
+            }
+        }
+    }
 }

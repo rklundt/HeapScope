@@ -187,6 +187,27 @@ public sealed class CompareViewModelTests : IDisposable
         (row.Name, row.Change, row.BaselineTypes, row.CurrentTypes).ShouldBe(("Plugin.Cache", "copies", 1, 2));
     }
 
+    [Fact]
+    public async Task A_gone_row_opens_its_objects_in_the_baseline_and_a_kept_row_in_the_current_snapshot()
+    {
+        _worker.Service.DiffRows.Add(["App.Retired", "gone", "4", "0", "-4", "160", "0", "-160", "1", "0", "App.Retired", "App.dll"]);
+        _worker.Service.DiffRows.Add(["App.Kept", "", "1", "3", "2", "40", "120", "80", "1", "1", "App.Kept", "App.dll"]);
+        await OpenBothAsync();
+
+        foreach (var name in new[] { "App.Retired", "App.Kept" })
+        {
+            Compare.Filter = name;
+            await WaitUntilAsync(() => Compare.Rows.Count == 1 && Compare.Rows.GetRow(0) is { IsLoaded: true } row && row.Name == name);
+            _snapshots.OpenCompareRowCommand.Execute(Compare.Rows.GetRow(0));
+        }
+
+        _worker.Service.InstanceQueries.Select(q => (q.TypeName, q.SnapshotId)).ShouldBe(
+        [
+            ("App.Retired", Compare.Baseline!.Handle.Descriptor.SnapshotId),
+            ("App.Kept", Compare.Current!.Handle.Descriptor.SnapshotId),
+        ]);
+    }
+
     public void Dispose()
     {
         _snapshots.Dispose();

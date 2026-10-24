@@ -17,7 +17,7 @@ everything else.
 | 1.1 | Process discovery and capture | Closed | 2026-10-23 | sprint-1.1 |
 | 1.3 | Heap summary by type | Closed | 2026-10-23 | sprint-1.3 |
 | 1.4 | Snapshot diff | Closed | 2026-10-23 | sprint-1.4 |
-| 1.5 | Object search and inspection | Planned | | |
+| 1.5 | Object search and inspection | Closed | 2026-10-23 | sprint-1.5 |
 | 1.6 | Simple inspections | Planned | | |
 | 1.7 | Live counters and timed snapshots | Planned | | |
 | 1.8 | gcdump support | Planned | | |
@@ -894,9 +894,89 @@ From the 1.2 review: the full-dump `ISnapshot` that reopens the dump with ClrMD 
 
 **Dependencies**: 1.3.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Field values and string contents come from the dump, reopened with ClrMD on first use: a Core service interface
+   `IObjectReader` (fields as a tree, string text, array elements), implemented in Loaders.ClrMd, held by a full-dump
+   snapshot (`DumpSnapshot`) next to its graph, serialized by a lock and disposed with the snapshot. Snapshots opened
+   from the index cache get it too while the dump file is present and unchanged. Full dumps then report `FieldValues`
+   and `StringContents`; `ThreadStacks` stays missing (no feature uses it yet; backlog). ClrMD runtime creation
+   failures are wrapped with a next step (from the 1.2 review).
+2. Drill-down key (from the 1.4 review): summary and diff rows in Type grouping carry hidden `TypeName` and `Module`
+   columns with the raw values; the instances query takes a snapshot, a type name and a module file name and lists the
+   objects of every type with that key (ADR-018), so two loaded copies of a type are listed together, each object with
+   its own type.
+3. Instances (dotMemory research 7): a result set of object indices with columns Address (key), Type, Bytes,
+   Generation and Value (string text or array length), sortable by any column, largest first by default. One filter
+   box: `0x...` matches addresses by prefix, `/pattern/` is a regular expression on the value, anything else is a
+   case-insensitive substring of the value. Value filters on strings need `StringContents`.
+4. Object view: address, type, size, generation; a field tree (nested structs as children, references as links,
+   primitive array elements as children, the first 100 with a "more" row) when the snapshot has `FieldValues`, the
+   capability explanation otherwise; the string text (first 10,000 characters); and outgoing references as a paged
+   result set (field path or array index when `FieldValues`, reference order otherwise) built from the graph.
+5. Navigation: the Snapshot tab becomes a navigator whose subjects are the types grid, an instances grid and an object
+   view; double-click or Enter opens the row as a new subject (types and compare rows open instances, instances and
+   references open objects); Back and Forward buttons and the mouse's back and forward buttons. Opening a compare row
+   shows that type's instances in the current snapshot. Selecting another snapshot starts a new history.
+6. Grid base split (from the 1.4 review): `GridQueryViewModel<TRow>` keeps the query lifecycle, filter debounce and
+   column-name sorting; `TypeGridViewModel<TRow>` adds grouping. The type summary sorts by column name too, retiring
+   `TypeSummarySort` (protocol 5).
+7. `VirtualRowList` keeps at most 50 pages (10,000 rows) loaded and drops the pages farthest from the last one asked
+   for (from the 1.3 and 1.4 reviews).
+8. Known answers: a new semantic fixture `Inspection` (LeakyConsole `--inspection`) holds one object with fields of
+   every kind (primitives, enum, string, null, nested struct inside a struct, arrays); `fixtures/KnownAnswers/Inspection.json`
+   gains an optional `fields` section (path and expected text), format version 1 stays (additive).
+9. Protocol 5: `QueryInstancesAsync`, `GetObjectAsync`, `QueryReferencesAsync`, the summary's column-name sort and
+   the hidden key columns.
+10. Trace recording (product owner, added mid-sprint): EventPipe traces recorded by HeapScope itself through
+   `Microsoft.Diagnostics.NETCore.Client` (already a dependency, ADR-010), so nobody installs dotnet-trace: a recorder in
+   Capture behind an Application service, CLI `trace --pid <id> [--duration] [--profile cpu|gc] [--out]`, and the UI's
+   `--smoke-trace <file>` recording HeapScope's own UI during a smoke run (to diagnose the drill-down lag on 16M-object
+   types). Reading traces stays a developer tool (TraceEvent in perf/, not shipped); analysis in the product is a
+   Phase 2 sprint (allocation tracking between snapshots).
+11. Responsiveness (found in task 6, decided autonomously): the UI opts out of power throttling (ADR-019); grids preload
+   their first page and bind after a background-priority yield; generation columns are behind a "Generations" checkbox
+   (off by default, the dotMemory research's sub-view); pages and navigator views are built once and kept.
+12. CLI inspection (task 7, decided autonomously): `instances` finds the module itself when `--module` is left out
+   (the only module with that exact type name; several modules ask for `--module`; none exits 1). `object` on a
+   snapshot without field values prints what the graph knows plus the explanation on stderr and exits 0: the object
+   exists and everything the snapshot holds is printed; exit 1 stays for errors such as no object at the address.
+   Both add `--format json`.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Fixture and known answer: `InspectionSample` with known values, LeakyConsole `--inspection`, `Inspection.json`
+   with `fields`, README. Tests: ClrMD known-answer test reads every listed field.
+2. [x] Core `IObjectReader` and records; Loaders.ClrMd `ClrMdObjectReader` (fields tree, strings, arrays, field
+   names of references), wrapped runtime creation failures. Tests: integration against the Inspection dump.
+3. [x] Worker: `DumpSnapshot` with the reader (lazy, disposed on close, both first load and cache reopen),
+   capabilities `FieldValues` and `StringContents`. Tests: descriptor features; reader disposed on close.
+4. [x] Contracts and worker queries: instances (key, filter kinds, sort), object details, references; hidden key
+   columns on summary and diff; summary sort by column name; protocol 5. Tests: worker unit tests on synthetic graphs
+   (instances, filters by address, references order), integration on the Inspection dump (field values, nested structs,
+   references with field paths), capability refusal without `FieldValues`.
+5. [x] Application: session queries with re-query and reopen. Tests: integration after a worker restart.
+6. [x] UI: grid base split, bounded page window, instances grid, object view (field tree, references), navigator with
+   back and forward, drill-down from types and compare rows, capability explanation. Tests: view model tests with
+   fakes; smoke open drills into an object and stays within the dispatcher budget.
+7. [x] CLI: `instances <dump> --type <name> [--module] [--filter] [--top]` and `object <dump> <address>`. Tests:
+   output and exit codes.
+8. [x] Docs: ARCHITECTURE.md (5.1, 4.4, code map), DEVELOPER.md, CLAUDE.md, the known answers README.
+9. [x] Trace recording: recorder and Application service, CLI `trace`, UI `--smoke-trace`, developer `trace-report`.
+   Tests: a trace of a fixture process is written and readable; cancel stops it; the UI lag diagnosed from a trace.
+
+**Review summary**: 5 High, 15 Moderate, 21 Low (`docs/reviews/sprint-1.5.md`).
+- Fixed (High, each confirmed by its reviewer): reference names kept to three and a count (was quadratic); the result
+  set store keeps a set's snapshot lease until pages being formatted finish; instances count into exact arrays, filter
+  values one at a time and keep text only for a sort by value (at most 250,000 strings), with key sorts, progress and
+  cancellation; multi-dimensional arrays read by indices; the dump's fingerprint checked when the reader opens it.
+- Fixed (Moderate): progress on the object and references calls (protocol 5 unreleased); paging guarded; value filters on strings without text refused; arrays sort by length; ADR-019 wording; gone diff rows
+  open in the baseline (ADR-018); row lookup from highlighted text; trace partial files deleted and the stream wait
+  bounded; smoke runs never show a dialog and always stop their trace; invalid references and unreadable strings shown
+  as such; new fixture fields (`Grid`, `Pairs`, `Repeated`) and tests.
+- Deferred: per-copy drill-down from a types row and slowing the idle watchdog probe to the backlog; a typed reader API
+  and the remaining known-answer cases to 1.6; the missing-capability tests (needing a gcdump) to 1.8.
+- Measured: string filter over Medium's 6.6M strings 3.8 s (text) and 4.5 s (regex) end to end against 1.9 s to open;
+  drill on Medium 36 to 63 ms longest operation; with the full suite running, Small and DenseHeap smoke runs pass
+  (longest operation 43 to 53 ms).
 
 ---
 
@@ -909,6 +989,11 @@ oversized collections, large arrays; UI list of inspections; CLI `inspect <name>
 version 1, kind `inspection`): repeated strings, empty and oversized collections, deliberate LOH arrays.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): inspections as overview tiles: count, wasted bytes, one-line cause and fix, a link to the objects; add sparse arrays, finalizable objects and a fragmentation bar (pinned, unpinned, free) as cheap wins.
+
+From the 1.5 review (M6, M15): inspections are the first consumers of typed reads, so this sprint adds them to the
+object reader (a field by path, array elements, strings in bulk) and moves display formatting into the worker. The
+Inspection known answer gains a boxed value in an `object` field, a `[Flags]` combination, strings longer than the 100
+and 1,000 character cuts, and an enum array.
 
 **Acceptance criteria**
 - Each inspection has synthetic-graph tests with known answers and a fixture integration test.
@@ -952,6 +1037,10 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a stacked area 
 mixed kinds.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): views a gcdump cannot answer stay visible but disabled, with the capability reason.
+
+From the 1.5 review (M4, M12): tests on a snapshot without field values and string text: the worker's
+`GetObjectAsync` returns no fields and the explanation; CLI `object` prints the note and exits 0 (decision 12 of 1.5);
+an instances value filter on strings is refused with `CapabilityNotSupported` and CLI `instances` exits 1.
 
 From the 1.2 review: a loader contract in Core (`LoadResult`, `LoadProgress`, `LoadDiagnostics`) shared by both loaders, and the snapshot store picking the loader by file signature (minidump `MDMP` or gcdump).
 
@@ -1057,6 +1146,10 @@ time range.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): select a timeline interval, then types with back traces below and a call tree with total and own columns.
 
+From 1.5 (product owner): built on the trace recorder added in 1.5 (no dotnet-trace install), with trace reading
+(TraceEvent) moving from the developer tool into the product. Recorded between two snapshots, the allocations give the
+diff the "new since the baseline" view that dumps alone cannot (ADR-018).
+
 **Acceptance criteria**: LeakyApi's leaking allocation site appears in the top call stacks under LoadGen.
 
 **Dependencies**: 1.7.
@@ -1112,11 +1205,6 @@ switches.
 ## Backlog
 
 **High**
-- Intermittent dispatcher lag: re-measured in 1.2 with real loads (smoke open of Small and Medium: probe lag 88 to
-  133 ms, longest operation 48 to 61 ms, inside the gates). In 1.3 the worker's GC heaps were capped at half the cores,
-  which fixed the Medium smoke open (8 of 8), but DenseHeap and Small still showed one 300 to 600 ms lag right after the
-  snapshot opened in 2 of 6 runs, with the UI thread using under 100 ms of CPU and the time outside dispatcher
-  operations (watchdog breakdown). Next step: a WPR trace of such a run (needs administrator rights).
 - Intermittent 105 to 130 ms dispatcher lag at job completion under heavy machine load (from 0.3): find the
   cause (likely CPU contention with the worker) and bring the smoke gate back to 100 ms. Capture a WPR or PerfView
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
@@ -1128,6 +1216,10 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- A types row opens only its own method table's objects (from the 1.5 review M3): a hidden snapshot-local type index
+  on summary rows and an optional index on `InstancesRequest`; diff rows keep the name and module key.
+- Slow the dispatcher watchdog's 25 ms probe while the window is idle or in the background outside smoke runs (from
+  the 1.5 review M7, ADR-019).
 - Before or in 1.4 (from the 1.3 review): a generic `VirtualRowList` over a row factory for the diff's rows; a sort key
   that covers delta columns (per-view enum or a column name validated by the worker); a hidden row key mapping a
   summary row to its type indices, for opening a row's objects.

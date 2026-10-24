@@ -155,12 +155,12 @@ internal sealed class FakeWorkerService : IWorkerService
 
         // The worker's order: the sort column, then the name ascending for ties.
         var matching = Rows.Where(r => NameFilter.IsMatch(r[0]!, request.Filter));
-        Func<IReadOnlyList<string?>, long> key = request.Sort switch
+        Func<IReadOnlyList<string?>, long> key = request.SortColumn switch
         {
-            TypeSummarySort.Count => r => long.Parse(r[1]!, System.Globalization.CultureInfo.InvariantCulture),
+            TypeSummaryColumns.Objects => r => long.Parse(r[1]!, System.Globalization.CultureInfo.InvariantCulture),
             _ => r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture),
         };
-        List<IReadOnlyList<string?>> rows = request.Sort == TypeSummarySort.Name
+        List<IReadOnlyList<string?>> rows = request.SortColumn == TypeSummaryColumns.Name
             ? (request.Descending
                 ? [.. matching.OrderByDescending(r => r[0], StringComparer.OrdinalIgnoreCase).ThenBy(r => r[0], StringComparer.Ordinal)]
                 : [.. matching.OrderBy(r => r[0], StringComparer.OrdinalIgnoreCase).ThenBy(r => r[0], StringComparer.Ordinal)])
@@ -168,9 +168,13 @@ internal sealed class FakeWorkerService : IWorkerService
                 ? [.. matching.OrderByDescending(key).ThenBy(r => r[0], StringComparer.Ordinal)]
                 : [.. matching.OrderBy(key).ThenBy(r => r[0], StringComparer.Ordinal)]);
 
+        // Type rows carry the hidden key columns, as the worker's do.
+        var byType = request.GroupBy == TypeGrouping.Type;
+        rows = [.. rows.Select(r => byType ? (IReadOnlyList<string?>)[r[0], r[1], r[2], r.Count >= 4 ? r[3] : "0", r[0], "App.dll"] : r)];
         var id = Guid.NewGuid();
         _sets[id] = rows;
-        ResultColumn[] columns = [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Percent", ResultColumnKind.Percent)];
+        ResultColumn[] columns = [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Percent", ResultColumnKind.Percent),
+            .. byType ? new ResultColumn[] { new(TypeSummaryColumns.TypeName, ResultColumnKind.Text), new(TypeSummaryColumns.Module, ResultColumnKind.Text) } : []];
         var totalBytes = Rows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture));
         HeapKindTotal[] kinds = HasGenerations ? [new(HeapKindDto.Gen0, 10, totalBytes / 2), new(HeapKindDto.Gen2, 5, totalBytes / 2)] : [];
         return new TypeSummaryResult(
@@ -182,6 +186,58 @@ internal sealed class FakeWorkerService : IWorkerService
             kinds,
             0.1,
             Rows.Count);
+    }
+
+    /// <summary>Instance rows: address (0x...), type, bytes, generation, value.</summary>
+    public List<IReadOnlyList<string?>> InstanceRows { get; } = [];
+
+    /// <summary>Instance queries received.</summary>
+    public List<InstancesRequest> InstanceQueries { get; } = [];
+
+    /// <summary>Objects returned by address; others get a plain object with one field.</summary>
+    public Dictionary<ulong, ObjectDetails> Objects { get; } = [];
+
+    /// <summary>Reference rows: field, address (0x...), type, bytes.</summary>
+    public List<IReadOnlyList<string?>> ReferenceRows { get; } = [];
+
+    public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        InstanceQueries.Add(request);
+        List<IReadOnlyList<string?>> rows = [.. InstanceRows.Where(r => string.IsNullOrEmpty(request.Filter) || (r[4] ?? string.Empty).Contains(request.Filter, StringComparison.OrdinalIgnoreCase))];
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        ResultColumn[] columns =
+        [
+            new(InstanceColumns.Address, ResultColumnKind.Address, true), new(InstanceColumns.Type, ResultColumnKind.Text), new(InstanceColumns.Bytes, ResultColumnKind.Bytes),
+            new(InstanceColumns.Generation, ResultColumnKind.Text), new(InstanceColumns.Value, ResultColumnKind.Text),
+        ];
+        return Task.FromResult(new InstancesResult(
+            new ResultSetInfo(id, rows.Count, columns),
+            InstanceRows.Count,
+            InstanceRows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture)),
+            1,
+            ValuesAvailable,
+            0.1));
+    }
+
+    /// <summary>Whether the snapshot reads values (string contents).</summary>
+    public bool ValuesAvailable { get; set; } = true;
+
+    public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        Task.FromResult(Objects.TryGetValue(request.Address, out var details)
+            ? details
+            : new ObjectDetails(request.Address, "App.Order", 40, HeapKindDto.Gen2, ReferenceRows.Count, false,
+                [new ObjectFieldDto("Id", "System.Int32", ObjectFieldKindDto.Primitive, "7", 0, [])], null, null));
+
+    public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        var id = Guid.NewGuid();
+        _sets[id] = [.. ReferenceRows];
+        return Task.FromResult(new ResultSetInfo(id, ReferenceRows.Count,
+        [
+            new(ReferenceColumns.Field, ResultColumnKind.Text), new(ReferenceColumns.Address, ResultColumnKind.Address, true),
+            new(ReferenceColumns.Type, ResultColumnKind.Text), new(ReferenceColumns.Bytes, ResultColumnKind.Bytes),
+        ]));
     }
 
     /// <summary>Diff rows: name, change, baseline objects, current objects, objects delta, baseline bytes, current bytes, bytes delta.</summary>
@@ -204,7 +260,7 @@ internal sealed class FakeWorkerService : IWorkerService
             await gate.Task.WaitAsync(cancellationToken);
         }
 
-        string[] names = [TypeDiffColumns.Name, TypeDiffColumns.Change, TypeDiffColumns.BaselineObjects, TypeDiffColumns.CurrentObjects, TypeDiffColumns.ObjectsDelta, TypeDiffColumns.BaselineBytes, TypeDiffColumns.CurrentBytes, TypeDiffColumns.BytesDelta, TypeDiffColumns.BaselineTypes, TypeDiffColumns.CurrentTypes];
+        string[] names = [TypeDiffColumns.Name, TypeDiffColumns.Change, TypeDiffColumns.BaselineObjects, TypeDiffColumns.CurrentObjects, TypeDiffColumns.ObjectsDelta, TypeDiffColumns.BaselineBytes, TypeDiffColumns.CurrentBytes, TypeDiffColumns.BytesDelta, TypeDiffColumns.BaselineTypes, TypeDiffColumns.CurrentTypes, TypeDiffColumns.TypeName, TypeDiffColumns.Module];
         var column = Array.IndexOf(names, request.SortColumn ?? TypeDiffColumns.BytesDelta);
         if (column < 0)
         {

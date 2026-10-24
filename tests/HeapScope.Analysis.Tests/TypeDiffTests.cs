@@ -26,7 +26,7 @@ public sealed class TypeDiffTests
 
         var rows = Diff(before, after, GroupKey.Type).ToDictionary(r => r.Name);
 
-        rows["App.Order"].ShouldBe(new DiffRow("App.Order", 2, 80, 5, 200));
+        rows["App.Order"].ShouldBe(new DiffRow("App.Order", 2, 80, 5, 200, TypeName: "App.Order", Module: "App.dll"));
         rows["App.Order"].CountDelta.ShouldBe(3);
         rows["App.Order"].BytesDelta.ShouldBe(120);
         rows["App.Old"].IsGone.ShouldBeTrue();

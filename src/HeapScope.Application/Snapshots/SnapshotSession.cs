@@ -140,7 +140,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         SnapshotHandle handle,
         TypeGrouping groupBy,
         string? filter,
-        TypeSummarySort sort,
+        string? sortColumn,
         bool descending,
         IProgress<JobProgress>? progress,
         CancellationToken cancellationToken)
@@ -151,7 +151,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         {
             latest = await UseAsync(
                 handle,
-                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sort, descending), progress, innerCt),
+                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -195,6 +195,52 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
         return new SnapshotDiff(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
+    /// <summary>
+    /// The objects of a type (sprint 1.5): every type with this name and module file name (the key of summary and diff
+    /// rows). The rows re-run the query when the set is gone, reopening the snapshot after a worker restart.
+    /// </summary>
+    public async Task<InstanceList> QueryInstancesAsync(
+        SnapshotHandle handle,
+        string typeName,
+        string? module,
+        string? filter,
+        string? sortColumn,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(typeName);
+        InstancesResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryInstancesAsync(new InstancesRequest(id, typeName, module, filter, sortColumn, descending), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+
+        // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
+        return new InstanceList(new ResultSetHandle(worker, info, RunAsync), latest!);
+    }
+
+    /// <summary>One object's details and, when the snapshot reads its dump, its fields (sprint 1.5).</summary>
+    public Task<ObjectDetails> GetObjectAsync(SnapshotHandle handle, ulong address, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.GetObjectAsync(new ObjectRequest(id, address), progress, ct), cancellationToken);
+
+    /// <summary>The objects one object references, as rows that survive eviction and worker restarts (sprint 1.5).</summary>
+    public async Task<ResultSetHandle> QueryReferencesAsync(SnapshotHandle handle, ulong address, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        Task<ResultSetInfo> RunAsync(CancellationToken ct) =>
+            UseAsync(handle, (service, id, innerCt) => service.QueryReferencesAsync(new ReferencesRequest(id, address), progress, innerCt), ct);
+
+        return new ResultSetHandle(worker, await RunAsync(cancellationToken).ConfigureAwait(false), RunAsync);
     }
 
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
