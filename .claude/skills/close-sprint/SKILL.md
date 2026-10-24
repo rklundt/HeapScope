@@ -14,7 +14,12 @@ Follow these steps exactly.
      deferred by the human (or, in autonomous mode, deferred and recorded as "decided autonomously").
    - `docs/reviews/sprint-X.Y.md` exists; every High finding is Fixed and confirmed; every Moderate finding
      has a decision.
-   - ARCHITECTURE.md, DEVELOPER.md, SPRINTS.md and CLAUDE.md describe what was built.
+   - The docs describe what was built. Check each against the change set (`git diff --stat <last sprint tag>`) and
+     update it now if it lags: ARCHITECTURE.md (code map, protocol version, ADRs, measurements, privacy),
+     DEVELOPER.md (commands, workflows), SPRINTS.md (tasks ticked, Decisions, Review summary, Backlog), CLAUDE.md
+     (commands, rules), and any README the sprint touched (for example `fixtures/KnownAnswers/README.md`).
+   - Anything in `CURRENT-CONTEXT.md` worth keeping (decisions, measurements, findings, backlog items) is in the
+     committed docs, since step 6 resets it.
    - The architecture test passed in the run above.
    - No em dashes or en dashes in changed files (search for U+2014 and U+2013).
    If anything is unmet, list exactly what is missing and stop. Do not close.
@@ -23,9 +28,13 @@ Follow these steps exactly.
    subject `Sprint X.Y: <title>` and a short body: what was delivered and any deferred items.
 4. **Tag.** `git tag -a sprint-X.Y -m "Sprint X.Y: <title>"`.
 5. **Summarize.** What shipped, deferred items, the commit hash and the tag.
-6. **Next.** Ask the human whether to start the next Planned sprint, naming it. If yes, run `/start-sprint`
+6. **Reset the current context.** Rewrite `CURRENT-CONTEXT.md` (git-ignored, never committed) to the post-sprint
+   state: the sprint just closed with its commit and tag, the next sprint by id and title, the phase's autonomy and
+   standing constraints, open backlog items relevant to the next sprint, and anything the human said that the docs do
+   not hold. Drop the closed sprint's working notes.
+7. **Next.** Ask the human whether to start the next Planned sprint, naming it. If yes, run `/start-sprint`
    for it.
 
 ## Autonomous mode
-When the product owner has granted autonomy for the current phase, step 6 does not ask: start the next
+When the product owner has granted autonomy for the current phase, step 7 does not ask: start the next
 Planned sprint of the phase directly. At the end of the phase, stop and report.

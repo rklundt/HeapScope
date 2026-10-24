@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime;
 using HeapScope.Contracts;
 using HeapScope.Core;
@@ -184,6 +185,94 @@ internal sealed class WorkerService(
                 baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts));
         });
 
+    public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            var stopwatch = Stopwatch.StartNew();
+
+            // The set keeps the lease: its pages read the graph and the dump (string values) while it lives.
+            var (snapshot, lease) = Lease(request.SnapshotId);
+            try
+            {
+                snapshot.TryGetService<IObjectReader>(out var reader);
+                var throttled = new ThrottledProgress<JobProgress>(progress);
+                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled), cancellationToken).ConfigureAwait(false);
+                var rows = resultSets.Add(source, lease);
+                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds);
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
+        });
+
+    public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            progress?.Report(new JobProgress("Reading the object", 0, null));
+            var (snapshot, lease) = Lease(request.SnapshotId);
+            using var _ = lease;
+            var graph = snapshot.Graph;
+            if (!graph.TryGetIndex(request.Address, out var index))
+            {
+                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no object at 0x{request.Address:x} in this snapshot."));
+            }
+
+            var type = graph.TypeIndices[index];
+            IReadOnlyList<ObjectFieldDto>? fields = null;
+            string? unavailable = null;
+            string? text = null;
+            if (snapshot.TryGetService<IObjectReader>(out var reader))
+            {
+                (fields, text) = await Task.Run(
+                    () =>
+                    {
+                        var read = reader.ReadFields(request.Address, MaxInspectedElements, cancellationToken).Select(ToDto).ToArray();
+                        var str = graph.Types.Kinds[type].HasFlag(Core.Graph.TypeKind.String) ? reader.ReadString(request.Address, MaxInspectedText) : null;
+                        return ((IReadOnlyList<ObjectFieldDto>)read, str);
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                unavailable = CapabilityDescriptions.ExplainMissing(SnapshotFeatures.FieldValues, (SnapshotKindDto)(int)snapshot.Info.Kind);
+            }
+
+            return new ObjectDetails(
+                request.Address,
+                graph.Types.GetName(type),
+                (long)graph.GetSize(index),
+                (HeapKindDto)(int)graph.HeapKinds[index],
+                graph.GetReferences(index).Length,
+                graph.Roots.IsRetained(index),
+                fields,
+                unavailable,
+                text);
+        });
+
+    public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            progress?.Report(new JobProgress("Naming references", 0, null));
+            var (snapshot, lease) = Lease(request.SnapshotId);
+            using var _ = lease;
+            if (!snapshot.Graph.TryGetIndex(request.Address, out var index))
+            {
+                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no object at 0x{request.Address:x} in this snapshot."));
+            }
+
+            snapshot.TryGetService<IObjectReader>(out var reader);
+            var source = await Task.Run(() => ReferencesSource.Create(snapshot.Graph, reader, index, cancellationToken), cancellationToken).ConfigureAwait(false);
+
+            // The source formats pages from the graph, so the set keeps a lease of its own.
+            var owner = snapshot.AcquireLease();
+            return resultSets.Add(source, owner);
+        });
+
     public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
     {
         if (offset < 0 || count < 0)
@@ -191,10 +280,13 @@ internal sealed class WorkerService(
             throw WorkerErrors.Create(HeapScopeErrorCode.InvalidArgument, "Offset and count must not be negative.");
         }
 
-        return Task.FromResult(resultSets.TryGetPage(resultSetId, offset, count)
-            ?? throw WorkerErrors.Create(
-                HeapScopeErrorCode.ResultSetNotFound,
-                $"Result set {resultSetId} is not available: it was released, evicted or never existed. Run the query again."));
+        // Pages of instances read string values from the dump (sprint 1.5), so paging gets the error contract (codes,
+        // the worker log). It stays on the request's thread: a further thread pool hop cost latency under load.
+        return GuardAsync(() => Task.FromResult(
+            resultSets.TryGetPage(resultSetId, offset, count)
+                ?? throw WorkerErrors.Create(
+                    HeapScopeErrorCode.ResultSetNotFound,
+                    $"Result set {resultSetId} is not available: it was released, evicted or never existed. Run the query again.")));
     }
 
     public Task ReleaseResultSetAsync(Guid resultSetId, CancellationToken cancellationToken)
@@ -230,6 +322,15 @@ internal sealed class WorkerService(
     }
 
     private Task<T> GuardAsync<T>(Func<Task<T>> body) => WorkerErrors.GuardAsync(body, logger);
+
+    /// <summary>Array elements listed when an object is inspected (more are summarized in one row).</summary>
+    private const int MaxInspectedElements = 100;
+
+    /// <summary>Characters of a string returned with its object.</summary>
+    private const int MaxInspectedText = 10_000;
+
+    private static ObjectFieldDto ToDto(ObjectField field) =>
+        new(field.Name, field.TypeName, (ObjectFieldKindDto)(int)field.Kind, field.Value, field.Address, [.. field.Children.Select(ToDto)]);
 
     /// <summary>A loaded snapshot and a lease on it; a snapshot closed meanwhile refuses the lease.</summary>
     private (ISnapshot Snapshot, SnapshotLease Lease) Lease(Guid snapshotId)

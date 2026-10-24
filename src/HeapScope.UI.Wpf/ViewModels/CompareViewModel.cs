@@ -37,6 +37,12 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
     /// <summary>Distinct types summed into the row in the current snapshot ("copies" when it differs from the baseline).</summary>
     public int CurrentTypes { get; private set; }
 
+    /// <summary>The raw type name that opens the row's instances; null for namespace and assembly rows.</summary>
+    public string? TypeName { get; private set; }
+
+    /// <summary>The module file name of <see cref="TypeName"/> (empty when none).</summary>
+    public string? Module { get; private set; }
+
     /// <summary>-1, 0 or 1: the sign of the bytes delta, for the growth color.</summary>
     public int Trend => Math.Sign(BytesDelta);
 
@@ -58,6 +64,8 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
             ResultColumns.Require(info.Columns, TypeDiffColumns.BytesDelta),
             ResultColumns.Find(info.Columns, TypeDiffColumns.BaselineTypes),
             ResultColumns.Find(info.Columns, TypeDiffColumns.CurrentTypes),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.TypeName),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.Module),
         ];
         return new VirtualRowList<DiffRowItem>(rows, info.TotalCount, i => new DiffRowItem(i), (row, cells) => row.Fill(cells, layout), onError, logger);
     }
@@ -74,6 +82,8 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
         BytesDelta = Cells.Long(cells, layout[7]);
         BaselineTypes = (int)Cells.Long(cells, layout[8]);
         CurrentTypes = (int)Cells.Long(cells, layout[9]);
+        TypeName = layout[10] >= 0 ? Cells.Text(cells, layout[10]) : null;
+        Module = layout[11] >= 0 ? Cells.Text(cells, layout[11]) : null;
         IsLoaded = true;
         OnPropertyChanged(string.Empty);
     }
@@ -83,7 +93,7 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
 /// The comparison grid (sprint 1.4, dotMemory's comparison view, ADR-018): two pickers over the open snapshots (the
 /// earlier capture is the default baseline), per-type deltas, sorting by any column, the shared grouping and filter.
 /// </summary>
-public sealed partial class CompareViewModel : GridQueryViewModel<DiffRowItem>
+public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
 {
     private readonly SnapshotSession _session;
     private bool _settingPair;
@@ -94,16 +104,9 @@ public sealed partial class CompareViewModel : GridQueryViewModel<DiffRowItem>
     [ObservableProperty]
     private SnapshotItemViewModel? _current;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SortState))]
-    private string _sortColumn = TypeDiffColumns.BytesDelta;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SortState))]
-    private bool _descending = true;
 
     public CompareViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, ILogger<CompareViewModel>? logger = null)
-        : base(logger)
+        : base(TypeDiffColumns.BytesDelta, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
@@ -114,8 +117,6 @@ public sealed partial class CompareViewModel : GridQueryViewModel<DiffRowItem>
     /// <summary>The open snapshots the pickers offer.</summary>
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; }
 
-    /// <summary>The sorted column and direction ("BytesDelta|desc"), for the header arrows.</summary>
-    public string SortState => SortColumn + (Descending ? "|desc" : "|asc");
 
     /// <summary>Why there is nothing to compare yet, if so.</summary>
     public string? Hint => Snapshots.Count < 2
@@ -159,27 +160,6 @@ public sealed partial class CompareViewModel : GridQueryViewModel<DiffRowItem>
     [RelayCommand]
     private void Swap() => SetPair(Current, Baseline);
 
-    /// <summary>Sorts by a grid column (its result column name): a second click flips the direction.</summary>
-    [RelayCommand]
-    private void SortBy(string? column)
-    {
-        if (string.IsNullOrEmpty(column))
-        {
-            return;
-        }
-
-        if (column == SortColumn)
-        {
-            Descending = !Descending;
-        }
-        else
-        {
-            SortColumn = column;
-            Descending = column != TypeDiffColumns.Name;
-        }
-
-        Requery();
-    }
 
     private void OnPairChanged()
     {

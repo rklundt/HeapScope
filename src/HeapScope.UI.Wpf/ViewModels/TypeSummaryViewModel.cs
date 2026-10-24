@@ -25,6 +25,8 @@ public sealed class TypeRowLayout
         LargeObjectHeap = ResultColumns.Find(columns, "LargeObjectHeap");
         PinnedObjectHeap = ResultColumns.Find(columns, "PinnedObjectHeap");
         Frozen = ResultColumns.Find(columns, "Frozen");
+        TypeName = ResultColumns.Find(columns, TypeSummaryColumns.TypeName);
+        Module = ResultColumns.Find(columns, TypeSummaryColumns.Module);
     }
 
     public int Name { get; }
@@ -46,6 +48,10 @@ public sealed class TypeRowLayout
     public int PinnedObjectHeap { get; }
 
     public int Frozen { get; }
+
+    public int TypeName { get; }
+
+    public int Module { get; }
 
     public static TypeRowLayout From(IReadOnlyList<ResultColumn> columns) => new(columns ?? throw new ArgumentNullException(nameof(columns)));
 }
@@ -81,6 +87,12 @@ public sealed class TypeRowItem(int index) : ObservableObject, IIndexedRow
 
     public bool IsLoaded { get; private set; }
 
+    /// <summary>The raw type name that opens the row's instances; null for namespace and assembly rows.</summary>
+    public string? TypeName { get; private set; }
+
+    /// <summary>The module file name of <see cref="TypeName"/> (empty when none).</summary>
+    public string? Module { get; private set; }
+
     /// <summary>A row list over a type summary result set; fails at once when a required column is missing.</summary>
     public static VirtualRowList<TypeRowItem> CreateList(ResultSetHandle? rows, ResultSetInfo info, Action<Exception>? onError = null, ILogger? logger = null)
     {
@@ -101,6 +113,8 @@ public sealed class TypeRowItem(int index) : ObservableObject, IIndexedRow
         LargeObjectHeap = Cells.Long(cells, layout.LargeObjectHeap);
         PinnedObjectHeap = Cells.Long(cells, layout.PinnedObjectHeap);
         Frozen = Cells.Long(cells, layout.Frozen);
+        TypeName = layout.TypeName >= 0 ? Cells.Text(cells, layout.TypeName) : null;
+        Module = layout.Module >= 0 ? Cells.Text(cells, layout.Module) : null;
         IsLoaded = true;
         OnPropertyChanged(string.Empty);
     }
@@ -113,6 +127,11 @@ internal static class Cells
 
     public static long Long(IReadOnlyList<string?> cells, int index) =>
         index >= 0 && index < cells.Count && long.TryParse(cells[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
+
+    /// <summary>An address cell (<c>0x1f2a</c>) as a number; 0 when it is not one.</summary>
+    public static ulong Address(string text) =>
+        text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+        && ulong.TryParse(text.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value) ? value : 0;
 
     public static double Double(IReadOnlyList<string?> cells, int index) =>
         index >= 0 && index < cells.Count && double.TryParse(cells[index], NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0;
@@ -130,21 +149,25 @@ public sealed record HeapKindShare(HeapKindDto Kind, string Label, long Objects,
 /// The types grid of a snapshot (sprint 1.3, dotMemory's types view): grouping, type-to-filter (debounced) and sorting
 /// re-query the worker; rows are virtualized; generation columns show only when the snapshot has generations.
 /// </summary>
-public sealed partial class TypeSummaryViewModel : GridQueryViewModel<TypeRowItem>
+public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem>
 {
     private readonly SnapshotSession _session;
     private SnapshotHandle? _snapshot;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SortState))]
-    private TypeSummarySort _sort = TypeSummarySort.Bytes;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SortState))]
-    private bool _descending = true;
-
-    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GenerationColumnsShown))]
     private bool _hasGenerations = true;
+
+    /// <summary>
+    /// Whether the user asked for bytes per generation: off by default (dotMemory research 7, a generations sub-view),
+    /// and the six columns were half of the grid's layout time (sprint 1.5 smoke runs).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GenerationColumnsShown))]
+    private bool _showGenerations;
+
+    /// <summary>Whether the per-generation columns are shown: asked for, and the snapshot has generations.</summary>
+    public bool GenerationColumnsShown => HasGenerations && ShowGenerations;
 
     [ObservableProperty]
     private string? _generationsExplanation;
@@ -153,18 +176,13 @@ public sealed partial class TypeSummaryViewModel : GridQueryViewModel<TypeRowIte
     private IReadOnlyList<HeapKindShare> _heapKinds = [];
 
     public TypeSummaryViewModel(SnapshotSession session, ILogger<TypeSummaryViewModel>? logger = null)
-        : base(logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
+        : base(TypeSummaryColumns.Bytes, logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
 
-    /// <summary>
-    /// The sorted column's <c>SortMemberPath</c> and direction ("Bytes|desc"); the grid shows its header arrow from this,
-    /// so the arrow always matches the order the worker used.
-    /// </summary>
-    public string SortState => (Sort switch
-    {
-        TypeSummarySort.Name => nameof(TypeRowItem.Name),
-        TypeSummarySort.Count => nameof(TypeRowItem.Objects),
-        _ => nameof(TypeRowItem.Bytes),
-    }) + (Descending ? "|desc" : "|asc");
+    /// <summary>The snapshot shown, if any.</summary>
+    public SnapshotHandle? Snapshot => _snapshot;
+
+    /// <summary>The navigation title of the root subject.</summary>
+    public string Title => "Types";
 
     protected override bool CanQuery => _snapshot is not null;
 
@@ -189,7 +207,7 @@ public sealed partial class TypeSummaryViewModel : GridQueryViewModel<TypeRowIte
     {
         var snapshot = _snapshot!;
         var groupBy = GroupBy;
-        var summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, Sort, Descending, null, cancellationToken);
+        var summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, SortColumn, Descending, null, cancellationToken);
         var result = summary.Result;
         return new GridQuery<TypeRowItem>(
             summary.Rows,
@@ -205,30 +223,6 @@ public sealed partial class TypeSummaryViewModel : GridQueryViewModel<TypeRowIte
                     $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} (all objects in the dump, unreachable ones included)");
             },
             onError => TypeRowItem.CreateList(summary.Rows, result.Rows, onError, Logger));
-    }
-
-    /// <summary>Sorts by a grid column: a second click on the same column flips the direction.</summary>
-    [RelayCommand]
-    private void SortBy(string? column)
-    {
-        var sort = column switch
-        {
-            nameof(TypeRowItem.Name) => TypeSummarySort.Name,
-            nameof(TypeRowItem.Objects) => TypeSummarySort.Count,
-            _ => TypeSummarySort.Bytes,
-        };
-
-        if (sort == Sort)
-        {
-            Descending = !Descending;
-        }
-        else
-        {
-            Sort = sort;
-            Descending = sort != TypeSummarySort.Name;
-        }
-
-        Requery();
     }
 
     private static string Label(HeapKindDto kind) => kind switch

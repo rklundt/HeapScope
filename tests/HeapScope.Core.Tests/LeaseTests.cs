@@ -52,6 +52,39 @@ public class LeaseTests
         }
     }
 
+    [Fact]
+    public void A_dump_snapshot_offers_its_reader_and_releases_it_with_the_graph_after_the_last_lease()
+    {
+        var owner = new FlagOwner();
+        var reader = new FakeReader();
+        var all = SnapshotCapabilities.ObjectGraph | SnapshotCapabilities.FieldValues | SnapshotCapabilities.StringContents | SnapshotCapabilities.ThreadStacks;
+        var snapshot = new DumpSnapshot(new SnapshotInfo(SnapshotKind.FullDump, "app.dmp"), all, GraphWithOwner(owner), reader);
+
+        snapshot.Capabilities.ShouldBe(SnapshotCapabilities.ObjectGraph | SnapshotCapabilities.FieldValues | SnapshotCapabilities.StringContents);
+        snapshot.TryGetService<IObjectReader>(out var service).ShouldBeTrue();
+        service.ShouldBeSameAs(reader);
+        snapshot.TryGetService<IDisposable>(out _).ShouldBeTrue("the reader itself is the only service");
+        var lease = snapshot.AcquireLease();
+        snapshot.Dispose();
+        reader.Disposed.ShouldBeFalse();
+        lease.Dispose();
+        (reader.Disposed, owner.DisposeCount).ShouldBe((true, 1));
+    }
+
+    private sealed class FakeReader : IObjectReader, IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public IReadOnlyList<ObjectField> ReadFields(ulong address, int maxElements, CancellationToken cancellationToken) => [];
+
+        public string? ReadString(ulong address, int maxLength) => null;
+
+        public IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken) =>
+            new Dictionary<ulong, string>();
+
+        public void Dispose() => Disposed = true;
+    }
+
     private static HeapGraph GraphWithOwner(FlagOwner owner)
     {
         var builder = new HeapGraphBuilder(new OwningAllocator(owner));

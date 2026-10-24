@@ -18,6 +18,9 @@ dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
 - Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- A test run that never finishes: run the test executable directly with hung test detection, for example
+  `tests/HeapScope.UI.Wpf.Tests/bin/Debug/net10.0-windows/HeapScope.UI.Wpf.Tests.exe -longRunning 30 -noAutoReporters`;
+  it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
@@ -36,6 +39,15 @@ dotnet test --solution HeapScope.sln
   instead of passing). Both dumps count unreachable objects not yet collected: for a stable gate, capture both after a
   full GC in the target (`GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();`). Snapshot notes (incomplete
   heap segments, dropped references) are printed to stderr for each side, and in the JSON.
+  `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value]
+  [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size, generation and a
+  string's text (first 100 characters) or an array's length. Without `--module` the type's only module is found from the
+  summary; a name in several modules asks for `--module`, an unknown name exits 1.
+  `object <dump> <address> [--references N] [--format text|json]` prints one object: type, size, generation, whether
+  a root holds it directly, a string's text, its fields as an indented tree (arrays show their first 100 elements) and
+  its first N outgoing references (default 50) named by field. The address is hex with or without `0x`; no object at it
+  exits 1. A snapshot without field values (a gcdump) prints the object's graph facts and, on stderr, why the fields are
+  missing, and exits 0. Both print dump contents (field values, strings) to the console only, never to the log.
 - DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
   to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
   `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
@@ -49,8 +61,22 @@ dotnet test --solution HeapScope.sln
 - UI smoke run: `HeapScope.exe --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
-  second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). The log records
+  second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
+  also drills down (types, instances, object) and logs the open phase on its own line ("Smoke open phase"); add
+  `--smoke-trace <file.nettrace>` to record a CPU trace of the UI during the run. The log records
   "First window rendered N ms after process start" for every run.
+- Traces: `heapscope-cli trace --pid <id> [--duration 30] [--profile cpu|gc] [--out file.nettrace]` records an
+  EventPipe trace of any .NET process (no dotnet-trace needed; Ctrl+C stops early and keeps it). Read it with PerfView,
+  Visual Studio, or `dotnet run -c Release --project perf/HeapScope.Benchmarks -- trace-report --trace <file>`
+  (`--timeline` for busy UI time per window, `--from HH:mm:ss.fff --to ...` for one stretch, `--focus <frame text>` for
+  the callers of a frame). Traced runs are slower: use them to find where time goes, not to check budgets.
+- Hybrid CPUs: when measuring UI responsiveness, remember Windows may put a background window's threads on efficiency
+  cores. HeapScope's UI opts out (ADR-019); pinning a process (`ProcessorAffinity`) to performance or efficiency cores
+  is how that was proven.
+- Inspection: in the Snapshot tab, double-click or Enter opens a type row's objects, an object, or a reference; Back
+  and Forward (buttons, the mouse's back and forward buttons, Alt+Left and Alt+Right). The instances filter is an
+  address prefix (`0x1f2a`), a regular expression on the value (`/^Get.*Async$/`) or text in the value. The types grid's
+  "Generations" checkbox shows bytes per generation.
 - Theme: the UI follows the Windows app theme (light or dark) at startup; `--Ui:Theme Light|Dark` or the
   `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI.Wpf/Themes/Light.xaml` and `Dark.xaml`, which
   must define the same keys (a test checks it); views use `DynamicResource`, never literal colors.

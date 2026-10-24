@@ -14,7 +14,7 @@ Follow these steps exactly.
    - `git status --porcelain` is empty.
    - No other sprint is In Progress or Wrapping.
    If any check fails, stop and explain exactly which one and how to fix it.
-3. **Read context.** `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPER.md`, the sprint's section in
+3. **Read context.** `CURRENT-CONTEXT.md` (if present), `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPER.md`, the sprint's section in
    `docs/SPRINTS.md`, the Backlog, and every `docs/reviews/sprint-*.md` with deferred items.
 4. **Analyze.** Restate the goal in one sentence. List ambiguities, risks, dependencies, impacts on the
    architecture (does any ADR need adding or changing?), and backlog or deferred items to pull in or exclude
@@ -28,7 +28,8 @@ Follow these steps exactly.
    - Set the status table row to In Progress.
 7. **Go.** Present the plan briefly and ask for a go-ahead. After approval, implement task by task, writing
    tests alongside code, keeping `dotnet build HeapScope.sln` at zero warnings and tests green after each
-   task. Tick tasks off in SPRINTS.md as they finish.
+   task. Tick tasks off in SPRINTS.md as they finish, and keep `CURRENT-CONTEXT.md` current (active sprint, task
+   status, decisions in conversation, next steps).
 
 ## Autonomous mode
 When the product owner has granted autonomy for the current phase:

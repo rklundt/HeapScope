@@ -223,7 +223,7 @@ public sealed class WorkerIpcTests : IAsyncDisposable
         var id = result.TypeSummary.Id;
         var total = result.TypeSummary.TotalCount;
         total.ShouldBeGreaterThan(WorkerProtocol.MaxPageSize);
-        result.TypeSummary.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent"]);
+        result.TypeSummary.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent", "TypeName", "Module"]);
 
         var page = await _operations.GetRowsAsync(id, 5, 7, Ct);
         page.Offset.ShouldBe(5);
@@ -241,46 +241,6 @@ public sealed class WorkerIpcTests : IAsyncDisposable
         var released = await Should.ThrowAsync<WorkerOperationException>(() => _operations.GetRowsAsync(id, 0, 1, Ct));
         released.ErrorCode.ShouldBe(HeapScopeErrorCode.ResultSetNotFound);
         released.Message.ShouldContain("Run the query again");
-    }
-
-    [Fact]
-    public async Task A_full_page_costs_little_to_receive_in_the_client_process()
-    {
-        // Sprint 1.3 decision 6: the formatter changes only above 50 MB or 200 ms per 10,000-row page.
-        // The grid itself asks for pages of VirtualRowList.PageSize (200) rows; the full page is the CLI's.
-        var result = await _operations.StartSyntheticJob(new SyntheticJobRequest(60_000, TypeCount: 30_000)).Result;
-        var id = result.TypeSummary.Id;
-        var full = await MeasurePagesAsync(id, WorkerProtocol.MaxPageSize);
-        var grid = await MeasurePagesAsync(id, 200);
-
-        TestContext.Current.TestOutputHelper?.WriteLine(
-            $"10,000-row page: median {full.MedianMs:F1} ms, {full.MaxBytes / 1048576.0:F1} MB; 200-row page: median {grid.MedianMs:F1} ms, {grid.MaxBytes / 1024.0:F0} KB");
-        full.MaxBytes.ShouldBeLessThan(50L * 1024 * 1024);
-        full.MedianMs.ShouldBeLessThan(200);
-    }
-
-    private async Task<(double MedianMs, long MaxBytes)> MeasurePagesAsync(Guid id, int count)
-    {
-        for (var i = 0; i < 3; i++)
-        {
-            await _operations.GetRowsAsync(id, 0, count, Ct);
-        }
-
-        var times = new List<double>();
-        long maxBytes = 0;
-        for (var i = 0; i < 9; i++)
-        {
-            var before = GC.GetTotalAllocatedBytes(precise: true);
-            var watch = Stopwatch.StartNew();
-            var page = await _operations.GetRowsAsync(id, count, count, Ct);
-            watch.Stop();
-            maxBytes = Math.Max(maxBytes, GC.GetTotalAllocatedBytes(precise: true) - before);
-            times.Add(watch.Elapsed.TotalMilliseconds);
-            page.Rows.Count.ShouldBe(count);
-        }
-
-        times.Sort();
-        return (times[times.Count / 2], maxBytes);
     }
 
     [Fact]
@@ -349,4 +309,65 @@ public sealed class WorkerIpcTests : IAsyncDisposable
     {
         public void Report(JobProgress value) => report(value);
     }
+}
+
+/// <summary>
+/// The page cost budget (sprint 1.3 decision 6), measured alone: in parallel with the dump-heavy integration tests the
+/// median crossed 200 ms on contention, not on cost (sprint 1.5).
+/// </summary>
+[Trait("Category", "Integration")]
+[Collection(nameof(HeavyTestsCollection))]
+public sealed class PageCostTests : IAsyncDisposable
+{
+    private readonly WorkerHost _host = new(Options.Create(new WorkerHostOptions { WorkerPath = TestPaths.WorkerExe }), new ListLoggerProvider());
+    private readonly WorkerOperations _operations;
+
+    public PageCostTests()
+    {
+        _operations = new WorkerOperations(_host, new JobTracker(TimeProvider.System));
+    }
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task A_full_page_costs_little_to_receive_in_the_client_process()
+    {
+        // Sprint 1.3 decision 6: the formatter changes only above 50 MB or 200 ms per 10,000-row page.
+        // The grid itself asks for pages of VirtualRowList.PageSize (200) rows; the full page is the CLI's.
+        var result = await _operations.StartSyntheticJob(new SyntheticJobRequest(60_000, TypeCount: 30_000)).Result;
+        var id = result.TypeSummary.Id;
+        var full = await MeasurePagesAsync(id, WorkerProtocol.MaxPageSize);
+        var grid = await MeasurePagesAsync(id, 200);
+
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"10,000-row page: median {full.MedianMs:F1} ms, {full.MaxBytes / 1048576.0:F1} MB; 200-row page: median {grid.MedianMs:F1} ms, {grid.MaxBytes / 1024.0:F0} KB");
+        full.MaxBytes.ShouldBeLessThan(50L * 1024 * 1024);
+        full.MedianMs.ShouldBeLessThan(200);
+    }
+
+    private async Task<(double MedianMs, long MaxBytes)> MeasurePagesAsync(Guid id, int count)
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            await _operations.GetRowsAsync(id, 0, count, Ct);
+        }
+
+        var times = new List<double>();
+        long maxBytes = 0;
+        for (var i = 0; i < 9; i++)
+        {
+            var before = GC.GetTotalAllocatedBytes(precise: true);
+            var watch = Stopwatch.StartNew();
+            var page = await _operations.GetRowsAsync(id, count, count, Ct);
+            watch.Stop();
+            maxBytes = Math.Max(maxBytes, GC.GetTotalAllocatedBytes(precise: true) - before);
+            times.Add(watch.Elapsed.TotalMilliseconds);
+            page.Rows.Count.ShouldBe(count);
+        }
+
+        times.Sort();
+        return (times[times.Count / 2], maxBytes);
+    }
+
+    public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 }

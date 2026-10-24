@@ -6,6 +6,12 @@ Core API run locally under replayed traffic. Snapshots (full dumps, later gcdump
 out-of-process x64 worker into a compact struct-of-arrays object graph, cached on disk, and explored through a
 WPF app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when available.
 
+## Current context (read first after a compact)
+`CURRENT-CONTEXT.md` at the repo root (git-ignored) holds the working state: the active sprint, what is done and not,
+open findings, measurements, decisions made in conversation, and next steps. Read it before anything else when
+resuming. Keep it current at milestones (task done, decision made, investigation concluded); `/close-sprint`
+resets it for the next sprint.
+
 ## Docs (read before working)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): layers, process model, graph format, budgets, ADRs. Read
   before any design or code change.
@@ -31,7 +37,8 @@ WPF app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when availab
 1. `/start-sprint [id]`: analyze, ask, plan the tasks in SPRINTS.md, set In Progress.
 2. Implement task by task with tests, build green throughout.
 3. `/wrap-sprint`: build, test, three reviewers, fix High, decide Moderate, update docs, set Wrapping.
-4. `/close-sprint`: verify Definition of Done, set Closed, commit, tag.
+4. `/close-sprint`: verify Definition of Done, check every doc describes what was built, set Closed, commit, tag,
+   reset `CURRENT-CONTEXT.md`.
 5. Next sprint.
 
 ## Commands
@@ -41,9 +48,11 @@ WPF app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when availab
 - UI: `dotnet run --project src/HeapScope.UI.Wpf`
 - CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `list`, `capture --pid <id>`, `open <dump>`,
   `summary <dump> [--group] [--filter] [--sort] [--format table|csv|json]`, `diff <baseline> <current>
-  [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `worker ping`, `worker info`,
-  `synthetic --objects N`)
-- UI smoke runs: `HeapScope.exe --smoke-synthetic N` or `--smoke-open <dump> [--smoke-compare <dump>]` (exit 0 ok,
-  3 lag, 4 failed)
+  [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
+  [--module] [--filter] [--sort] [--format]`, `object <dump> <address> [--references N] [--format text|json]`,
+  `trace --pid <id> [--duration]
+  [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
+- UI smoke runs: `HeapScope.exe --smoke-synthetic N` or `--smoke-open <dump> [--smoke-compare <dump>]
+  [--smoke-trace <file>]` (exit 0 ok, 3 lag, 4 failed). Measure untraced; traces are for finding where time goes.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>` (`graph-build`, `dump-stats`,
-  `stack-roots`, `index-cache`, `load-dump`)
+  `stack-roots`, `index-cache`, `load-dump`, `trace-report --trace <file>`)

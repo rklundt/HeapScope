@@ -2,7 +2,7 @@ using System.Globalization;
 using Fixtures.Leaks;
 
 // Usage: LeakyConsole [--leak all|none|Name1,Name2] [--count N] [--payload BYTES] [--publishers N]
-//                     [--semantics N] [--runtime-semantics N] [--late-garbage N] [--parent-pid PID]
+//                     [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--parent-pid PID]
 // Leaks the requested items, prints "READY pid=<pid>" and waits until killed (or until the parent exits), so a test
 // can capture a dump. Late garbage is created after the last full collection, so it is present but unreachable.
 var leakNames = Arg("--leak") ?? "all";
@@ -30,6 +30,11 @@ if (semantics > 0)
 if (runtimeSemantics > 0)
 {
     RuntimeFixtures.Create(runtimeSemantics);
+}
+
+if (args.Contains("--inspection"))
+{
+    InspectionFixtures.Create();
 }
 
 GC.Collect();

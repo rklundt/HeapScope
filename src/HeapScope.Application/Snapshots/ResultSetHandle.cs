@@ -108,5 +108,8 @@ public sealed class ResultSetHandle
 /// </summary>
 public sealed record TypeSummary(ResultSetHandle Rows, TypeSummaryResult Result);
 
+/// <summary>The objects of a type: their pageable rows and the totals of the first run (sprint 1.5).</summary>
+public sealed record InstanceList(ResultSetHandle Rows, InstancesResult Result);
+
 /// <summary>A snapshot comparison: its pageable rows and the totals of the first run (sprint 1.4).</summary>
 public sealed record SnapshotDiff(ResultSetHandle Rows, TypeDiffResult Result);

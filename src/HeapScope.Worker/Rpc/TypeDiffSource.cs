@@ -25,6 +25,13 @@ internal sealed class TypeDiffSource : IResultSource
         new(TypeDiffColumns.CurrentTypes, ResultColumnKind.Integer),
     ];
 
+    private static readonly ResultColumn[] s_typeColumns =
+    [
+        .. s_columns,
+        new(TypeDiffColumns.TypeName, ResultColumnKind.Text),
+        new(TypeDiffColumns.Module, ResultColumnKind.Text),
+    ];
+
     private readonly DiffRow[] _rows;
     private readonly bool _byType;
 
@@ -38,7 +45,7 @@ internal sealed class TypeDiffSource : IResultSource
         EstimatedBytes = rows.Sum(r => 64L + (2L * r.Name.Length));
     }
 
-    public IReadOnlyList<ResultColumn> Columns => s_columns;
+    public IReadOnlyList<ResultColumn> Columns => _byType ? s_typeColumns : s_columns;
 
     public int Count => _rows.Length;
 
@@ -117,6 +124,11 @@ internal sealed class TypeDiffSource : IResultSource
         cells[7] = row.BytesDelta.ToString(CultureInfo.InvariantCulture);
         cells[8] = row.BaselineTypes.ToString(CultureInfo.InvariantCulture);
         cells[9] = row.CurrentTypes.ToString(CultureInfo.InvariantCulture);
+        if (_byType)
+        {
+            cells[10] = row.TypeName;
+            cells[11] = row.Module;
+        }
     }
 
     // "copies" only for type rows: a namespace or assembly gaining types is normal, a type loaded once more is not.

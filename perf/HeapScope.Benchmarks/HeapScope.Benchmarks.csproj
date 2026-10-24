@@ -12,5 +12,7 @@
   <ItemGroup>
     <!-- Baseline measurements of raw ClrMD heap walks for the 1.2 loader budgets. -->
     <PackageReference Include="Microsoft.Diagnostics.Runtime" />
+    <!-- Reads .nettrace files for trace-report (sprint 1.5), a developer tool. -->
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
   </ItemGroup>
 </Project>

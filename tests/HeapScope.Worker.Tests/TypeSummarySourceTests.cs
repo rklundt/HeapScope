@@ -25,15 +25,15 @@ public sealed class TypeSummarySourceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(TypeSummarySort.Bytes, true, new[] { "System.Byte[]", "App.Cache.Entry", "App.Model.Customer", "App.Model.Order" })]
-    [InlineData(TypeSummarySort.Bytes, false, new[] { "App.Cache.Entry", "App.Model.Customer", "App.Model.Order", "System.Byte[]" })]
-    [InlineData(TypeSummarySort.Count, true, new[] { "App.Model.Order", "App.Cache.Entry", "App.Model.Customer", "System.Byte[]" })]
-    [InlineData(TypeSummarySort.Name, false, new[] { "App.Cache.Entry", "App.Model.Customer", "App.Model.Order", "System.Byte[]" })]
-    [InlineData(TypeSummarySort.Name, true, new[] { "System.Byte[]", "App.Model.Order", "App.Model.Customer", "App.Cache.Entry" })]
-    public void Rows_sort_by_the_column_and_break_ties_by_name_ascending(TypeSummarySort sort, bool descending, string[] expected)
+    [InlineData("Bytes", true, new[] { "System.Byte[]", "App.Cache.Entry", "App.Model.Customer", "App.Model.Order" })]
+    [InlineData("Bytes", false, new[] { "App.Cache.Entry", "App.Model.Customer", "App.Model.Order", "System.Byte[]" })]
+    [InlineData("Objects", true, new[] { "App.Model.Order", "App.Cache.Entry", "App.Model.Customer", "System.Byte[]" })]
+    [InlineData("Name", false, new[] { "App.Cache.Entry", "App.Model.Customer", "App.Model.Order", "System.Byte[]" })]
+    [InlineData("Name", true, new[] { "System.Byte[]", "App.Model.Order", "App.Model.Customer", "App.Cache.Entry" })]
+    public void Rows_sort_by_the_column_and_break_ties_by_name_ascending(string sort, bool descending, string[] expected)
     {
         // Bytes: Order, Customer and Entry all have 200 bytes; Count: Entry, Customer and Byte[] all have one object.
-        var source = Create(new TypeSummaryRequest(Guid.Empty, Sort: sort, Descending: descending));
+        var source = Create(new TypeSummaryRequest(Guid.Empty, SortColumn: sort, Descending: descending));
 
         Names(source).ShouldBe(expected);
     }
@@ -63,20 +63,22 @@ public sealed class TypeSummarySourceTests : IDisposable
     public void Columns_add_bytes_per_heap_kind_only_with_generations()
     {
         var plain = Create(new TypeSummaryRequest(Guid.Empty), generations: false);
-        plain.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent"]);
+        plain.Columns.Select(c => c.Name).ShouldBe(["Name", "Objects", "Bytes", "Percent", "TypeName", "Module"]);
         plain.Columns[0].IsKey.ShouldBeTrue();
 
         var withKinds = Create(new TypeSummaryRequest(Guid.Empty, Filter: "Order"), generations: true);
         withKinds.Columns.Select(c => c.Name).ShouldBe(
-            ["Name", "Objects", "Bytes", "Percent", "Gen0", "Gen1", "Gen2", "LargeObjectHeap", "PinnedObjectHeap", "Frozen"]);
-        Row(withKinds, 0).ShouldBe(["App.Model.Order", "2", "200", "20", "100", "0", "100", "0", "0", "0"]);
+            ["Name", "Objects", "Bytes", "Percent", "Gen0", "Gen1", "Gen2", "LargeObjectHeap", "PinnedObjectHeap", "Frozen", "TypeName", "Module"]);
+        Row(withKinds, 0).ShouldBe(["App.Model.Order", "2", "200", "20", "100", "0", "100", "0", "0", "0", "App.Model.Order", "App.dll"]);
+        Create(new TypeSummaryRequest(Guid.Empty, TypeGrouping.Namespace)).Columns.Select(c => c.Name).ShouldNotContain("TypeName");
     }
 
     [Fact]
     public void Unknown_grouping_or_sort_values_are_refused()
     {
         Should.Throw<ArgumentOutOfRangeException>(() => Create(new TypeSummaryRequest(Guid.Empty, (TypeGrouping)7)));
-        Should.Throw<ArgumentOutOfRangeException>(() => Create(new TypeSummaryRequest(Guid.Empty, Sort: (TypeSummarySort)9)));
+        Should.Throw<ArgumentException>(() => Create(new TypeSummaryRequest(Guid.Empty, SortColumn: "Size"))).Message.ShouldContain("Objects");
+        Should.Throw<ArgumentException>(() => Create(new TypeSummaryRequest(Guid.Empty, SortColumn: "Gen0"))).Message.ShouldContain("Percent");
     }
 
     [Fact]

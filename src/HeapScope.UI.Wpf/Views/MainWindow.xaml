@@ -14,6 +14,7 @@
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     <ctl:NotEmptyToVisibilityConverter x:Key="NotEmptyToVisibility" />
     <ctl:ResourceKeyToBrushConverter x:Key="ResourceKeyToBrush" />
+    <ctl:SameToVisibilityConverter x:Key="SameToVisibility" />
 
     <DataTemplate DataType="{x:Type vm:JobViewModel}">
       <Grid Margin="0,2">
@@ -81,12 +82,14 @@
                 </TextBlock.Style>
               </TextBlock>
 
+              <!-- Hidden, not collapsed, without a snapshot: it stays laid out, so its grids' templates are applied when the
+                   page is built rather than when the first dump opens (sprint 1.5). -->
               <DockPanel DataContext="{Binding Selected}">
                 <DockPanel.Style>
                   <Style TargetType="DockPanel">
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding}" Value="{x:Null}">
-                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Setter Property="Visibility" Value="Hidden" />
                       </DataTrigger>
                     </Style.Triggers>
                   </Style>
@@ -114,92 +117,239 @@
                   </Border>
                 </StackPanel>
 
-                <!-- The types grid (sprint 1.3): its view model is the page's Types, not the selected snapshot item. -->
-                <DockPanel DataContext="{Binding DataContext.Types, RelativeSource={RelativeSource AncestorType=ContentControl}}">
-                  <DockPanel.Resources>
-                    <ctl:BindingProxy x:Key="Types" Data="{Binding}" />
-                  </DockPanel.Resources>
-
-                  <!-- Heap kinds: one fixed color per kind, width by share of the bytes. -->
-                  <StackPanel DockPanel.Dock="Top" Margin="0,0,8,8">
-                    <ItemsControl ItemsSource="{Binding HeapKinds}" Height="10">
+                <!-- Subjects (sprint 1.5): the types grid, a type's objects, one object; back and forward. -->
+                <DockPanel DataContext="{Binding DataContext.Navigator, RelativeSource={RelativeSource AncestorType=TabControl}}">
+                  <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <Button Content="Back" Padding="8,1" Command="{Binding BackCommand}" ToolTip="Back (Alt+Left or the mouse's back button)" />
+                    <Button Content="Forward" Padding="8,1" Margin="4,0,0,0" Command="{Binding ForwardCommand}" ToolTip="Forward (Alt+Right or the mouse's forward button)" />
+                    <ItemsControl ItemsSource="{Binding Trail}" Margin="12,0,0,0" VerticalAlignment="Center">
                       <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                          <ctl:ProportionalPanel />
+                          <StackPanel Orientation="Horizontal" />
                         </ItemsPanelTemplate>
                       </ItemsControl.ItemsPanel>
                       <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                          <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip="{Binding Text}"
-                                  Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <ItemsControl ItemsSource="{Binding HeapKinds}" Margin="0,4,0,0">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                          <WrapPanel />
-                        </ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                          <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-                            <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
-                            <TextBlock Text="{Binding Text}" FontSize="11" Foreground="{DynamicResource Brush.Subtle}" />
+                          <StackPanel Orientation="Horizontal">
+                            <TextBlock Text=" / " Foreground="{DynamicResource Brush.Subtle}" />
+                            <TextBlock Text="{Binding Title}" MaxWidth="360" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
                           </StackPanel>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
                   </StackPanel>
+                  <!-- One view per kind of subject, built at window load; the navigator swaps their data (sprint 1.5). -->
+                  <Grid>
+                    <Grid Visibility="{Binding IsTypesShown, Converter={StaticResource BoolToVisibility}}">
+                      <DockPanel DataContext="{Binding Types}">
+                        <DockPanel.Resources>
+                          <ctl:BindingProxy x:Key="Types" Data="{Binding}" />
+                        </DockPanel.Resources>
 
-                  <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-                    <TextBlock DockPanel.Dock="Left" Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
-                    <TextBlock DockPanel.Dock="Left" Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
-                    <ComboBox DockPanel.Dock="Left" Width="110" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" />
-                    <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
-                    <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
-                             Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
-                    <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
-                  </DockPanel>
-                  <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
-                             Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
-                  <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
-                             Visibility="{Binding GenerationsExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <!-- Heap kinds: one fixed color per kind, width by share of the bytes. -->
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,8,8">
+                          <ItemsControl ItemsSource="{Binding HeapKinds}" Height="10">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <ctl:ProportionalPanel />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip="{Binding Text}"
+                                        Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                          <ItemsControl ItemsSource="{Binding HeapKinds}" Margin="0,4,0,0">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <WrapPanel />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                                  <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={StaticResource ResourceKeyToBrush}}" />
+                                  <TextBlock Text="{Binding Text}" FontSize="11" Foreground="{DynamicResource Brush.Subtle}" />
+                                </StackPanel>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
 
-                  <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                            GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
-                            EnableRowVirtualization="True" EnableColumnVirtualization="True"
-                            VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                            ScrollViewer.CanContentScroll="True"
-                            ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}">
-                    <DataGrid.Columns>
-                      <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
-                        <DataGridTemplateColumn.CellTemplate>
-                          <DataTemplate>
-                            <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
-                                       ctl:HighlightedText.Filter="{Binding Data.Filter, Source={StaticResource Types}}"
-                                       ctl:HighlightedText.Text="{Binding Name}" />
-                          </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                      </DataGridTemplateColumn>
-                      <DataGridTextColumn Header="Objects" Binding="{Binding Objects, StringFormat=N0}" Width="100" SortMemberPath="Objects" ElementStyle="{StaticResource NumberCell}" />
-                      <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="130" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
-                      <DataGridTextColumn Header="%" Binding="{Binding Percent, StringFormat=N2}" Width="60" CanUserSort="False" ElementStyle="{StaticResource NumberCell}" />
-                      <DataGridTextColumn Header="Gen0" Binding="{Binding Gen0, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                      <DataGridTextColumn Header="Gen1" Binding="{Binding Gen1, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                      <DataGridTextColumn Header="Gen2" Binding="{Binding Gen2, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                      <DataGridTextColumn Header="LOH" Binding="{Binding LargeObjectHeap, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                      <DataGridTextColumn Header="POH" Binding="{Binding PinnedObjectHeap, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                      <DataGridTextColumn Header="Frozen" Binding="{Binding Frozen, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
-                                          Visibility="{Binding Data.HasGenerations, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
-                    </DataGrid.Columns>
-                  </DataGrid>
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+                          <TextBlock DockPanel.Dock="Left" Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                          <TextBlock DockPanel.Dock="Left" Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                          <ComboBox DockPanel.Dock="Left" Width="110" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" />
+                          <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                          <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
+                                   Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
+                                   ToolTip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+                          <CheckBox DockPanel.Dock="Left" Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center"
+                                    IsChecked="{Binding ShowGenerations}" IsEnabled="{Binding HasGenerations}"
+                                    ToolTip="Show bytes per generation (Gen0, Gen1, Gen2, LOH, POH, frozen) for every row." />
+                          <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                                   Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                                   Visibility="{Binding GenerationsExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
+
+                        <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                  GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
+                                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  ScrollViewer.CanContentScroll="True"
+                                  ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}"
+                                  ctl:GridDrill.Command="{Binding OpenRowCommand}" ToolTip="Double-click or Enter opens a type's objects.">
+                          <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+                              <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                  <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
+                                             ctl:HighlightedText.Filter="{Binding Data.Filter, Source={StaticResource Types}}"
+                                             ctl:HighlightedText.Text="{Binding Name}" />
+                                </DataTemplate>
+                              </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Objects" Binding="{Binding Objects, StringFormat=N0}" Width="100" SortMemberPath="Objects" ElementStyle="{StaticResource NumberCell}" />
+                            <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="130" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
+                            <DataGridTextColumn Header="%" Binding="{Binding Percent, StringFormat=N2}" Width="60" CanUserSort="False" ElementStyle="{StaticResource NumberCell}" />
+                            <DataGridTextColumn Header="Gen0" Binding="{Binding Gen0, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                                Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                            <DataGridTextColumn Header="Gen1" Binding="{Binding Gen1, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                                Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                            <DataGridTextColumn Header="Gen2" Binding="{Binding Gen2, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                                Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                            <DataGridTextColumn Header="LOH" Binding="{Binding LargeObjectHeap, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                                Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                            <DataGridTextColumn Header="POH" Binding="{Binding PinnedObjectHeap, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                                Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                            <DataGridTextColumn Header="Frozen" Binding="{Binding Frozen, StringFormat=N0}" Width="90" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
+                                                Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+    
+                    </Grid>
+                    <Grid Visibility="{Binding IsInstancesShown, Converter={StaticResource BoolToVisibility}}">
+                      <DockPanel DataContext="{Binding ShownInstances}">
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+                          <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
+                          <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
+                                   Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
+                                   ToolTip="0x1f2a: address prefix. /pattern/: regular expression on the value. Anything else: text in the value (strings)." />
+                          <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                                   Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                                   Visibility="{Binding ValuesExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                  GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
+                                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  ScrollViewer.CanContentScroll="True"
+                                  ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}"
+                                  ctl:GridDrill.Command="{Binding OpenRowCommand}" ToolTip="Double-click or Enter opens an object.">
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Address" Binding="{Binding AddressText}" Width="150" SortMemberPath="Address" FontFamily="Consolas" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" SortMemberPath="Type" />
+                            <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="110" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
+                            <DataGridTextColumn Header="Generation" Binding="{Binding Generation}" Width="120" SortMemberPath="Generation" />
+                            <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="2*" SortMemberPath="Value" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+    
+                    </Grid>
+                    <Grid Visibility="{Binding IsObjectShown, Converter={StaticResource BoolToVisibility}}">
+                      <DockPanel DataContext="{Binding ShownObject}">
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding Summary}" Margin="0,0,0,4" TextWrapping="Wrap" />
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                                   Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Info.Background}" BorderBrush="{DynamicResource Brush.Info.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,8,6"
+                                Visibility="{Binding FieldsUnavailable, Converter={StaticResource NotEmptyToVisibility}}">
+                          <TextBlock Text="{Binding FieldsUnavailable}" TextWrapping="Wrap" />
+                        </Border>
+                        <TextBox DockPanel.Dock="Top" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="120" Margin="0,0,8,6"
+                                 VerticalScrollBarVisibility="Auto" Visibility="{Binding Text, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="*" />
+                          </Grid.ColumnDefinitions>
+                          <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Text="Fields" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TreeView ItemsSource="{Binding Fields}" BorderBrush="{DynamicResource Brush.Border}"
+                                    VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                              <TreeView.ItemContainerStyle>
+                                <Style TargetType="TreeViewItem">
+                                  <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                </Style>
+                              </TreeView.ItemContainerStyle>
+                              <TreeView.ItemTemplate>
+                                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                  <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="0,0,8,0" />
+                                    <TextBlock>
+                                      <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                          <Setter Property="Visibility" Value="Collapsed" />
+                                          <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsLink}" Value="True">
+                                              <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                          </Style.Triggers>
+                                        </Style>
+                                      </TextBlock.Style>
+                                      <Hyperlink Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=TreeView}}" CommandParameter="{Binding}"
+                                                 ToolTip="Open this object">
+                                        <Run Text="{Binding Value, Mode=OneWay}" />
+                                      </Hyperlink>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Value}">
+                                      <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                          <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsLink}" Value="True">
+                                              <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                          </Style.Triggers>
+                                        </Style>
+                                      </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding TypeName}" Margin="8,0,0,0" FontSize="11" Foreground="{DynamicResource Brush.Subtle}" VerticalAlignment="Center" />
+                                  </StackPanel>
+                                </HierarchicalDataTemplate>
+                              </TreeView.ItemTemplate>
+                            </TreeView>
+                          </DockPanel>
+                          <DockPanel Grid.Column="2">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                              <TextBlock Text="References" FontWeight="SemiBold" />
+                              <TextBlock Text="{Binding ReferencesTotals}" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" />
+                            </StackPanel>
+                            <DataGrid ItemsSource="{Binding ReferenceRows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                      GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="False" SelectionMode="Single"
+                                      EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                      ScrollViewer.CanContentScroll="True"
+                                      ctl:GridDrill.Command="{Binding OpenCommand}" ToolTip="Double-click or Enter opens the referenced object.">
+                              <DataGrid.Columns>
+                                <DataGridTextColumn Header="Field" Binding="{Binding Field}" Width="140" />
+                                <DataGridTextColumn Header="Address" Binding="{Binding AddressText}" Width="140" FontFamily="Consolas" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
+                                <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="90" ElementStyle="{StaticResource NumberCell}" />
+                              </DataGrid.Columns>
+                            </DataGrid>
+                          </DockPanel>
+                        </Grid>
+                      </DockPanel>
+    
+                    </Grid>
+                  </Grid>
                 </DockPanel>
               </DockPanel>
             </Grid>
@@ -249,7 +399,8 @@
                         EnableRowVirtualization="True" EnableColumnVirtualization="True"
                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                         ScrollViewer.CanContentScroll="True"
-                        ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}">
+                        ctl:GridSorting.Command="{Binding SortByCommand}" ctl:GridSorting.State="{Binding SortState}"
+                        ctl:GridDrill.Command="{Binding OpenRowCommand}" ToolTip="Double-click or Enter opens the type's objects in the current snapshot.">
                 <DataGrid.Columns>
                   <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
                     <DataGridTemplateColumn.CellTemplate>
@@ -403,6 +554,26 @@
     <ListBox DockPanel.Dock="Left" Width="180" ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem}"
              DisplayMemberPath="Title" BorderThickness="0,0,1,0" Padding="4,8" />
 
-    <ContentControl Content="{Binding SelectedItem.Page}" />
+    <!-- Each page is built when first shown and then kept: switching pages is a visibility change, not a rebuild of
+         its grids, and keeps scroll positions and expanded state (sprint 1.5). -->
+    <ItemsControl ItemsSource="{Binding NavigationItems}" Focusable="False">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <Grid />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <ContentControl Content="{Binding Page}" Focusable="False">
+            <ContentControl.Visibility>
+              <MultiBinding Converter="{StaticResource SameToVisibility}">
+                <Binding />
+                <Binding Path="DataContext.SelectedItem" RelativeSource="{RelativeSource AncestorType=ItemsControl}" />
+              </MultiBinding>
+            </ContentControl.Visibility>
+          </ContentControl>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
   </DockPanel>
 </Window>

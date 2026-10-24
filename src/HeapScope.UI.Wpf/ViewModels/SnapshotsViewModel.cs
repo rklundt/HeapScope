@@ -87,22 +87,26 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         WorkerOperations operations,
         IUiDispatcher dispatcher,
         IUserInteraction interaction,
-        ILogger<TypeSummaryViewModel>? typesLogger = null,
-        ILogger<CompareViewModel>? compareLogger = null)
+        ILoggerFactory? loggers = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
         _session.SnapshotsChanged += OnSnapshotsChanged;
-        Types = new TypeSummaryViewModel(session, typesLogger);
-        Compare = new CompareViewModel(session, Snapshots, compareLogger);
+        Types = new TypeSummaryViewModel(session, loggers?.CreateLogger<TypeSummaryViewModel>());
+        Navigator = new NavigatorViewModel(session, Types, loggers);
+        Compare = new CompareViewModel(session, Snapshots, loggers?.CreateLogger<CompareViewModel>());
+        Compare.OpenRowCommand = OpenCompareRowCommand;
     }
 
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; } = [];
 
     /// <summary>The types grid of the selected snapshot.</summary>
     public TypeSummaryViewModel Types { get; }
+
+    /// <summary>The Snapshot tab's subjects: the types grid, instances and objects, with back and forward (sprint 1.5).</summary>
+    public NavigatorViewModel Navigator { get; }
 
     /// <summary>The comparison of two open snapshots (sprint 1.4).</summary>
     public CompareViewModel Compare { get; }
@@ -177,7 +181,35 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         Refresh();
     }
 
-    partial void OnSelectedChanged(SnapshotItemViewModel? value) => Types.Show(value?.Handle);
+    partial void OnSelectedChanged(SnapshotItemViewModel? value)
+    {
+        Navigator.Reset();
+        Types.Show(value?.Handle);
+    }
+
+    /// <summary>
+    /// Opens a compare row's type on the Snapshot tab: its objects in the current snapshot, or in the baseline for a type
+    /// the current snapshot no longer has (ADR-018; sprint 1.5 review).
+    /// </summary>
+    [RelayCommand]
+    private void OpenCompareRow(DiffRowItem? row)
+    {
+        if (row is not { IsLoaded: true } || Compare.Current is not { } current)
+        {
+            return;
+        }
+
+        if (row.TypeName is null)
+        {
+            Compare.Status = "Group by type to open a row's objects.";
+            return;
+        }
+
+        var target = row.CurrentObjects == 0 && Compare.Baseline is { } baseline ? baseline : current;
+        Selected = target;
+        SelectedTab = 0;
+        Navigator.OpenInstances(target.Handle, row.TypeName, row.Module);
+    }
 
     private void OnSnapshotsChanged(object? sender, EventArgs e) => _dispatcher.Post(Refresh);
 

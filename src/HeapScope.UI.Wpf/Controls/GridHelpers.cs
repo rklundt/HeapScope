@@ -138,10 +138,18 @@ public static class HighlightedText
         }
 
         var text = GetText(block) ?? string.Empty;
-        block.Inlines.Clear();
         var ranges = NameFilter.Match(text, GetFilter(block));
+        if (ranges is not { Count: > 0 })
+        {
+            // Plain text without touching Inlines: the first access to a TextBlock's Inlines forces a synchronous layout
+            // pass (seen in a trace of the types grid filling its rows, sprint 1.5), so cells without a match never do.
+            block.Text = text;
+            return;
+        }
+
+        block.Inlines.Clear();
         var position = 0;
-        foreach (var (start, length) in ranges ?? [])
+        foreach (var (start, length) in ranges)
         {
             if (start > position)
             {
@@ -218,4 +226,91 @@ public sealed class ResourceKeyToBrushConverter : IValueConverter
         value is string key ? System.Windows.Application.Current?.TryFindResource(key) : null;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Runs a command with the row the user opens in a DataGrid: double-click on a row, or Enter (sprint 1.5, dotMemory's
+/// one drill-down action everywhere).
+/// </summary>
+public static class GridDrill
+{
+    public static readonly DependencyProperty CommandProperty = DependencyProperty.RegisterAttached(
+        "Command", typeof(ICommand), typeof(GridDrill), new PropertyMetadata(null, OnCommandChanged));
+
+    public static ICommand? GetCommand(DependencyObject element) => (ICommand?)element.GetValue(CommandProperty);
+
+    public static void SetCommand(DependencyObject element, ICommand? value) => element.SetValue(CommandProperty, value);
+
+    private static void OnCommandChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
+    {
+        if (element is not DataGrid grid)
+        {
+            return;
+        }
+
+        grid.MouseDoubleClick -= OnDoubleClick;
+        grid.PreviewKeyDown -= OnKeyDown;
+        if (e.NewValue is not null)
+        {
+            grid.MouseDoubleClick += OnDoubleClick;
+            grid.PreviewKeyDown += OnKeyDown;
+        }
+    }
+
+    private static void OnDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        // Only a double-click on a row opens it, not one on a header or the scroll bar.
+        if (e.OriginalSource is DependencyObject source && FindRow(source) is { } row && sender is DataGrid grid)
+        {
+            Open(grid, row.Item);
+            e.Handled = true;
+        }
+    }
+
+    private static void OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is DataGrid { SelectedItem: { } item } grid)
+        {
+            Open(grid, item);
+            e.Handled = true;
+        }
+    }
+
+    private static void Open(DataGrid grid, object item)
+    {
+        if (GetCommand(grid) is { } command && command.CanExecute(item))
+        {
+            command.Execute(item);
+        }
+    }
+
+    private static DataGridRow? FindRow(DependencyObject element)
+    {
+        // A click on highlighted text starts at a Run, which is not a Visual: walk its logical parents up to one that is.
+        for (var current = element; current is not null; current = current is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D
+            ? System.Windows.Media.VisualTreeHelper.GetParent(current)
+            : LogicalTreeHelper.GetParent(current))
+        {
+            if (current is DataGridRow row)
+            {
+                return row;
+            }
+
+            if (current is DataGrid)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+}
+
+/// <summary>Visible when both values are the same object (the shell's page and the selected item), collapsed otherwise.</summary>
+public sealed class SameToVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) =>
+        values is [var first, var second] && ReferenceEquals(first, second) ? Visibility.Visible : Visibility.Collapsed;
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) => throw new NotSupportedException();
 }

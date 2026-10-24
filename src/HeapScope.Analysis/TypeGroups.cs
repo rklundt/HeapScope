@@ -10,8 +10,11 @@ public enum GroupKey
     Assembly = 2,
 }
 
-/// <summary>One summary row: a type, namespace or assembly with its totals.</summary>
-public sealed record SummaryRow(string Name, long Count, ulong Bytes, ulong[] BytesByKind);
+/// <summary>
+/// One summary row: a type, namespace or assembly with its totals. Type rows also carry their raw type name and module
+/// file name (empty when none), the key that opens the row's instances (sprint 1.5).
+/// </summary>
+public sealed record SummaryRow(string Name, long Count, ulong Bytes, ulong[] BytesByKind, string? TypeName = null, string? Module = null);
 
 /// <summary>Builds summary rows from a <see cref="TypeAggregation"/> (sprint 1.3).</summary>
 public static class TypeGroups
@@ -136,11 +139,14 @@ public static class TypeGroups
 
             var kinds = new ulong[TypeAggregation.HeapKindSlots];
             Array.Copy(aggregation.BytesByKind, t * TypeAggregation.HeapKindSlots, kinds, 0, TypeAggregation.HeapKindSlots);
-            rows.Add(new SummaryRow(names[t], aggregation.Counts[t], aggregation.Bytes[t], kinds));
+            rows.Add(new SummaryRow(names[t], aggregation.Counts[t], aggregation.Bytes[t], kinds, graph.Types.GetName(t), ModuleKey(graph.Types.GetModule(t))));
         }
 
         return rows;
     }
+
+    /// <summary>The module part of a type key (ADR-018): the file name, or empty when the type has no module.</summary>
+    public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : Path.GetFileName(module);
 
     private static string ModuleFileName(string? module) =>
         string.IsNullOrEmpty(module) ? "unknown module" : Path.GetFileName(module);

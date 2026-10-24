@@ -50,11 +50,11 @@ public sealed class TypeDiffSourceTests : IDisposable
         var source = Create(new TypeDiffRequest(Guid.Empty, Guid.Empty, SortColumn: TypeDiffColumns.Name, Descending: false));
 
         source.Columns.Select(c => c.Name).ShouldBe(
-            ["Name", "Change", "BaselineObjects", "CurrentObjects", "ObjectsDelta", "BaselineBytes", "CurrentBytes", "BytesDelta", "BaselineTypes", "CurrentTypes"]);
+            ["Name", "Change", "BaselineObjects", "CurrentObjects", "ObjectsDelta", "BaselineBytes", "CurrentBytes", "BytesDelta", "BaselineTypes", "CurrentTypes", "TypeName", "Module"]);
         source.Columns.Single(c => c.IsKey).Name.ShouldBe("Name");
         source.Columns.Where(c => c.Kind == ResultColumnKind.SignedInteger).Select(c => c.Name).ShouldBe(["ObjectsDelta", "BytesDelta"]);
-        Row(source, 2).ShouldBe(["App.Old", "gone", "1", "0", "-1", "100", "0", "-100", "1", "0"]);
-        Row(source, 1).ShouldBe(["App.Fresh", "new", "0", "1", "1", "0", "16", "16", "0", "1"]);
+        Row(source, 2).ShouldBe(["App.Old", "gone", "1", "0", "-1", "100", "0", "-100", "1", "0", "App.Old", "App.dll"]);
+        Row(source, 1).ShouldBe(["App.Fresh", "new", "0", "1", "1", "0", "16", "16", "0", "1", "App.Fresh", "App.dll"]);
     }
 
     [Fact]

@@ -32,7 +32,8 @@ public sealed class AllLeaksDump : IAsyncLifetime
             "--publishers", "64",
             "--semantics", SemanticItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--runtime-semantics", RuntimeItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--late-garbage", LateGarbageItems.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            "--late-garbage", LateGarbageItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--inspection"))
         {
             fixture.CaptureDump(path);
         }
@@ -53,7 +54,7 @@ public sealed class AllLeaksDump : IAsyncLifetime
 [Trait("Category", "Integration")]
 public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLeaksDump>
 {
-    private static readonly string[] s_semanticNames = ["ConditionalWeakTable", "EmbeddedStruct", "LateGarbage", "RuntimeKinds"];
+    private static readonly string[] s_semanticNames = ["ConditionalWeakTable", "EmbeddedStruct", "Inspection", "LateGarbage", "RuntimeKinds"];
 
     private const uint FinalizerRunBit = 0x4000_0000;
 
@@ -85,6 +86,22 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
                 answer.MinRetainedBytesPerItem.ShouldNotBeNull();
             }
         }
+    }
+
+    [Fact]
+    public void The_inspection_sample_holds_its_known_values()
+    {
+        // Raw ClrMD, independent of HeapScope's reader: the fixture itself is right (sprint 1.5).
+        var sample = Dump.ReadStatic("Fixtures.Leaks.InspectionFixtures", "s_sample");
+        sample.Type!.Name.ShouldBe("Fixtures.Leaks.InspectionSample");
+        sample.ReadField<int>("<Number>k__BackingField").ShouldBe(42);
+        sample.ReadField<long>("<Big>k__BackingField").ShouldBe(9_000_000_000);
+        sample.ReadObjectField("<Text>k__BackingField").AsString().ShouldBe("HeapScope inspection");
+        sample.ReadObjectField("<Missing>k__BackingField").IsNull.ShouldBeTrue();
+        var box = sample.ReadValueTypeField("<Box>k__BackingField");
+        box.ReadValueTypeField("<TopLeft>k__BackingField").ReadField<int>("<Y>k__BackingField").ShouldBe(2);
+        sample.ReadObjectField("<Numbers>k__BackingField").AsArray().Length.ShouldBe(5);
+        Dump.Instances("Fixtures.Leaks.InspectionSample").Count().ShouldBe(1);
     }
 
     [Theory]
