@@ -50,10 +50,11 @@ resets it for the next sprint.
   `summary <dump> [--group] [--filter] [--sort] [--format table|csv|json]`, `diff <baseline> <current>
   [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
   [--module] [--filter] [--sort] [--format]`, `object <dump> <address> [--references N] [--format text|json]`,
-  `inspect <dump> [<name>] [--top|--all] [--format]`,
+  `inspect <dump> [<name>] [--top|--all] [--format]`, `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
+  [--max] [--duration]`,
   `trace --pid <id> [--duration]
   [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
-- UI smoke runs: `HeapScope.exe --smoke-synthetic N` or `--smoke-open <dump> [--smoke-compare <dump>]
+- UI smoke runs: `HeapScope.exe --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]
   [--smoke-trace <file>]` (exit 0 ok, 3 lag, 4 failed). Measure untraced; traces are for finding where time goes.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>` (`graph-build`, `dump-stats`,
   `stack-roots`, `index-cache`, `load-dump`, `trace-report --trace <file>`)

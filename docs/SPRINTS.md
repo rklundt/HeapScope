@@ -19,7 +19,7 @@ everything else.
 | 1.4 | Snapshot diff | Closed | 2026-10-23 | sprint-1.4 |
 | 1.5 | Object search and inspection | Closed | 2026-10-23 | sprint-1.5 |
 | 1.6 | Simple inspections | Closed | 2026-10-23 | sprint-1.6 |
-| 1.7 | Live counters and timed snapshots | Planned | | |
+| 1.7 | Live counters and timed snapshots | Closed | 2026-10-23 | sprint-1.7 |
 | 1.8 | gcdump support | Planned | | |
 | 2.1 | Reverse references | Planned | | |
 | 2.2 | Retention paths | Planned | | |
@@ -1100,9 +1100,62 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a stacked area 
 
 **Dependencies**: 1.1.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (decided autonomously)
+1. Counters come from the runtime's `System.Runtime` EventCounters over an EventPipe session (the diagnostics client
+   HeapScope already uses for capture and traces, ADR-010), once per interval (default 1 s): GC heap size, the size of
+   each generation, LOH and POH, GC counts per generation, allocation rate, time in GC and working set. Monitoring runs
+   in the front end's process, like capture; the worker is not involved (ADR-021).
+2. Rules: every N minutes; heap above an absolute size; growth over the baseline (MB or percent; the baseline is the
+   first sample's GC heap size); at most N snapshots per run. Size rules fire once when crossed and re-arm per rule:
+   `once` (never again), `below` (after the heap falls back under the threshold, the default) or `step` (the threshold
+   rises by its own amount, for every further step). The rule metric is the heap after the last GC (changed by the
+   review, H2: the GC heap size includes garbage); `below` re-arms under 90 percent of the threshold.
+3. A rule capture is a normal capture into the current session, recorded with `SnapshotSource.Timed` and a label naming
+   the rule ("above 500 MB", "every 5 min"); at most one capture runs at a time and rules wait while it runs (the target
+   is paused while it is written).
+4. Session timeline: each monitoring run writes `counters-<pid>-<time>.csv` into the session folder (one row per sample, plus
+   capture markers), so a run can be charted later; the Live page shows the current run. Reopening an older run's
+   timeline in the UI is a backlog item.
+5. GC pressure badge: time in GC averaging 10 percent or more over the last 10 intervals that had a GC (the counter is
+   the last GC's share, review M10).
+6. UI: a new "Live" page (navigation) with a process picker, interval and rules, Start and Stop, a stacked area chart per
+   heap kind (the fixed heap kind colors) over the last 30 minutes with snapshot markers, the latest values, snapshot
+   cards (time, rule, size) and the badge. The chart is one lightweight element drawn once per sample.
+7. CLI: `monitor --pid <id> [--interval 1] [--duration N] [--every 5m] [--above 500MB] [--growth 100MB|50%]
+   [--rearm once|below|step] [--max N] [--format table|csv]`: one line per sample and per capture; Ctrl+C stops.
+8. (While implementing) Front ends see Application's `HeapSample`, not Capture's counter type (UI.Wpf references
+   Application and Contracts only); a run that cannot monitor its process faults with `CaptureFailedException`.
+   `MonitorService.Start` attaches handlers before sampling begins, so no sample is missed.
+9. (From the review) The runtime's megabytes are decimal; rule captures that are canceled or fail are recorded and never
+   end the run; no rule fires after Stop; the app stops monitoring before it cancels jobs on close.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**
+1. [x] Capture `CounterMonitor`: EventPipe counter session, payload parsing into `CounterSample` (testable without a
+   process). Tests: parsing unit tests; integration on LeakyApi: samples arrive each interval and the GC heap rises
+   while leaking work is posted.
+2. [x] Application `SnapshotRules`: rules, baseline, re-arm modes, maximum count, GC pressure. Tests: unit tests with
+   sample sequences and a fake clock (fires once, re-arms below, steps, every N minutes, max count, waits while a
+   capture runs).
+3. [x] Application `MonitorService`: start and stop, samples to listeners, rules to captures (`SnapshotSource.Timed`),
+   counters CSV with markers. Tests: integration on LeakyApi: a size rule captures exactly one dump and re-arms per
+   configuration; the CSV holds the samples and the marker.
+4. [x] CLI `monitor`. Tests: output and exit codes; a capture by `--above`.
+5. [x] UI Live page: view model, `TimelineChart`, cards, badge. Tests: view model tests with a fake monitor; chart
+   mapping tests; a smoke run (`--smoke-live`) feeding an hour of samples keeps every dispatcher operation within the
+   budget.
+6. [x] Docs: ARCHITECTURE (code map, ADR-021, 8, 10 measurements, 12), DEVELOPER, CLAUDE.
+
+**Review summary**: 3 High, 16 Moderate, 17 Low (`docs/reviews/sprint-1.7.md`).
+- Fixed (High, each confirmed by its reviewer): decimal megabytes; size rules on the heap after the last GC (no firing
+  or re-arming on garbage, 90 percent re-arm, GC pressure only from intervals with a GC, the chart topped by what was
+  allocated since the last GC); canceled or failing rule captures recorded without breaking the run.
+- Fixed (Moderate): no rules after Stop; incomplete last interval dropped; monitoring stopped before jobs at close;
+  timeline files created new, pinned to the run's session, written until the first failure; the EventPipe stop bounded;
+  zero thresholds refused; captures started outside the lock; new tests (gated, canceled, throwing listener).
+- Deferred: one capture per target across pages, the timeline in `session.json`, a missing-counter warning, a
+  Meter-based counter source for .NET 9 and later, to the backlog.
+- Measured: counters arrive one interval after the session starts; the Live smoke run charts 1,800 samples with a
+  longest dispatcher operation of 18 to 26 ms; a growth rule on LeakyApi captures exactly one dump.
 
 ---
 
@@ -1293,6 +1346,14 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- One capture per target at a time across the Processes page and monitoring runs (`CaptureService` serializes per
+  process; rules treat a manual capture as running) (from the 1.7 review M4).
+- Monitoring timelines recorded in `session.json` (run id, process, interval, rules, baseline, start and end), snapshot
+  ids in the CSV markers, a format line in the CSV; reopening a past run's timeline on the Live page (1.7 M3,
+  decision 4).
+- A warning when an expected runtime counter never arrives (1.7 M11).
+- A `System.Runtime` Meter counter source for .NET 9 and later targets (`dotnet.gc.last_collection.heap.size`,
+  `dotnet.gc.pause.time`), EventCounters kept for .NET 6 to 8 (1.7 M12).
 - Inspection results kept per snapshot (compact rows) so an evicted set re-query rebuilds only the result set, with
   progress shown (from the 1.6 review M3).
 - Sparse arrays: count dependent-handle edges apart from fields; a fixture array that is a weak table key (1.6 M12).

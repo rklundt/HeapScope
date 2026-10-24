@@ -213,6 +213,17 @@ inspection's rows as `InspectionRowItem`s) on a third tab of the Snapshots page,
 a result set's columns). The CLI has `inspect` (`InspectionCommand.cs`). Fixtures: `WasteFixtures` (LeakyConsole
 `--waste`) and `Waste.json`.
 
+Code map additions in sprint 1.7 (live counters and timed snapshots, ADR-021): Capture has `CounterMonitor` (an
+EventPipe session on the target's `System.Runtime` EventCounters) and `CounterSampleBuilder` (counter events to one
+`CounterSample` per interval). Application has `Monitoring/`: `HeapSample` (what front ends see), `ICounterSource`
+(`EventPipeCounterSource`, and `SyntheticCounterSource` for the smoke run), `SnapshotRules.cs` (`EveryRule`,
+`AboveRule`, `GrowthRule`, `RearmMode`, `MonitorRules`, `SnapshotRuleEngine` with the GC pressure flag, on
+`HeapSample.RuleBytes`, the heap after the last GC) and
+`MonitorService` with `MonitorRun` (samples and captures as events, one capture at a time, the counters timeline in the
+session folder); `ICaptureService.StartCapture` records a source (`SnapshotSource.Timed` for rules). UI.Wpf has the Live
+page (`LiveViewModel`, `SnapshotCard`) and `TimelineChart` (stacked heap kinds, snapshot markers, one element drawn per
+sample). The CLI has `monitor` (`MonitorCommand.cs`).
+
 ### 3.1 Dependency rules
 
 ```mermaid
@@ -756,6 +767,8 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   as a cold cost), then checks the open phase (logged on its own line), a drill-down (largest type's instances, the
   largest object, its references; the first show is logged as a cold cost, a re-sort and a second object are checked)
   and, with `--smoke-compare`, the comparison. The checked maxima of all phases are combined for the exit code.
+  `--smoke-live N` (sprint 1.7) charts N made-up samples on the Live page at up to 200 a second (each a redraw of up to
+  30 minutes of history, far more often than the real one a second) and checks the whole feed; it writes no timeline.
   `--smoke-trace <file>` also records a CPU trace of the run (sprint 1.5); tracing slows the UI enough that traced runs
   are for finding where time goes, never for checking the budget. Measured after these changes (Release, 24 logical
   cores): Medium and DenseHeap smoke with drill-down and comparison, longest operation 36 to 63 ms, lag 49 to 128 ms,
@@ -879,6 +892,11 @@ Inspections (sprint 1.6, Release CLI `inspect`, all eight, from a freshly rebuil
 DenseHeap (54M objects) 15 s end to end, duplicate strings 5.1 s, collections 1.4 s, finalizable 1.4 s, fragmentation
 1.5 s. In the UI the Small smoke run's inspections phase took 2.4 s with a longest dispatcher operation of 23 ms.
 Rebuilding Medium's cache with free space and reference-array marks: 37 s (first load 19 s from the dump).
+Live monitoring (sprint 1.7): the first counter sample arrives about one interval after the session starts; LeakyApi
+leaking 20 requests of 2,000 items shows a GC heap rise of more than 10 MB within three samples; under load the heap
+now climbed about 14 MB a second between collections while the after-GC size changed only at each GC. The Live smoke
+run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest dispatcher operation of 18 to 26 ms;
+3,600 samples (an hour, the window sliding) stayed at 29 ms.
 
 ## 11. Error handling and logging
 - Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file
@@ -916,6 +934,8 @@ Rebuilding Medium's cache with free space and reference-array marks: 37 s (first
 - Inspecting an object reads its field values and string text from the dump on demand (sprint 1.5); they are shown,
   never written to the index cache or the log. The same holds for inspections (sprint 1.6): duplicate strings shows
   the first 100 characters of each duplicated value in the UI and the CLI only; logs record counts and sizes.
+- Monitoring (sprint 1.7) reads the target's runtime counters (sizes, counts, rates), never its memory; the timeline
+  file in the session folder holds those numbers and the snapshot file names.
 
 ## 13. Architecture Decision Records
 
@@ -1097,6 +1117,25 @@ sprint 0.1.
   occurs twice or more). The context grows additively for 2.x: derived data per snapshot (reverse references,
   dominators) through the context, an optional baseline snapshot for growth detectors, and requirements beyond
   capabilities; runs may become asynchronous then.
+
+### ADR-021 Live monitoring reads EventCounters in the front end's process (added in sprint 1.7)
+- Context: the "load, snapshot, more load, snapshot" workflow needs the heap's size over time and snapshots taken by
+  rules, without installing tools on the target or the machine.
+- Decision: the runtime's `System.Runtime` EventCounters are read over an EventPipe session by the diagnostics client
+  HeapScope already uses (ADR-010), in the process of the front end that monitors, like capture; the worker is not
+  involved. Front ends see Application's `HeapSample`, not Capture's types. Rules are a pure engine over the samples'
+  own times (testable without a clock); a rule capture is a normal capture recorded as `Timed` with the rule as its
+  label, at most one at a time. Each run writes its samples and capture markers to a CSV in the session folder.
+- Rule metric (review H2): the heap after the last GC (the generation sizes, which change only when a GC runs), not
+  `gc-heap-size` (the heap now, garbage since the last GC included, rising and falling by the gen0 budget); before the
+  process had any GC, the heap now. The runtime's megabytes are decimal. Time in GC is the last GC's share, so GC
+  pressure averages only intervals in which a GC ran.
+- Alternatives: the `System.Runtime` Meter (.NET 9 and later) has better defined metrics (after-collection heap size
+  per generation, cumulative pause time) and is what Microsoft recommends now; EventCounters remain published by .NET
+  10 and cover .NET 6 to 8 as well, so they come first. A Meter source behind `ICounterSource` is a backlog item.
+- Consequences: any .NET 6 or later process can be monitored without changes; counters are per-interval aggregates
+  (no per-allocation data; allocation tracking is sprint 2.5, with its own session or provider); the sample interval
+  is at least one second.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

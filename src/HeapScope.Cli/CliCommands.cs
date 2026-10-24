@@ -83,6 +83,7 @@ internal static partial class CliCommands
         root.Subcommands.Add(BuildObjectCommand(services));
         root.Subcommands.Add(BuildInspectCommand(services));
         root.Subcommands.Add(BuildTraceCommand(services));
+        root.Subcommands.Add(BuildMonitorCommand(services));
         root.Subcommands.Add(BuildListCommand(services));
         root.Subcommands.Add(BuildCaptureCommand(services));
         return root;

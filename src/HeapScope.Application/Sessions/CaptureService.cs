@@ -75,7 +75,7 @@ public sealed class CaptureService : ICaptureService
     /// refused capture leaves no empty session. The target's DAC is copied next to the dump, so the dump stays readable
     /// after the runtime on this machine is updated (sprint 1.1 review).
     /// </summary>
-    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null)
+    public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual)
     {
         var title = string.Create(CultureInfo.InvariantCulture, $"Capture pid {processId}");
         return Jobs.Start(title, async (progress, ct) =>
@@ -149,7 +149,7 @@ public sealed class CaptureService : ICaptureService
             {
                 var session = Library.AddTo(sessionFolder ?? Library.Current.Folder, new SessionSnapshot(
                     Guid.NewGuid(), path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
-                    Label: label, RuntimeDirectory: process.RuntimeDirectory));
+                    Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
                 return new CaptureResult(path, size, ToEntry(process), session);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
