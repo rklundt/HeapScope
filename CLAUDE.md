@@ -33,6 +33,17 @@ resets it for the next sprint.
 - Definition of Done (DEVELOPER.md 9): zero warnings, all tests pass, acceptance criteria met or deferred by
   the human, review file with High fixed and Moderate decided, docs current, architecture test passes.
 
+## Licensing (required)
+
+This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS.md, COMMERCIAL.md). Owner: Ray Klundt.
+
+- Never edit LICENSE, ADDITIONAL-TERMS.md or COMMERCIAL.md unless I explicitly ask.
+- Every new source file I own gets the standard license header (copy from an existing file).
+- Never remove, hide, shrink, restyle or move the "Powered by HeapScope by Ray Klundt" attribution, or lower its contrast below 4.5:1. It must stay real text on a solid opaque background on the main screen. Any UI change must be checked against this.
+- Before adding a dependency, check its license. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine. Stop and ask me before adding anything GPLv2-only, proprietary, SSPL, "non-commercial" or unlicensed.
+- When adding, removing or vendoring a dependency, update THIRD-PARTY-NOTICES.
+- When copying code from outside sources, record its origin and license in THIRD-PARTY-NOTICES. Do not paste code from incompatible licenses.
+
 ## Sprint workflow
 1. `/start-sprint [id]`: analyze, ask, plan the tasks in SPRINTS.md, set In Progress.
 2. Implement task by task with tests, build green throughout.

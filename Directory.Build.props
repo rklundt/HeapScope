@@ -14,7 +14,7 @@
     <Version>0.1.0</Version>
     <Product>HeapScope</Product>
     <Company>HeapScope</Company>
-    <Copyright>HeapScope contributors</Copyright>
+    <Copyright>Copyright (C) 2026 Ray Klundt</Copyright>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <HeapScopeRoot>$(MSBuildThisFileDirectory)</HeapScopeRoot>
   </PropertyGroup>

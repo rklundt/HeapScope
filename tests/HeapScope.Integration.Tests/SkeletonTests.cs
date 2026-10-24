@@ -1,3 +1,26 @@
+// HeapScope
+// Copyright (C) 2026 Ray Klundt
+// https://github.com/rklundt/HeapScope
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, version 3 only, with additional terms
+// under Section 7 of that license.
+//
+// Additional terms, including attribution requirements, apply.
+// See the ADDITIONAL-TERMS.md file distributed with this program.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program (see the LICENSE file). If not, see
+// <https://www.gnu.org/licenses/>.
+//
+// Commercial licenses are available. See COMMERCIAL.md.
+
 using System.Diagnostics;
 using System.Globalization;
 using HeapScope.Integration.Tests.Infrastructure;
@@ -7,6 +30,7 @@ namespace HeapScope.Integration.Tests;
 [Trait("Category", "Integration")]
 public class SkeletonTests
 {
+    private const string Attribution = "Powered by HeapScope by Ray Klundt (https://github.com/rklundt/HeapScope)";
     private static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(30);
 
     [Fact]
@@ -26,8 +50,18 @@ public class SkeletonTests
         cli.Process.ExitCode.ShouldBe(0);
         var productVersion = FileVersionInfo.GetVersionInfo(Path.Combine(TestPaths.CliOutput, "heapscope-cli.dll")).ProductVersion!;
         var expected = productVersion.Split('+')[0];
-        cli.Output.Trim().ShouldBe(expected);
-        cli.Output.ShouldNotContain("+");
+        var lines = cli.Output.Trim().Split('\n', StringSplitOptions.TrimEntries);
+        lines.ShouldBe([expected, Attribution]);
+    }
+
+    [Fact]
+    public async Task Cli_help_ends_with_the_attribution_notice()
+    {
+        using var cli = ChildProcess.Start(TestPaths.CliExe, "summary", "--help");
+
+        (await cli.WaitForExitAsync(s_timeout)).ShouldBeTrue();
+        cli.Process.ExitCode.ShouldBe(0);
+        cli.Output.Trim().ShouldEndWith(Attribution);
     }
 
     [Fact]

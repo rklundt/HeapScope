@@ -178,6 +178,15 @@ of debuggable code) and exit when the process given as parent exits.
   - Allocate final arrays once at exact size; grow with chunked buffers, not `List<T>` doubling.
   - Check the `CancellationToken` at least every 64K iterations.
 - **Text**: no em dashes or en dashes in code, comments, docs or UI text. Use a hyphen or a comma.
+- **License header**: every `.cs`, `.xaml` and `.ps1` file we own starts with the header in
+  `docs/licensing/SOURCE-HEADER.txt`, in the file's comment syntax (copy it from any existing file). Vendored code lives
+  under a `ThirdParty` folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test enforces it.
+- **Attribution**: the "Powered by HeapScope by Ray Klundt" notice (ADR-022) stays on the main window, unchanged; CLI
+  help, version and console startup print it. UI changes are checked against it; a test checks its text, link,
+  colors and contrast.
+- **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
+  anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. Update
+  `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
 
 ## 5. Testing strategy
 - **Unit tests** (`*.Tests`): fast, deterministic. Analysis is tested on synthetic graphs built with
