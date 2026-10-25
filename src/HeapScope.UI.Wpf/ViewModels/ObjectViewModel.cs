@@ -180,6 +180,18 @@ public sealed partial class ObjectViewModel : ObservableObject
     [ObservableProperty]
     private bool _showFrameworkSteps;
 
+    /// <summary>The object's retained size in a line (sprint 2.3), its progress while computed, or why there is none.</summary>
+    [ObservableProperty]
+    private string? _retainedSummary;
+
+    /// <summary>The immediate dominator, a link (0 when the roots dominate the object or none reaches it).</summary>
+    [ObservableProperty]
+    private ulong _dominatorAddress;
+
+    /// <summary>The immediate dominator's address and type, the link's text.</summary>
+    [ObservableProperty]
+    private string? _dominatorText;
+
     private ObjectPathsResult? _paths;
     private bool _retentionStarted;
 
@@ -209,6 +221,9 @@ public sealed partial class ObjectViewModel : ObservableObject
 
     /// <summary>The retention paths load, once started (tests and smoke runs await it).</summary>
     public Task RetentionTask { get; private set; } = Task.CompletedTask;
+
+    /// <summary>The retained size load, started after the retention paths (tests and smoke runs await it).</summary>
+    public Task RetainedTask { get; private set; } = Task.CompletedTask;
 
     /// <summary>Loads the object and its references.</summary>
     public void Start()
@@ -244,6 +259,7 @@ public sealed partial class ObjectViewModel : ObservableObject
         {
             _retentionStarted = true;
             RetentionTask = LoadRetentionAsync(_lifetime.Token);
+            RetainedTask = LoadRetainedAfterAsync(RetentionTask, _lifetime.Token);
         }
     }
 
@@ -306,6 +322,62 @@ public sealed partial class ObjectViewModel : ObservableObject
             finished = true;
             _logger.LogError(ex, "Finding an object's retention paths failed");
             RetentionStatus = "The retention paths could not be found. Details are in the log.";
+        }
+    }
+
+    /// <summary>Loads the retained size once the paths are shown (both use the reverse references index).</summary>
+    private async Task LoadRetainedAfterAsync(Task paths, CancellationToken cancellationToken)
+    {
+        await paths;
+        await LoadRetainedAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The object's retained size and immediate dominator (sprint 2.3), after its paths: the first query of a snapshot
+    /// computes its dominators, so their phases show meanwhile.
+    /// </summary>
+    private async Task LoadRetainedAsync(CancellationToken cancellationToken)
+    {
+        RetainedSummary = "Computing retained sizes...";
+        var finished = false;
+        var progress = new Progress<JobProgress>(p =>
+        {
+            if (!finished && !cancellationToken.IsCancellationRequested)
+            {
+                RetainedSummary = ReferrersText.Progress(p);
+            }
+        });
+        try
+        {
+            var retained = await _session.QueryRetainedAsync(Snapshot, Address, progress, cancellationToken);
+            finished = true;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            DominatorAddress = retained.DominatorAddress;
+            DominatorText = retained.DominatorAddress == 0 ? null : string.Create(CultureInfo.InvariantCulture, $"0x{retained.DominatorAddress:x} {retained.DominatorType}");
+            RetainedSummary = !retained.Reachable
+                ? "Retains nothing. " + retained.UnreachableNote
+                : string.Create(CultureInfo.CurrentCulture, $"Retains {retained.RetainedBytes:N0} bytes ({Format.Bytes(retained.RetainedBytes)}), what it alone keeps alive. ")
+                    + (retained.Index.Note is { } note ? note + " " : string.Empty)
+                    + (retained.DominatedByRoots ? "Only the roots dominate it: a root holds it, or several reach it on separate paths." : "Dominated by:");
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Left the history while loading.
+        }
+        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        {
+            finished = true;
+            RetainedSummary = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            finished = true;
+            _logger.LogError(ex, "Reading an object's retained size failed");
+            RetainedSummary = "The retained size could not be computed. Details are in the log.";
         }
     }
 

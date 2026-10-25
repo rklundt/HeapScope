@@ -43,6 +43,26 @@ internal static class ReferrersText
         completeGraph ? string.Empty : " (this snapshot is incomplete, so some referrers may be missing)";
 }
 
+/// <summary>Texts about retained sizes (sprint 2.3).</summary>
+internal static class RetainedText
+{
+    /// <summary>How the dominators were obtained, in a line, with the worker's caveats (review M6).</summary>
+    public static string Source(DominatorIndexInfo dominators) => string.Create(
+        CultureInfo.CurrentCulture,
+        $"Retained sizes {(dominators.FromSidecar ? "read from the saved index" : "computed")} in {dominators.Seconds:N1} s; {dominators.ReachableObjects:N0} objects are reachable from the roots.")
+        + (dominators.Note is { } note ? " " + note : string.Empty);
+
+    /// <summary>What a type, namespace or assembly row's retained bytes mean (decision 6).</summary>
+    public const string RowsAreLowerBounds =
+        "A row's retained bytes are at least what its objects keep alive: objects held only by several of them together are not counted.";
+
+    /// <summary>Why retained sizes are not shown after a failed retained query (review M8), with the worker's reason.</summary>
+    public static string NotShown(string reason) => "Retained sizes are not shown: " + reason;
+
+    /// <summary>What an object's retained bytes mean.</summary>
+    public const string ObjectsRetain = "An object's retained bytes are what it alone keeps alive; objects no root reaches retain nothing (blank).";
+}
+
 /// <summary>One object referencing the inspected object (sprint 2.1), filled when its page arrives.</summary>
 public sealed class ReferrerRowItem(int index) : ObservableObject, IIndexedRow
 {

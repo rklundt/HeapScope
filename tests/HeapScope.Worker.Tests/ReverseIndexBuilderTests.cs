@@ -87,6 +87,23 @@ public sealed class ReverseIndexBuilderTests : IDisposable
     }
 
     [Fact]
+    public void The_sidecar_built_in_place_equals_one_written_from_managed_arrays()
+    {
+        // Sprint 2.3 (2.1 review M2): the index goes straight into the mapped file; the file is the one 2.1 wrote.
+        _builder.OpenOrBuild(_graph, new ReverseIndexTarget(Sidecar, 0x42, s_fingerprint, MemoryMode.InMemory), null, Ct).References.Dispose();
+        using var expected = ReverseReferences.Build(_graph, cancellationToken: Ct);
+        var streamed = Path.Combine(_folder, "streamed.rev.hsidx");
+        using (var writer = IndexCacheFileWriter.Create(streamed, cancellationToken: Ct))
+        {
+            writer.WriteSection(IndexSection.InEdgeStarts, expected.InEdgeStarts.Span);
+            writer.WriteSection(IndexSection.InEdges, expected.InEdges.Span);
+            writer.Commit(s_fingerprint, 0x42);
+        }
+
+        File.ReadAllBytes(Sidecar).ShouldBe(File.ReadAllBytes(streamed));
+    }
+
+    [Fact]
     public void A_sidecar_that_cannot_be_written_leaves_the_index_in_memory()
     {
         // A folder where the sidecar would go: the rename onto it fails.

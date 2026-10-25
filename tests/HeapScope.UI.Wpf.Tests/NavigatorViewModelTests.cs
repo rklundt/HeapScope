@@ -252,6 +252,100 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Retained_sizes_are_asked_for_on_the_types_grid_and_carried_into_its_objects()
+    {
+        // Sprint 2.3: off by default (the first query computes the dominators), a column and a note when on.
+        await OpenAsync("app.dmp");
+        var types = Navigator.Current.ShouldBeOfType<TypeSummaryViewModel>();
+        await types.QueryTask;
+        types.RetainedColumnShown.ShouldBeFalse();
+        _worker.Service.SummaryQueries[^1].IncludeRetained.ShouldBeFalse();
+
+        types.ShowRetained = true;
+        await types.QueryTask;
+        types.SortByCommand.Execute(TypeSummaryColumns.Retained);
+        await types.QueryTask;
+
+        _worker.Service.SummaryQueries[^1].ShouldBe(_worker.Service.SummaryQueries[^1] with { IncludeRetained = true, SortColumn = TypeSummaryColumns.Retained, Descending = true });
+        types.RetainedColumnShown.ShouldBeTrue();
+        types.RetainedNote!.ShouldContain("at least");
+        (await FirstRowAsync(types.Rows)).Retained.ShouldBe(240);
+
+        var instances = await OpenInstancesAsync(types);
+        _worker.Service.InstanceQueries[^1].IncludeRetained.ShouldBeTrue("the objects of a type follow the types grid's choice");
+        instances.RetainedColumnShown.ShouldBeTrue();
+        instances.Rows.GetRow(0).Retained.ShouldBe(80);
+        instances.Rows.GetRow(1).Retained.ShouldBeNull("no root reaches it");
+
+        Navigator.BackCommand.Execute(null);
+        types.ShowRetained = false;
+        await types.QueryTask;
+        (_worker.Service.SummaryQueries[^1].IncludeRetained, types.SortColumn).ShouldBe((false, TypeSummaryColumns.Bytes));
+        types.RetainedColumnShown.ShouldBeFalse();
+        types.RetainedNote.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_failing_retained_query_still_shows_the_rows_and_says_why()
+    {
+        // Review M8: retained sizes are optional; the grids load without them and the switch turns itself off.
+        _worker.Service.RetainedFailure = new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.InsufficientMemory, "Not enough memory.", null);
+        await OpenAsync("app.dmp");
+        var types = Navigator.Current.ShouldBeOfType<TypeSummaryViewModel>();
+        await types.QueryTask;
+        types.SortByCommand.Execute(TypeSummaryColumns.Bytes);
+        await types.QueryTask;
+
+        types.ShowRetained = true;
+        await types.QueryTask;
+
+        (types.ShowRetained, types.RetainedColumnShown, types.Rows.Count).ShouldBe((false, false, 1));
+        types.RetainedNote.ShouldBe("Retained sizes are not shown: Not enough memory.");
+        types.Status.ShouldBeNull();
+        _worker.Service.SummaryQueries[^1].IncludeRetained.ShouldBeFalse();
+
+        _worker.Service.RetainedFailure = new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.InsufficientMemory, "Still not.", null);
+        var instances = await OpenInstancesAsync(types);
+        instances.ShowRetained = true;
+        await instances.QueryTask;
+        (instances.ShowRetained, instances.Rows.Count, instances.RetainedNote).ShouldBe((false, 2, "Retained sizes are not shown: Still not."));
+    }
+
+    [Fact]
+    public async Task The_retention_tab_shows_the_retained_size_and_opens_the_dominator()
+    {
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        var obj = (ObjectViewModel)Navigator.Current;
+        await obj.LoadTask;
+
+        obj.ReferencesTab = 2;
+        await obj.RetainedTask;
+
+        _worker.Service.RetainedQueries.ShouldHaveSingleItem().Address.ShouldBe(0x1000UL);
+        obj.RetainedSummary!.ShouldStartWith(string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Retains {4096:N0} bytes"));
+        obj.DominatorText.ShouldBe("0x500 App.Cache");
+        obj.OpenCommand!.Execute(obj.DominatorAddress);
+        Navigator.Current.ShouldBeOfType<ObjectViewModel>().Address.ShouldBe(0x500UL);
+    }
+
+    [Fact]
+    public async Task An_object_no_root_reaches_retains_nothing_and_links_nowhere()
+    {
+        _worker.Service.Retained = new RetainedResult(0x1000, "App.Order", 40, false, 0, 0, null, false, "No root reaches it: it is garbage.", _worker.Service.Dominators, true);
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        var obj = (ObjectViewModel)Navigator.Current;
+        await obj.LoadTask;
+
+        obj.ReferencesTab = 2;
+        await obj.RetainedTask;
+
+        obj.RetainedSummary.ShouldBe("Retains nothing. No root reaches it: it is garbage.");
+        obj.DominatorText.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task The_retention_tab_shows_a_worker_error_and_a_tree_with_two_roots_in_order()
     {
         // Review M8.
@@ -393,6 +487,14 @@ public sealed class NavigatorViewModelTests : IDisposable
     {
         await OpenAsync("app.dmp");
         var types = (TypeSummaryViewModel)Navigator.Current;
+        types.OpenRowCommand!.Execute(await FirstRowAsync(types.Rows));
+        var instances = (InstancesViewModel)Navigator.Current;
+        await instances.QueryTask;
+        return instances;
+    }
+
+    private async Task<InstancesViewModel> OpenInstancesAsync(TypeSummaryViewModel types)
+    {
         types.OpenRowCommand!.Execute(await FirstRowAsync(types.Rows));
         var instances = (InstancesViewModel)Navigator.Current;
         await instances.QueryTask;

@@ -26,6 +26,7 @@ using System.Globalization;
 using HeapScope.Analysis.Inspections;
 using HeapScope.Contracts;
 using HeapScope.Core;
+using HeapScope.Worker.Snapshots;
 
 namespace HeapScope.Worker.Rpc;
 
@@ -54,10 +55,19 @@ internal sealed partial class WorkerService
                     throw new CapabilityNotSupportedException(InspectionAvailability.Explain("Listing finalizable objects", snapshot.Info));
                 }
 
+                DominatorIndex? dominators = null;
+                DominatorIndexInfo? info = null;
+                // Sprint 2.3 review M7: a bad request is refused, and a type with no objects answered, before any dominators.
+                if (InstancesSource.Validate(snapshot.Graph, request) && request.IncludeRetained)
+                {
+                    // Sprint 2.3: attached to the graph, so the set's lease keeps them while its pages are read.
+                    (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
+                }
+
                 var throttled = new ThrottledProgress<JobProgress>(progress);
-                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled), cancellationToken).ConfigureAwait(false);
+                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators), cancellationToken).ConfigureAwait(false);
                 var rows = resultSets.Add(source, lease);
-                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds);
+                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds, info);
             }
             catch (CapabilityNotSupportedException ex) when (ex.Missing != SnapshotCapabilities.None)
             {

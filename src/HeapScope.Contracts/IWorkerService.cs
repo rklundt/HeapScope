@@ -117,6 +117,14 @@ public interface IWorkerService
     /// </summary>
     Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// One object's retained size and immediate dominator (sprint 2.3). The first retained query of a snapshot computes its
+    /// dominators (after its reverse references index), or opens them from their sidecar; later queries reuse them. An
+    /// address with no object fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>; dominators that would not fit the
+    /// worker's memory budget fail with <see cref="HeapScopeErrorCode.InsufficientMemory"/>.
+    /// </summary>
+    Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 

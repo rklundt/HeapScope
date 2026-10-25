@@ -47,6 +47,13 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     private readonly SnapshotKinds _kinds = new(options);
     private readonly ReverseIndexBuilder _reverseBuilder = new(logger);
 
+    /// <summary>The memory reserved by large derived computations of every snapshot (sprint 2.3 review M2).</summary>
+    private readonly MemoryReservations _reservations = new();
+
+    private DominatorIndexBuilder? _dominatorBuilder;
+
+    private DominatorIndexBuilder DominatorBuilder => _dominatorBuilder ??= new(logger, _reservations);
+
     private bool _disposed;
 
     public int Count => _snapshots.Count;
