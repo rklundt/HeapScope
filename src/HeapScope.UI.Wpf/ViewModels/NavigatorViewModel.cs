@@ -202,7 +202,10 @@ public sealed partial class NavigatorViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    /// <summary>Why alive explains all objects of a type, so a scoped list (review L12: equal strings, LOH) does not offer it.</summary>
+    private bool CanOpenWhyAlive() => Current is InstancesViewModel { Scope: InstanceScope.All };
+
+    [RelayCommand(CanExecute = nameof(CanOpenWhyAlive))]
     private void OpenWhyAlive()
     {
         if (Current is InstancesViewModel instances)
@@ -297,6 +300,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         OnPropertyChanged(nameof(CanGoForward));
         BackCommand.NotifyCanExecuteChanged();
         ForwardCommand.NotifyCanExecuteChanged();
+        OpenWhyAliveCommand.NotifyCanExecuteChanged();
     }
 
     private static void CloseSubject(object subject)

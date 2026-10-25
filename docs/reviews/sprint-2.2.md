@@ -82,18 +82,22 @@ The reviewers confirmed:
   (solution-architect).
 - L3 `HeapGraph.FromColumns` does not check that dependent handles are sorted (solution-architect).
 - L4 The CLI's `--max` defaults to 10 for `--type` where decision 3 and the UI use 20 (solution-architect, senior-dev).
+  Fixed after the close (10 for `--address`, 20 for `--type`).
 - L5 The per-object total of all 2.x indices did not count the root path tree (solution-architect). Fixed in the docs
   (about 66 bytes per object).
 - L6 No ADR for the retention semantics shared with 2.3 (solution-architect). `PathRoots` (M2) is the single source; an
   ADR can come with 2.3.
 - L7 The search's dictionary and queue grow by doubling; nodes at the stop distance still expand (gc-specialist).
 - L8 Thread statics are `Other` roots whose detail names the thread, so key paths split by thread, and they rank after
-  the finalizer queue (gc-specialist, senior-dev).
+  the finalizer queue (gc-specialist, senior-dev). Fixed after the close: `PathRoots.GroupKey` groups by kind and detail
+  without the thread, in type and object key paths alike; the ranking is unchanged.
 - L9 A step whose field lookup was skipped by the budget can be labeled "(dependent handle)" when the primary also holds
   it in a field (gc-specialist).
-- L10 gcdump `[static vars]` roots read "Static field " with no name (gc-specialist).
+- L10 gcdump `[static vars]` roots read "Static field " with no name (gc-specialist). Fixed after the close: "A static
+  field (its name is not recorded in a gcdump)".
 - L11 An unreachable finalizable object will be resurrected for its finalizer first (gc-specialist).
-- L12 `Why alive` ignores an instances view's scope (senior-dev).
+- L12 `Why alive` ignores an instances view's scope (senior-dev). Fixed after the close: offered for a type's whole list
+  only.
 - L13 The incomplete-snapshot text is reused by string replacement; an unrequested cancel shows a bare message; the
   paths view's CancellationTokenSource is not disposed (senior-dev).
 - L14 Type key path steps do not mark dependent-handle edges (senior-dev).

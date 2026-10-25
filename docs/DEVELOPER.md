@@ -69,7 +69,7 @@ dotnet test --solution HeapScope.sln
   `paths <snapshot> (--address <hex> | --type <name> [--module <file>]) [--max N] [--expand] [--format text|json]`
   (sprint 2.2) explains why an object or a type's objects are alive: for an object, its key paths among up to N roots
   (default 10, at most 50) and the merged tree from the object toward its roots, each step with the field holding the
-  next (full dumps) or "(dependent handle)"; for a type, its key retention paths (default 10, at most 100) with object
+  next (full dumps) or "(dependent handle)"; for a type, its key retention paths (default 20, at most 100) with object
   counts and bytes, and the objects no root reaches. Runs of framework steps are folded unless `--expand`; runs of one
   type are always one line ("and N more of this type") and a very long path shows "(N objects not shown)" in its middle.
   An unknown type or an address with no object exits 1, `--max` out of range exits 64; a snapshot whose index cache

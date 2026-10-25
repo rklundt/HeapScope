@@ -316,6 +316,19 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Why_alive_is_offered_for_a_types_whole_list_only()
+    {
+        // 2.2 review L12: a scoped list (equal strings, LOH) would get the paths of every object of the type.
+        var whole = await OpenInstancesAsync();
+        whole.WhyAliveCommand!.CanExecute(null).ShouldBeTrue();
+
+        var scoped = Navigator.OpenInstances(_snapshots.Selected!.Handle, "App.Order", "App.dll", InstanceScope.LargeObjectHeap);
+        await scoped.QueryTask;
+
+        scoped.WhyAliveCommand!.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Referenced_by_lists_referrer_types_whose_rows_open_their_objects()
     {
         _worker.Service.TypeReferrerRows.Add(["App.Cache", "App.dll", "1", "2", "2", "100"]);

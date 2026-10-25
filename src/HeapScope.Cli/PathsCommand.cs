@@ -42,7 +42,7 @@ internal static partial class CliCommands
         var address = new Option<string?>("--address") { Description = "An object's address in hex (0x1f2a3b40): why is it alive?" };
         var type = new Option<string?>("--type") { Description = "A type's full name: why are its objects alive (their key retention paths)?" };
         var module = new Option<string?>("--module") { Description = "With --type: the type's module file name, when several modules have the name." };
-        var max = new Option<int>("--max") { Description = "Roots to find for --address (1 to 50), key paths to list for --type (1 to 100).", DefaultValueFactory = _ => 10 };
+        var max = new Option<int?>("--max") { Description = "Roots to find for --address (1 to 50, default 10), key paths to list for --type (1 to 100, default 20)." };
         var expand = new Option<bool>("--expand") { Description = "Show every framework step instead of folding runs of them." };
         var format = new Option<string>("--format") { Description = "Output: text or json.", DefaultValueFactory = _ => "text" };
         format.AcceptOnlyFromAmong("text", "json");
@@ -90,7 +90,7 @@ internal static partial class CliCommands
             if (parseResult.GetValue(address) is { } text)
             {
                 TryParseAddress(text, out var at);
-                var paths = await session.QueryObjectPathsAsync(handle, at, parseResult.GetValue(max), progress: null, ct).ConfigureAwait(false);
+                var paths = await session.QueryObjectPathsAsync(handle, at, parseResult.GetValue(max) ?? 10, progress: null, ct).ConfigureAwait(false);
                 await WritePathNotesAsync(error, paths.CompleteGraph, paths.StoppedEarly, paths.FieldsNote).ConfigureAwait(false);
                 if (json)
                 {
@@ -111,7 +111,7 @@ internal static partial class CliCommands
                 return Failure;
             }
 
-            var result = await session.QueryTypePathsAsync(handle, typeName, moduleName, parseResult.GetValue(max), progress: null, ct).ConfigureAwait(false);
+            var result = await session.QueryTypePathsAsync(handle, typeName, moduleName, parseResult.GetValue(max) ?? 20, progress: null, ct).ConfigureAwait(false);
             if (result.MatchedTypes == 0)
             {
                 await error.WriteLineAsync($"Error: there is no type {typeName} in module '{moduleName}' in this snapshot.").ConfigureAwait(false);

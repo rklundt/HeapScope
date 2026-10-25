@@ -158,7 +158,7 @@ internal static class RetentionMapping
 
             steps = CapSteps(steps);
             var rootDto = Root(graph, root);
-            var key = rootDto.Kind + "|" + (root.Root.Kind == RootKind.ThreadStack ? string.Empty : rootDto.Description) + "|" + string.Join(">", steps.Select(s => s.TypeName));
+            var key = PathRoots.GroupKey(root, PathRoots.Detail(graph, root)) + "|" + string.Join(">", steps.Select(s => s.TypeName));
             if (groups.TryGetValue(key, out var group))
             {
                 groups[key] = (group.Path, group.Count + 1);

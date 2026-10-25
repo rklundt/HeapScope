@@ -303,6 +303,26 @@ public sealed class RetentionTests
     }
 
     [Fact]
+    public void Thread_statics_on_several_threads_are_one_key_path_and_an_unnamed_static_says_why()
+    {
+        // 2.2 review L8 and L10.
+        var builder = new SyntheticGraphBuilder();
+        for (var thread = 1; thread <= 3; thread++)
+        {
+            var holder = builder.Object("App.PerThread");
+            builder.Root(holder, RootKind.Other, $"thread static, thread 0x{thread}");
+            builder.Reference(holder, builder.Object("App.Item", 10));
+        }
+
+        using var graph = builder.Build();
+        var paths = KeyPaths.ForTypes(graph, RootPathTree.Build(graph, cancellationToken: Ct), TypeGroups.MatchTypes(graph, "App.Item", null, out _), cancellationToken: Ct);
+
+        paths.Paths.ShouldHaveSingleItem().Objects.ShouldBe(3);
+        PathRoots.Describe(new PathRoot(0, new GcRoot(0, RootKind.StaticField, RootFlags.Retaining, -1), false), null)
+            .ShouldBe("A static field (its name is not recorded in a gcdump)");
+    }
+
+    [Fact]
     public void Key_paths_beyond_the_limit_are_summed()
     {
         var builder = new SyntheticGraphBuilder();
