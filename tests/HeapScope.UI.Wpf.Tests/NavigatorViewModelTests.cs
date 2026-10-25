@@ -212,6 +212,110 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task The_retention_tab_loads_once_folds_framework_steps_and_opens_a_node()
+    {
+        var root = new PathRootDto(RootKindDto.StaticField, false, "Static field App.Program.s_cache");
+        _worker.Service.ObjectPaths = new ObjectPathsResult(
+        [
+            new RetentionNodeDto(0, -1, 0x1000, "App.Order", null, false, false, 0, null, 1, 0),
+            new RetentionNodeDto(1, 0, 0x7000, "System.Collections.Generic.List<App.Order>", "[0]", false, true, 1, null, 1, 0),
+            new RetentionNodeDto(2, 1, 0x8000, "System.Object[]", "_items", false, true, 2, null, 1, 0),
+            new RetentionNodeDto(3, 2, 0x9000, "App.Cache", "_list", false, false, 3, root, 1, 0),
+        ],
+        [3],
+        [new KeyPathDto(root, [new("App.Cache", false), new("System.Object[]", true), new("System.Collections.Generic.List<App.Order>", true)], "App.Order", 1, 40, 0x9000)],
+        true, false, 4, null, true, new ReverseIndexInfo(true, SnapshotMemoryMode.InMemory, 0, 1024, true), false, "No root reaches it.");
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        var obj = (ObjectViewModel)Navigator.Current;
+        await obj.LoadTask;
+
+        obj.ReferencesTab = 2;
+        await obj.RetentionTask;
+        obj.ReferencesTab = 0;
+        obj.ReferencesTab = 2;
+
+        _worker.Service.ObjectPathQueries.ShouldHaveSingleItem().Address.ShouldBe(0x1000UL);
+        obj.RetentionStatus.ShouldBe(string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{1:N0} roots hold this object."));
+        obj.KeyPaths.ShouldHaveSingleItem().PathText.ShouldBe("App.Cache > (2 framework types) > App.Order");
+        var target = obj.RetentionTree.ShouldHaveSingleItem();
+        var cache = target.Children.ShouldHaveSingleItem();
+        cache.Text.ShouldBe("(2 framework objects) _list of App.Cache");
+        cache.Root.ShouldBe("Static field App.Program.s_cache");
+
+        obj.ShowFrameworkSteps = true;
+        obj.RetentionTree[0].Children[0].Text.ShouldBe("[0] of System.Collections.Generic.List<App.Order>");
+        obj.KeyPaths[0].PathText.ShouldBe("App.Cache > System.Object[] > System.Collections.Generic.List<App.Order> > App.Order");
+
+        obj.OpenCommand!.Execute(cache);
+        Navigator.Current.ShouldBeOfType<ObjectViewModel>().Address.ShouldBe(0x9000UL);
+    }
+
+    [Fact]
+    public async Task The_retention_tab_shows_a_worker_error_and_a_tree_with_two_roots_in_order()
+    {
+        // Review M8.
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        var failing = (ObjectViewModel)Navigator.Current;
+        await failing.LoadTask;
+        _worker.Service.ObjectPathsFailure = new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.InsufficientMemory, "Not enough memory.", null);
+
+        failing.ReferencesTab = 2;
+        await failing.RetentionTask;
+
+        failing.RetentionStatus.ShouldBe("Not enough memory.");
+        failing.RetentionTree.ShouldBeEmpty();
+
+        _worker.Service.ObjectPathsFailure = null;
+        var a = new PathRootDto(RootKindDto.StaticField, false, "Static field App.s_a");
+        var b = new PathRootDto(RootKindDto.ThreadStack, false, "Local variable or argument on thread 0x1");
+        _worker.Service.ObjectPaths = new ObjectPathsResult(
+        [
+            new RetentionNodeDto(0, -1, 0x1000, "App.Order", null, false, false, 0, null, 2, 0),
+            new RetentionNodeDto(1, 0, 0x2000, "App.Cache", "_order", false, false, 1, a, 1, 0),
+            new RetentionNodeDto(2, 0, 0x3000, "App.Node", "_value", false, false, 1, null, 1, 41),
+            new RetentionNodeDto(3, 2, 0x4000, "App.Worker", "_head", false, false, 2, b, 1, 0),
+        ],
+        [1, 3], [], true, false, 4, null, true, new ReverseIndexInfo(true, SnapshotMemoryMode.InMemory, 0, 1024, true), false, "No root reaches it.");
+        Navigator.BackCommand.Execute(null);
+        instances.OpenRowCommand!.Execute(instances.Rows.GetRow(1));
+        await instances.Rows.WhenLoadedAsync();
+        var obj = (ObjectViewModel)Navigator.Current;
+        await obj.LoadTask;
+
+        obj.ReferencesTab = 2;
+        await obj.RetentionTask;
+
+        var holders = obj.RetentionTree.ShouldHaveSingleItem().Children;
+        holders.Select(h => h.Text).ShouldBe(["_order of App.Cache", "_value of App.Node (and 41 more of this type)"]);
+        holders[1].Children.ShouldHaveSingleItem().Root.ShouldBe("Local variable or argument on thread 0x1");
+    }
+
+    [Fact]
+    public async Task Why_alive_lists_a_types_key_paths_whose_rows_open_an_example()
+    {
+        _worker.Service.TypePaths.Add(new KeyPathDto(
+            new PathRootDto(RootKindDto.StaticField, false, "Static field App.s_orders"), [new("App.Cache", false)], "App.Order", 5, 200, 0x2000));
+        var instances = await OpenInstancesAsync();
+
+        instances.WhyAliveCommand!.Execute(null);
+        var paths = Navigator.Current.ShouldBeOfType<TypePathsViewModel>();
+        await paths.LoadTask;
+
+        Navigator.IsTypePathsShown.ShouldBeTrue();
+        paths.Title.ShouldBe("Why alive: App.Order [App.dll]");
+        _worker.Service.TypePathQueries.ShouldHaveSingleItem().ShouldBe(new TypePathsRequest(_snapshots.Selected!.Handle.Descriptor.SnapshotId, "App.Order", "App.dll", 20));
+        var row = paths.Paths.ShouldHaveSingleItem();
+        (row.Objects, row.Bytes, row.Root, row.PathText).ShouldBe((5L, 200L, "Static field App.s_orders", "App.Cache > App.Order"));
+        paths.Totals!.ShouldContain("2 not reachable from any root");
+        paths.Status.ShouldBeNull();
+
+        paths.OpenRowCommand!.Execute(row);
+        Navigator.Current.ShouldBeOfType<ObjectViewModel>().Address.ShouldBe(0x2000UL);
+    }
+
+    [Fact]
     public async Task Referenced_by_lists_referrer_types_whose_rows_open_their_objects()
     {
         _worker.Service.TypeReferrerRows.Add(["App.Cache", "App.dll", "1", "2", "2", "100"]);

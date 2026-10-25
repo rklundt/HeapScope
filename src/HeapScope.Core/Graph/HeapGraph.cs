@@ -64,8 +64,10 @@ public sealed class HeapGraph : IDisposable
         StringTable strings,
         long droppedReferenceCount,
         long droppedRootCount,
-        IDisposable? owner)
+        IDisposable? owner,
+        Column<DependentHandle> dependentHandles)
     {
+        DependentHandles = dependentHandles;
         Addresses = columns.Addresses;
         TypeIndices = columns.TypeIndices;
         Sizes = columns.Sizes;
@@ -109,6 +111,12 @@ public sealed class HeapGraph : IDisposable
 
     public StringTable Strings { get; }
 
+    /// <summary>
+    /// The dependent handles merged into the CSR as edges, sorted by primary then secondary (sprint 2.2), so an edge can be
+    /// told apart from a field reference: <see cref="IsDependentHandleEdge"/>.
+    /// </summary>
+    public Column<DependentHandle> DependentHandles { get; }
+
     /// <summary>References whose target was not an object; dropped while building.</summary>
     public long DroppedReferenceCount { get; }
 
@@ -118,14 +126,15 @@ public sealed class HeapGraph : IDisposable
     /// <summary>Bytes held by the graph's columns (types, roots and strings excluded), the per-object budget's basis.</summary>
     public long ColumnBytes =>
         Addresses.ByteLength + TypeIndices.ByteLength + Sizes.ByteLength + HeapKinds.ByteLength + Flags.ByteLength
-        + EdgeStarts.ByteLength + Edges.ByteLength + LargeSizes.ByteLength;
+        + EdgeStarts.ByteLength + Edges.ByteLength + LargeSizes.ByteLength + DependentHandles.ByteLength;
 
     /// <summary>Sum of all shallow sizes, computed once at construction (immutable, safe for concurrent readers).</summary>
     public ulong TotalSize => _totalSize;
 
     /// <summary>
     /// Creates a graph from existing columns (builder, index cache). Validates shapes, not contents; content
-    /// integrity of persisted columns is guaranteed by checksums (ARCHITECTURE.md 7).
+    /// integrity of persisted columns is guaranteed by checksums (ARCHITECTURE.md 7). <paramref name="dependentHandles"/>
+    /// must be sorted by primary, then secondary.
     /// </summary>
     public static HeapGraph FromColumns(
         HeapGraphColumns columns,
@@ -134,7 +143,8 @@ public sealed class HeapGraph : IDisposable
         StringTable strings,
         long droppedReferenceCount,
         long droppedRootCount,
-        IDisposable? owner)
+        IDisposable? owner,
+        Column<DependentHandle> dependentHandles = default)
     {
         ArgumentNullException.ThrowIfNull(types);
         ArgumentNullException.ThrowIfNull(roots);
@@ -156,7 +166,15 @@ public sealed class HeapGraph : IDisposable
             throw new ArgumentException("EdgeStarts must start at 0 and end at the edge count.", nameof(columns));
         }
 
-        return new HeapGraph(columns, types, roots, strings, droppedReferenceCount, droppedRootCount, owner);
+        foreach (var handle in dependentHandles.Span)
+        {
+            if ((uint)handle.Primary >= (uint)count || (uint)handle.Secondary >= (uint)count)
+            {
+                throw new ArgumentException("A dependent handle names an object outside the graph.", nameof(dependentHandles));
+            }
+        }
+
+        return new HeapGraph(columns, types, roots, strings, droppedReferenceCount, droppedRootCount, owner, dependentHandles);
     }
 
     /// <summary>Shallow size of an object, including objects of 4 GiB or more.</summary>
@@ -172,6 +190,10 @@ public sealed class HeapGraph : IDisposable
         var starts = EdgeStarts.Span;
         return Edges.Span[starts[objectIndex]..starts[objectIndex + 1]];
     }
+
+    /// <summary>Whether the edge <paramref name="primary"/> -> <paramref name="secondary"/> comes from a dependent handle.</summary>
+    public bool IsDependentHandleEdge(int primary, int secondary) =>
+        DependentHandles.Span.BinarySearch(new DependentHandleKey(primary, secondary)) >= 0;
 
     /// <summary>Finds the object at exactly <paramref name="address"/>.</summary>
     public bool TryGetIndex(ulong address, out int objectIndex)
@@ -243,6 +265,12 @@ public sealed class HeapGraph : IDisposable
         }
 
         _owner?.Dispose();
+    }
+
+    private readonly struct DependentHandleKey(int primary, int secondary) : IComparable<DependentHandle>
+    {
+        public int CompareTo(DependentHandle other) =>
+            primary != other.Primary ? primary.CompareTo(other.Primary) : secondary.CompareTo(other.Secondary);
     }
 
     private ulong FindLargeSize(int objectIndex)

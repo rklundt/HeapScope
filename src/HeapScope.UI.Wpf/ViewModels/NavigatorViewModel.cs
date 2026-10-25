@@ -77,6 +77,13 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Whether a type's referrers are the current subject (sprint 2.1).</summary>
     public bool IsTypeReferrersShown => Current is TypeReferrersViewModel;
 
+    /// <summary>Whether a type's retention paths are the current subject (sprint 2.2).</summary>
+    public bool IsTypePathsShown => Current is TypePathsViewModel;
+
+    /// <summary>The type paths shown last (the view's data; kept while another subject is shown).</summary>
+    [ObservableProperty]
+    private TypePathsViewModel? _shownTypePaths;
+
     /// <summary>The type referrers shown last (the view's data; kept while another subject is shown).</summary>
     [ObservableProperty]
     private TypeReferrersViewModel? _shownTypeReferrers;
@@ -108,6 +115,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         ShownInstances = null;
         ShownObject = null;
         ShownTypeReferrers = null;
+        ShownTypePaths = null;
         Move(0);
     }
 
@@ -117,6 +125,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, _loggers?.CreateLogger<InstancesViewModel>());
         instances.OpenRowCommand = OpenInstanceRowCommand;
         instances.ReferencedByCommand = OpenReferencedByCommand;
+        instances.WhyAliveCommand = OpenWhyAliveCommand;
         Push(instances);
         instances.Start();
         return instances;
@@ -140,6 +149,16 @@ public sealed partial class NavigatorViewModel : ObservableObject
         Push(referrers);
         referrers.Start();
         return referrers;
+    }
+
+    /// <summary>Shows why the objects of a type in <paramref name="snapshot"/> are alive (sprint 2.2).</summary>
+    public TypePathsViewModel OpenTypePaths(SnapshotHandle snapshot, string typeName, string? module)
+    {
+        var paths = new TypePathsViewModel(_session, snapshot, typeName, module, _loggers?.CreateLogger<TypePathsViewModel>());
+        paths.OpenRowCommand = OpenKeyPathCommand;
+        Push(paths);
+        paths.Start();
+        return paths;
     }
 
     [RelayCommand(CanExecute = nameof(CanGoBack))]
@@ -184,6 +203,24 @@ public sealed partial class NavigatorViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void OpenWhyAlive()
+    {
+        if (Current is InstancesViewModel instances)
+        {
+            OpenTypePaths(instances.Snapshot, instances.TypeName, instances.Module);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenKeyPath(KeyPathItem? row)
+    {
+        if (row is { Address: not 0 } && Current is TypePathsViewModel paths)
+        {
+            OpenObject(paths.Snapshot, row.Address);
+        }
+    }
+
+    [RelayCommand]
     private void OpenTypeReferrerRow(TypeReferrerRowItem? row)
     {
         if (row is { IsLoaded: true } && Current is TypeReferrersViewModel referrers)
@@ -199,6 +236,8 @@ public sealed partial class NavigatorViewModel : ObservableObject
         {
             ReferenceRowItem { IsLoaded: true } reference => reference.Address,
             ReferrerRowItem { IsLoaded: true } referrer => referrer.Address,
+            RetentionNodeItem node => node.Address,
+            KeyPathItem path => path.Address,
             FieldNode { IsLink: true } field => field.Address,
             _ => 0UL,
         };
@@ -243,12 +282,16 @@ public sealed partial class NavigatorViewModel : ObservableObject
             case TypeReferrersViewModel referrers:
                 ShownTypeReferrers = referrers;
                 break;
+            case TypePathsViewModel paths:
+                ShownTypePaths = paths;
+                break;
         }
 
         OnPropertyChanged(nameof(IsTypesShown));
         OnPropertyChanged(nameof(IsInstancesShown));
         OnPropertyChanged(nameof(IsObjectShown));
         OnPropertyChanged(nameof(IsTypeReferrersShown));
+        OnPropertyChanged(nameof(IsTypePathsShown));
         OnPropertyChanged(nameof(Trail));
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
@@ -268,6 +311,9 @@ public sealed partial class NavigatorViewModel : ObservableObject
                 break;
             case TypeReferrersViewModel referrers:
                 referrers.Close();
+                break;
+            case TypePathsViewModel paths:
+                paths.Close();
                 break;
         }
     }

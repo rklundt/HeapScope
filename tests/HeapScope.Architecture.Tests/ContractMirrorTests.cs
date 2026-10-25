@@ -50,6 +50,15 @@ public class ContractMirrorTests
     }
 
     [Fact]
+    public void Root_kind_dto_mirrors_root_kind()
+    {
+        var core = Enum.GetValues<HeapScope.Core.Graph.RootKind>().ToDictionary(v => v.ToString(), v => (int)v);
+        var wire = Enum.GetValues<RootKindDto>().ToDictionary(v => v.ToString(), v => (int)v);
+
+        wire.ShouldBe(core);
+    }
+
+    [Fact]
     public void Group_key_mirrors_type_grouping()
     {
         var analysis = Enum.GetValues<HeapScope.Analysis.GroupKey>().ToDictionary(v => v.ToString(), v => (int)v);

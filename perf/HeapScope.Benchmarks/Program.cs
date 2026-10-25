@@ -34,6 +34,7 @@ var benchmarks = new Dictionary<string, Func<BenchmarkArgs, int>>(StringComparer
     ["trace-report"] = TraceReport.Run,
     ["phase2-indices"] = Phase2IndexBenchmark.Run,
     ["reverse-index"] = ReverseIndexBenchmark.Run,
+    ["retention"] = RetentionBenchmark.Run,
 };
 
 if (args.Length == 0 || !benchmarks.TryGetValue(args[0], out var run))

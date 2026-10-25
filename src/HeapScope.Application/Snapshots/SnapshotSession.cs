@@ -347,6 +347,20 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         return new TypeReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
     }
 
+    /// <summary>
+    /// Why one object is alive (sprint 2.2): its shortest paths from up to <paramref name="maxRoots"/> roots. The first such
+    /// query of a snapshot builds its reverse references index, or opens it from its sidecar.
+    /// </summary>
+    public Task<ObjectPathsResult> QueryObjectPathsAsync(SnapshotHandle handle, ulong address, int maxRoots, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.QueryObjectPathsAsync(new ObjectPathsRequest(id, address, maxRoots), progress, ct), cancellationToken);
+
+    /// <summary>Why the objects of a type are alive (sprint 2.2): their key retention paths, largest first.</summary>
+    public Task<TypePathsResult> QueryTypePathsAsync(SnapshotHandle handle, string typeName, string? module, int maxPaths, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        return UseAsync(handle, (service, id, ct) => service.QueryTypePathsAsync(new TypePathsRequest(id, typeName, module, maxPaths), progress, ct), cancellationToken);
+    }
+
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
     public Task<ResultSetInfo> GetTypeSummaryAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.GetTypeSummaryAsync(id, ct), cancellationToken);

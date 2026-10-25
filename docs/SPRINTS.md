@@ -23,7 +23,7 @@ everything else.
 | 1.8 | gcdump support | Closed | 2026-10-24 | sprint-1.8 |
 | 1.9 | Phase 1 hardening | Closed | 2026-10-24 | sprint-1.9 |
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
-| 2.2 | Retention paths | Planned | | |
+| 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
@@ -1465,9 +1465,82 @@ label on the ConditionalWeakTable known answer.
 
 **Dependencies**: 2.1.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [x] Dependent-handle edges recorded: `HeapGraphBuilder` keeps the sorted (primary, secondary) pairs it merged into the
+   CSR, `HeapGraph.DependentHandles` and `IsDependentHandleEdge`, a base cache section and format version 2 (older caches
+   are rebuilt once). Tests: builder and synthetic graphs, cache round trip in both modes, a version 1 cache refused.
+2. [x] Referrers label dependent-handle edges "(dependent handle)" when no field holds the object (2.1 review M4). Tests:
+   worker source test; the ConditionalWeakTable known answer in the integration tests.
+3. [x] Analysis: plain-language root descriptions (`RootDescriptions`); `RetentionSearch`, a backward breadth-first search
+   from one object over the reverse index that stops at retaining roots and frozen objects, finding up to N roots with
+   their shortest paths merged into one tree; `RootPathTree`, one forward breadth-first search from every retaining root
+   (static fields first) and every frozen object, giving each object its shortest path from a root; `KeyPaths`, a type's
+   objects grouped by the type sequence of their shortest path (repeats of one type folded, framework steps marked).
+   Tests: chain, diamond, cycle, self loop, unreachable objects, a frozen holder, a static field preferred over the
+   storage handle, a dependent-handle step, repeated types, search budgets.
+4. [x] Worker and Contracts (protocol 8): `QueryObjectPathsAsync` (the merged tree with fields named on full dumps and the
+   key paths among the roots found) and `QueryTypePathsAsync` (key paths with object counts, bytes and an example object,
+   plus the unreachable objects); the root path tree as a derived slot with shared progress. Tests: worker tests on
+   synthetic snapshots; unknown address and type.
+5. [x] Application and CLI: `SnapshotSession` methods; `heapscope-cli paths <snapshot> --address <hex> | --type <name>
+   [--module] [--max N] [--format text|json]`. Tests: CLI integration on a full dump and a gcdump.
+6. [x] UI: the object view's Retention tab (key paths and the merged tree toward the roots, loaded when first shown) and
+   the instances view's "Why alive" subject (a type's key paths, a row opens its example object). Tests: view model tests;
+   `--smoke-open` on the Small dump.
+7. [x] Known answers: every rooted leak's item path matches its path shape and root kind, including the
+   ConditionalWeakTable step "(dependent handle)"; a type's key paths name the leak's root; late garbage is unreachable.
+8. [x] Measurement: the root path tree and the key paths on Medium and DenseHeap (time, memory), an object's paths query.
+9. [x] Docs: ARCHITECTURE (6.1, 6.4, 7, code map, protocol 8, section 10), DEVELOPER, CLAUDE.md.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Decisions** (Phase 2 autonomy, one sprint at a time: the product owner said "go" for 2.2 on 2026-10-24; each default
+below was decided autonomously)
+1. A shortest path counts references. Only retaining roots and frozen objects (never collected, 6.1) start paths; weak
+   handles never do. When several roots are equally close, static fields come first, then thread stacks, handles, the
+   finalizer queue, other roots and frozen objects, so a static's value is explained by its field and not by the
+   runtime's storage handle.
+2. An object's paths: up to 10 roots found by the backward search, which visits at most 1,000,000 objects; the result says
+   when the search stopped early. A root's own object has a path of length zero.
+3. A type's key paths: the 20 largest groups by object count; the rest are summed in one line. Groups use the type
+   sequence of the shortest path, with repeats of one type folded (a long linked list is one step) and the root's kind
+   (and field, for statics).
+4. Framework noise: steps whose type is in a `System.` or `Microsoft.` namespace and lie between two other steps are marked
+   as framework steps; the UI and CLI fold a run of them into "(N framework objects)", which expands in the tree. The data
+   keeps every step.
+5. The root path tree (4 bytes per object) is kept in memory for the snapshot's lifetime, not written to disk in 2.2;
+   building it needs one more 4 bytes per object for the queue.
+6. Dependent-handle pairs go into the base cache (a section, format version 2). Existing caches are rebuilt once on their
+   next open, as when the loader version was bumped.
+7. Field names on path steps for full dumps, with the 2.1 budget of array elements per query; gcdumps have none. A step
+   through a dependent handle with no field is labeled "(dependent handle)".
+8. Unreachable objects (garbage not yet collected in a full dump) get no path and say so; a type's key paths count them on
+   their own line.
+9. The acceptance check runs on the shared all-leaks LeakyConsole dump, whose leaks are the same `Fixtures.Leaks` code
+   LeakyApi runs (ADR-013).
+10. As before, Moderate review findings are decided with their recommendation and logged; the sprint stops and reports
+    after `/close-sprint`.
+
+**Review summary** (`docs/reviews/sprint-2.2.md`): 3 High, 9 Moderate, 19 Low after dedupe.
+
+All 3 Highs are fixed and confirmed:
+- H1: an object's tree had no size or depth limit. The worker now folds runs of one type, cuts long paths around a gap,
+  and stops at 2,000 nodes. Segments merge only when identical, and key path steps are capped at 64.
+- H2: a search stopped at its limit called a live object unreachable. Reachability now comes from the root path tree,
+  the search is pruned to reachable objects, and the tree's path is the fallback.
+- H3: the CLI tree printed holders under the wrong parent.
+
+All 9 Moderates were fixed, decided autonomously:
+- the root path tree is checked against the memory budget and its queue released;
+- one definition of path roots, with a semantics version;
+- unreachable explained by snapshot kind;
+- worker, root kind, gcdump CLI and view model tests;
+- the key paths memo capped and its stack reused;
+- cancellation per dequeue;
+- measurements re-run.
+
+Measured (32 GB machine), peak in memory and mapped:
+- Medium (57.5M objects): root path tree 0.8 to 1.2 s, key paths up to 1.7 s, an object's paths at most 6 ms; peak
+  2,802 MB and 1,197 MB.
+- DenseHeap: tree 1.6 to 2.3 s; peak 3,320 MB and 1,416 MB.
 
 ---
 

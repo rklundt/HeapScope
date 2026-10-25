@@ -385,7 +385,8 @@ public sealed class HeapGraphBuilder : IDisposable
                 strings,
                 DroppedReferenceCount,
                 DroppedRootCount,
-                _allocator.DetachOwner());
+                _allocator.DetachOwner(),
+                Column<DependentHandle>.FromArray([.. _dependentEdges.Distinct().Select(e => new DependentHandle(e.Primary, e.Secondary))]));
             _phase = BuildPhase.Built;
             return graph;
         }

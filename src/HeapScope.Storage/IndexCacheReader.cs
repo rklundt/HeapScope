@@ -238,7 +238,7 @@ public static class IndexCacheReader
     [
         IndexSection.LargeSizes, IndexSection.TypeNameIds, IndexSection.TypeMethodTables, IndexSection.TypeBaseSizes,
         IndexSection.TypeComponentSizes, IndexSection.TypeModuleIds, IndexSection.TypeKinds, IndexSection.Strings,
-        IndexSection.Metadata,
+        IndexSection.Metadata, IndexSection.DependentHandles,
     ];
 
     /// <summary>Builds the graph from columns plus the small sections (always copied into managed memory).</summary>
@@ -278,7 +278,8 @@ public static class IndexCacheReader
             strings,
             document.DroppedReferenceCount,
             document.DroppedRootCount,
-            owner);
+            owner,
+            Column<DependentHandle>.FromArray(MemoryMarshal.Cast<byte, DependentHandle>(small[IndexSection.DependentHandles]).ToArray()));
         return IndexCacheOpenResult.Opened(graph, document.Metadata, mode, identity);
     }
 

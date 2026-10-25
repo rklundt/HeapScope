@@ -161,7 +161,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   file's first bytes tell a minidump, `MDMP`, from a gcdump, a FastSerialization stream whose first object is a
   `GCHeapDump`) [1.8]. `Synthetic/`: `SyntheticGraphs` and `SyntheticGraphBuilder`, which also makes arrays and strings
   [1.6]. `Graph/ReverseReferences` (the incoming references CSR, built by counting and filling, or from an index file's
-  columns) and `HeapGraph.Attach` (an optional index is disposed with the graph, after the snapshot's last lease) [2.1].
+  columns) and `HeapGraph.Attach` (an optional index is disposed with the graph, after the snapshot's last lease) [2.1];
+  `DependentHandle` and `HeapGraph.DependentHandles` / `IsDependentHandleEdge` [2.2].
 - **Analysis.** `TypeAggregation`: one parallel pass over the objects, counting objects, shallow bytes and bytes per
   heap kind for every type, computed once per snapshot and kept on the snapshot's entry in the worker [1.3].
   `TypeGroups`: rows by type, namespace or assembly. Type rows are one per type table entry (method table), never merged
@@ -178,7 +179,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   reader ones in `ReaderInspections.cs` (empty and oversized collections, duplicate strings) [1.6, ADR-020].
   `IncomingReferences`: an object's distinct referrers with their reference counts, and a type's referrers grouped by
   their type name and module (referring objects, references, targets referenced, referrer bytes); `TypeGroups.MatchTypes`
-  finds the method tables of a type key (name and module file name), shared with instances [2.1].
+  finds the method tables of a type key (name and module file name), shared with instances [2.1]. `Retention/`:
+  `PathRoots` (where paths start, root priorities, roots in plain language), `RetentionSearch` (one object's paths),
+  `RootPathTree` and `KeyPaths` (a type's key retention paths) [2.2].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
   built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
@@ -207,7 +210,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances [1.5]. Referrers:
   `ReferrerColumns`, `TypeReferrerColumns`, `ReverseIndexInfo` (sidecar or built, mode, time, size, saved), the
   requests and results (with `CompleteGraph`), and the descriptor's `CacheIdentity`, which a reopen after a worker
-  restart compares (review M10) [2.1].
+  restart compares (review M10) [2.1]. `RetentionDtos.cs`: `RootKindDto`, `PathRootDto`, `RetentionNodeDto`,
+  `PathStepDto`, `KeyPathDto`, the object and type paths requests and results [2.2].
 - **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`: `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]; `WorkerService` in partial files
   by area: the worker's own calls and result pages (`WorkerService.cs`), snapshots, summaries and diffs, objects, and
   inspections [1.9]; `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources:
@@ -227,9 +231,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   M7). `ReverseIndexBuilder`: the reverse index opened from its sidecar or built, written as a sidecar, mapped when its
   mode says so, and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
   identity, fingerprint, memory mode and forced mode, and attaches the result to the graph [2.1].
+  `SnapshotStore.RootPaths.cs` (the root path tree slot), `WorkerService.Retention.cs` and `RetentionMapping` (roots,
+  fields, dependent-handle and framework marks on the wire) [2.2].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
-  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1]) and
+  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2]) and
   `ResultSetHandle` (section 4.6) [1.3 to 1.6]; `Sessions/`: `SessionLibrary`, `CaptureService` (per-kind capture settings in one table)
   [1.1, 1.9] and `TraceService` [1.5]; `Snapshots/GrowthThreshold` (the `--fail-on-growth` CI gate's limit, a size or a
   percent) [1.4]; `Monitoring/`: `HeapSample` (what front ends see), `ICounterSource`
@@ -248,7 +254,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   the views are built once with the window and the navigator swaps their data) [1.5]; the object's references as
   Outgoing and Incoming tabs (incoming loaded when its tab is first shown), the instances view's Referenced by, and
   `TypeReferrersViewModel` (a type's referrer types, whose rows open that type's objects) in `ReferrersViewModels.cs`
-  [2.1]; `InspectionsViewModel` (tiles,
+  [2.1]; the object view's Retention tab (key paths and the merged tree, framework runs folded unless shown) and the
+  instances view's Why alive (`TypePathsViewModel`) in `RetentionViewModels.cs` [2.2]; `InspectionsViewModel` (tiles,
   fragmentation bars, `InspectionRowItem`s) [1.6]; `LiveViewModel` and `SnapshotCard` [1.7]. `Views/`: `MainWindow`
   (the shell, the attribution strip, ADR-022) and `Pages/`, one resource dictionary per page and per Snapshots tab, with
   `Shared.xaml` for converters and styles [1.9]; the shell keeps every page once built (switching pages is a visibility
@@ -259,11 +266,12 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   smoke runs, out of `App` [1.9].
 - **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
-  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
+  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
   writer, rows keyed by column name with typed numbers) [1.9].
 - **perf/HeapScope.Benchmarks.** The budget benchmarks, the developer tool `trace-report` [1.5] and `phase2-indices`,
   the Phase 2 index prototype (section 6.4) [1.9]; `reverse-index`, the reverse references index of a real index cache
-  (build, sidecar write, reopen in both modes) [2.1].
+  (build, sidecar write, reopen in both modes) [2.1]; `retention`, the root path tree, key paths and object searches of
+  a real index cache [2.2].
 - **Fixtures.** The leak fixtures and known answers (ADR-013), `WasteFixtures` (LeakyConsole `--waste`) and `Waste.json`
   [1.6].
 - **build/.** The worker deployment targets and `gate.ps1`, the local full gate (DEVELOPER.md 2) [1.9].
@@ -418,6 +426,14 @@ Rules:
   types, their objects and the references into them; no index when no type matches) and
   `SnapshotDescriptor.CacheIdentity`. Both results say whether the graph is complete (`CompleteGraph`), since a sampled
   gcdump or a truncated dump can miss referrers.
+  Version 8 (sprint 2.2) added `QueryObjectPathsAsync` (`ObjectPathsRequest` with up to 50 roots; `ObjectPathsResult`:
+  the merged tree as `RetentionNodeDto`s with fields, dependent-handle and framework marks and `PathRootDto`s in plain
+  language, the roots, the key paths among them, whether the search stopped early) and `QueryTypePathsAsync`
+  (`TypePathsRequest` with up to 100 paths; `TypePathsResult`: `KeyPathDto`s with objects, bytes and an example, the
+  unreachable objects, the paths beyond the limit summed), and `RootKindDto` (mirrors `RootKind`). After the 2.2 review:
+  `RetentionNodeDto.Folded` (objects of one type folded into a node, or hidden behind a gap node),
+  `ObjectPathsResult.Truncated`, and `UnreachableNote` on both results (what unreachable means for the snapshot's
+  kind).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -628,6 +644,9 @@ Supporting tables:
   Exception (sprint 1.8 review M11): a gcdump records a dependent handle's value without its key, and only when the key
   was alive; every object in a gcdump survived its collection, so the gcdump loader records such a value as a retaining
   `Other` root ("dependent handle value (key not recorded)") rather than letting it look like garbage.
+  Since sprint 2.2 the graph also keeps the pairs it merged (`HeapGraph.DependentHandles`, sorted, persisted in the
+  index cache), so referrers and retention paths can say "(dependent handle)" for such an edge when no field of the
+  primary holds the secondary.
 - **Static fields.** On modern .NET the GC sees no static field roots: reference statics live in runtime
   allocated `object[]` storage. Measured on .NET 10 with the sprint 0.4 fixtures, that storage is reached through a
   **strong handle** (`StrongHandle -> System.Object[] -> static value`), not a pinned handle. The full dump loader
@@ -756,7 +775,44 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
   roots and frozen objects (chosen in sprint 1.9, measurements below).
 - **Field names on paths**: not stored. Retention paths resolve the referencing field on demand from the
   dump (full dumps only, capability `FieldValues`).
-- Worst case with all 2.x indices for 50M objects: about 62 bytes per object, about 3.1 GB.
+- **Retention paths** (built in sprint 2.2, `Analysis/Retention`): a path starts at a path root, an object held by a
+  retaining root or a frozen object (never collected, 6.1); weak handles never start one. At equal distance a better
+  root explains an object first: static fields, then thread stacks, handles, the finalizer queue, other roots, frozen
+  objects, so a static's value is explained by its field and not by the runtime's storage handle.
+  - Where paths start is defined once (`PathRoots.Sources`, with `PathRoots.SemanticsVersion` for anything kept that
+    depends on it; review M2): 2.3's dominators join their virtual root to exactly these objects.
+  - One object (`RetentionSearch`): whether a root reaches it comes from the root path tree below, which is exact
+    (review H2). A breadth-first search backward over the reverse index (2.1), pruned to objects the tree reaches, finds
+    the paths: it stops at path roots, finishes the distance at which it found 10 roots (the closest kept, better roots
+    first) and visits at most 1,000,000 objects; when it stops before any root, the tree's own path is shown instead and
+    the result says the search stopped early. The paths go on the wire as one tree from the object toward its roots,
+    built path by path (review H1): a run of objects of one type is one node with a folded count, a path of more than 64
+    segments keeps its ends around one "(N objects not shown)" node, segments merge only when they are the same objects,
+    and the tree stops before 2,000 nodes (the result says so). Key path steps are cut to 64 the same way. Fields are named on full dumps for at most 1,000 steps within the referrers' element budget; a step with
+    no field over a dependent-handle edge is marked as such. What "no root reaches it" means depends on the snapshot's
+    kind (review M3): garbage not yet collected in a full dump; a root the gcdump did not record in a gcdump, which
+    holds only survivors. The first object query of a snapshot therefore builds the root path tree as well as the
+    reverse index (about 1 to 2 s more on Medium and DenseHeap; review L17).
+  - The objects of a type (`RootPathTree`, `KeyPaths`): one breadth-first search forward from all path roots at once,
+    queued best root first, gives every object its shortest path from a root (4 bytes per object, kept in memory with
+    the snapshot as a derived slot, plus 4 per object while built; the worker refuses with InsufficientMemory when those
+    8 bytes per object do not fit what is left of its share, and returns the build queue to the OS afterwards without
+    compacting; review M1). A type's objects are grouped by the type sequence of
+    their path (repeats of one type folded, so a long list is one step) and the kind of root (and the field, for
+    statics): the 20 largest groups are its key retention paths, the rest summed, objects no root reaches counted
+    apart. Signatures are interned per path and remembered for the shared ancestors only, at most 8 million of them,
+    with one walk stack reused (review M5).
+  - Framework steps (types in `System.` or `Microsoft.` namespaces between other steps) are flagged; the UI and the CLI
+    fold runs of them unless asked to show them.
+  - Measured after the review fixes (`retention`, Release, 32 GB machine; the benchmark holds the graph, the reverse
+    index, the type aggregation and the tree together): Medium (57.5M objects) root path tree 0.8 to 1.2 s (219 MB), key
+    paths of `System.Byte[]` (16M objects, 108 paths) 1.6 to 1.7 s, of `System.String` (6.6M) 0.8 s, one object's paths
+    0 to 6 ms, an unreachable object's 0 ms; peak 2,802 MB with the graph in memory, 1,197 MB mapped. DenseHeap (54M
+    objects, 164M references, 50,006 dependent handles) tree 1.6 to 2.3 s, key paths 0.3 to 0.4 s, one object's paths 52
+    to 176 ms (about 570,000 objects visited after the one root, since no closer roots exist), an unreachable object's
+    1 ms; peak 3,320 MB in memory, 1,416 MB mapped. In the UI smoke run on the Small dump the tree took 0.2 to 0.4 s. Not
+    measured on a 16 GB machine.
+- Worst case with all 2.x indices for 50M objects: about 66 bytes per object (with 2.2's root path tree), about 3.3 GB.
 - Measured in sprint 1.9 (`phase2-indices` benchmark, a prototype of the reverse CSR, dominators from a virtual root
   joined to every retaining root and frozen object, and retained sizes; Release, Server GC, 32 GB machine; each phase
   starts after a compacting collection and reports its own peak private bytes). Semi-NCA dominators:
@@ -838,13 +894,14 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 
 - Location (`IndexCacheLocator`): `<snapshot path>.hsidx` next to the snapshot when that folder accepts a probe
   file; otherwise `%LOCALAPPDATA%\HeapScope\cache\<sha256 of the full path>.hsidx` (root configurable).
-- Layout (format version 1, little-endian):
+- Layout (format version 2 since sprint 2.2, little-endian):
   - Header region (4096 bytes): a 64 byte fixed header (magic `HSIDX`, format version, header region length,
     section count, snapshot fingerprint, XxHash3 checksum over header and directory), then the section
     directory (40 bytes per section: id, element size, offset, byte length, element count, XxHash3 checksum).
   - Sections, each aligned to 4096 bytes (ready for mapping): Addresses, TypeIndices, Sizes, HeapKinds,
     ObjectFlags, EdgeStarts, Edges, LargeSizes, Roots, the six type table columns, Strings (count, offsets,
-    UTF-8 bytes) and Metadata (UTF-8 JSON: `SnapshotInfo`, capabilities, writer version, dropped counts).
+    UTF-8 bytes), Metadata (UTF-8 JSON: `SnapshotInfo`, capabilities, writer version, dropped counts) and, since format
+    version 2, DependentHandles (the dependent-handle pairs, 8 bytes each). A version 1 cache is refused and rebuilt.
   - Section payloads use exactly the in-memory element layout (unmanaged structs with explicit padding fields,
     no compression), so mapped mode (ADR-015) hands a view straight to a `Column<T>`. Writing the same graph
     twice produces identical bytes.
@@ -1001,6 +1058,7 @@ Initial budgets (sprints refine them with measurements):
 | UI dispatcher block | never > 100 ms | every UI sprint |
 | Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); CLI `diff` of Medium against DenseHeap end to end from the index caches 2.8 to 2.9 s, of which the aggregations 0.05 to 0.08 s each (1.4) |
 | Phase 2 indices (reverse references, semi-NCA dominators, retained sizes; prototype, 1.9) | under 60 s and within the 4 GB worker budget on a Medium-scale real heap | Medium 9.5 s, peak 3,514 MB (met in memory); DenseHeap 12.9 s, peak 4,119 MB in memory (missed by 23 MB), 2,360 MB with the graph mapped (met); hence computation follows the memory mode (section 6.4) |
+| Retention paths (2.2, `retention` on real index caches) | the root path tree within the 60 s Phase 2 budget; a type's key paths and an object's paths interactive (under 5 s) | Medium tree 0.8 to 1.2 s (219 MB), key paths up to 1.7 s (16M objects), an object's paths at most 6 ms, peak 2,802 MB in memory and 1,197 MB mapped; DenseHeap tree 1.6 to 2.3 s, key paths at most 0.4 s, an object's paths at most 176 ms, peak 3,320 MB in memory and 1,416 MB mapped. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
 | Reverse references index (2.1, `reverse-index` on real index caches; the Release worker on DenseHeap) | built well inside the 60 s Phase 2 budget; worker within 4 GB | Medium 0.6 to 0.8 s, 470 MB, benchmark peak 2,423 MB in memory and 970 MB mapped; DenseHeap 0.8 to 1.7 s, 831 MB, benchmark peak 3,454 MB in memory and 1,695 MB mapped; worker peak commit 2,644 MB after building DenseHeap's index in memory, plus up to 512 MB of ClrMD cache when fields are named; reopen from the sidecar 0.1 to 1.1 s; releasing the built index 7 to 14 ms. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 

@@ -66,6 +66,14 @@ dotnet test --solution HeapScope.sln
   as `<snapshot>.rev.hsidx` next to the index cache; later runs reuse it. Exactly one of `--address` and `--type`, or exit
   64; a type or module that matches nothing exits 1 without building the index. On an incomplete snapshot (a sampled
   gcdump, a truncated dump) stderr says that referrers may be missing, and the JSON carries `CompleteGraph`.
+  `paths <snapshot> (--address <hex> | --type <name> [--module <file>]) [--max N] [--expand] [--format text|json]`
+  (sprint 2.2) explains why an object or a type's objects are alive: for an object, its key paths among up to N roots
+  (default 10, at most 50) and the merged tree from the object toward its roots, each step with the field holding the
+  next (full dumps) or "(dependent handle)"; for a type, its key retention paths (default 10, at most 100) with object
+  counts and bytes, and the objects no root reaches. Runs of framework steps are folded unless `--expand`; runs of one
+  type are always one line ("and N more of this type") and a very long path shows "(N objects not shown)" in its middle.
+  An unknown type or an address with no object exits 1, `--max` out of range exits 64; a snapshot whose index cache
+  predates format version 2 is rebuilt once on open.
   `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]` runs the simple inspections (sprint 1.6):
   without a name, every inspection with its time, finding and note (one line each); with a name
   (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
@@ -94,7 +102,8 @@ dotnet test --solution HeapScope.sln
   (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
   second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
-  also drills down (types, instances, object, the object's incoming references and the type's referrers; sprint 2.1),
+  also drills down (types, instances, object, the object's incoming references and retention paths, the type's
+  referrers and key paths; sprints 2.1 and 2.2),
   shows the Inspections tab ("Smoke inspections": every inspection's
   finding and time) and logs the open phase on its own line ("Smoke open phase"); add
   `--smoke-trace <file.nettrace>` to record a CPU trace of the UI during the run. The log records
@@ -110,7 +119,10 @@ dotnet test --solution HeapScope.sln
 - Inspection: in the Snapshot tab, double-click or Enter opens a type row's objects, an object, or a reference; Back
   and Forward (buttons, the mouse's back and forward buttons, Alt+Left and Alt+Right). An object's references have
   Outgoing and Incoming tabs (sprint 2.1; incoming is loaded when its tab is first shown); a type's objects have a
-  Referenced by button listing the types whose objects reference them, and a row there opens that type's objects. The instances filter is an
+  Referenced by button listing the types whose objects reference them, and a row there opens that type's objects.
+  The Retention tab (sprint 2.2) shows why the object is alive: key paths and a tree from the object toward its roots,
+  framework steps folded unless "Show framework steps"; a type's objects have a Why alive button listing their key
+  retention paths, and a row opens an example object. The instances filter is an
   address prefix (`0x1f2a`), a regular expression on the value (`/^Get.*Async$/`) or text in the value. The types grid's
   "Generations" checkbox shows bytes per generation.
 - Live (sprint 1.7): the Live page monitors a process (pick it, set the sample interval and the snapshot rules, Start):
@@ -253,6 +265,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   (used to set the incomplete-segment rule).
 - `phase2-indices`: the 1.9 prototype of the Phase 2 indices (reverse references, semi-NCA dominators, retained sizes)
   on synthetic shapes or an index cache (ARCHITECTURE.md 6.4).
+- `retention --cache <snapshot.hsidx> [--mode memory|mapped] [--types 3]` (sprint 2.2): the root path tree, the key
+  paths of the types with the most objects and one object's paths of each, with times and peak private bytes; exit 1
+  when the tree exceeds 60 s or a query 5 s.
 - `reverse-index --cache <snapshot.hsidx> [--mode memory|mapped] [--dir <folder>]` (sprint 2.1): opens a real index
   cache, builds its reverse references index, writes it as a sidecar (in `--dir`, deleted afterwards) and reopens it in
   both modes, with times and private bytes; exit 1 when the build exceeds 60 s or the peak 4 GB.

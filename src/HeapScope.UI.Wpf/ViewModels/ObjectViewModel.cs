@@ -157,9 +157,31 @@ public sealed partial class ObjectViewModel : ObservableObject
     [ObservableProperty]
     private string? _incomingStatus;
 
-    /// <summary>The references tab shown: 0 outgoing, 1 incoming (sprint 2.1). Showing incoming loads it once.</summary>
+    /// <summary>
+    /// The references tab shown: 0 outgoing, 1 incoming (sprint 2.1), 2 retention (sprint 2.2). Showing incoming or
+    /// retention loads it once.
+    /// </summary>
     [ObservableProperty]
     private int _referencesTab;
+
+    /// <summary>The object's key retention paths among the roots found (sprint 2.2).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<KeyPathItem> _keyPaths = [];
+
+    /// <summary>The merged paths from the object toward its roots: the object itself, holding its holders as children.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<RetentionNodeItem> _retentionTree = [];
+
+    /// <summary>What the paths say in a line, or why there are none, or the search's progress.</summary>
+    [ObservableProperty]
+    private string? _retentionStatus;
+
+    /// <summary>Shows every framework step instead of folding runs of them (decision 4).</summary>
+    [ObservableProperty]
+    private bool _showFrameworkSteps;
+
+    private ObjectPathsResult? _paths;
+    private bool _retentionStarted;
 
     public ObjectViewModel(SnapshotSession session, SnapshotHandle snapshot, ulong address, ILogger? logger = null)
     {
@@ -184,6 +206,9 @@ public sealed partial class ObjectViewModel : ObservableObject
 
     /// <summary>The incoming references load, once started (tests await it).</summary>
     public Task IncomingTask { get; private set; } = Task.CompletedTask;
+
+    /// <summary>The retention paths load, once started (tests and smoke runs await it).</summary>
+    public Task RetentionTask { get; private set; } = Task.CompletedTask;
 
     /// <summary>Loads the object and its references.</summary>
     public void Start()
@@ -215,6 +240,84 @@ public sealed partial class ObjectViewModel : ObservableObject
             _incomingStarted = true;
             IncomingTask = LoadIncomingAsync(_lifetime.Token);
         }
+        else if (value == 2 && !_retentionStarted)
+        {
+            _retentionStarted = true;
+            RetentionTask = LoadRetentionAsync(_lifetime.Token);
+        }
+    }
+
+    partial void OnShowFrameworkStepsChanged(bool value) => ShowPaths();
+
+    private async Task LoadRetentionAsync(CancellationToken cancellationToken)
+    {
+        RetentionStatus = "Finding the shortest paths from roots (the first query of a snapshot indexes its incoming references)...";
+        var finished = false;
+        var progress = new Progress<JobProgress>(p =>
+        {
+            if (!finished && !cancellationToken.IsCancellationRequested)
+            {
+                RetentionStatus = ReferrersText.Progress(p);
+            }
+        });
+        try
+        {
+            var paths = await _session.QueryObjectPathsAsync(Snapshot, Address, 10, progress, cancellationToken);
+            finished = true;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _paths = paths;
+            ShowPaths();
+            var notes = new List<string>();
+            notes.Add(paths.Reachable
+                ? string.Create(CultureInfo.CurrentCulture, $"{paths.RootNodeIds.Count:N0} roots hold this object{(paths.StoppedEarly ? "; the search stopped at its limit, so more may" : string.Empty)}.")
+                : paths.UnreachableNote);
+            if (paths.Truncated)
+            {
+                notes.Add("Only the closest roots are shown: the others' paths would make the tree too large.");
+            }
+
+            if (!paths.CompleteGraph)
+            {
+                notes.Add("This snapshot is incomplete, so some paths may be missing.");
+            }
+
+            if (paths.FieldsNote is { } why)
+            {
+                notes.Add(why);
+            }
+
+            RetentionStatus = string.Join(" ", notes);
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Left the history while loading.
+        }
+        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        {
+            finished = true;
+            RetentionStatus = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            finished = true;
+            _logger.LogError(ex, "Finding an object's retention paths failed");
+            RetentionStatus = "The retention paths could not be found. Details are in the log.";
+        }
+    }
+
+    private void ShowPaths()
+    {
+        if (_paths is null)
+        {
+            return;
+        }
+
+        KeyPaths = [.. _paths.KeyPaths.Select(p => new KeyPathItem(p, ShowFrameworkSteps))];
+        RetentionTree = [RetentionNodeItem.BuildTree(_paths.Nodes, ShowFrameworkSteps)];
     }
 
     private async Task LoadIncomingAsync(CancellationToken cancellationToken)

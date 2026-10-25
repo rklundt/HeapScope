@@ -133,6 +133,9 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     /// <summary>Opens who references this type's objects (sprint 2.1); set by the navigator.</summary>
     public System.Windows.Input.ICommand? ReferencedByCommand { get; set; }
 
+    /// <summary>Opens why this type's objects are alive (sprint 2.2); set by the navigator.</summary>
+    public System.Windows.Input.ICommand? WhyAliveCommand { get; set; }
+
     /// <summary>Runs the first query (after the navigator wires the drill-down command).</summary>
     public void Start() => Requery();
 
