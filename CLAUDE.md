@@ -27,7 +27,11 @@ resets it for the next sprint.
 - No code without an active sprint (status In Progress in SPRINTS.md).
 - Zero warnings; warnings are errors.
 - No em dashes or en dashes in any docs, code or UI text. Use a hyphen or a comma.
-- Never commit without `/close-sprint`. One commit and one annotated tag `sprint-X.Y` per sprint, on `main`.
+- Never commit without `/close-sprint`. One commit per sprint on `sprint/X.Y`, squash merged into `develop` by PR,
+  and one annotated tag `sprint-X.Y` on `develop`. Work outside a sprint that the owner asks for uses a short
+  `fix/...` or `chore/...` branch and a PR. `main` and `develop` change only by PR (a ruleset enforces it); releases
+  (`develop` to `main`, tag `vX.Y.0`) happen only when the owner says so (DEVELOPER.md 7).
+- The owner is the sole author: no Co-Authored-By or generated-by lines in commits, PR titles or PR bodies.
 - Never one managed object per heap object (ADR-005). Hot paths use spans, indices and pooled buffers.
 - Never upload or log snapshot contents. Dumps and index caches are sensitive.
 - Definition of Done (DEVELOPER.md 9): zero warnings, all tests pass, acceptance criteria met or deferred by
@@ -48,8 +52,8 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 1. `/start-sprint [id]`: analyze, ask, plan the tasks in SPRINTS.md, set In Progress.
 2. Implement task by task with tests, build green throughout.
 3. `/wrap-sprint`: build, test, three reviewers, fix High, decide Moderate, update docs, set Wrapping.
-4. `/close-sprint`: verify Definition of Done, check every doc describes what was built, set Closed, commit, tag,
-   reset `CURRENT-CONTEXT.md`.
+4. `/close-sprint`: verify Definition of Done, check every doc describes what was built, set Closed and the
+   version, commit on `sprint/X.Y`, PR into `develop`, merge (autonomous mode), tag, reset `CURRENT-CONTEXT.md`.
 5. Next sprint.
 
 ## Commands

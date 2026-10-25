@@ -1,6 +1,6 @@
 ---
 name: close-sprint
-description: Close the HeapScope sprint that is Wrapping. Verifies the Definition of Done item by item, sets the sprint Closed, commits to main as "Sprint X.Y: title", creates the annotated tag sprint-X.Y, and offers the next sprint.
+description: Close the HeapScope sprint that is Wrapping. Verifies the Definition of Done item by item, sets the sprint Closed and the version, commits on sprint/X.Y as "Sprint X.Y: title", opens the PR into develop, merges it in autonomous mode, tags sprint-X.Y on develop, and offers the next sprint.
 ---
 
 # /close-sprint
@@ -23,16 +23,24 @@ Follow these steps exactly.
    - The architecture test passed in the run above.
    - No em dashes or en dashes in changed files (search for U+2014 and U+2013).
    If anything is unmet, list exactly what is missing and stop. Do not close.
-2. **Status.** In SPRINTS.md set the sprint to Closed with today's date and the tag `sprint-X.Y`.
-3. **Commit.** `git add -A`, check `git status` shows no dumps, caches or logs, then commit to `main` with the
+2. **Status.** In SPRINTS.md set the sprint to Closed with today's date and the tag `sprint-X.Y`. Set
+   `<Version>X.Y.0</Version>` in `Directory.Build.props`.
+3. **Commit.** On `sprint/X.Y`: `git add -A`, check `git status` shows no dumps, caches, traces or logs, then commit with the
    subject `Sprint X.Y: <title>` and a short body: what was delivered and any deferred items.
-4. **Tag.** `git tag -a sprint-X.Y -m "Sprint X.Y: <title>"`.
-5. **Summarize.** What shipped, deferred items, the commit hash and the tag.
-6. **Reset the current context.** Rewrite `CURRENT-CONTEXT.md` (git-ignored, never committed) to the post-sprint
+   No Co-Authored-By or generated-by lines.
+4. **PR.** `git push -u origin sprint/X.Y`, then `gh pr create --base develop --title "Sprint X.Y: <title>"` with a
+   short body (what was delivered, deferred items, the gate result). No generated-by lines; no em or en dashes.
+5. **Merge and tag.** Only in autonomous mode (otherwise stop and ask the owner to merge, then continue here):
+   `gh pr merge --squash --delete-branch --subject "Sprint X.Y: <title>" --body "<the commit body>"`. Then
+   `git checkout develop`, `git pull --ff-only`, `git tag -a sprint-X.Y -m "Sprint X.Y: <title>"` on that commit and
+   `git push origin sprint-X.Y`. Never push to `main` or `develop` directly; releases to `main` happen only when the
+   owner says so (DEVELOPER.md 7).
+6. **Summarize.** What shipped, deferred items, the PR, the commit hash on `develop` and the tag.
+7. **Reset the current context.** Rewrite `CURRENT-CONTEXT.md` (git-ignored, never committed) to the post-sprint
    state: the sprint just closed with its commit and tag, the next sprint by id and title, the phase's autonomy and
    standing constraints, open backlog items relevant to the next sprint, and anything the human said that the docs do
    not hold. Drop the closed sprint's working notes.
-7. **Next.** Ask the human whether to start the next Planned sprint, naming it. If yes, run `/start-sprint`
+8. **Next.** Ask the human whether to start the next Planned sprint, naming it. If yes, run `/start-sprint`
    for it.
 
 ## Autonomous mode
