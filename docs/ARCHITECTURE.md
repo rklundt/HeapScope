@@ -181,12 +181,16 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   their type name and module (referring objects, references, targets referenced, referrer bytes); `TypeGroups.MatchTypes`
   finds the method tables of a type key (name and module file name), shared with instances [2.1]. `Retention/`:
   `PathRoots` (where paths start, root priorities, roots in plain language), `RetentionSearch` (one object's paths),
-  `RootPathTree` and `KeyPaths` (a type's key retention paths) [2.2].
+  `RootPathTree` and `KeyPaths` (a type's key retention paths) [2.2]; `DominatorTree` (semi-NCA and retained sizes into
+  spans the caller gives), `Dominators` (the kept columns, managed or from a sidecar) and `GroupRetention` (a group's
+  retained lower bound), with `TypeGroups.GroupOfType` numbering the groups of a grouping [2.3].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
   built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
   `TryGetSection<T>`), `IndexFileLayout` (the sections of the base cache and of each sidecar), `IndexFileDirectory` (the
-  header and directory checks both readers share) and `IndexCacheLocator.GetSidecarPath` [2.1].
+  header and directory checks both readers share) and `IndexCacheLocator.GetSidecarPath` [2.1]. `MappedIndexFileWriter`
+  (sections planned up front and filled in place through a read-write mapping of the temporary file, then hashed, header
+  last, rename) and the sidecar semantics version (`IndexFileLayout.SemanticsVersion`, checked on open) [2.3].
 - **Capture.** Process discovery and elevation, `DumpSizeEstimator` (the disk preflight's estimate) [1.1]; `DumpCapturer` (full dumps written by the runtime) and `GcDumpCapturer`
   (the vendored heap snapshot over EventPipe, failures classified, its log lines sent to the HeapScope log) [1.8], both
   writing through `PartialSnapshotFile` (reserve, never overwrite, commit by rename, discard with retries) [1.9];
@@ -211,7 +215,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `ReferrerColumns`, `TypeReferrerColumns`, `ReverseIndexInfo` (sidecar or built, mode, time, size, saved), the
   requests and results (with `CompleteGraph`), and the descriptor's `CacheIdentity`, which a reopen after a worker
   restart compares (review M10) [2.1]. `RetentionDtos.cs`: `RootKindDto`, `PathRootDto`, `RetentionNodeDto`,
-  `PathStepDto`, `KeyPathDto`, the object and type paths requests and results [2.2].
+  `PathStepDto`, `KeyPathDto`, the object and type paths requests and results [2.2]. `RetainedDtos.cs`:
+  `DominatorIndexInfo`, `RetainedRequest`, `RetainedResult`; the `Retained` columns and `IncludeRetained` flags of type
+  summaries and instances [2.3].
 - **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`: `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]; `WorkerService` in partial files
   by area: the worker's own calls and result pages (`WorkerService.cs`), snapshots, summaries and diffs, objects, and
   inspections [1.9]; `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources:
@@ -226,16 +232,20 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `Snapshots/`: `SnapshotStore` (open, cache, memory mode); `SnapshotKinds` (per kind: the loader and its version, the
   snapshot over a graph, the kind's notes) [1.9]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
   dropped in one step when it closes: each slot is one shared computation with its own lease and a token tied to the
-  snapshot's lifetime, so a caller that cancels only stops waiting [1.3]; the reverse references slot [2.1] (dominators
-  get theirs in 2.3), with `SharedProgress` sending the computation's progress to every caller waiting for it (review
-  M7). `ReverseIndexBuilder`: the reverse index opened from its sidecar or built, written as a sidecar, mapped when its
-  mode says so, and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
+  snapshot's lifetime, so a caller that cancels only stops waiting [1.3]; the reverse references slot [2.1] and the
+  dominators slot with the retained lower bounds per grouping [2.3], with `SharedProgress` sending the computation's
+  progress to every caller waiting for it (review M7). `ReverseIndexBuilder`: the reverse index opened from its sidecar,
+  or built straight into it [2.3] (in managed arrays when there is none), and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
   identity, fingerprint, memory mode and forced mode, and attaches the result to the graph [2.1].
   `SnapshotStore.RootPaths.cs` (the root path tree slot), `WorkerService.Retention.cs` and `RetentionMapping` (roots,
-  fields, dependent-handle and framework marks on the wire) [2.2].
+  fields, dependent-handle and framework marks on the wire) [2.2]. `SnapshotStore.Dominators.cs` (the dominators slot and
+  the group retention per grouping), `DominatorIndexBuilder` (the dominators opened from their sidecar or computed into
+  it, with the fallbacks) and `MemoryReservations` (the worker-wide memory check of the large derived computations,
+  with `Refusal`'s next steps) and `WorkerService.Retained.cs`; `TypeSummarySource` and `InstancesSource` add a retained column when
+  asked [2.3].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
-  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2]) and
+  snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
   `ResultSetHandle` (section 4.6) [1.3 to 1.6]; `Sessions/`: `SessionLibrary`, `CaptureService` (per-kind capture settings in one table)
   [1.1, 1.9] and `TraceService` [1.5]; `Snapshots/GrowthThreshold` (the `--fail-on-growth` CI gate's limit, a size or a
   percent) [1.4]; `Monitoring/`: `HeapSample` (what front ends see), `ICounterSource`
@@ -255,7 +265,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   Outgoing and Incoming tabs (incoming loaded when its tab is first shown), the instances view's Referenced by, and
   `TypeReferrersViewModel` (a type's referrer types, whose rows open that type's objects) in `ReferrersViewModels.cs`
   [2.1]; the object view's Retention tab (key paths and the merged tree, framework runs folded unless shown) and the
-  instances view's Why alive (`TypePathsViewModel`) in `RetentionViewModels.cs` [2.2]; `InspectionsViewModel` (tiles,
+  instances view's Why alive (`TypePathsViewModel`) in `RetentionViewModels.cs` [2.2]; the Retained sizes switch on the
+  types and instances grids (off by default, carried from the types grid into a type's objects) and the object's
+  retained size with its immediate dominator as a link in the Retention tab [2.3]; `InspectionsViewModel` (tiles,
   fragmentation bars, `InspectionRowItem`s) [1.6]; `LiveViewModel` and `SnapshotCard` [1.7]. `Views/`: `MainWindow`
   (the shell, the attribution strip, ADR-022) and `Pages/`, one resource dictionary per page and per Snapshots tab, with
   `Shared.xaml` for converters and styles [1.9]; the shell keeps every page once built (switching pages is a visibility
@@ -266,12 +278,13 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   smoke runs, out of `App` [1.9].
 - **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
-  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
+  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2], `--retained` on `summary`, `instances` and `object` with `StderrProgress` [2.3]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
   writer, rows keyed by column name with typed numbers) [1.9].
 - **perf/HeapScope.Benchmarks.** The budget benchmarks, the developer tool `trace-report` [1.5] and `phase2-indices`,
   the Phase 2 index prototype (section 6.4) [1.9]; `reverse-index`, the reverse references index of a real index cache
   (build, sidecar write, reopen in both modes) [2.1]; `retention`, the root path tree, key paths and object searches of
-  a real index cache [2.2].
+  a real index cache [2.2]; `dominators`, the reverse index and dominators as the worker computes them, in either mode
+  [2.3].
 - **Fixtures.** The leak fixtures and known answers (ADR-013), `WasteFixtures` (LeakyConsole `--waste`) and `Waste.json`
   [1.6].
 - **build/.** The worker deployment targets and `gate.ps1`, the local full gate (DEVELOPER.md 2) [1.9].
@@ -434,6 +447,12 @@ Rules:
   `RetentionNodeDto.Folded` (objects of one type folded into a node, or hidden behind a gap node),
   `ObjectPathsResult.Truncated`, and `UnreachableNote` on both results (what unreachable means for the snapshot's
   kind).
+  Version 9 (sprint 2.3) added `QueryRetainedAsync` (`RetainedRequest`; `RetainedResult`: the object's retained bytes,
+  its immediate dominator's address and type or that only the roots dominate it, the unreachable note,
+  `DominatorIndexInfo` and `CompleteGraph`), `IncludeRetained` on `TypeSummaryRequest` and `InstancesRequest` (a
+  `Retained` column; a type summary row's value is a lower bound, ADR-024) and `Dominators` (a `DominatorIndexInfo`) on
+  both results. The first retained query of a snapshot computes its dominators with progress; dominators that would not
+  fit the worker's budget fail with `InsufficientMemory`.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -464,7 +483,8 @@ pages being formatted from each set, and a set removed meanwhile has its owner (
 last of them (sprint 1.5 review H2). Paging has the worker's error contract, because instance pages read string
 values from the dump. Cells cross the pipe as invariant-culture strings with
 typed column descriptors (`ResultColumn`: Text, Integer, Bytes, Percent, Address, SignedInteger; one column may be
-flagged as the row key), which keeps paging generic. Unknown, released or evicted sets fail with `ResultSetNotFound`.
+flagged as the row key), which keeps paging generic. Any cell may be null, numeric ones included (sprint 2.3: the
+retained bytes of an object no root reaches); consumers show it blank and write it as JSON null. Unknown, released or evicted sets fail with `ResultSetNotFound`.
 Application's `ResultSetHandle` keeps the query that produced a set and re-runs it once when paging fails that way
 (eviction, or a worker restart through the snapshot session's reopen), so front ends page without knowing about
 eviction. A released handle is finished: paging throws and never re-runs the query, and a re-query in progress at the
@@ -713,7 +733,8 @@ column and reads each object by address (`heap.GetObject(address)`), not `Enumer
 
 Final columns are obtained from an `IColumnAllocator` given to the builder. Sprint 0.2 provides the managed
 array allocator; a file-backed allocator that writes columns straight into index cache sections can be added
-later (first load on memory constrained machines, Large tier) without changing the builder.
+later (first load on memory constrained machines, Large tier) without changing the builder. Sprint 2.3 built that kind of
+writer for the optional indices (`MappedIndexFileWriter`, section 7); the base graph still builds in managed arrays.
 
 Full dump loader (sprint 1.2, `HeapScope.Loaders.ClrMd`: `ClrMdDumpLoader`, `DacLocator`, `LocalOnlyFileLocator`):
 - ClrMD reads the dump through its lock-free memory-mapped reader (`DataTargetOptions.UseLockFreeMemoryMapReader`):
@@ -754,12 +775,12 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
   sidecar on later opens; without an index cache it stays in memory and is rebuilt on the next open. Its memory mode
   (`ReverseIndexBuilder.ChooseMode`, review M3): a forced open mode wins; next to a mapped graph it is mapped; next to an
   in-memory graph it stays in memory only when it fits both the memory available on the machine and what is left of
-  the worker's share of physical memory after what the worker already commits. To go mapped, the built index is
-  written, the sidecar is mapped, and only then are the built arrays dropped and returned by a non-compacting gen2
-  collection (no live graph array is copied; 7 to 14 ms measured); if the mapping fails the index stays in memory
-  (review M2). The index is still built in managed arrays first, so building it costs its size in private memory even
-  when it ends up mapped: writing optional indices straight into the sidecar file is a 2.3 decision, where the
-  dominators' working arrays make it matter. Every caller waiting for the shared build gets its progress (review M7),
+  the worker's share of physical memory after what the worker already commits. In 2.1 the index was built in managed
+  arrays, written, and dropped once the sidecar was mapped (review M2). Since sprint 2.3 (from the 2.1 review M2) it is
+  built straight into its sidecar (`ReverseReferences.Fill` into the sections of a `MappedIndexFileWriter`) and then
+  opened in its mode, so a mapped index never holds a managed copy (peak private bytes of the build: 29 to 31 MB on
+  Medium and DenseHeap, against 470 and 831 MB before); without an index cache, or when the sidecar cannot be written,
+  it is built in managed arrays and stays in memory. Every caller waiting for the shared build gets its progress (review M7),
   and the UI shows it. Measured on real index caches (`reverse-index`, Release, 32 GB machine, times vary by about 2x
   between runs): Medium (57.5M objects, 65.7M references) builds in 0.6 to 0.8 s, 470 MB, sidecar written in 0.6 to
   0.7 s, reopened in 0.1 to 0.2 s mapped (+1 to 6 MB private) or 0.2 to 0.4 s in memory (+472 MB); peak private bytes
@@ -770,9 +791,49 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
   1.45 s and the worker's peak commit after it was 2,644 MB; naming referrer fields then opens the dump reader, whose
   ClrMD cache is capped at 512 MB. Through the Debug worker on Medium (`referrers --type`): 2.6 s for the first query
   (build and sidecar write), 0.18 s on the next run from the sidecar. Not measured on a 16 GB machine.
-- **Dominators**: `int[] ImmediateDominator` and `ulong[] RetainedSize`, +12 bytes per object, computed
-  with iterative (non-recursive) semi-NCA over the CSR arrays and a virtual super-root connected to all retaining
-  roots and frozen objects (chosen in sprint 1.9, measurements below).
+- **Dominators** (built in sprint 2.3, `Analysis/Retention`, ADR-024): the immediate dominator (4 bytes) and the retained
+  size (8 bytes) per object, computed with semi-NCA (chosen in 1.9, measurements below) over the CSR and the reverse
+  index from a virtual root joined to exactly `PathRoots.Sources`, so paths and dominators agree on what is alive by
+  itself. An object no root reaches has `DominatorTree.Unreachable` and retains 0; an object only the roots dominate has
+  `DominatorTree.VirtualRoot`.
+  - `DominatorTree.Compute` fills spans the caller gives. Every step is iterative and stackless: the depth-first
+    numbering climbs back through the parents and keeps each vertex's next edge in an array used later for labels, and
+    the path compression reverses ancestor pointers on the way up instead of keeping the path (review M5: a circular
+    list makes one path as long as the list). The preorder numbers live in the immediate dominators output, and the
+    semidominators and ancestors (by preorder number minus one) in the retained sizes output, until each is needed
+    (review M4). Managed working arrays: 13 bytes per object (vertex, parent, label, a bit per root). Retained sizes are
+    summed in reverse preorder.
+  - The worker computes them on first use (decision 5): a retained column, an object's retained size
+    (`DominatorIndexBuilder`). A request is checked first, so a bad sort column, filter or type costs nothing (review
+    M7), and the working arrays are checked against the budget before the reverse index is built for them (review M1).
+    With an index cache they are computed straight into the sidecar `<snapshot>.dom.hsidx` (decision 3); the working
+    arrays are then collected and the sidecar opened in the mode `ReverseIndexBuilder.ChooseMode` picks with what the
+    worker commits at that moment. When the sidecar cannot be written, one another process just wrote (the UI and the
+    CLI on one dump) is used; otherwise, and without an index cache, they are computed in managed arrays, checked again
+    with the outputs counted. Every large computation of the worker (the root path tree, the dominators, the retained
+    sizes per group) reserves its memory in one `MemoryReservations` before allocating (review M2), so two first uses at
+    once cannot both pass against one reading; a refusal is InsufficientMemory with a next step that fits the snapshot
+    (reopen mapped only for an in-memory snapshot with an index cache, review M11). Each collects its working arrays
+    however it ends (review M3). A live in-memory graph is not switched to mapped (decision 4, ADR-015; Backlog). The
+    sidecar records `DominatorTree.SemanticsVersion` (`PathRoots.SemanticsVersion` and the algorithm's own), so one
+    computed under older rules is rebuilt.
+  - Caveats shown beside retained sizes (`DominatorIndexInfo.Note`, review M6): an incomplete snapshot misses
+    references, and a gcdump's survivors whose root it did not record retain nothing here; both can overstate the
+    retained sizes of objects that share them. Treating those survivors as extra sources is a Backlog item.
+  - A group's retained size (`GroupRetention`, decision 6) is a lower bound: the retained sizes of its objects that no
+    other object of the group dominates, found in one stackless walk of the dominator tree (12 bytes per object while it
+    runs) counting each group's objects on the current path; computed once per grouping and kept with the snapshot.
+    Objects held only by several of a group's objects together are not counted (the exact retention of a set is 2.4's).
+  - Measured after the review fixes (`dominators`, Release, 32 GB machine; mapped runs the worker's path with an index
+    cache, computing into sidecars; in memory runs its path without one, managed outputs; the graph, the reverse index
+    and the dominators are held together): Medium (57.5M objects) reverse index 0.7 s and dominators 3.2 s in memory
+    (peak 3,289 MB), 1.3 s and 4.3 s mapped (peak 699 MB; the reverse index build 30 MB); 658 MB kept, reopened mapped in
+    0.13 s; retained per type 2.0 to 2.2 s. DenseHeap (54.1M objects, 164M references) 0.8 s and 3.7 s in memory (peak
+    3,875 MB), 2.0 s and 5.0 s mapped (peak 661 MB); 619 MB kept; retained per type 1.0 to 1.2 s. Before the review the
+    working arrays took 21 bytes per object: peaks 3,702 and 4,285 MB in memory (DenseHeap over the 4 GB budget, as 1.9
+    predicted), 1,118 and 1,080 MB mapped. The 1.9 prototype took 7.4 s (Medium) and 10.5 s (DenseHeap) for the
+    dominators and retained sizes. In the UI smoke run on the Small dump (5.5M objects) the dominators took 1.45 s. Not
+    measured on a 16 GB machine, where the mapped computation's random writes to file-backed pages may page (Backlog).
 - **Field names on paths**: not stored. Retention paths resolve the referencing field on demand from the
   dump (full dumps only, capability `FieldValues`).
 - **Retention paths** (built in sprint 2.2, `Analysis/Retention`): a path starts at a path root, an object held by a
@@ -907,7 +968,8 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
     twice produces identical bytes.
 - Identity: the header checksum covers every section checksum, so it identifies the cache's content
   (`IndexCacheOpenResult.Identity`).
-- Optional indices (reverse references in 2.1, dominators in 2.3) go into **sidecar files** next to the base
+- Optional indices (reverse references in 2.1, dominators in 2.3: `app.dmp.dom.hsidx`, the immediate dominators and the
+  retained sizes) go into **sidecar files** next to the base
   cache (`app.dmp.rev.hsidx` beside `app.dmp.hsidx`; `IndexCacheLocator.GetSidecarPath`), in the same header and
   directory format, each recording the identity of the base cache it extends in the header's `BaseIdentity` (reserved
   and 0 before 2.1, and still 0 in a base cache, so the format version did not change) and the snapshot's fingerprint.
@@ -924,7 +986,14 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   `IndexCacheFile` opens any index file with the base cache's checks (sections read into arrays of their element size
   and verified in one pass in memory, so a section holds up to 2^31 - 1 elements like the graph's columns, review M1;
   verified sequentially, then viewed from a read-only mapping, when mapped) and hands sections out as columns
-  (`TryGetSection<T>`). `IndexCacheWriter.Write` returns the identity, and the worker's descriptor carries it
+  (`TryGetSection<T>`). Sprint 2.3 adds `MappedIndexFileWriter`, the same file computed in place: its sections are planned
+  up front, the temporary file is created at its final size and mapped read-write, the caller fills each section through
+  a span (the pages belong to the file, so the OS can write them out under pressure and no managed copy exists), and
+  `Commit` unmaps, hashes the sections with sequential reads, writes the header last, flushes and renames; it writes the
+  same bytes as `IndexCacheFileWriter`. A sidecar also records the version of the rules it was computed under in the
+  header's formerly reserved field (`IndexFileLayout.SemanticsVersion`, from the 2.1 review): a mismatch is refused like
+  an older format and the sidecar is rebuilt; base caches and reverse references sidecars keep 0, so the format version
+  did not change. `IndexCacheWriter.Write` returns the identity, and the worker's descriptor carries it
   (`CacheIdentity`, from the 1.2 review).
 - Fingerprint (`SnapshotFingerprint`): snapshot length, last write time UTC and an XxHash3 of the first and last
   MiB; any difference invalidates the cache.
@@ -1006,8 +1075,11 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - **Leases**: `GraphSnapshot.Dispose` never blocks; the last lease released disposes the graph (section 7).
 - **Libraries** (everything below UI): `ConfigureAwait(false)` on every await; every async method takes a
   `CancellationToken`.
-- **Worker**: StreamJsonRpc dispatches requests concurrently. Loading or building an index for a snapshot is
-  serialized per snapshot (`SemaphoreSlim`); read-only queries on a loaded snapshot run concurrently.
+- **Worker**: StreamJsonRpc dispatches requests concurrently. Loading a snapshot is serialized per snapshot
+  (`SemaphoreSlim`); read-only queries on a loaded snapshot run concurrently. Derived data (the type aggregation, the
+  reverse index, the root path tree, the dominators, the retained sizes per grouping) is one shared computation per
+  slot; slots can run at once, so those with large working arrays reserve their memory in one worker-wide
+  `MemoryReservations` first (sprint 2.3 review M2).
   CPU-heavy algorithms may use `Parallel.For` with explicit partitioning, never per-object tasks. Queries on
   mapped snapshots hold a lease for their whole duration (section 6.5). The per-snapshot type aggregation
   (sprint 1.3) is computed once, behind its own per-snapshot `SemaphoreSlim`, with `Parallel.For` over 1M-object
@@ -1059,6 +1131,7 @@ Initial budgets (sprints refine them with measurements):
 | Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); CLI `diff` of Medium against DenseHeap end to end from the index caches 2.8 to 2.9 s, of which the aggregations 0.05 to 0.08 s each (1.4) |
 | Phase 2 indices (reverse references, semi-NCA dominators, retained sizes; prototype, 1.9) | under 60 s and within the 4 GB worker budget on a Medium-scale real heap | Medium 9.5 s, peak 3,514 MB (met in memory); DenseHeap 12.9 s, peak 4,119 MB in memory (missed by 23 MB), 2,360 MB with the graph mapped (met); hence computation follows the memory mode (section 6.4) |
 | Retention paths (2.2, `retention` on real index caches) | the root path tree within the 60 s Phase 2 budget; a type's key paths and an object's paths interactive (under 5 s) | Medium tree 0.8 to 1.2 s (219 MB), key paths up to 1.7 s (16M objects), an object's paths at most 6 ms, peak 2,802 MB in memory and 1,197 MB mapped; DenseHeap tree 1.6 to 2.3 s, key paths at most 0.4 s, an object's paths at most 176 ms, peak 3,320 MB in memory and 1,416 MB mapped. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
+| Dominators and retained sizes (2.3, `dominators` on real index caches, the worker's paths) | under 60 s for a Medium-scale real heap; Medium within the 4 GB worker budget in both memory modes | After the review: Medium reverse index and dominators 3.9 s in memory (peak 3,289 MB), 5.6 s mapped (peak 699 MB); DenseHeap 4.6 s in memory (peak 3,875 MB) and 7.0 s mapped (peak 661 MB). Met for both in both modes on the 32 GB machine (DenseHeap in memory missed by 189 MB before the review's M4); the paging cost on a 16 GB machine is not measured (Backlog) |
 | Reverse references index (2.1, `reverse-index` on real index caches; the Release worker on DenseHeap) | built well inside the 60 s Phase 2 budget; worker within 4 GB | Medium 0.6 to 0.8 s, 470 MB, benchmark peak 2,423 MB in memory and 970 MB mapped; DenseHeap 0.8 to 1.7 s, 831 MB, benchmark peak 3,454 MB in memory and 1,695 MB mapped; worker peak commit 2,644 MB after building DenseHeap's index in memory, plus up to 512 MB of ClrMD cache when fields are named; reopen from the sidecar 0.1 to 1.1 s; releasing the built index 7 to 14 ms. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 
@@ -1156,8 +1229,8 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
   opt-in is off; with it on, ClrMD's own locator is used.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
-  contents. Its sidecars (sprint 2.1: `<snapshot>.rev.hsidx`, the reverse references) store object indices only and sit
-  next to it, beside the dump or under the fallback cache root; deleting a snapshot by hand means deleting its
+  contents. Its sidecars (sprint 2.1: `<snapshot>.rev.hsidx`, the reverse references; sprint 2.3: `<snapshot>.dom.hsidx`,
+  immediate dominators and retained sizes) store object indices and sizes only and sit next to it, beside the dump or under the fallback cache root; deleting a snapshot by hand means deleting its
   `.hsidx` files too (the backlog's delete feature covers them).
 - The UI and the CLI say once per capture that the dump contains secrets and where it was written.
 - Dumps live in the session folders under `%LOCALAPPDATA%\HeapScope\sessions` (inheriting the user-only ACL of the
@@ -1213,6 +1286,9 @@ sprint 0.1.
 - Consequences: a binary format to maintain; sensitive data on disk (section 12). Decided in sprint 0.5: the header is written last and
   the file renamed atomically; every section is verified on open; a mapped cache stays open and cannot be replaced;
   optional 2.x indices live in sidecar files that name the base cache by its identity (section 7).
+- Amended in sprint 2.3: a sidecar may be computed in place through a read-write mapping of its temporary file
+  (`MappedIndexFileWriter`), with the same header-last, flush and rename guarantee, and records the version of the rules
+  it was computed under, so one from older rules is rebuilt like one from an older loader.
 
 ### ADR-007 Out-of-process worker
 - Context: huge dumps can exhaust memory or crash a parser; the UI must never freeze or die with them.
@@ -1275,6 +1351,11 @@ sprint 0.1.
 - Consequences: index cache sections are page aligned and stored in the in-memory layout so they can be mapped
   without conversion; algorithms take spans only; the index cache moves from "nice to have" to required for
   mapped mode.
+- Amended in sprint 2.3: optional indices follow the snapshot's mode (`ReverseIndexBuilder.ChooseMode`) and, with an
+  index cache, are computed straight into their mapped sidecars, so a mapped computation holds only its working arrays.
+  The 1.9 decision to reconsider the graph's own mode when indices are computed is not built: an index whose working
+  arrays do not fit is refused with InsufficientMemory and a next step (decision 4); switching a live in-memory graph
+  to mapped is a Backlog item.
 
 ### ADR-016 Contracts owns the wire vocabulary (added in sprint 0.1)
 - Context: the UI must bind feature availability to snapshot capabilities (ADR-003), but UI.Wpf may only use
@@ -1426,6 +1507,24 @@ sprint 0.1.
   - Elevation: the worker inherits the front end's token, so it can capture what the front end could (ADR-014).
   - Schedule: with the gcdump scale item before any 2.x sprint that needs gcdumps above the cap.
   Capture keeps process discovery and full dump capture in the front end, where the runtime writes the file itself.
+
+### ADR-024 Retention semantics shared by paths and dominators (added in sprint 2.3)
+- Context: retention paths (2.2) and dominators (2.3) both answer "what keeps this alive", and the 2.2 review (L6)
+  asked for one written rule set before a second analysis relied on it.
+- Decision: one definition of what is alive by itself, `PathRoots.Sources`: objects held by a retaining root (weak handles
+  and dead ref-counted handles never are; 6.1) in priority order (static fields, thread stacks, handles, the finalizer
+  queue, other roots), then frozen objects, which are never collected. Retention paths start at these objects; the
+  dominators' virtual root has exactly these successors. Dependent handles are edges from primary to secondary, so a
+  `ConditionalWeakTable` value is retained by its key. An object these sources do not reach is unreachable: garbage not
+  yet collected in a full dump, an object whose root the gcdump did not record in a gcdump. A type's (or namespace's,
+  or assembly's) retained size is the lower bound of `GroupRetention`.
+- Versioning: `PathRoots.SemanticsVersion` changes with these rules; anything kept that depends on them records it (the
+  dominators sidecar records `DominatorTree.SemanticsVersion`, which includes it) and is rebuilt when it changes.
+- Consequences: a change to root semantics (a new root kind, collectible statics, a new kind of handle) is one change in
+  `PathRoots`, a version bump, and a rebuild of the kept dominators; paths and retained sizes cannot disagree about
+  what is alive. The known answers check paths against their path shapes and retained sizes against an independent
+  ClrMD walk that starts from the same sources (sprint 2.3: the first, middle and last item of every rooted fixture,
+  and the frozen literal, equal it).
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

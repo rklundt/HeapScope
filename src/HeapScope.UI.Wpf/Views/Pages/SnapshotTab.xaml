@@ -155,12 +155,17 @@
                   <CheckBox DockPanel.Dock="Left" Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center"
                             IsChecked="{Binding ShowGenerations}" IsEnabled="{Binding HasGenerations}"
                             ToolTip="Show bytes per generation (Gen0, Gen1, Gen2, LOH, POH, frozen) for every row." />
+                  <CheckBox DockPanel.Dock="Left" Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+                            IsChecked="{Binding ShowRetained}"
+                            ToolTip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
                   <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{DynamicResource Brush.Subtle}" TextTrimming="CharacterEllipsis" />
                 </DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
                            Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
                 <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
                            Visibility="{Binding GenerationsExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
+                <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                           Visibility="{Binding RetainedNote, Converter={StaticResource NotEmptyToVisibility}}" />
 
                 <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
                           GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
@@ -182,6 +187,8 @@
                     <DataGridTextColumn Header="Objects" Binding="{Binding Objects, StringFormat=N0}" Width="100" SortMemberPath="Objects" ElementStyle="{StaticResource NumberCell}" />
                     <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="130" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
                     <DataGridTextColumn Header="%" Binding="{Binding Percent, StringFormat=N2}" Width="60" CanUserSort="False" ElementStyle="{StaticResource NumberCell}" />
+                    <DataGridTextColumn Header="Retained" Binding="{Binding Retained, StringFormat=N0}" Width="130" SortMemberPath="Retained" ElementStyle="{StaticResource NumberCell}"
+                                        Visibility="{Binding Data.RetainedColumnShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
                     <DataGridTextColumn Header="Gen0" Binding="{Binding Gen0, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
                                         Visibility="{Binding Data.GenerationColumnsShown, Source={StaticResource Types}, Converter={StaticResource BoolToVisibility}}" />
                     <DataGridTextColumn Header="Gen1" Binding="{Binding Gen1, StringFormat=N0}" Width="110" CanUserSort="False" ElementStyle="{StaticResource NumberCell}"
@@ -201,11 +208,17 @@
             </Grid>
             <Grid Visibility="{Binding IsInstancesShown, Converter={StaticResource BoolToVisibility}}">
               <DockPanel DataContext="{Binding ShownInstances}">
+                <DockPanel.Resources>
+                  <ctl:BindingProxy x:Key="Instances" Data="{Binding}" />
+                </DockPanel.Resources>
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
                   <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Subtle}" />
                   <TextBox DockPanel.Dock="Left" Width="260" VerticalContentAlignment="Center"
                            Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
                            ToolTip="0x1f2a: address prefix. /pattern/: regular expression on the value. Anything else: text in the value (strings)." />
+                  <CheckBox DockPanel.Dock="Left" Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+                            IsChecked="{Binding ShowRetained}"
+                            ToolTip="Show the bytes each object alone keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
                   <Button DockPanel.Dock="Right" Content="Referenced by" Padding="8,1" Command="{Binding ReferencedByCommand}"
                           ToolTip="Which types' objects reference objects of this type" />
                   <Button DockPanel.Dock="Right" Content="Why alive" Padding="8,1" Margin="0,0,6,0" Command="{Binding WhyAliveCommand}"
@@ -216,6 +229,8 @@
                            Visibility="{Binding Status, Converter={StaticResource NotEmptyToVisibility}}" />
                 <TextBlock DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
                            Visibility="{Binding ValuesExplanation, Converter={StaticResource NotEmptyToVisibility}}" />
+                <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
+                           Visibility="{Binding RetainedNote, Converter={StaticResource NotEmptyToVisibility}}" />
                 <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
                           GridLinesVisibility="None" RowHeight="22" CanUserSortColumns="True" SelectionMode="Single"
                           EnableRowVirtualization="True" EnableColumnVirtualization="True"
@@ -227,6 +242,8 @@
                     <DataGridTextColumn Header="Address" Binding="{Binding AddressText}" Width="150" SortMemberPath="Address" FontFamily="Consolas" />
                     <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" SortMemberPath="Type" />
                     <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}" Width="110" SortMemberPath="Bytes" ElementStyle="{StaticResource NumberCell}" />
+                    <DataGridTextColumn Header="Retained" Binding="{Binding Retained, StringFormat=N0}" Width="120" SortMemberPath="Retained" ElementStyle="{StaticResource NumberCell}"
+                                        Visibility="{Binding Data.RetainedColumnShown, Source={StaticResource Instances}, Converter={StaticResource BoolToVisibility}}" />
                     <DataGridTextColumn Header="Generation" Binding="{Binding Generation}" Width="120" SortMemberPath="Generation" />
                     <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="2*" SortMemberPath="Value" />
                   </DataGrid.Columns>
@@ -342,6 +359,15 @@
                       <DockPanel Margin="0,4,0,0">
                         <TextBlock DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Subtle}"
                                    Visibility="{Binding RetentionStatus, Converter={StaticResource NotEmptyToVisibility}}" />
+                        <!-- Sprint 2.3: the retained size and the immediate dominator, a link to open it. -->
+                        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" TextWrapping="Wrap"
+                                   Visibility="{Binding RetainedSummary, Converter={StaticResource NotEmptyToVisibility}}">
+                          <Run Text="{Binding RetainedSummary, Mode=OneWay}" />
+                          <Hyperlink Command="{Binding OpenCommand}" CommandParameter="{Binding DominatorAddress}"
+                                     ToolTip="Open the immediate dominator: the closest object every path from a root to this one passes through">
+                            <Run Text="{Binding DominatorText, Mode=OneWay}" />
+                          </Hyperlink>
+                        </TextBlock>
                         <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps}" Margin="0,0,0,4"
                                   ToolTip="Runs of System and Microsoft objects between other steps are folded into one line unless shown." />
                         <DataGrid DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"

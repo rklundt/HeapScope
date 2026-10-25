@@ -236,8 +236,9 @@ internal static partial class CliCommands
         var dump = new Argument<FileInfo>("dump") { Description = "Path of the full memory dump (.dmp)." };
         var group = GroupOption();
         var filter = FilterOption();
-        var sort = new Option<string>("--sort") { Description = "Sort by bytes, count or name.", DefaultValueFactory = _ => "bytes" };
-        sort.AcceptOnlyFromAmong("bytes", "count", "name");
+        var sort = new Option<string>("--sort") { Description = "Sort by bytes, count, name or retained (adds the retained column).", DefaultValueFactory = _ => "bytes" };
+        sort.AcceptOnlyFromAmong("bytes", "count", "name", "retained");
+        var retained = RetainedOption("Add retained bytes per row: a lower bound, the bytes its objects keep alive that no other object of the row holds (computes the snapshot's dominators the first time, then reuses them).");
         var top = TopOption();
         var all = AllOption();
         var format = FormatOption();
@@ -247,6 +248,7 @@ internal static partial class CliCommands
         command.Options.Add(group);
         command.Options.Add(filter);
         command.Options.Add(sort);
+        command.Options.Add(retained);
         command.Options.Add(top);
         command.Options.Add(all);
         command.Options.Add(format);
@@ -260,13 +262,15 @@ internal static partial class CliCommands
             }
 
             var session = services().GetRequiredService<SnapshotSession>();
+            var sortName = parseResult.GetValue(sort);
             var summary = await session.QueryTypeSummaryAsync(
                 handle,
                 Enum.Parse<TypeGrouping>(parseResult.GetValue(group)!, ignoreCase: true),
                 parseResult.GetValue(filter),
-                parseResult.GetValue(sort) switch { "name" => TypeSummaryColumns.Name, "count" => TypeSummaryColumns.Objects, _ => TypeSummaryColumns.Bytes },
-                descending: parseResult.GetValue(sort) != "name",
-                progress: null,
+                sortName switch { "name" => TypeSummaryColumns.Name, "count" => TypeSummaryColumns.Objects, "retained" => TypeSummaryColumns.Retained, _ => TypeSummaryColumns.Bytes },
+                descending: sortName != "name",
+                includeRetained: parseResult.GetValue(retained) || sortName == "retained",
+                progress: parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null,
                 ct).ConfigureAwait(false);
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wanted = parseResult.GetValue(all) ? summary.Result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), summary.Result.Rows.TotalCount);
@@ -309,6 +313,19 @@ internal static partial class CliCommands
             await output.WriteLineAsync("Heap kinds: " + string.Join(", ", result.HeapKinds.Select(k => string.Create(CultureInfo.InvariantCulture, $"{k.Kind} {Mb(k.Bytes)}")))).ConfigureAwait(false);
         }
 
+        if (result.Dominators is { } dominators)
+        {
+            await output.WriteLineAsync(RetainedNote(dominators) + " Retained per row is a lower bound: what its objects keep alive that no other object of the row holds.").ConfigureAwait(false);
+            await output.WriteLineAsync($"{"Objects",14} {"Bytes",16} {"%",7} {"Retained",16}  Name").ConfigureAwait(false);
+            foreach (var row in rows)
+            {
+                await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                    $"{long.Parse(row[1]!, CultureInfo.InvariantCulture),14:N0} {long.Parse(row[2]!, CultureInfo.InvariantCulture),16:N0} {row[3],7} {long.Parse(row[4]!, CultureInfo.InvariantCulture),16:N0}  {row[0]}")).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         await output.WriteLineAsync($"{"Objects",14} {"Bytes",16} {"%",7}  Name").ConfigureAwait(false);
         foreach (var row in rows)
         {
@@ -316,6 +333,15 @@ internal static partial class CliCommands
                 $"{long.Parse(row[1]!, CultureInfo.InvariantCulture),14:N0} {long.Parse(row[2]!, CultureInfo.InvariantCulture),16:N0} {row[3],7}  {row[0]}")).ConfigureAwait(false);
         }
     }
+
+    /// <summary>The <c>--retained</c> option of summary, instances and object (sprint 2.3).</summary>
+    internal static Option<bool> RetainedOption(string description) => new("--retained") { Description = description };
+
+    /// <summary>One line on how the dominators were obtained and how much of the heap the roots reach.</summary>
+    internal static string RetainedNote(DominatorIndexInfo dominators) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"Retained sizes: dominators {(dominators.FromSidecar ? "opened from their saved file" : "computed")} in {dominators.Seconds:N1} s, {dominators.ReachableObjects:N0} objects reachable from the roots.")
+        + (dominators.Note is { } note ? " " + note : string.Empty);
 
     private static async Task WriteSummaryJsonAsync(TextWriter output, TypeSummaryResult result, SnapshotKindDto kind, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
@@ -331,6 +357,8 @@ internal static partial class CliCommands
             result.UnfilteredRows,
             MatchingRows = result.Rows.TotalCount,
             HeapKinds = result.HeapKinds.Select(k => new { Kind = k.Kind.ToString(), k.Objects, k.Bytes }),
+            RetainedIsLowerBound = result.Dominators is not null ? true : (bool?)null,
+            result.Dominators,
             Rows = JsonRows(columns, rows),
         };
         await WriteJsonAsync(output, document).ConfigureAwait(false);
@@ -598,6 +626,35 @@ internal static partial class CliCommands
             output.WriteLine(ProductInfo.Version);
             output.WriteLine(ProductInfo.AttributionWithUrl); // ADDITIONAL-TERMS.md 1.4
             return Success;
+        }
+    }
+
+    /// <summary>
+    /// Prints a worker call's progress phases to stderr (sprint 2.3: computing dominators takes seconds), each phase once
+    /// and its percentage at most every few seconds, so piped output stays readable.
+    /// </summary>
+    internal sealed class StderrProgress(TextWriter error) : IProgress<JobProgress>
+    {
+        private readonly Lock _gate = new();
+        private DateTime _lastWrite = DateTime.MinValue;
+        private string? _lastPhase;
+
+        public void Report(JobProgress value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            lock (_gate)
+            {
+                var now = DateTime.UtcNow;
+                if (value.Phase == _lastPhase && now - _lastWrite < TimeSpan.FromSeconds(2))
+                {
+                    return;
+                }
+
+                _lastWrite = now;
+                _lastPhase = value.Phase;
+                var percent = value.Total is > 0 ? string.Create(CultureInfo.InvariantCulture, $" {100.0 * value.Completed / value.Total.Value,5:N1}%") : string.Empty;
+                error.WriteLine(value.Phase + percent);
+            }
         }
     }
 

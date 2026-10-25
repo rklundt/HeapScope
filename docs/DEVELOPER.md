@@ -34,9 +34,11 @@ dotnet test --solution HeapScope.sln
   `worker ping`, `worker info`, `synthetic --objects N [--refs R] [--seed S] [--top T]`,
   `open <dump> [--rebuild] [--mode auto|memory|mapped] [--top N] [--no-overcommit]` (loads a full dump or reuses
   its index cache, prints the snapshot, notes and largest types), `summary <dump> [--group type|namespace|assembly]
-  [--filter text] [--sort bytes|count|name] [--top N | --all] [--format table|csv|json]` (the types summary with
-  bytes per heap kind; the filter follows the UI's rules; its JSON says the snapshot's `Kind` and whether its counts
-  include unreachable objects, `IncludesUnreachable`, true for a full dump only, sprint 1.9). Ctrl+C cancels; exit codes
+  [--filter text] [--sort bytes|count|name|retained] [--retained] [--top N | --all] [--format table|csv|json]` (the
+  types summary with bytes per heap kind; the filter follows the UI's rules; its JSON says the snapshot's `Kind` and
+  whether its counts include unreachable objects, `IncludesUnreachable`, true for a full dump only, sprint 1.9; with
+  `--retained` or `--sort retained`, sprint 2.3, a retained bytes column per row, a lower bound, and `Dominators` and
+  `RetainedIsLowerBound` in the JSON). Ctrl+C cancels; exit codes
   0 ok, 1 failure,
   64 usage, 130 canceled.
   `diff <baseline> <current> [--group] [--filter] [--sort bytes-delta|count-delta|bytes|count|baseline-bytes|baseline-count|name]
@@ -49,13 +51,17 @@ dotnet test --solution HeapScope.sln
   references) are printed to stderr for each side, and in the JSON, which also carries `BaselineKind`, `CurrentKind`,
   `BaselineIncludesUnreachable` and `CurrentIncludesUnreachable` (`IncludesUnreachable` is true only when both are,
   sprint 1.9).
-  `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value]
-  [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size, generation and a
-  string's text (first 100 characters) or an array's length. Without `--module` the type's only module is found from the
+  `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value|retained]
+  [--retained] [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size,
+  generation and a string's text (first 100 characters) or an array's length; with `--retained` (sprint 2.3) each
+  object's retained bytes, blank for an object no root reaches. Without `--module` the type's only module is found from the
   summary; a name in several modules asks for `--module`, an unknown name exits 1.
-  `object <dump> <address> [--references N] [--format text|json]` prints one object: type, size, generation, whether
-  a root holds it directly, a string's text, its fields as an indented tree (arrays show their first 100 elements) and
-  its first N outgoing references (default 50) named by field. The address is hex with or without `0x`; no object at it
+  `object <dump> <address> [--references N] [--retained] [--format text|json]` prints one object: type, size,
+  generation, whether a root holds it directly, a string's text, its fields as an indented tree (arrays show their first
+  100 elements) and its first N outgoing references (default 50) named by field; with `--retained` (sprint 2.3) its
+  retained bytes and its immediate dominator. The first retained query of a snapshot computes its dominators (seconds
+  on a Medium heap, phases on stderr) and saves them as `<snapshot>.dom.hsidx` next to the index cache; later runs reuse
+  them. The address is hex with or without `0x`; no object at it
   exits 1. A snapshot without field values (a gcdump) prints the object's graph facts and, on stderr, why the fields are
   missing, and exits 0. Both print dump contents (field values, strings) to the console only, never to the log.
   `referrers <snapshot> (--address <hex> | --type <name> [--module <file>] [--sort references|objects|targets|bytes|type])
@@ -265,6 +271,10 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   (used to set the incomplete-segment rule).
 - `phase2-indices`: the 1.9 prototype of the Phase 2 indices (reverse references, semi-NCA dominators, retained sizes)
   on synthetic shapes or an index cache (ARCHITECTURE.md 6.4).
+- `dominators --cache <snapshot.hsidx> [--mode memory|mapped] [--out <folder>]` (sprint 2.3): the worker's path on a
+  real index cache: the reverse references and the dominators, computed straight into sidecars (in `--out`, or a temporary
+  folder; only the two sidecars are deleted afterwards, and the folder only when the run made it) and mapped, or in managed arrays; the retained lower bounds per type; a reopen of the dominators sidecar.
+  Times and peak private bytes per phase; exit 1 when the indices exceed 60 s or the run's peak 4 GB.
 - `retention --cache <snapshot.hsidx> [--mode memory|mapped] [--types 3]` (sprint 2.2): the root path tree, the key
   paths of the types with the most objects and one object's paths of each, with times and peak private bytes; exit 1
   when the tree exceeds 60 s or a query 5 s.

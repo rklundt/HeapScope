@@ -37,22 +37,31 @@ public enum GroupKey
 /// One summary row: a type, namespace or assembly with its totals. Type rows also carry their raw type name and module
 /// file name (empty when none), the key that opens the row's instances (sprint 1.5).
 /// </summary>
-public sealed record SummaryRow(string Name, long Count, ulong Bytes, ulong[] BytesByKind, string? TypeName = null, string? Module = null);
+/// <param name="Retained">The row's retained bytes (sprint 2.3, a lower bound: <see cref="Retention.GroupRetention"/>), when asked for.</param>
+public sealed record SummaryRow(string Name, long Count, ulong Bytes, ulong[] BytesByKind, string? TypeName = null, string? Module = null, ulong? Retained = null);
 
 /// <summary>Builds summary rows from a <see cref="TypeAggregation"/> (sprint 1.3).</summary>
 public static class TypeGroups
 {
     /// <summary>
     /// Rows for every present type (one per type table entry, never merged by name), or merged per namespace or
-    /// assembly.
+    /// assembly. <paramref name="retainedByGroup"/>, when given, holds each group's retained bytes in the numbering of
+    /// <see cref="GroupOfType"/> and fills <see cref="SummaryRow.Retained"/>.
     /// </summary>
-    public static List<SummaryRow> Build(HeapGraph graph, TypeAggregation aggregation, GroupKey groupBy)
+    public static List<SummaryRow> Build(HeapGraph graph, TypeAggregation aggregation, GroupKey groupBy, ulong[]? retainedByGroup = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(aggregation);
         if (groupBy == GroupKey.Type)
         {
-            return ByType(graph, aggregation);
+            return ByType(graph, aggregation, retainedByGroup);
+        }
+
+        Dictionary<string, int>? groupIds = null;
+        if (retainedByGroup is not null)
+        {
+            GroupOfType(graph, groupBy, out var names);
+            groupIds = names.Select((name, id) => (name, id)).ToDictionary(g => g.name, g => g.id, StringComparer.Ordinal);
         }
 
         var rows = new Dictionary<string, (long Count, ulong Bytes, ulong[] Kinds)>(StringComparer.Ordinal);
@@ -63,13 +72,7 @@ public static class TypeGroups
                 continue;
             }
 
-            var name = graph.Types.GetName(t);
-            var key = groupBy switch
-            {
-                GroupKey.Namespace => NamespaceOf(name),
-                _ => graph.Types.GetModule(t) is { Length: > 0 } module ? module : "(unknown assembly)",
-            };
-
+            var key = KeyOf(graph, t, groupBy);
             if (!rows.TryGetValue(key, out var row))
             {
                 row = (0, 0, new ulong[TypeAggregation.HeapKindSlots]);
@@ -83,8 +86,58 @@ public static class TypeGroups
             rows[key] = (row.Count + aggregation.Counts[t], row.Bytes + aggregation.Bytes[t], row.Kinds);
         }
 
-        return [.. rows.Select(r => new SummaryRow(r.Key, r.Value.Count, r.Value.Bytes, r.Value.Kinds))];
+        return [.. rows.Select(r => new SummaryRow(r.Key, r.Value.Count, r.Value.Bytes, r.Value.Kinds, Retained: groupIds is null ? null : retainedByGroup![groupIds[r.Key]]))];
     }
+
+    /// <summary>
+    /// The group of every type table entry in a grouping (sprint 2.3), numbered from 0, with the groups' names: for
+    /// <see cref="GroupKey.Type"/> each type is its own group (its type index); for namespaces and assemblies the names are
+    /// the rows' names.
+    /// </summary>
+    public static int[] GroupOfType(HeapGraph graph, GroupKey groupBy, out string[] names)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        var count = graph.Types.Count;
+        var groups = new int[count];
+        if (groupBy == GroupKey.Type)
+        {
+            names = new string[count];
+            for (var t = 0; t < count; t++)
+            {
+                groups[t] = t;
+                names[t] = graph.Types.GetName(t);
+            }
+
+            return groups;
+        }
+
+        var ids = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var t = 0; t < count; t++)
+        {
+            var key = KeyOf(graph, t, groupBy);
+            if (!ids.TryGetValue(key, out var id))
+            {
+                ids[key] = id = ids.Count;
+            }
+
+            groups[t] = id;
+        }
+
+        names = new string[ids.Count];
+        foreach (var (key, id) in ids)
+        {
+            names[id] = key;
+        }
+
+        return groups;
+    }
+
+    /// <summary>The name of a type's row in a namespace or assembly grouping.</summary>
+    private static string KeyOf(HeapGraph graph, int typeIndex, GroupKey groupBy) => groupBy switch
+    {
+        GroupKey.Namespace => NamespaceOf(graph.Types.GetName(typeIndex)),
+        _ => graph.Types.GetModule(typeIndex) is { Length: > 0 } module ? module : "(unknown assembly)",
+    };
 
     /// <summary>
     /// The display name of each present type. Distinct types can share a name (the same assembly loaded into two
@@ -149,7 +202,7 @@ public static class TypeGroups
         return dot <= 0 ? "(global)" : outer[..dot];
     }
 
-    private static List<SummaryRow> ByType(HeapGraph graph, TypeAggregation aggregation)
+    private static List<SummaryRow> ByType(HeapGraph graph, TypeAggregation aggregation, ulong[]? retainedByType)
     {
         var names = DisplayNames(graph, aggregation);
         var rows = new List<SummaryRow>();
@@ -162,7 +215,7 @@ public static class TypeGroups
 
             var kinds = new ulong[TypeAggregation.HeapKindSlots];
             Array.Copy(aggregation.BytesByKind, t * TypeAggregation.HeapKindSlots, kinds, 0, TypeAggregation.HeapKindSlots);
-            rows.Add(new SummaryRow(names[t], aggregation.Counts[t], aggregation.Bytes[t], kinds, graph.Types.GetName(t), ModuleKey(graph.Types.GetModule(t))));
+            rows.Add(new SummaryRow(names[t], aggregation.Counts[t], aggregation.Bytes[t], kinds, graph.Types.GetName(t), ModuleKey(graph.Types.GetModule(t)), retainedByType?[t]));
         }
 
         return rows;

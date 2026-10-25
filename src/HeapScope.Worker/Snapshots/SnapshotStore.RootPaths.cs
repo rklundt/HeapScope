@@ -50,17 +50,27 @@ internal sealed partial class SnapshotStore
             {
                 using var lease = entry.Snapshot.AcquireLease();
                 var graph = entry.Snapshot.Graph;
-                EnsureRoomForRootPaths(graph.ObjectCount);
                 var throttled = new Rpc.ThrottledProgress<JobProgress>(entry.Derived.RootPathProgress);
                 var stopwatch = Stopwatch.StartNew();
                 const string phase = "Finding every object's shortest path from a root";
-                throttled.Report(new JobProgress(phase, 0, graph.ObjectCount));
-                var tree = RootPathTree.Build(graph, new PhaseProgress(throttled, phase, graph.ObjectCount), lifetime);
-                throttled.Flush();
+                RootPathTree tree;
 
-                // The breadth-first queue (4 bytes per object) is garbage now: return it like the 2.1 index's built arrays,
-                // without compacting, so no graph array is copied (review M1).
-                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
+                // 8 bytes per object reserved first (2.2 review M1, 2.3 review M2); the breadth-first queue (4 bytes per
+                // object) is returned without compacting however the build ends, so no graph array is copied (2.3 review M3).
+                using (_reservations.Reserve((long)RootPathTree.BuildBytesPerObject * graph.ObjectCount, "Finding every object's path from a root", entry.Index.Mode, entry.Index.Identity != 0))
+                {
+                    try
+                    {
+                        throttled.Report(new JobProgress(phase, 0, graph.ObjectCount));
+                        tree = RootPathTree.Build(graph, new PhaseProgress(throttled, phase, graph.ObjectCount), lifetime);
+                        throttled.Flush();
+                    }
+                    finally
+                    {
+                        MemoryReservations.Collect();
+                    }
+                }
+
                 logger.LogInformation(
                     "Root path tree of snapshot {Id} built in {Seconds:N2} s: {Reachable} of {Objects} objects reachable, {Megabytes:N0} MB",
                     entry.Descriptor.SnapshotId,
@@ -79,29 +89,6 @@ internal sealed partial class SnapshotStore
         {
             // Closed before or during the computation.
             return null;
-        }
-    }
-
-    /// <summary>
-    /// Refuses to build the root path tree when its 8 bytes per object would not fit what is left of the worker's share of
-    /// physical memory, or what the machine has available (review M1); the error says how much it needs.
-    /// </summary>
-    private static void EnsureRoomForRootPaths(int objectCount)
-    {
-        var needed = (long)RootPathTree.BuildBytesPerObject * objectCount;
-        var budget = MemoryBudget.Current();
-        long committed;
-        using (var process = Process.GetCurrentProcess())
-        {
-            committed = process.PrivateMemorySize64;
-        }
-
-        var room = Math.Min(budget.AvailableBytes, (long)(budget.TotalPhysicalBytes * budget.Fraction) - committed);
-        if (needed > room)
-        {
-            throw new InsufficientMemoryException(string.Create(
-                System.Globalization.CultureInfo.InvariantCulture,
-                $"Finding every object's path from a root needs about {needed / (1024 * 1024):N0} MB, and the analysis worker has {Math.Max(0, room) / (1024 * 1024):N0} MB left of its memory budget. Close other snapshots, or open this one mapped, and try again."));
         }
     }
 

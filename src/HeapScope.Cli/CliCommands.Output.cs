@@ -47,11 +47,14 @@ internal static partial class CliCommands
             : value;
     }
 
-    /// <summary>Rows as objects keyed by column name, with numbers typed by the column kind.</summary>
+    /// <summary>
+    /// Rows as objects keyed by column name, with numbers typed by the column kind; a null cell is JSON null in any column
+    /// (sprint 2.3: an object no root reaches has no retained bytes, review H2).
+    /// </summary>
     private static IEnumerable<Dictionary<string, object?>> JsonRows(IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows) =>
         rows.Select(row => columns.Select((c, i) => (c, i)).ToDictionary(
             x => x.c.Name,
-            x => x.c.Kind is ResultColumnKind.Text or ResultColumnKind.Address ? (object?)row[x.i]
+            x => row[x.i] is null || x.c.Kind is ResultColumnKind.Text or ResultColumnKind.Address ? (object?)row[x.i]
                 : x.c.Kind == ResultColumnKind.Percent ? double.Parse(row[x.i]!, CultureInfo.InvariantCulture)
                 : long.Parse(row[x.i]!, CultureInfo.InvariantCulture)));
 

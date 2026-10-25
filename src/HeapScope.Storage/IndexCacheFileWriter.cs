@@ -64,11 +64,7 @@ public sealed class IndexCacheFileWriter : IDisposable
     public static IndexCacheFileWriter Create(string path, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var fullPath = Path.GetFullPath(path);
-        var directory = Path.GetDirectoryName(fullPath)!;
-        Directory.CreateDirectory(directory);
-        DeleteStaleTemporaryFiles(directory, Path.GetFileName(fullPath));
-        var temp = Path.Combine(directory, $"{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp");
+        var (fullPath, temp) = PrepareTemporary(path);
         var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 1 << 20);
         return new IndexCacheFileWriter(fullPath, temp, stream, progress, cancellationToken);
     }
@@ -115,8 +111,9 @@ public sealed class IndexCacheFileWriter : IDisposable
     /// checksum, which covers every section checksum). <paramref name="baseIdentity"/> names the base cache a sidecar
     /// extends; 0 for a base cache. Throws <see cref="IndexCacheInUseException"/> when the existing file is open (for
     /// example mapped); the previous file is then kept and, once the writer is disposed, no temporary file remains.
+    /// <paramref name="semanticsVersion"/> is the layout's <see cref="IndexFileLayout.SemanticsVersion"/>.
     /// </summary>
-    public ulong Commit(SnapshotFingerprint fingerprint, ulong baseIdentity = 0)
+    public ulong Commit(SnapshotFingerprint fingerprint, ulong baseIdentity = 0, int semanticsVersion = 0)
     {
         var stream = _stream ?? throw new InvalidOperationException("The index file was already committed or disposed.");
         _cancellationToken.ThrowIfCancellationRequested();
@@ -131,7 +128,7 @@ public sealed class IndexCacheFileWriter : IDisposable
 
             stream.Flush();
             IndexCacheWriter.BeforeHeaderForTesting?.Invoke(_temp);
-            identity = WriteHeader(stream, fingerprint, baseIdentity);
+            identity = WriteHeader(stream, _entries, fingerprint, baseIdentity, semanticsVersion);
             stream.Flush(flushToDisk: true);
         }
         finally
@@ -140,17 +137,35 @@ public sealed class IndexCacheFileWriter : IDisposable
             _stream = null;
         }
 
+        MoveOver(_temp, _path);
+        _committed = true;
+        return identity;
+    }
+
+    /// <summary>Renames a written temporary file over the target; an open target is <see cref="IndexCacheInUseException"/>.</summary>
+    internal static void MoveOver(string temp, string path)
+    {
         try
         {
-            File.Move(_temp, _path, overwrite: true);
+            File.Move(temp, path, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new IndexCacheInUseException($"The index cache {_path} is in use and cannot be replaced; close the snapshot first.", ex);
+            throw new IndexCacheInUseException($"The index cache {path} is in use and cannot be replaced; close the snapshot first.", ex);
         }
+    }
 
-        _committed = true;
-        return identity;
+    /// <summary>
+    /// Prepares a temporary file name next to <paramref name="path"/>, after removing stale temporary files of it; returns
+    /// the full target path and the temporary path.
+    /// </summary>
+    internal static (string FullPath, string Temp) PrepareTemporary(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(directory);
+        DeleteStaleTemporaryFiles(directory, Path.GetFileName(fullPath));
+        return (fullPath, Path.Combine(directory, $"{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp"));
     }
 
     /// <summary>Deletes the temporary file unless the write was committed.</summary>
@@ -164,7 +179,8 @@ public sealed class IndexCacheFileWriter : IDisposable
         }
     }
 
-    private ulong WriteHeader(FileStream stream, SnapshotFingerprint fingerprint, ulong baseIdentity)
+    /// <summary>Writes the header region (header and section directory) at offset 0; returns the header checksum.</summary>
+    internal static ulong WriteHeader(FileStream stream, List<SectionEntry> entries, SnapshotFingerprint fingerprint, ulong baseIdentity, int semanticsVersion)
     {
         var region = new byte[IndexCacheFormat.PageSize];
         var header = new FileHeader
@@ -172,14 +188,15 @@ public sealed class IndexCacheFileWriter : IDisposable
             Magic = IndexCacheFormat.Magic,
             FormatVersion = IndexCacheFormat.Version,
             HeaderRegionLength = IndexCacheFormat.PageSize,
-            SectionCount = _entries.Count,
+            SectionCount = entries.Count,
+            SemanticsVersion = semanticsVersion,
             SourceLength = fingerprint.Length,
             SourceLastWriteUtcTicks = fingerprint.LastWriteUtcTicks,
             SourceContentHash = fingerprint.ContentHash,
             BaseIdentity = baseIdentity,
         };
         var headerSize = Unsafe.SizeOf<FileHeader>();
-        var directory = MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(_entries));
+        var directory = MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(entries));
         MemoryMarshal.Write(region, in header);
         directory.CopyTo(region.AsSpan(headerSize));
         header.HeaderChecksum = XxHash3.HashToUInt64(region.AsSpan(0, headerSize + directory.Length));
@@ -205,7 +222,7 @@ public sealed class IndexCacheFileWriter : IDisposable
         }
     }
 
-    private static void TryDelete(string path)
+    internal static void TryDelete(string path)
     {
         try
         {

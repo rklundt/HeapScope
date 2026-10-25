@@ -323,9 +323,11 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
         await first.IncomingTask;
         await first.IncomingRows.WhenLoadedAsync();
 
-        // Sprint 2.2, cold: why the object is alive, and why the type's objects are.
+        // Sprint 2.2, cold: why the object is alive, and why the type's objects are. Sprint 2.3, cold: its retained size,
+        // after the paths (the first such query computes the snapshot's dominators, or opens them from their sidecar).
         first.ReferencesTab = 2;
         await first.RetentionTask;
+        await first.RetainedTask;
         navigator.BackCommand.Execute(null);
         instances.WhyAliveCommand!.Execute(null);
         if (navigator.Current is not TypePathsViewModel typePaths)
@@ -349,13 +351,14 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
         var referrersShown = referrers.Totals is not null;
         await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         logger.LogInformation(
-            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}), {Incoming}, {Retention}; {Title}: {Totals}; {PathsTitle}: {Paths} key paths; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}), {Incoming}, {Retention}, {Retained}; {Title}: {Totals}; {PathsTitle}: {Paths} key paths; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
             instances.TypeName,
             objects.Count,
             first.Title,
             first.Status ?? first.FieldsUnavailable ?? "fields read",
             first.IncomingTotals ?? first.IncomingStatus,
             first.RetentionStatus,
+            first.RetainedSummary,
             referrers.Title,
             referrers.Totals ?? referrers.Status,
             typePaths.Title,
@@ -363,11 +366,15 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
             watchdog.MaxLag.TotalMilliseconds,
             watchdog.MaxOperation.TotalMilliseconds);
 
-        // Checked part: back to the objects, a re-sort, and another object with its referrers (the views and the index warm).
+        // Checked part: back to the objects, a re-sort, retained sizes (sprint 2.3, the dominators warm), and another object
+        // with its referrers and retention (the views and the indices warm).
         watchdog.Reset();
         navigator.BackCommand.Execute(null);
         instances.SortByCommand.Execute(Contracts.InstanceColumns.Address);
         await instances.QueryTask;
+        instances.ShowRetained = true;
+        await instances.QueryTask;
+        var retainedShown = instances.RetainedColumnShown;
         objects = instances.Rows;
         for (var i = 0; i < Math.Min(objects.Count, 50); i++)
         {
@@ -388,9 +395,12 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
         await second.IncomingRows.WhenLoadedAsync();
         second.ReferencesTab = 2;
         await second.RetentionTask;
+        await second.RetainedTask;
         return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null)
             && first.IncomingTotals is not null && second.IncomingTotals is not null && referrersShown
-            && first.RetentionTree.Count == 1 && second.RetentionTree.Count == 1 && typePathsShown;
+            && first.RetentionTree.Count == 1 && second.RetentionTree.Count == 1 && typePathsShown
+            && retainedShown && first.RetainedSummary?.StartsWith("Retains", StringComparison.Ordinal) == true
+            && second.RetainedSummary?.StartsWith("Retains", StringComparison.Ordinal) == true;
     }
 
     /// <summary>

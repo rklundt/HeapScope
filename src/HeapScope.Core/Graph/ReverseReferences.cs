@@ -58,16 +58,36 @@ public sealed class ReverseReferences : IDisposable
     public long ColumnBytes => InEdgeStarts.ByteLength + InEdges.ByteLength;
 
     /// <summary>
-    /// Builds the reverse CSR of <paramref name="graph"/> in two passes over its edges: count each object's referrers, then
-    /// fill them (sources in ascending order, so each row comes out sorted). No memory beyond the result is allocated.
-    /// Progress reports sources processed in the fill pass.
+    /// Builds the reverse CSR of <paramref name="graph"/> into managed arrays (<see cref="Fill"/>). Progress reports sources
+    /// processed in the fill pass.
     /// </summary>
     public static ReverseReferences Build(HeapGraph graph, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        var starts = new int[graph.ObjectCount + 1];
+        var inEdges = GC.AllocateUninitializedArray<int>(graph.EdgeCount);
+        Fill(graph, starts, inEdges, progress, cancellationToken);
+        return new ReverseReferences(Column<int>.FromArray(starts), Column<int>.FromArray(inEdges), owner: null);
+    }
+
+    /// <summary>
+    /// Writes the reverse CSR of <paramref name="graph"/> into <paramref name="inEdgeStarts"/> (object count plus one) and
+    /// <paramref name="inEdges"/> (edge count), for example sections of a mapped sidecar being written (sprint 2.3), in two
+    /// passes over its edges: count each object's referrers, then fill them (sources in ascending order, so each row comes
+    /// out sorted). No memory beyond the two spans is used. Progress reports sources processed in the fill pass.
+    /// </summary>
+    public static void Fill(HeapGraph graph, Span<int> inEdgeStarts, Span<int> inEdges, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
         var objects = graph.ObjectCount;
         var edges = graph.Edges.Span;
-        var starts = new int[objects + 1];
+        if (inEdgeStarts.Length != objects + 1 || inEdges.Length != edges.Length)
+        {
+            throw new ArgumentException("The spans do not match the graph's object and reference counts.");
+        }
+
+        var starts = inEdgeStarts;
+        starts.Clear();
 
         // starts[t + 1] counts t's referrers; the prefix sum turns starts[t] into the first slot of t's row.
         for (var i = 0; i < edges.Length; i++)
@@ -86,7 +106,6 @@ public sealed class ReverseReferences : IDisposable
 
         // Fill with starts[t] as t's cursor: afterwards starts[t] is the end of t's row, which is the start of t + 1, so
         // shifting the array right by one restores the row offsets without a second array.
-        var inEdges = GC.AllocateUninitializedArray<int>(edges.Length);
         var edgeStarts = graph.EdgeStarts.Span;
         for (var source = 0; source < objects; source++)
         {
@@ -109,7 +128,6 @@ public sealed class ReverseReferences : IDisposable
 
         starts[0] = 0;
         progress?.Report(objects);
-        return new ReverseReferences(Column<int>.FromArray(starts), Column<int>.FromArray(inEdges), owner: null);
     }
 
     /// <summary>
