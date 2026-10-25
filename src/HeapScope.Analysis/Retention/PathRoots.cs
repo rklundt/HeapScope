@@ -142,7 +142,7 @@ public static class PathRoots
 
         return root.Root.Kind switch
         {
-            RootKind.StaticField => $"Static field {detail}",
+            RootKind.StaticField => string.IsNullOrEmpty(detail) ? "A static field (its name is not recorded in a gcdump)" : $"Static field {detail}",
             RootKind.ThreadStack => $"Local variable or argument on {(string.IsNullOrEmpty(detail) ? "a thread's stack" : detail)}",
             RootKind.StrongHandle when detail == "static storage" => "The runtime's storage of static fields",
             RootKind.StrongHandle => "Strong GC handle (GCHandle.Alloc, or the runtime's own)",
@@ -152,6 +152,27 @@ public static class PathRoots
             RootKind.FinalizerQueue => "Waiting for its finalizer to run",
             _ => string.IsNullOrEmpty(detail) ? "A runtime root" : char.ToUpperInvariant(detail[0]) + detail[1..],
         };
+    }
+
+    /// <summary>
+    /// How roots are grouped in key paths (decision 3, review L8): by kind, and by detail where it names code (a static
+    /// field, a handle's purpose), never by thread: a stack or a thread static held on several threads is one group.
+    /// </summary>
+    public static string GroupKey(PathRoot root, string? detail)
+    {
+        if (root.IsFrozen)
+        {
+            return "frozen";
+        }
+
+        if (root.Root.Kind == RootKind.ThreadStack)
+        {
+            return nameof(RootKind.ThreadStack);
+        }
+
+        // Thread statics are "thread static, thread 0x1a2c" (the loader's detail): the thread part is dropped.
+        var thread = detail?.IndexOf(", thread ", StringComparison.Ordinal) ?? -1;
+        return root.Root.Kind + "|" + (thread >= 0 ? detail![..thread] : detail);
     }
 
     /// <summary>The detail string of a path root, from the graph's string table (null when it has none).</summary>

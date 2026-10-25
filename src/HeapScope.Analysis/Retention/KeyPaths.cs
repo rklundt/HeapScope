@@ -122,7 +122,7 @@ public static class KeyPaths
     {
         private readonly List<(int Previous, int Type, PathRoot Root)> _entries = [];
         private readonly Dictionary<(int Previous, int Type), int> _steps = [];
-        private readonly Dictionary<(long RootKey, int Type), int> _roots = [];
+        private readonly Dictionary<(string RootKey, int Type), int> _roots = [];
         /// <summary>Objects whose signature is remembered at most (review M5); later ones are walked again instead.</summary>
         private const int MaxRemembered = 8_000_000;
 
@@ -206,7 +206,7 @@ public static class KeyPaths
         private int RootEntry(int objectIndex, int type)
         {
             PathRoots.TryGet(graph, objectIndex, out var root);
-            var key = (RootKey(root), type);
+            var key = (PathRoots.GroupKey(root, PathRoots.Detail(graph, root)), type);
             if (!_roots.TryGetValue(key, out var entry))
             {
                 entry = _entries.Count;
@@ -215,18 +215,6 @@ public static class KeyPaths
             }
 
             return entry;
-        }
-
-        /// <summary>Groups roots by kind, and by detail where the detail names code (a static field) rather than a thread.</summary>
-        private static long RootKey(PathRoot root)
-        {
-            if (root.IsFrozen)
-            {
-                return long.MinValue;
-            }
-
-            var detail = root.Root.Kind is RootKind.ThreadStack ? -1 : root.Root.DetailId;
-            return ((long)root.Root.Kind << 32) | (uint)detail;
         }
     }
 }
