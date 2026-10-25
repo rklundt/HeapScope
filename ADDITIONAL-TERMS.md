@@ -51,7 +51,7 @@ Ray Klundt, as copyright holder, may release future versions of HeapScope under 
 
 ## 5. Commercial Licensing
 
-HeapScope is also available under a separate commercial license, which may waive the attribution and other requirements of these terms and of the AGPL. These terms do not apply to use made under such a separate written agreement. Contact: rayklundt@outlook.com. See `COMMERCIAL.md`.
+HeapScope is also available under a separate commercial license, which may waive the attribution and other requirements of these terms and of the AGPL. These terms do not apply to use made under such a separate written agreement. Contact: rayklundt (at) outlook (dot) com. See `COMMERCIAL.md`.
 
 ## 6. Artificial Intelligence and Machine Learning
 
