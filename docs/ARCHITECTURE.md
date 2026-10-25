@@ -1248,6 +1248,11 @@ sprint 0.1.
 ### ADR-012 Git
 - Decision: local repository, work on `main`, annotated tag `sprint-X.Y` per closed sprint. Remote,
   branches and CI are backlog items.
+- Amended 2026-10-25 (after 2.2): the repository is published at https://github.com/rklundt/HeapScope. `main` holds
+  releases and `develop` collects sprints; each sprint works on `sprint/X.Y` off `develop` and lands by a squash-merged
+  PR, tagged `sprint-X.Y` on `develop`. A release is a PR from `develop` to `main` (merge commit), tagged `vX.Y.0`
+  with a GitHub Release (pre-release for now). A ruleset on both branches requires a PR and blocks direct and force
+  pushes and deletion. CI is still a backlog item; `./build/gate.ps1` is the local gate.
 
 ### ADR-013 Leaky fixtures as source of truth
 - Context: analysis correctness can only be proven against known leaks.

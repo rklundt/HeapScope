@@ -17,7 +17,7 @@ cd heapScope
 dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
-- Full gate (sprint 1.9, the local stand-in for CI while the repository has no remote): `./build/gate.ps1` builds Debug
+- Full gate (sprint 1.9, the local stand-in for CI until the repository has one): `./build/gate.ps1` builds Debug
   and Release (zero warnings), runs the full suite and appends a line to `artifacts/gate/history.csv` (git-ignored):
   time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run is named
   again. Run it before closing a sprint.
@@ -273,10 +273,24 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   both modes, with times and private bytes; exit 1 when the build exceeds 60 s or the peak 4 GB.
 
 ## 7. Git conventions
-- Work on `main`; no branches yet (ADR-012).
-- Commits happen only through `/close-sprint`, one per sprint, message `Sprint X.Y: <title>` plus a short body.
-- Each closed sprint gets an annotated tag `sprint-X.Y`.
-- Never commit dumps, index caches (`*.hsidx`) or logs; `.gitignore` covers them.
+- Remote: https://github.com/rklundt/HeapScope (ADR-012). `main` holds releases, `develop` collects sprints. Both are
+  protected by a ruleset: changes arrive only by PR (no approvals required, since there is one maintainer); direct
+  pushes, force pushes and deletion are blocked.
+- Each sprint works on `sprint/X.Y`, branched from an up-to-date `develop` by `/start-sprint`.
+- Commits happen only through `/close-sprint`, one per sprint, message `Sprint X.Y: <title>` plus a short body. Work
+  outside a sprint that the owner asks for (a fix, docs, a chore) uses its own short branch (`fix/...`, `chore/...`)
+  off `develop` and the same PR flow.
+- A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
+  `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
+  merges.
+- Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`.
+- Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
+  branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
+  pre-release for now). Only the owner decides when to release.
+- The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no
+  Co-Authored-By or generated-by lines in commits, PR titles or PR bodies. Files write the contact address as
+  "rayklundt (at) outlook (dot) com".
+- Never commit dumps, index caches (`*.hsidx`), traces (`*.nettrace`, `*.etl`) or logs; `.gitignore` covers them.
 
 ## 8. Sprint workflow
 1. `/start-sprint [id]`: checks the previous sprint is Closed and the tree is clean, reads the docs, analyzes
@@ -286,7 +300,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 3. `/wrap-sprint`: full build and tests, three reviewer subagents (solution-architect, senior-dev,
    gc-specialist) in parallel, consolidated review file in `docs/reviews/sprint-X.Y.md`, High findings fixed
    and confirmed, Moderate findings decided by the human, docs updated, status Wrapping.
-4. `/close-sprint`: verifies the Definition of Done, sets Closed, commits, tags, summarizes, offers the next
+4. `/close-sprint`: verifies the Definition of Done, sets Closed and the version, commits on `sprint/X.Y`, opens
+   the PR into `develop`, merges it (autonomous mode) and tags `sprint-X.Y` on `develop`, summarizes, offers the next
    sprint.
 
 **Autonomous mode.** When the product owner grants autonomy for a phase, the skills do not stop for
