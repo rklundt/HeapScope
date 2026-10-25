@@ -104,6 +104,19 @@ public interface IWorkerService
     /// </summary>
     Task<TypeReferrersResult> QueryTypeReferrersAsync(TypeReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Why one object is alive (sprint 2.2): its shortest paths from up to N roots, merged into one tree, with fields named
+    /// on full dumps. Uses the snapshot's reverse references index (built on first use). An address with no object fails
+    /// with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<ObjectPathsResult> QueryObjectPathsAsync(ObjectPathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Why the objects of a type are alive (sprint 2.2): their key retention paths. The first such query of a snapshot builds
+    /// its root path tree (one pass over the graph, kept with the snapshot); a type that matches nothing gives no paths.
+    /// </summary>
+    Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 

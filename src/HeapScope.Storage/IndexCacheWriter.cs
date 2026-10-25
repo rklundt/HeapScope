@@ -86,6 +86,7 @@ public static class IndexCacheWriter
         writer.WriteSection(IndexSection.TypeModuleIds, graph.Types.ModuleIds.Span);
         writer.WriteSection(IndexSection.TypeKinds, graph.Types.Kinds.Span);
         writer.WriteSection<byte>(IndexSection.Strings, EncodeStrings(graph.Strings));
+        writer.WriteSection(IndexSection.DependentHandles, graph.DependentHandles.Span);
         writer.WriteSection<byte>(IndexSection.Metadata, JsonSerializer.SerializeToUtf8Bytes(
             new MetadataDocument(metadata, graph.DroppedReferenceCount, graph.DroppedRootCount)));
         return writer.Commit(fingerprint);

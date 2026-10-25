@@ -322,6 +322,44 @@ internal sealed class FakeWorkerService : IWorkerService
         return Task.FromResult(new TypeReferrersResult(info, 1, 5, references, new ReverseIndexInfo(true, SnapshotMemoryMode.InMemory, 0.1, 1024, true), CompleteGraph));
     }
 
+    /// <summary>What unreachable means, as the worker says it for a full dump.</summary>
+    public const string UnreachableNote = "No root reaches it: it is garbage not yet collected, or held only weakly (weak handles, weak references).";
+
+    /// <summary>The answer to object paths queries (sprint 2.2); null answers that nothing holds the object.</summary>
+    public ObjectPathsResult? ObjectPaths { get; set; }
+
+    /// <summary>Object paths queries received.</summary>
+    public List<ObjectPathsRequest> ObjectPathQueries { get; } = [];
+
+    /// <summary>When set, object paths queries fail with it.</summary>
+    public Exception? ObjectPathsFailure { get; set; }
+
+    public Task<ObjectPathsResult> QueryObjectPathsAsync(ObjectPathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ObjectPathQueries.Add(request);
+        if (ObjectPathsFailure is { } failure)
+        {
+            return Task.FromException<ObjectPathsResult>(failure);
+        }
+
+        return Task.FromResult(ObjectPaths ?? new ObjectPathsResult(
+            [new RetentionNodeDto(0, -1, request.Address, "App.Order", null, false, false, 0, null, 0, 0)],
+            [], [], false, false, 1, null, CompleteGraph, new ReverseIndexInfo(true, SnapshotMemoryMode.InMemory, 0, 1024, true), false, UnreachableNote));
+    }
+
+    /// <summary>Key paths returned by type paths queries (sprint 2.2).</summary>
+    public List<KeyPathDto> TypePaths { get; } = [];
+
+    /// <summary>Type paths queries received.</summary>
+    public List<TypePathsRequest> TypePathQueries { get; } = [];
+
+    public Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        TypePathQueries.Add(request);
+        return Task.FromResult(new TypePathsResult(
+            [.. TypePaths], 1, TypePaths.Sum(p => p.Objects) + 2, 2, 80, 0, 0, 0, CompleteGraph, 0.3, UnreachableNote));
+    }
+
     /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>
     public List<InspectionInfo> Inspections { get; } =
     [

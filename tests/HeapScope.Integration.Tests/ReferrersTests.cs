@@ -314,6 +314,39 @@ public sealed class GcDumpReferrersTests(StaticCacheGcDumps shared) : IClassFixt
         referrers.Result.Rows.TotalCount.ShouldBe(1);
         referrers.Result.FieldsNote!.ShouldContain("gcdump");
         (await ReferrersTests.AllRowsAsync(referrers.Rows)).ShouldHaveSingleItem()[ReferrerColumns.Field].ShouldBe(string.Empty);
+
+        // Sprint 2.2: retention paths work on a gcdump too, without field names.
+        var paths = await session.QueryObjectPathsAsync(handle, address, 10, null, Ct);
+        paths.Reachable.ShouldBeTrue();
+        paths.FieldsNote!.ShouldContain("gcdump");
+        paths.Nodes.ShouldAllBe(n => n.Field == null);
+        var typePaths = await session.QueryTypePathsAsync(handle, "Fixtures.Leaks.StaticCacheEntry", "Leaks.dll", 20, null, Ct);
+        (typePaths.Objects, typePaths.Unreachable).ShouldBe(((long)StaticCacheGcDumps.CurrentItems, 0L));
+        typePaths.UnreachableNote.ShouldContain("recorded root", Case.Sensitive, "a gcdump holds only survivors (review M3)");
+    }
+
+    [Fact]
+    public async Task The_paths_cli_works_on_a_gcdump()
+    {
+        // Review M6: the CLI on a gcdump, and an address with no object.
+        var path = StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder);
+
+        var (code, output) = await RunCliAsync("paths", path, "--type", "Fixtures.Leaks.StaticCacheEntry");
+        var (missing, error) = await RunCliAsync("paths", path, "--address", "0x10");
+        var (range, _) = await RunCliAsync("paths", path, "--address", "0x10", "--max", "51");
+
+        code.ShouldBe(0, output);
+        output.ShouldContain("Static field");
+        output.ShouldContain("0 unreachable");
+        missing.ShouldBe(1, error);
+        range.ShouldBe(64);
+    }
+
+    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    {
+        using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
+        (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
+        return (cli.Process.ExitCode, cli.Output);
     }
 
     public async ValueTask DisposeAsync()

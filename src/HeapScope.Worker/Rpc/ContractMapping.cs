@@ -40,6 +40,8 @@ internal static class ContractMapping
 
     public static HeapKindDto ToDto(this HeapKind kind) => (HeapKindDto)(int)kind;
 
+    public static RootKindDto ToDto(this RootKind kind) => (RootKindDto)(int)kind;
+
     public static GroupKey ToGroupKey(this TypeGrouping grouping) => (GroupKey)(int)grouping;
 
     /// <summary>Why <paramref name="missing"/> (its lowest flag) is unavailable on a snapshot of <paramref name="kind"/>.</summary>

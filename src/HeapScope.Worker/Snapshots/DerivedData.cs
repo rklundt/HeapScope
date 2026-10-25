@@ -22,14 +22,15 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using HeapScope.Analysis;
+using HeapScope.Analysis.Retention;
 
 namespace HeapScope.Worker.Snapshots;
 
 /// <summary>
 /// Data computed from a loaded snapshot on first use and dropped with it in one step when the snapshot closes
-/// (sprint 1.3: the type aggregation; sprint 2.1: the reverse references index; later dominators and detector results get
-/// their slots here). Each slot holds one shared computation that runs for the snapshot's lifetime, not for the caller
-/// that started it. Indices that own memory or a mapping are attached to the graph, which releases them after the last
+/// (sprint 1.3: the type aggregation; sprint 2.1: the reverse references index; sprint 2.2: the root path tree; later
+/// dominators and detector results get their slots here). Each slot holds one shared computation that runs for the
+/// snapshot's lifetime, not for the caller that started it. Indices that own memory or a mapping are attached to the graph, which releases them after the last
 /// lease, so dropping a slot here never frees data a query still reads.
 /// </summary>
 internal sealed class DerivedData
@@ -40,6 +41,7 @@ internal sealed class DerivedData
     private readonly CancellationTokenSource _lifetime = new();
     private Task<TypeAggregation>? _aggregation;
     private Task<ReverseIndex>? _reverse;
+    private Task<RootPathTree>? _rootPaths;
 
     /// <summary>The running or finished aggregation; a failed or canceled one is started again.</summary>
     public Task<TypeAggregation> GetOrStartAggregation(Func<CancellationToken, Task<TypeAggregation>> compute) =>
@@ -52,6 +54,13 @@ internal sealed class DerivedData
     /// <summary>Progress of the reverse references computation, sent to every caller waiting for it (review M7).</summary>
     public SharedProgress<Contracts.JobProgress> ReverseProgress { get; } = new();
 
+    /// <summary>The running or finished root path tree (sprint 2.2); a failed or canceled one is started again.</summary>
+    public Task<RootPathTree> GetOrStartRootPaths(Func<CancellationToken, Task<RootPathTree>> compute) =>
+        GetOrStart(ref _rootPaths, compute);
+
+    /// <summary>Progress of the root path tree computation, sent to every caller waiting for it.</summary>
+    public SharedProgress<Contracts.JobProgress> RootPathProgress { get; } = new();
+
     /// <summary>Stops running computations and drops the results.</summary>
     public void Close()
     {
@@ -60,6 +69,7 @@ internal sealed class DerivedData
             _lifetime.Cancel();
             _aggregation = null;
             _reverse = null;
+            _rootPaths = null;
         }
     }
 

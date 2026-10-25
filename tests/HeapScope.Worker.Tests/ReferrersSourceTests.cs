@@ -109,6 +109,24 @@ public sealed class ReferrersSourceTests : IDisposable
     }
 
     [Fact]
+    public void A_dependent_handle_referrer_is_labeled_when_no_field_holds_the_object()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var key = builder.Object("App.Key");
+        var value = builder.Object("App.Value");
+        var holder = builder.Object("App.Holder");
+        builder.DependentHandle(key, value).Reference(holder, value);
+        using var graph = builder.Build();
+        using var reverse = ReverseReferences.Build(graph, cancellationToken: Ct);
+
+        var withoutReader = ReferrersSource.Create(graph, reverse, null, value.Id, "no reader", null, Ct);
+        var withReader = ReferrersSource.Create(graph, reverse, new NamingReader(new Dictionary<ulong, string>()), value.Id, "no reader", null, Ct);
+
+        Rows(withoutReader).Select(r => (r[2], r[0])).ShouldBe([("App.Key", ReferrersSource.DependentHandleLabel), ("App.Holder", string.Empty)]);
+        Rows(withReader)[0][0].ShouldBe(ReferrersSource.DependentHandleLabel, "the reader finds no field of the key holding it");
+    }
+
+    [Fact]
     public void Naming_stops_when_the_querys_array_element_budget_is_spent()
     {
         var builder = new SyntheticGraphBuilder();

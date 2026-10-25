@@ -322,6 +322,19 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
         first.ReferencesTab = 1;
         await first.IncomingTask;
         await first.IncomingRows.WhenLoadedAsync();
+
+        // Sprint 2.2, cold: why the object is alive, and why the type's objects are.
+        first.ReferencesTab = 2;
+        await first.RetentionTask;
+        navigator.BackCommand.Execute(null);
+        instances.WhyAliveCommand!.Execute(null);
+        if (navigator.Current is not TypePathsViewModel typePaths)
+        {
+            return false;
+        }
+
+        await typePaths.LoadTask;
+        var typePathsShown = typePaths.Totals is not null;
         navigator.BackCommand.Execute(null);
         instances.ReferencedByCommand!.Execute(null);
         if (navigator.Current is not TypeReferrersViewModel referrers)
@@ -336,14 +349,17 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
         var referrersShown = referrers.Totals is not null;
         await System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         logger.LogInformation(
-            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}), {Incoming}; {Title}: {Totals}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
+            "Smoke drill: {Type} has {Objects:N0} objects; first object {Object} ({Status}), {Incoming}, {Retention}; {Title}: {Totals}; {PathsTitle}: {Paths} key paths; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation {OperationMs:N0} ms",
             instances.TypeName,
             objects.Count,
             first.Title,
             first.Status ?? first.FieldsUnavailable ?? "fields read",
             first.IncomingTotals ?? first.IncomingStatus,
+            first.RetentionStatus,
             referrers.Title,
             referrers.Totals ?? referrers.Status,
+            typePaths.Title,
+            typePaths.Paths.Count,
             watchdog.MaxLag.TotalMilliseconds,
             watchdog.MaxOperation.TotalMilliseconds);
 
@@ -370,8 +386,11 @@ internal sealed class SmokeRunner(IServiceProvider services, Dispatcher dispatch
         second.ReferencesTab = 1;
         await second.IncomingTask;
         await second.IncomingRows.WhenLoadedAsync();
+        second.ReferencesTab = 2;
+        await second.RetentionTask;
         return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null)
-            && first.IncomingTotals is not null && second.IncomingTotals is not null && referrersShown;
+            && first.IncomingTotals is not null && second.IncomingTotals is not null && referrersShown
+            && first.RetentionTree.Count == 1 && second.RetentionTree.Count == 1 && typePathsShown;
     }
 
     /// <summary>

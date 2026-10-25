@@ -36,6 +36,9 @@ namespace HeapScope.Worker.Rpc;
 /// </summary>
 internal sealed class ReferrersSource : IResultSource
 {
+    /// <summary>The Field cell of a referrer that holds the object through a dependent handle (sprint 2.2).</summary>
+    public const string DependentHandleLabel = "(dependent handle)";
+
     /// <summary>Referrers whose fields are named; an object with more gets an explanation instead.</summary>
     public const int MaxNamedReferrers = 1_000;
 
@@ -60,9 +63,11 @@ internal sealed class ReferrersSource : IResultSource
     private readonly HeapGraph _graph;
     private readonly Referrer[] _referrers;
     private readonly string[]? _fields;
+    private readonly int _target;
 
-    private ReferrersSource(HeapGraph graph, Referrer[] referrers, string[]? fields, string? fieldsNote)
+    private ReferrersSource(HeapGraph graph, int target, Referrer[] referrers, string[]? fields, string? fieldsNote)
     {
+        _target = target;
         _graph = graph;
         _referrers = referrers;
         _fields = fields;
@@ -96,18 +101,19 @@ internal sealed class ReferrersSource : IResultSource
         var referrers = IncomingReferences.ForObject(reverse, objectIndex);
         if (referrers.Length == 0)
         {
-            return new ReferrersSource(graph, referrers, null, null);
+            return new ReferrersSource(graph, objectIndex, referrers, null, null);
         }
 
         if (reader is null)
         {
-            return new ReferrersSource(graph, referrers, null, noReaderNote);
+            return new ReferrersSource(graph, objectIndex, referrers, null, noReaderNote);
         }
 
         if (referrers.Length > MaxNamedReferrers)
         {
             return new ReferrersSource(
                 graph,
+                objectIndex,
                 referrers,
                 null,
                 string.Create(CultureInfo.InvariantCulture, $"Fields are named for objects with up to {MaxNamedReferrers:N0} referrers; this one has {referrers.Length:N0}. Open a referrer to see its fields."));
@@ -135,11 +141,11 @@ internal sealed class ReferrersSource : IResultSource
             progress?.Report(new JobProgress(phase, i + 1, referrers.Length));
         }
 
-        return new ReferrersSource(graph, referrers, fields, note);
+        return new ReferrersSource(graph, objectIndex, referrers, fields, note);
     }
 
     /// <summary>Elements of an array object (0 for other objects), from its size and its type's component size.</summary>
-    private static long ArrayLength(HeapGraph graph, int objectIndex)
+    internal static long ArrayLength(HeapGraph graph, int objectIndex)
     {
         var type = graph.TypeIndices[objectIndex];
         var component = graph.Types.ComponentSizes[type];
@@ -156,7 +162,11 @@ internal sealed class ReferrersSource : IResultSource
     public void FormatRow(int index, string?[] cells)
     {
         var referrer = _referrers[index].ObjectIndex;
-        cells[0] = _fields?[index] ?? string.Empty;
+        // A dependent handle keeps the object alive while the referrer is reachable, without a field (sprint 2.2, 6.1).
+        var field = _fields?[index];
+        cells[0] = !string.IsNullOrEmpty(field) ? field
+            : _graph.IsDependentHandleEdge(referrer, _target) ? DependentHandleLabel
+            : string.Empty;
         cells[1] = string.Create(CultureInfo.InvariantCulture, $"0x{_graph.Addresses[referrer]:x}");
         cells[2] = _graph.Types.GetName(_graph.TypeIndices[referrer]);
         cells[3] = _graph.GetSize(referrer).ToString(CultureInfo.InvariantCulture);

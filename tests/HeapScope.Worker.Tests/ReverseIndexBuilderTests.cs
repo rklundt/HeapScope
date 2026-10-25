@@ -179,6 +179,36 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         late.Select(p => p.Completed).ShouldBe([1L, 2L], "the latest report on subscribing, then until it stopped waiting");
     }
 
+    [Fact]
+    public async Task The_root_path_tree_is_built_once_for_every_caller()
+    {
+        // Review M4: the 2.2 slot shares like the 2.1 one.
+        var derived = new DerivedData();
+        var builds = 0;
+        var gate = new TaskCompletionSource<HeapScope.Analysis.Retention.RootPathTree>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<HeapScope.Analysis.Retention.RootPathTree> Compute(CancellationToken _)
+        {
+            Interlocked.Increment(ref builds);
+            return gate.Task;
+        }
+
+        var reports = new List<JobProgress>();
+        using (derived.RootPathProgress.Subscribe(new InlineProgress(reports.Add)))
+        {
+            var a = derived.GetOrStartRootPaths(Compute);
+            var b = derived.GetOrStartRootPaths(Compute);
+            derived.RootPathProgress.Report(new JobProgress("Finding every object's shortest path from a root", 1, 2));
+            gate.SetResult(HeapScope.Analysis.Retention.RootPathTree.Build(_graph, cancellationToken: Ct));
+            (await a).ShouldBeSameAs(await b);
+        }
+
+        builds.ShouldBe(1);
+        reports.ShouldHaveSingleItem();
+        derived.Close();
+        _ = derived.GetOrStartRootPaths(Compute);
+        builds.ShouldBe(2, "closing drops the tree, so the next caller builds again");
+    }
+
     public void Dispose()
     {
         _graph.Dispose();

@@ -28,8 +28,8 @@ namespace HeapScope.Storage;
 /// <summary>Constants of the index cache file format (ARCHITECTURE.md 7). Any layout change bumps <see cref="Version"/>.</summary>
 public static class IndexCacheFormat
 {
-    /// <summary>Current format version.</summary>
-    public const int Version = 1;
+    /// <summary>Current format version. 2 (sprint 2.2): the base cache records the dependent-handle edges.</summary>
+    public const int Version = 2;
 
     /// <summary>"HSIDX" followed by three zero bytes, little-endian.</summary>
     public const ulong Magic = 0x0000_0058_4449_5348;
@@ -63,6 +63,9 @@ public enum IndexSection
     TypeKinds = 15,
     Strings = 16,
     Metadata = 17,
+
+    /// <summary>The dependent handles merged into the CSR as edges (sprint 2.2, format version 2).</summary>
+    DependentHandles = 20,
 
     /// <summary>Reverse references sidecar (sprint 2.1): CSR row offsets of each object's referrers.</summary>
     InEdgeStarts = 18,
@@ -98,6 +101,7 @@ public sealed record IndexFileLayout(string Name, IReadOnlyDictionary<IndexSecti
         [IndexSection.TypeKinds] = sizeof(ushort),
         [IndexSection.Strings] = sizeof(byte),
         [IndexSection.Metadata] = sizeof(byte),
+        [IndexSection.DependentHandles] = 8,
     });
 
     /// <summary>The reverse references sidecar (<c>.rev.hsidx</c>, sprint 2.1).</summary>

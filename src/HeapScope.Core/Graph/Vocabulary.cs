@@ -102,6 +102,13 @@ public enum RootFlags : byte
     Interior = 1 << 2,
 }
 
+/// <summary>
+/// A dependent handle the loader merged into the CSR as the edge <see cref="Primary"/> -> <see cref="Secondary"/>
+/// (sprint 2.2, ARCHITECTURE.md 6.1): the secondary is kept alive by the handle table while the primary is reachable, not by
+/// a field of the primary. 8 bytes, persisted.
+/// </summary>
+public readonly record struct DependentHandle(int Primary, int Secondary);
+
 /// <summary>One GC root, 12 bytes. Fields are declared explicitly so the persisted layout is fixed.</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public readonly struct GcRoot : IEquatable<GcRoot>
