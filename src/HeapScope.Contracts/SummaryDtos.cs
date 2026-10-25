@@ -45,6 +45,12 @@ public static class TypeSummaryColumns
     public const string Bytes = "Bytes";
     public const string Percent = "Percent";
 
+    /// <summary>
+    /// Retained bytes of the row's objects (sprint 2.3, when asked for): a lower bound, the retained sizes of its objects that
+    /// no other object of the row dominates.
+    /// </summary>
+    public const string Retained = "Retained";
+
     /// <summary>The raw type name (without the module suffix of colliding names).</summary>
     public const string TypeName = "TypeName";
 
@@ -76,12 +82,17 @@ public enum HeapKindDto
 /// </param>
 /// <param name="SortColumn">A result column name (<see cref="TypeSummaryColumns"/>); null sorts by bytes.</param>
 /// <param name="Descending">Sort direction.</param>
+/// <param name="IncludeRetained">
+/// Adds the <see cref="TypeSummaryColumns.Retained"/> column (sprint 2.3); the first such query of a snapshot computes its
+/// dominators, which takes seconds and is reported as progress.
+/// </param>
 public sealed record TypeSummaryRequest(
     Guid SnapshotId,
     TypeGrouping GroupBy = TypeGrouping.Type,
     string? Filter = null,
     string? SortColumn = null,
-    bool Descending = true);
+    bool Descending = true,
+    bool IncludeRetained = false);
 
 /// <summary>Totals for one heap kind.</summary>
 public sealed record HeapKindTotal(HeapKindDto Kind, long Objects, long Bytes);
@@ -89,11 +100,12 @@ public sealed record HeapKindTotal(HeapKindDto Kind, long Objects, long Bytes);
 /// <summary>
 /// The answer to a type summary: the rows as a result set (columns: name, objects, bytes, percent, then bytes per heap
 /// kind when <see cref="HasGenerations"/>), and totals over the whole snapshot (not only the filtered rows). Totals and
-/// rows count every object in the dump, including unreachable objects the GC has not collected yet; reachability comes
-/// with the retention analysis (2.x).
+/// rows count every object in the dump, including unreachable objects the GC has not collected yet; the retained column
+/// (sprint 2.3, when asked for) counts only what roots reach.
 /// </summary>
 /// <param name="TotalTypes">Distinct types present in the snapshot.</param>
 /// <param name="UnfilteredRows">Rows of the requested grouping before the filter (types, namespaces or assemblies).</param>
+/// <param name="Dominators">How the dominators were obtained, when retained bytes were asked for.</param>
 public sealed record TypeSummaryResult(
     ResultSetInfo Rows,
     long TotalObjects,
@@ -102,7 +114,8 @@ public sealed record TypeSummaryResult(
     bool HasGenerations,
     IReadOnlyList<HeapKindTotal> HeapKinds,
     double ElapsedSeconds,
-    int UnfilteredRows);
+    int UnfilteredRows,
+    DominatorIndexInfo? Dominators = null);
 
 /// <summary>A snapshot comparison query (sprint 1.4, ADR-018).</summary>
 /// <param name="BaselineId">The earlier snapshot; deltas are current minus baseline.</param>

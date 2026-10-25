@@ -61,7 +61,19 @@ internal sealed partial class WorkerService
                 new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
                 cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
             var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
-            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations), cancellationToken).ConfigureAwait(false);
+            ulong[]? retained = null;
+            DominatorIndexInfo? dominators = null;
+            if (request.IncludeRetained)
+            {
+                TypeSummarySource.Validate(request, generations);
+
+                // Sprint 2.3: the dominators (computed or opened once), then the grouping's lower bounds (once per grouping).
+                dominators = (await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false)).Info;
+                retained = await snapshots.GetGroupRetentionAsync(request.SnapshotId, request.GroupBy.ToGroupKey(), progress, cancellationToken).ConfigureAwait(false)
+                    ?? throw SnapshotNotLoaded(request.SnapshotId);
+            }
+
+            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations, retained), cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);
             // Unknown (generation not determined) is listed only when present, so the bar always adds up to the total.
@@ -79,7 +91,8 @@ internal sealed partial class WorkerService
                 generations,
                 kinds,
                 stopwatch.Elapsed.TotalSeconds,
-                source.UnfilteredCount);
+                source.UnfilteredCount,
+                dominators);
         });
 
     public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>

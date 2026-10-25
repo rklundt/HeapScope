@@ -112,12 +112,14 @@ public sealed class DumpAnalysis : IDisposable
         Walk([start], followDependentHandles, skip: null).Count(o => Heap.GetObject(o).Type?.Name == typeName);
 
     /// <summary>
-    /// Objects reachable from the retaining GC roots (ClrMD's root enumeration; weak handles are not roots), following
-    /// dependent handles only from reachable primaries, never entering <paramref name="skip"/>.
+    /// Objects reachable from the retaining GC roots (ClrMD's root enumeration; weak handles are not roots) and from every
+    /// object in a frozen segment, which is never collected (ADR-024, sprint 2.3 review M12), following dependent handles
+    /// only from reachable primaries, never entering <paramref name="skip"/>.
     /// </summary>
     public HashSet<ulong> ReachableFromRoots(ISet<ulong>? skip = null)
     {
-        var starts = Heap.EnumerateRoots().Select(r => r.Object).Where(o => !o.IsNull);
+        var frozen = Heap.Segments.Where(s => s.Kind == GCSegmentKind.Frozen).SelectMany(s => s.EnumerateObjects());
+        var starts = Heap.EnumerateRoots().Select(r => r.Object).Concat(frozen).Where(o => !o.IsNull);
         return Walk(starts, followDependentHandles: true, skip);
     }
 

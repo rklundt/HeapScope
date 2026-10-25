@@ -24,6 +24,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HeapScope.Application.Snapshots;
+using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -46,6 +47,9 @@ public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow
 
     public string Value { get; private set; } = string.Empty;
 
+    /// <summary>The object's retained bytes (sprint 2.3); null when not asked for or when no root reaches it.</summary>
+    public long? Retained { get; private set; }
+
     public bool IsLoaded { get; private set; }
 
     /// <summary>A row list over an instances result set; fails at once when a column is missing.</summary>
@@ -59,6 +63,7 @@ public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow
             ResultColumns.Require(info.Columns, InstanceColumns.Bytes),
             ResultColumns.Require(info.Columns, InstanceColumns.Generation),
             ResultColumns.Require(info.Columns, InstanceColumns.Value),
+            ResultColumns.Find(info.Columns, InstanceColumns.Retained),
         ];
         return new VirtualRowList<InstanceRowItem>(rows, info.TotalCount, i => new InstanceRowItem(i), (row, cells) => row.Fill(cells, layout), onError, logger);
     }
@@ -71,6 +76,7 @@ public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow
         Bytes = Cells.Long(cells, layout[2]);
         Generation = Cells.Text(cells, layout[3]);
         Value = Cells.Text(cells, layout[4]);
+        Retained = layout[5] >= 0 && layout[5] < cells.Count && cells[layout[5]] is not null ? Cells.Long(cells, layout[5]) : null;
         IsLoaded = true;
         OnPropertyChanged(string.Empty);
     }
@@ -86,6 +92,21 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     [ObservableProperty]
     private string? _valuesExplanation;
+
+    /// <summary>Whether the user asked for retained bytes (sprint 2.3); the navigator copies the types grid's choice.</summary>
+    [ObservableProperty]
+    private bool _showRetained;
+
+    /// <summary>Whether the shown rows carry retained bytes.</summary>
+    [ObservableProperty]
+    private bool _retainedColumnShown;
+
+    /// <summary>How the retained sizes were obtained and what they mean; null without them.</summary>
+    [ObservableProperty]
+    private string? _retainedNote;
+
+    private bool _started;
+    private bool _retainedOffQuietly;
 
     public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, ILogger? logger = null)
         : this(session, snapshot, typeName, module, InstanceScope.All, 0, logger)
@@ -137,18 +158,74 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     public System.Windows.Input.ICommand? WhyAliveCommand { get; set; }
 
     /// <summary>Runs the first query (after the navigator wires the drill-down command).</summary>
-    public void Start() => Requery();
+    public void Start()
+    {
+        _started = true;
+        Requery();
+    }
 
-    protected override bool SortsDescendingFirst(string column) => column == InstanceColumns.Bytes;
+    protected override bool SortsDescendingFirst(string column) => column is InstanceColumns.Bytes or InstanceColumns.Retained;
+
+    partial void OnShowRetainedChanged(bool value)
+    {
+        if (_retainedOffQuietly)
+        {
+            return;
+        }
+
+        if (!value && SortColumn == InstanceColumns.Retained)
+        {
+            SortColumn = InstanceColumns.Bytes;
+            Descending = true;
+        }
+
+        if (_started)
+        {
+            Requery();
+        }
+    }
 
     protected override async Task<GridQuery<InstanceRowItem>> RunQueryAsync(CancellationToken cancellationToken)
     {
-        var list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, SortColumn, Descending, Scope, SameValueAs), null, cancellationToken);
+        var retained = ShowRetained;
+        var finished = false;
+        var progress = retained ? new Progress<JobProgress>(p => Status = finished || cancellationToken.IsCancellationRequested ? Status : ReferrersText.Progress(p)) : null;
+        string? retainedFailure = null;
+        InstanceList list;
+        try
+        {
+            list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, SortColumn, Descending, Scope, SameValueAs, retained), progress, cancellationToken);
+        }
+        catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
+        {
+            // Review M8: retained sizes are optional, so the objects load without them and the note says why.
+            retainedFailure = ex.Message;
+            var bytes = SortColumn == InstanceColumns.Retained;
+            list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, bytes ? InstanceColumns.Bytes : SortColumn, bytes || Descending, Scope, SameValueAs), null, cancellationToken);
+        }
+
+        finished = true;
         var result = list.Result;
         return new GridQuery<InstanceRowItem>(
             list.Rows,
             () =>
             {
+                RetainedColumnShown = result.Dominators is not null;
+                RetainedNote = result.Dominators is { } dominators ? RetainedText.Source(dominators) + " " + RetainedText.ObjectsRetain : null;
+                if (retainedFailure is not null)
+                {
+                    _retainedOffQuietly = true;
+                    ShowRetained = false;
+                    _retainedOffQuietly = false;
+                    if (SortColumn == InstanceColumns.Retained)
+                    {
+                        SortColumn = InstanceColumns.Bytes;
+                        Descending = true;
+                    }
+
+                    RetainedNote = RetainedText.NotShown(retainedFailure);
+                }
+
                 ValuesExplanation = result.ValuesAvailable
                     ? null
                     : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.StringContents, Snapshot.Descriptor.Kind);

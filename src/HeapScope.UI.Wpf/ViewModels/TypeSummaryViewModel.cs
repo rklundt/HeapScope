@@ -25,6 +25,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
+using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +49,7 @@ public sealed class TypeRowLayout
         LargeObjectHeap = ResultColumns.Find(columns, "LargeObjectHeap");
         PinnedObjectHeap = ResultColumns.Find(columns, "PinnedObjectHeap");
         Frozen = ResultColumns.Find(columns, "Frozen");
+        Retained = ResultColumns.Find(columns, TypeSummaryColumns.Retained);
         TypeName = ResultColumns.Find(columns, TypeSummaryColumns.TypeName);
         Module = ResultColumns.Find(columns, TypeSummaryColumns.Module);
     }
@@ -71,6 +73,9 @@ public sealed class TypeRowLayout
     public int PinnedObjectHeap { get; }
 
     public int Frozen { get; }
+
+    /// <summary>The retained bytes column (sprint 2.3); -1 when not asked for.</summary>
+    public int Retained { get; }
 
     public int TypeName { get; }
 
@@ -108,6 +113,9 @@ public sealed class TypeRowItem(int index) : ObservableObject, IIndexedRow
 
     public long Frozen { get; private set; }
 
+    /// <summary>The row's retained bytes, a lower bound (sprint 2.3); 0 when not asked for.</summary>
+    public long Retained { get; private set; }
+
     public bool IsLoaded { get; private set; }
 
     /// <summary>The raw type name that opens the row's instances; null for namespace and assembly rows.</summary>
@@ -136,6 +144,7 @@ public sealed class TypeRowItem(int index) : ObservableObject, IIndexedRow
         LargeObjectHeap = Cells.Long(cells, layout.LargeObjectHeap);
         PinnedObjectHeap = Cells.Long(cells, layout.PinnedObjectHeap);
         Frozen = Cells.Long(cells, layout.Frozen);
+        Retained = Cells.Long(cells, layout.Retained);
         TypeName = layout.TypeName >= 0 ? Cells.Text(cells, layout.TypeName) : null;
         Module = layout.Module >= 0 ? Cells.Text(cells, layout.Module) : null;
         IsLoaded = true;
@@ -198,6 +207,23 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     [ObservableProperty]
     private IReadOnlyList<HeapKindShare> _heapKinds = [];
 
+    /// <summary>
+    /// Whether the user asked for retained bytes (sprint 2.3): off by default, since the first such query of a snapshot
+    /// computes its dominators (seconds on a large dump; decision 5).
+    /// </summary>
+    [ObservableProperty]
+    private bool _showRetained;
+
+    /// <summary>Whether the shown rows carry retained bytes.</summary>
+    [ObservableProperty]
+    private bool _retainedColumnShown;
+
+    /// <summary>How the retained sizes were obtained and what a row's value means, or why they are not shown; null without them.</summary>
+    [ObservableProperty]
+    private string? _retainedNote;
+
+    private bool _retainedOffQuietly;
+
     public TypeSummaryViewModel(SnapshotSession session, ILogger<TypeSummaryViewModel>? logger = null)
         : base(TypeSummaryColumns.Bytes, logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
 
@@ -226,11 +252,49 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     protected override void OnCleared() => HeapKinds = [];
 
+    partial void OnShowRetainedChanged(bool value)
+    {
+        if (_retainedOffQuietly)
+        {
+            return;
+        }
+
+        if (!value && SortColumn == TypeSummaryColumns.Retained)
+        {
+            SortColumn = TypeSummaryColumns.Bytes;
+            Descending = true;
+        }
+
+        if (_snapshot is not null)
+        {
+            Requery();
+        }
+    }
+
     protected override async Task<GridQuery<TypeRowItem>> RunQueryAsync(CancellationToken cancellationToken)
     {
         var snapshot = _snapshot!;
         var groupBy = GroupBy;
-        var summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, SortColumn, Descending, null, cancellationToken);
+        var retained = ShowRetained;
+
+        // The first retained query computes the dominators: its phases replace the busy text until it answers.
+        var finished = false;
+        var progress = retained ? new Progress<JobProgress>(p => Status = finished || cancellationToken.IsCancellationRequested ? Status : ReferrersText.Progress(p)) : null;
+        string? retainedFailure = null;
+        TypeSummary summary;
+        try
+        {
+            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, SortColumn, Descending, retained, progress, cancellationToken);
+        }
+        catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
+        {
+            // Review M8: retained sizes are optional, so the rows load without them and the note says why.
+            retainedFailure = ex.Message;
+            var bytes = SortColumn == TypeSummaryColumns.Retained;
+            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, bytes ? TypeSummaryColumns.Bytes : SortColumn, bytes || Descending, false, null, cancellationToken);
+        }
+
+        finished = true;
         var result = summary.Result;
         return new GridQuery<TypeRowItem>(
             summary.Rows,
@@ -240,12 +304,33 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 GenerationsExplanation = result.HasGenerations
                     ? null
                     : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, snapshot.Descriptor.Kind);
+                RetainedColumnShown = result.Dominators is not null;
+                RetainedNote = result.Dominators is { } dominators ? RetainedText.Source(dominators) + " " + RetainedText.RowsAreLowerBounds : null;
+                if (retainedFailure is not null)
+                {
+                    TurnRetainedOffQuietly();
+                    RetainedNote = RetainedText.NotShown(retainedFailure);
+                }
+
                 HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
                     $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} ({Scope(snapshot.Descriptor.Kind)})");
             },
             onError => TypeRowItem.CreateList(summary.Rows, result.Rows, onError, Logger));
+    }
+
+    /// <summary>Unchecks Retained sizes after a failed retained query, without querying again, and sorts by bytes.</summary>
+    private void TurnRetainedOffQuietly()
+    {
+        _retainedOffQuietly = true;
+        ShowRetained = false;
+        _retainedOffQuietly = false;
+        if (SortColumn == TypeSummaryColumns.Retained)
+        {
+            SortColumn = TypeSummaryColumns.Bytes;
+            Descending = true;
+        }
     }
 
     // A gcdump's capture ran a full collection first, so it holds survivors only (sprint 1.8).

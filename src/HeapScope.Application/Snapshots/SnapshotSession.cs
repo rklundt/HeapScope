@@ -159,12 +159,27 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// A type summary with grouping, filter and sort (sprint 1.3). The rows come back as a <see cref="ResultSetHandle"/>
     /// that runs the query again (reopening the snapshot if the worker restarted) when the set is gone.
     /// </summary>
+    public Task<TypeSummary> QueryTypeSummaryAsync(
+        SnapshotHandle handle,
+        TypeGrouping groupBy,
+        string? filter,
+        string? sortColumn,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken) =>
+        QueryTypeSummaryAsync(handle, groupBy, filter, sortColumn, descending, includeRetained: false, progress, cancellationToken);
+
+    /// <summary>
+    /// A type summary, with a retained bytes column when <paramref name="includeRetained"/> is set (sprint 2.3; the first
+    /// such query of a snapshot computes its dominators).
+    /// </summary>
     public async Task<TypeSummary> QueryTypeSummaryAsync(
         SnapshotHandle handle,
         TypeGrouping groupBy,
         string? filter,
         string? sortColumn,
         bool descending,
+        bool includeRetained,
         IProgress<JobProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -174,7 +189,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         {
             latest = await UseAsync(
                 handle,
-                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending), progress, innerCt),
+                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending, includeRetained), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -249,7 +264,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             latest = await UseAsync(
                 handle,
                 (service, id, innerCt) => service.QueryInstancesAsync(
-                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs),
+                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs, query.IncludeRetained),
                     progress,
                     innerCt),
                 ct).ConfigureAwait(false);
@@ -353,6 +368,10 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// </summary>
     public Task<ObjectPathsResult> QueryObjectPathsAsync(SnapshotHandle handle, ulong address, int maxRoots, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.QueryObjectPathsAsync(new ObjectPathsRequest(id, address, maxRoots), progress, ct), cancellationToken);
+
+    /// <summary>One object's retained size and immediate dominator (sprint 2.3).</summary>
+    public Task<RetainedResult> QueryRetainedAsync(SnapshotHandle handle, ulong address, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.QueryRetainedAsync(new RetainedRequest(id, address), progress, ct), cancellationToken);
 
     /// <summary>Why the objects of a type are alive (sprint 2.2): their key retention paths, largest first.</summary>
     public Task<TypePathsResult> QueryTypePathsAsync(SnapshotHandle handle, string typeName, string? module, int maxPaths, IProgress<JobProgress>? progress, CancellationToken cancellationToken)

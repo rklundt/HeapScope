@@ -326,6 +326,28 @@ public sealed class GcDumpReferrersTests(StaticCacheGcDumps shared) : IClassFixt
     }
 
     [Fact]
+    public async Task A_gcdump_has_retained_sizes_too()
+    {
+        // Sprint 2.3 (decision 8): dominators over a gcdump's graph, the same computation as for a full dump.
+        var session = new SnapshotSession(_host, new JobTracker(TimeProvider.System));
+        var path = StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder);
+        var handle = await session.StartOpen(path).Result;
+        var instances = await session.QueryInstancesAsync(handle, new InstancesQuery("Fixtures.Leaks.StaticCacheEntry", "Leaks.dll", SortColumn: InstanceColumns.Retained, IncludeRetained: true), null, Ct);
+        var first = (await instances.Rows.GetRowsAsync(0, 1, Ct)).Rows[0];
+        var address = ulong.Parse(first[0]![2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+
+        var retained = await session.QueryRetainedAsync(handle, address, null, Ct);
+
+        instances.Result.Dominators.ShouldNotBeNull();
+        retained.Reachable.ShouldBeTrue();
+        retained.RetainedBytes.ShouldBe(long.Parse(first[^1]!, CultureInfo.InvariantCulture));
+        retained.RetainedBytes.ShouldBeGreaterThan(retained.Bytes, "an entry keeps its metadata and payload alive");
+        var (code, output) = await RunCliAsync("summary", path, "--retained", "--filter", "Fixtures.Leaks");
+        code.ShouldBe(0, output);
+        output.ShouldContain("Retained sizes: dominators");
+    }
+
+    [Fact]
     public async Task The_paths_cli_works_on_a_gcdump()
     {
         // Review M6: the CLI on a gcdump, and an address with no object.

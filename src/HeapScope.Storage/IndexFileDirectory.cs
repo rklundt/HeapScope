@@ -135,6 +135,14 @@ internal static class IndexFileDirectory
             }
         }
 
+        if (header.SemanticsVersion != layout.SemanticsVersion)
+        {
+            failure = IndexCacheOpenResult.Invalid(
+                IndexCacheInvalidReason.VersionMismatch,
+                $"The {layout.Name} index was computed under rules version {header.SemanticsVersion}; this HeapScope uses version {layout.SemanticsVersion}.");
+            return null;
+        }
+
         if (header.BaseIdentity != expectedBaseIdentity)
         {
             failure = IndexCacheOpenResult.Invalid(

@@ -24,7 +24,8 @@ everything else.
 | 1.9 | Phase 1 hardening | Closed | 2026-10-24 | sprint-1.9 |
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
-| 2.3 | Dominator tree and retained size | Planned | | |
+| 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
+| 2.3.5 | Cross-platform and sharing decision | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1563,6 +1564,107 @@ retained sizes for fixtures; Medium within memory budget in both modes.
 
 **Dependencies**: 2.1.
 
+**Task breakdown**
+1. [x] Storage: sidecars record a semantics version (the header's reserved field, written by `Commit`, checked by
+   `IndexCacheFile.Open`; a mismatch is refused and rebuilt; base caches and 2.1 sidecars keep 0, so the format version
+   stays 2). `MappedIndexFileWriter`: sections planned up front, a temporary file mapped read-write, writable spans per
+   section, then checksums, header last, flush and rename (the crash safety of section 7). The dominators layout
+   (`.dom.hsidx`: ImmediateDominators, RetainedSizes). Tests: round trip in both modes, a semantics mismatch refused, a
+   writer that never commits leaves no file, a crash before the header leaves no valid file.
+2. [x] The reverse index is built straight into its sidecar (2.1 review M2): `ReverseReferences.Build` fills given spans;
+   with an index cache it is written through `MappedIndexFileWriter` and then opened in its chosen mode, so a mapped index
+   never holds a managed copy. Tests: the existing reverse index tests; the sidecar's bytes equal the previous writer's.
+3. [x] Analysis: `DominatorTree` (semi-NCA over the CSR and the reverse index, iterative with no stack at all, a virtual root
+   joined to `PathRoots.Sources`), retained sizes in reverse preorder, written into spans the caller gives;
+   `RetainedByGroup`, the lower bound per type or group. Tests: chain, diamond, cycle, self loop, a root reached only
+   through another root, two roots sharing an object, a list held from both ends, a frozen object, a weak handle, a
+   dependent-handle edge, unreachable objects, seeded random graphs against a brute-force dominator check, the group
+   lower bound on nested objects of one type.
+4. [x] Worker and Contracts (protocol 9): the dominators as a derived slot (projected memory checked first, opened from or
+   written into the sidecar, shared progress, its own lease); `IncludeRetained` on type summary and instances requests
+   (a `Retained` column); `QueryRetainedAsync` (an object's retained size and immediate dominator). Tests: worker tests
+   on synthetic snapshots, the sidecar reused on reopen, a stale semantics version rebuilt, the budget refusal.
+5. [x] Application and CLI: `SnapshotSession` methods; `--retained` on `summary`, `instances` and `object`. Tests: CLI
+   integration on a full dump and a gcdump.
+6. [x] UI: a "Retained sizes" switch on the summary and instances views (a column, sortable, computed with progress); the
+   object view's retained size and immediate dominator (a link). Tests: view model tests; `--smoke-open` on the Small dump.
+7. [x] Known answers: every rooted fixture item's retained size equals the independent ClrMD computation and is at least
+   its `minRetainedBytesPerItem`; a leak type's retained lower bound covers its items; late garbage is unreachable.
+8. [x] Measurement: Medium and DenseHeap in memory and mapped (time, peak private bytes, sidecar size, reopen).
+9. [x] Docs: ARCHITECTURE (6.4, 7, code map, protocol 9, section 10, an ADR for the retention semantics shared by paths
+   and dominators, 2.2 review L6), DEVELOPER, CLAUDE.md, the known answers README.
+
+**Decisions** (Phase 2 autonomy, one sprint at a time: the product owner said "continue" for 2.3 on 2026-10-25; each
+default below was decided autonomously)
+1. Semi-NCA as chosen in 1.9. The virtual root's successors are exactly `PathRoots.Sources` (retaining roots, then frozen
+   objects). An object no root reaches has no dominator (-1) and a retained size of 0; an object dominated only by the
+   virtual root (a root's own object, or one held by several roots) has -2.
+2. Kept per object: the immediate dominator (4 bytes) and the retained size (8 bytes), in the sidecar `.dom.hsidx`. Its
+   semantics version combines `PathRoots.SemanticsVersion` and the algorithm's own version, so a sidecar computed under
+   older rules is rebuilt.
+3. With an index cache, both optional indices are computed straight into their mapped sidecar file and then opened in
+   the chosen memory mode; without one they stay in managed arrays.
+4. Before computing, the working arrays (13 bytes per object after the review's M4; 21 before) and any managed outputs
+   are checked against what is left of the worker's share; when they do not fit, the worker refuses with InsufficientMemory and suggests reopening
+   the snapshot mapped. A live in-memory graph is not switched to mapped mid-session (Backlog).
+5. Computed on demand, not at open (4 to 13 s on Medium and DenseHeap): when a retained column or value is first asked
+   for; later opens reuse the sidecar.
+6. A type's (or namespace's, or assembly's) retained size is a lower bound: the retained sizes of its objects not dominated
+   by another object of the same group. Shown as such. Exact retention of a set ("objects retained by this set") is 2.4.
+7. The dominator tree drill-down and the biggest retainers tile are 2.4; retained deltas in diffs go to the Backlog.
+8. gcdumps are computed the same way; an incomplete graph is noted, as for referrers.
+9. The known-answer check compares each item's retained size with an independent ClrMD computation on the shared
+   all-leaks dump.
+10. As before, Moderate review findings are decided with their recommendation and logged; the sprint stops and reports
+    after `/close-sprint`.
+
+**Review summary** (`docs/reviews/sprint-2.3.md`): 2 High, 14 Moderate, 21 Low after dedupe.
+
+Both Highs are fixed and confirmed:
+- H1: the dominators benchmark deleted the whole `--out` folder; it now deletes only its own sidecars.
+- H2: a null retained cell crashed the CLI's JSON output; a null cell is now JSON null, and 4.6 says any cell may be null.
+
+Twelve Moderates were fixed, decided autonomously:
+- the budget is checked before the reverse index is built, reserved while computing, re-checked on the fallback, and the
+  sidecar opened after the working arrays are collected; a sidecar another process wrote is used (M1);
+- one worker-wide `MemoryReservations` for concurrent large computations (M2), and a collection after every one (M3);
+- the semidominators and ancestors live in the retained sizes output (13 bytes per object of working arrays instead of
+  21; M4), and the path compression reverses pointers instead of keeping a buffer (M5);
+- notes beside retained sizes for incomplete snapshots and a gcdump's unrooted survivors (M6);
+- requests checked before any dominators (M7); a failed retained query no longer hides the grids' rows (M8);
+- worker tests through `DominatorIndexBuilder` (M9), crash-safety tests of the mapped writer (M10), refusal advice that
+  fits the snapshot (M11), and an oracle that treats frozen objects as alive, checked on three items per fixture (M12).
+
+Deferred to the Backlog: stopping a computation nobody waits for (M13), the 16 GB measurement (M14), and gcdump
+survivors as extra sources (M6's second half).
+
+Measured after the review (32 GB machine): Medium reverse index and dominators 3.9 s in memory (peak 3,289 MB) and 5.6 s
+mapped (peak 699 MB); DenseHeap 4.6 s (3,875 MB) and 7.0 s (661 MB). Every rooted fixture item's retained size equals an
+independent ClrMD walk.
+
+---
+
+## Sprint 2.3.5: Cross-platform and sharing decision
+
+**Goal**: decide, before 2.4 adds more UI, how HeapScope reaches Linux and macOS developers and how teams share results.
+
+**Scope**: a spike and a decision, not a port. From the product owner (2026-10-25): the users to reach are Linux developers
+(possibly macOS) and teams sharing results. Today everything but the WPF UI targets plain `net10.0`; the Windows-only parts
+are the UI, capture (process discovery, dump writing, elevation) and a few native calls in Storage and Application. The
+engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the front end.
+- Run the CLI and worker on Linux against a Linux core dump of LeakyConsole and check the known answers.
+- List what capture needs on Linux (createdump, `/proc`) and macOS.
+- Compare the UI routes with one view prototyped each: Avalonia (view models carry over, desktop on all three systems)
+  and a TypeScript web front end over the worker (also opens a shared or hosted view for teams).
+- Sharing results: what a shared result is (an exported analysis, not a dump), how it stays within the privacy rules
+  (ARCHITECTURE 12: snapshot contents are sensitive), and how it relates to the HTML report export in the Backlog.
+
+**Acceptance criteria**: an ADR choosing the UI route and the sharing model; Phase 2 re-planned from 2.4 on accordingly.
+
+**Version**: 2.3.5 (between 2.3.0 and 2.4.0).
+
+**Dependencies**: 2.3.
+
 **Task breakdown**: to be filled by /start-sprint.
 
 **Review summary**: to be filled by /wrap-sprint.
@@ -1577,6 +1679,10 @@ retained sizes for fixtures; Medium within memory budget in both modes.
 summary, diff, inspection and retention views.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst in WPF, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+
+From 2.3 (decisions 6 and 7): the exact retention of a set ("open objects retained by this set": a reachability pass from
+the roots that skips the set, since a group's retained column is only a lower bound), the biggest retainers tile and the
+dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupRetention`).
 
 **Acceptance criteria**: every LeakyApi leak is reachable from "biggest retainers" in three clicks or fewer.
 
@@ -1667,6 +1773,19 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- Stop a derived computation nobody waits for (from the 2.3 review M13): canceling the last waiter of the dominators,
+  the root path tree or the reverse index only detaches it today; count the waiters per slot and cancel the
+  computation when the last one leaves (and on close), so an accidental retained column on a large heap can be undone.
+- Measure the mapped dominators on a 16 GB machine, or under a constrained working set (from the 2.3 review M14 and
+  the 1.9 decision): the computation writes randomly into file-backed pages, which may page there.
+- gcdump survivors without a recorded root as extra dominator sources (from the 2.3 review M6): today they retain
+  nothing and a note says retained sizes may be overstated; marking them "root not recorded" sources would attribute
+  what they hold to them.
+- Reconsider a live in-memory graph's memory mode when an optional index is computed (from 2.3 decision 4, the 1.9
+  decision): today dominators that do not fit next to an in-memory graph are refused with a suggestion to reopen
+  mapped; switching the open snapshot to mapped (graph and indices) would compute them without asking.
+- Retained bytes in snapshot diffs (from 2.3 decision 7): a type's retained lower bound in each snapshot and the delta,
+  once both snapshots have dominators.
 - gcdumps at scale (from 1.8, ADR-023 in 1.9): move gcdump capture into the worker (the capturing front end peaked at
   1,191 MB near the 10 million node cap), then raise the cap (a vendored change) after measuring a gcdump capture and
   load of the Medium dump against the budgets (section 10).

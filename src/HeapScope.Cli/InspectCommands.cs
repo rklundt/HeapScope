@@ -51,8 +51,9 @@ internal static partial class CliCommands
         {
             Description = "Keep objects whose address starts with this (0x1f2a), whose value matches a regular expression (/^Get.*Async$/), or whose value contains this text (any case).",
         };
-        var sort = new Option<string>("--sort") { Description = "Sort by bytes, address, generation or value.", DefaultValueFactory = _ => "bytes" };
+        var sort = new Option<string>("--sort") { Description = "Sort by bytes, address, generation, value or retained (adds the retained column).", DefaultValueFactory = _ => "bytes" };
         sort.AcceptOnlyFromAmong(s_instanceSortColumns.Keys.ToArray());
+        var retained = RetainedOption("Add each object's retained bytes: what it alone keeps alive (computes the snapshot's dominators the first time, then reuses them).");
         var top = TopOption();
         var all = AllOption();
         var format = FormatOption();
@@ -63,6 +64,7 @@ internal static partial class CliCommands
         command.Options.Add(module);
         command.Options.Add(filter);
         command.Options.Add(sort);
+        command.Options.Add(retained);
         command.Options.Add(top);
         command.Options.Add(all);
         command.Options.Add(format);
@@ -86,12 +88,14 @@ internal static partial class CliCommands
             var sortName = parseResult.GetValue(sort)!;
             var instances = await session.QueryInstancesAsync(
                 handle,
-                typeName,
-                moduleName,
-                parseResult.GetValue(filter),
-                s_instanceSortColumns[sortName],
-                descending: sortName == "bytes",
-                progress: null,
+                new InstancesQuery(
+                    typeName,
+                    moduleName,
+                    parseResult.GetValue(filter),
+                    s_instanceSortColumns[sortName],
+                    Descending: sortName is "bytes" or "retained",
+                    IncludeRetained: parseResult.GetValue(retained) || sortName == "retained"),
+                parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null,
                 ct).ConfigureAwait(false);
             var result = instances.Result;
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
@@ -125,17 +129,27 @@ internal static partial class CliCommands
                             result.TotalBytes,
                             MatchingObjects = result.Rows.TotalCount,
                             result.ValuesAvailable,
+                            result.Dominators,
                             Rows = JsonRows(columns, rows),
                         }).ConfigureAwait(false);
                     break;
                 default:
                     await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
                         $"{typeName} ({moduleName}): {result.TotalObjects:N0} objects, {Mb(result.TotalBytes)}; {result.Rows.TotalCount:N0} match, showing {rows.Count:N0}")).ConfigureAwait(false);
-                    await output.WriteLineAsync($"{"Address",-18} {"Bytes",14} {"Generation",-12}  Value").ConfigureAwait(false);
+                    if (result.Dominators is { } dominators)
+                    {
+                        await output.WriteLineAsync(RetainedNote(dominators) + " An object no root reaches retains nothing (blank).").ConfigureAwait(false);
+                    }
+
+                    var withRetained = result.Dominators is not null;
+                    await output.WriteLineAsync($"{"Address",-18} {"Bytes",14} {"Generation",-12}{(withRetained ? $" {"Retained",16}" : string.Empty)}  Value").ConfigureAwait(false);
                     foreach (var row in rows)
                     {
+                        var retainedCell = !withRetained ? string.Empty
+                            : row[5] is { } bytes ? string.Create(CultureInfo.InvariantCulture, $" {long.Parse(bytes, CultureInfo.InvariantCulture),16:N0}")
+                            : $" {string.Empty,16}";
                         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{row[0],-18} {long.Parse(row[2]!, CultureInfo.InvariantCulture),14:N0} {row[3],-12}  {OneLine(row[4])}")).ConfigureAwait(false);
+                            $"{row[0],-18} {long.Parse(row[2]!, CultureInfo.InvariantCulture),14:N0} {row[3],-12}{retainedCell}  {OneLine(row[4])}")).ConfigureAwait(false);
                     }
 
                     break;
@@ -168,12 +182,14 @@ internal static partial class CliCommands
         });
         var format = new Option<string>("--format") { Description = "Output: text or json.", DefaultValueFactory = _ => "text" };
         format.AcceptOnlyFromAmong("text", "json");
+        var retained = RetainedOption("Add the object's retained bytes and its immediate dominator, the closest object every path from a root to it passes through (computes the snapshot's dominators the first time, then reuses them).");
 
         var command = new Command("object", "Show one object: type, size, generation, whether a root holds it, its fields (nested) and the objects it references (opens the dump first; reuses its index cache). A snapshot that cannot read fields (a gcdump) prints why on stderr. Exit codes: 0 ok, 1 error (such as no object at the address), 64 usage, 130 canceled.");
         command.Arguments.Add(dump);
         command.Arguments.Add(address);
         command.Options.Add(references);
         command.Options.Add(format);
+        command.Options.Add(retained);
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
             var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
@@ -185,6 +201,9 @@ internal static partial class CliCommands
             var session = services().GetRequiredService<SnapshotSession>();
             TryParseAddress(parseResult.GetValue(address), out var at);
             var details = await session.GetObjectAsync(handle, at, progress: null, ct).ConfigureAwait(false);
+            var retainedResult = parseResult.GetValue(retained)
+                ? await session.QueryRetainedAsync(handle, at, new StderrProgress(error), ct).ConfigureAwait(false)
+                : null;
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wanted = parseResult.GetValue(references);
             var referenceRows = new List<IReadOnlyList<string?>>();
@@ -218,6 +237,15 @@ internal static partial class CliCommands
                         details.FieldsUnavailable,
                         Fields = details.Fields?.Select(JsonField),
                         References = JsonRows(referenceColumns, referenceRows),
+                        Retained = retainedResult is null ? null : new
+                        {
+                            retainedResult.Reachable,
+                            retainedResult.RetainedBytes,
+                            Dominator = retainedResult.DominatorAddress == 0 ? null : Hex(retainedResult.DominatorAddress),
+                            retainedResult.DominatorType,
+                            retainedResult.DominatedByRoots,
+                            retainedResult.Index,
+                        },
                     }).ConfigureAwait(false);
                 return Success;
             }
@@ -232,6 +260,24 @@ internal static partial class CliCommands
             if (details.Text is { } text)
             {
                 await output.WriteLineAsync("Text:        " + OneLine(text)).ConfigureAwait(false);
+            }
+
+            if (retainedResult is { } r)
+            {
+                await output.WriteLineAsync(r.Reachable
+                    ? string.Create(CultureInfo.InvariantCulture, $"Retained:    {r.RetainedBytes:N0} bytes (what it alone keeps alive)")
+                    : "Retained:    nothing. " + r.UnreachableNote).ConfigureAwait(false);
+                if (r.Index.Note is { } note)
+                {
+                    await output.WriteLineAsync("Note:        " + note).ConfigureAwait(false);
+                }
+
+                if (r.Reachable)
+                {
+                    await output.WriteLineAsync(r.DominatedByRoots
+                        ? "Dominator:   the roots (a root holds it, or several roots reach it on separate paths)"
+                        : $"Dominator:   {Hex(r.DominatorAddress)}  {r.DominatorType}").ConfigureAwait(false);
+                }
             }
 
             if (details.Fields is { } fields)
@@ -260,6 +306,7 @@ internal static partial class CliCommands
         ["address"] = InstanceColumns.Address,
         ["generation"] = InstanceColumns.Generation,
         ["value"] = InstanceColumns.Value,
+        ["retained"] = InstanceColumns.Retained,
     };
 
     /// <summary>

@@ -28,8 +28,8 @@ namespace HeapScope.Worker.Snapshots;
 
 /// <summary>
 /// Data computed from a loaded snapshot on first use and dropped with it in one step when the snapshot closes
-/// (sprint 1.3: the type aggregation; sprint 2.1: the reverse references index; sprint 2.2: the root path tree; later
-/// dominators and detector results get their slots here). Each slot holds one shared computation that runs for the
+/// (sprint 1.3: the type aggregation; sprint 2.1: the reverse references index; sprint 2.2: the root path tree; sprint
+/// 2.3: the dominators and the retained sizes per grouping; later detector results get their slots here). Each slot holds one shared computation that runs for the
 /// snapshot's lifetime, not for the caller that started it. Indices that own memory or a mapping are attached to the graph, which releases them after the last
 /// lease, so dropping a slot here never frees data a query still reads.
 /// </summary>
@@ -42,6 +42,8 @@ internal sealed class DerivedData
     private Task<TypeAggregation>? _aggregation;
     private Task<ReverseIndex>? _reverse;
     private Task<RootPathTree>? _rootPaths;
+    private Task<DominatorIndex>? _dominators;
+    private readonly Dictionary<GroupKey, Task<ulong[]>> _groupRetention = [];
 
     /// <summary>The running or finished aggregation; a failed or canceled one is started again.</summary>
     public Task<TypeAggregation> GetOrStartAggregation(Func<CancellationToken, Task<TypeAggregation>> compute) =>
@@ -61,6 +63,27 @@ internal sealed class DerivedData
     /// <summary>Progress of the root path tree computation, sent to every caller waiting for it.</summary>
     public SharedProgress<Contracts.JobProgress> RootPathProgress { get; } = new();
 
+    /// <summary>The running or finished dominators (sprint 2.3); a failed or canceled computation is started again.</summary>
+    public Task<DominatorIndex> GetOrStartDominators(Func<CancellationToken, Task<DominatorIndex>> compute) =>
+        GetOrStart(ref _dominators, compute);
+
+    /// <summary>Progress of the dominators computation, sent to every caller waiting for it.</summary>
+    public SharedProgress<Contracts.JobProgress> DominatorProgress { get; } = new();
+
+    /// <summary>The running or finished retained sizes per group of one grouping (sprint 2.3), each computed once.</summary>
+    public Task<ulong[]> GetOrStartGroupRetention(GroupKey grouping, Func<CancellationToken, Task<ulong[]>> compute)
+    {
+        lock (_lock)
+        {
+            if (!_groupRetention.TryGetValue(grouping, out var task) || task.IsFaulted || (task.IsCanceled && !_lifetime.IsCancellationRequested))
+            {
+                _groupRetention[grouping] = task = compute(_lifetime.Token);
+            }
+
+            return task;
+        }
+    }
+
     /// <summary>Stops running computations and drops the results.</summary>
     public void Close()
     {
@@ -70,6 +93,8 @@ internal sealed class DerivedData
             _aggregation = null;
             _reverse = null;
             _rootPaths = null;
+            _dominators = null;
+            _groupRetention.Clear();
         }
     }
 

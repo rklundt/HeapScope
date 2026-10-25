@@ -134,7 +134,10 @@ public sealed record TypeSummary(ResultSetHandle Rows, TypeSummaryResult Result)
 /// <summary>The objects of a type: their pageable rows and the totals of the first run (sprint 1.5).</summary>
 public sealed record InstanceList(ResultSetHandle Rows, InstancesResult Result);
 
-/// <summary>An instances query: a type key, a filter and sort, and the scope within the type (sprint 1.6).</summary>
+/// <summary>
+/// An instances query: a type key, a filter and sort, the scope within the type (sprint 1.6), and whether to add retained
+/// bytes (sprint 2.3).
+/// </summary>
 public sealed record InstancesQuery(
     string TypeName,
     string? Module,
@@ -142,7 +145,8 @@ public sealed record InstancesQuery(
     string? SortColumn = null,
     bool Descending = true,
     InstanceScope Scope = InstanceScope.All,
-    ulong SameValueAs = 0);
+    ulong SameValueAs = 0,
+    bool IncludeRetained = false);
 
 /// <summary>An inspection that ran: its rows and its summary (sprint 1.6).</summary>
 public sealed record InspectionRun(ResultSetHandle Rows, InspectionResultDto Result);

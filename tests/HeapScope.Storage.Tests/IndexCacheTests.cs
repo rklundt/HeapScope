@@ -28,6 +28,7 @@ using HeapScope.Core.Synthetic;
 namespace HeapScope.Storage.Tests;
 
 /// <summary>Sprint 0.5 acceptance criteria for the index cache.</summary>
+[Collection(WriterHookCollection.Name)]
 public sealed class IndexCacheTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "HeapScopeTests", Guid.NewGuid().ToString("N"));

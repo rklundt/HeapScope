@@ -122,7 +122,10 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Shows the objects of a type in <paramref name="snapshot"/>, all of them or those in a scope (sprint 1.6).</summary>
     public InstancesViewModel OpenInstances(SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope = InstanceScope.All, ulong sameValueAs = 0)
     {
-        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, _loggers?.CreateLogger<InstancesViewModel>());
+        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, _loggers?.CreateLogger<InstancesViewModel>())
+        {
+            ShowRetained = Types.ShowRetained,
+        };
         instances.OpenRowCommand = OpenInstanceRowCommand;
         instances.ReferencedByCommand = OpenReferencedByCommand;
         instances.WhyAliveCommand = OpenWhyAliveCommand;
@@ -242,6 +245,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
             RetentionNodeItem node => node.Address,
             KeyPathItem path => path.Address,
             FieldNode { IsLink: true } field => field.Address,
+            ulong dominator => dominator,
             _ => 0UL,
         };
 

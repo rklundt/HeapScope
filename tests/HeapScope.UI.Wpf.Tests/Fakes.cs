@@ -174,9 +174,17 @@ internal sealed class FakeWorkerService : IWorkerService
 
     private readonly Dictionary<Guid, List<IReadOnlyList<string?>>> _sets = [];
 
+    /// <summary>When set, summary and instances queries that ask for retained bytes fail with it (sprint 2.3).</summary>
+    public Exception? RetainedFailure { get; set; }
+
     public async Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         SummaryQueries.Add(request);
+        if (request.IncludeRetained && RetainedFailure is { } failure)
+        {
+            throw failure;
+        }
+
         if (SummaryGate is { } gate)
         {
             await gate.Task.WaitAsync(cancellationToken);
@@ -197,12 +205,22 @@ internal sealed class FakeWorkerService : IWorkerService
                 ? [.. matching.OrderByDescending(key).ThenBy(r => r[0], StringComparer.Ordinal)]
                 : [.. matching.OrderBy(key).ThenBy(r => r[0], StringComparer.Ordinal)]);
 
-        // Type rows carry the hidden key columns, as the worker's do.
+        // Type rows carry the hidden key columns, as the worker's do; retained bytes (sprint 2.3) are three times the bytes.
         var byType = request.GroupBy == TypeGrouping.Type;
-        rows = [.. rows.Select(r => byType ? (IReadOnlyList<string?>)[r[0], r[1], r[2], r.Count >= 4 ? r[3] : "0", r[0], "App.dll"] : r)];
+        var retained = request.IncludeRetained;
+        if (retained)
+        {
+            progress?.Report(new JobProgress("Finding immediate dominators", 50, 100));
+        }
+
+        rows = [.. rows.Select(r => (IReadOnlyList<string?>)[
+            .. r.Take(3), r.Count >= 4 ? r[3] : "0",
+            .. retained ? [(3 * long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture)).ToString(System.Globalization.CultureInfo.InvariantCulture)] : Array.Empty<string?>(),
+            .. byType ? [r[0], "App.dll"] : Array.Empty<string?>()])];
         var id = Guid.NewGuid();
         _sets[id] = rows;
         ResultColumn[] columns = [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Percent", ResultColumnKind.Percent),
+            .. retained ? new ResultColumn[] { new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes) } : [],
             .. byType ? new ResultColumn[] { new(TypeSummaryColumns.TypeName, ResultColumnKind.Text), new(TypeSummaryColumns.Module, ResultColumnKind.Text) } : []];
         var totalBytes = Rows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture));
         HeapKindTotal[] kinds = HasGenerations ? [new(HeapKindDto.Gen0, 10, totalBytes / 2), new(HeapKindDto.Gen2, 5, totalBytes / 2)] : [];
@@ -214,7 +232,8 @@ internal sealed class FakeWorkerService : IWorkerService
             HasGenerations,
             kinds,
             0.1,
-            Rows.Count);
+            Rows.Count,
+            retained ? Dominators : null);
     }
 
     /// <summary>Instance rows: address (0x...), type, bytes, generation, value.</summary>
@@ -232,13 +251,26 @@ internal sealed class FakeWorkerService : IWorkerService
     public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         InstanceQueries.Add(request);
+        if (request.IncludeRetained && RetainedFailure is { } failure)
+        {
+            return Task.FromException<InstancesResult>(failure);
+        }
+
         List<IReadOnlyList<string?>> rows = [.. InstanceRows.Where(r => string.IsNullOrEmpty(request.Filter) || (r[4] ?? string.Empty).Contains(request.Filter, StringComparison.OrdinalIgnoreCase))];
+
+        // Sprint 2.3: retained bytes are twice the bytes, and empty for a Gen0 object (as if no root reached it).
+        if (request.IncludeRetained)
+        {
+            rows = [.. rows.Select(r => (IReadOnlyList<string?>)[.. r.Take(5), r[3] == "Gen0" ? null : (2 * long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture)).ToString(System.Globalization.CultureInfo.InvariantCulture)])];
+        }
+
         var id = Guid.NewGuid();
         _sets[id] = rows;
         ResultColumn[] columns =
         [
             new(InstanceColumns.Address, ResultColumnKind.Address, true), new(InstanceColumns.Type, ResultColumnKind.Text), new(InstanceColumns.Bytes, ResultColumnKind.Bytes),
             new(InstanceColumns.Generation, ResultColumnKind.Text), new(InstanceColumns.Value, ResultColumnKind.Text),
+            .. request.IncludeRetained ? new ResultColumn[] { new(InstanceColumns.Retained, ResultColumnKind.Bytes) } : [],
         ];
         return Task.FromResult(new InstancesResult(
             new ResultSetInfo(id, rows.Count, columns),
@@ -246,7 +278,8 @@ internal sealed class FakeWorkerService : IWorkerService
             InstanceRows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture)),
             1,
             ValuesAvailable,
-            0.1));
+            0.1,
+            request.IncludeRetained ? Dominators : null));
     }
 
     /// <summary>Whether the snapshot reads values (string contents).</summary>
@@ -359,6 +392,22 @@ internal sealed class FakeWorkerService : IWorkerService
         return Task.FromResult(new TypePathsResult(
             [.. TypePaths], 1, TypePaths.Sum(p => p.Objects) + 2, 2, 80, 0, 0, 0, CompleteGraph, 0.3, UnreachableNote));
     }
+
+    /// <summary>Retained queries received (sprint 2.3).</summary>
+    public List<RetainedRequest> RetainedQueries { get; } = [];
+
+    /// <summary>The answer to retained queries; by default 4,096 bytes retained, dominated by the object at 0x500.</summary>
+    public RetainedResult? Retained { get; set; }
+
+    public Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        RetainedQueries.Add(request);
+        return Task.FromResult(Retained ?? new RetainedResult(
+            request.Address, "App.Order", 48, true, 4096, 0x500, "App.Cache", false, UnreachableNote, Dominators, CompleteGraph));
+    }
+
+    /// <summary>How the fake's dominators were obtained.</summary>
+    public DominatorIndexInfo Dominators { get; } = new(false, SnapshotMemoryMode.InMemory, 1.5, 1200, true, 100);
 
     /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>
     public List<InspectionInfo> Inspections { get; } =

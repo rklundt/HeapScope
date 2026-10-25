@@ -34,8 +34,10 @@ public static class WorkerProtocol
     /// Version 6 (sprint 1.6): inspections (list and run), instance scopes and SameValueAs; progress on object and
     /// references calls.
     /// Version 7 (sprint 2.1): referrers of an object and of a type; the descriptor's cache identity.
-    /// Version 8 (sprint 2.2): retention paths of an object and of a type. ARCHITECTURE.md 4.4 has the details.
-    public const int Version = 8;
+    /// Version 8 (sprint 2.2): retention paths of an object and of a type.
+    /// Version 9 (sprint 2.3): retained sizes (an object's retained size and dominator; retained columns on type summaries
+    /// and instances). ARCHITECTURE.md 4.4 has the details.
+    public const int Version = 9;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

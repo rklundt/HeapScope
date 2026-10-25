@@ -48,6 +48,8 @@ internal sealed class TypeSummarySource : IResultSource
         new(TypeSummaryColumns.Percent, ResultColumnKind.Percent),
     ];
 
+    private static readonly ResultColumn[] s_retainedColumns = [new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes)];
+
     private static readonly ResultColumn[] s_kindColumns = [.. KindColumns.Select(k => new ResultColumn(k.ToString(), ResultColumnKind.Bytes))];
 
     private static readonly ResultColumn[] s_keyColumns =
@@ -60,15 +62,17 @@ internal sealed class TypeSummarySource : IResultSource
     private readonly ulong _totalBytes;
     private readonly bool _generations;
     private readonly bool _byType;
+    private readonly bool _retained;
 
-    private TypeSummarySource(SummaryRow[] rows, int unfilteredCount, ulong totalBytes, bool generations, bool byType)
+    private TypeSummarySource(SummaryRow[] rows, int unfilteredCount, ulong totalBytes, bool generations, bool byType, bool retained)
     {
         _rows = rows;
         UnfilteredCount = unfilteredCount;
         _totalBytes = totalBytes;
         _generations = generations;
         _byType = byType;
-        Columns = ColumnsFor(generations, byType);
+        _retained = retained;
+        Columns = ColumnsFor(generations, byType, retained);
         EstimatedBytes = rows.Sum(r => 48L + (2L * r.Name.Length) + (8L * r.BytesByKind.Length) + (byType ? 2L * r.Name.Length : 0));
     }
 
@@ -85,8 +89,28 @@ internal sealed class TypeSummarySource : IResultSource
     public static TypeSummarySource Create(HeapGraph graph, CancellationToken cancellationToken) =>
         Create(graph, TypeAggregation.Compute(graph, cancellationToken: cancellationToken), new TypeSummaryRequest(Guid.Empty), generations: false);
 
-    /// <summary>Groups, filters and sorts <paramref name="aggregation"/> as <paramref name="request"/> asks.</summary>
-    public static TypeSummarySource Create(HeapGraph graph, TypeAggregation aggregation, TypeSummaryRequest request, bool generations)
+    /// <summary>
+    /// Checks <paramref name="request"/>'s grouping and sort column before the worker computes the dominators for it
+    /// (sprint 2.3 review M7).
+    /// </summary>
+    /// <exception cref="ArgumentException">The grouping or the sort column is unknown.</exception>
+    public static void Validate(TypeSummaryRequest request, bool generations)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Enum.IsDefined(request.GroupBy))
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), $"Unknown grouping {(int)request.GroupBy}.");
+        }
+
+        Sort(generations, request.GroupBy == TypeGrouping.Type, request.IncludeRetained).Validate(request.SortColumn ?? TypeSummaryColumns.Bytes);
+    }
+
+    /// <summary>
+    /// Groups, filters and sorts <paramref name="aggregation"/> as <paramref name="request"/> asks. With
+    /// <paramref name="retainedByGroup"/> (sprint 2.3; numbered as <see cref="TypeGroups.GroupOfType"/>) the rows carry a
+    /// retained bytes column.
+    /// </summary>
+    public static TypeSummarySource Create(HeapGraph graph, TypeAggregation aggregation, TypeSummaryRequest request, bool generations, ulong[]? retainedByGroup = null)
     {
         ArgumentNullException.ThrowIfNull(aggregation);
         ArgumentNullException.ThrowIfNull(request);
@@ -97,9 +121,10 @@ internal sealed class TypeSummarySource : IResultSource
 
         var byType = request.GroupBy == TypeGrouping.Type;
         var sortColumn = request.SortColumn ?? TypeSummaryColumns.Bytes;
-        var sort = Sort(generations, byType);
+        var retained = retainedByGroup is not null;
+        var sort = Sort(generations, byType, retained);
         sort.Validate(sortColumn);
-        var rows = TypeGroups.Build(graph, aggregation, request.GroupBy.ToGroupKey());
+        var rows = TypeGroups.Build(graph, aggregation, request.GroupBy.ToGroupKey(), retainedByGroup);
         var unfiltered = rows.Count;
         if (!string.IsNullOrWhiteSpace(request.Filter))
         {
@@ -108,7 +133,7 @@ internal sealed class TypeSummarySource : IResultSource
 
         sort.Sort(rows, sortColumn, request.Descending);
 
-        return new TypeSummarySource([.. rows], unfiltered, aggregation.TotalBytes, generations, byType);
+        return new TypeSummarySource([.. rows], unfiltered, aggregation.TotalBytes, generations, byType, retained);
     }
 
     public void FormatRow(int index, string?[] cells)
@@ -119,6 +144,11 @@ internal sealed class TypeSummarySource : IResultSource
         cells[2] = row.Bytes.ToString(CultureInfo.InvariantCulture);
         cells[3] = (_totalBytes == 0 ? 0 : 100.0 * row.Bytes / _totalBytes).ToString("0.##", CultureInfo.InvariantCulture);
         var next = 4;
+        if (_retained)
+        {
+            cells[next++] = (row.Retained ?? 0).ToString(CultureInfo.InvariantCulture);
+        }
+
         if (_generations)
         {
             for (var k = 0; k < KindColumns.Length; k++)
@@ -134,16 +164,21 @@ internal sealed class TypeSummarySource : IResultSource
         }
     }
 
-    private static ResultColumn[] ColumnsFor(bool generations, bool byType) =>
-        [.. s_baseColumns, .. generations ? s_kindColumns : [], .. byType ? s_keyColumns : []];
+    private static ResultColumn[] ColumnsFor(bool generations, bool byType, bool retained) =>
+        [.. s_baseColumns, .. retained ? s_retainedColumns : [], .. generations ? s_kindColumns : [], .. byType ? s_keyColumns : []];
 
-    private static ColumnSort<SummaryRow> Sort(bool generations, bool byType)
+    private static ColumnSort<SummaryRow> Sort(bool generations, bool byType, bool retained)
     {
         var sort = new ColumnSort<SummaryRow>(r => r.Name)
             .On(TypeSummaryColumns.Name, (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase))
             .On(TypeSummaryColumns.Objects, r => r.Count)
             .On(TypeSummaryColumns.Bytes, r => r.Bytes)
             .On(TypeSummaryColumns.Percent, r => r.Bytes);
+        if (retained)
+        {
+            sort.On(TypeSummaryColumns.Retained, r => r.Retained ?? 0);
+        }
+
         if (generations)
         {
             for (var i = 0; i < s_kindColumns.Length; i++)
