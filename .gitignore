@@ -496,3 +496,9 @@ CURRENT-CONTEXT.md
 
 # Local launcher; not part of the product.
 run.bat
+# Traces hold method names and exception messages: private, never committed.
+*.nettrace
+*.etl
+
+# Per-user Claude Code settings.
+.claude/settings.local.json
