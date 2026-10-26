@@ -80,6 +80,7 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
   [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
 - UI smoke runs: `HeapScope --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]
   [--smoke-trace <file>]`, with `--headless` where there is no display (exit 0 ok, 3 lag, 4 failed, 5 first window
-  over 30 s). Measure untraced; traces are for finding where time goes.
+  over 30 s, 6 a grid walked a whole row list). Measure untraced; traces are for finding where time goes. Sample dumps
+  of a runtime no longer installed need `--Symbols:DacFolder` (DEVELOPER.md 2).
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>` (`graph-build`, `dump-stats`,
   `stack-roots`, `index-cache`, `load-dump`, `phase2-indices`, `reverse-index --cache <hsidx>`, `retention --cache <hsidx>`, `dominators --cache <hsidx> [--mode mapped]`, `trace-report --trace <file>`)

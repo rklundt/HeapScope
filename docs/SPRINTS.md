@@ -26,7 +26,7 @@ everything else.
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
 | 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
-| 2.3.6 | Avalonia port | In Progress | | |
+| 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1853,7 +1853,22 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
     autonomously).
 
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary**: 1 High, 15 Moderate, 30 Low (docs/reviews/sprint-2.3.6.md). The High (the Linux and macOS builds
+lost their executable modes in the artifact upload, and the package job never ran what it built) was fixed with
+tarballs that CI unpacks and runs (CLI version, a worker ping, the worker's Server GC, a headless smoke), and confirmed
+by solution-architect after a second pass (relative tar names for Git Bash on Windows). Moderates, decided
+autonomously: 14 fixed (space reserved before mapped writes; a sound upper bound for the longest UI operation, decision
+12; smoke runs fail on any whole-list grid walk and log UI memory; one module key for summary, diff and inspections;
+the self-contained worker's own DAC folder instead of a folder beside it; the architecture check before the DAC
+search; the worker's GC settings logged and section 9 corrected (DATAS is off with a heap count); a guarded window
+close; attribution and message window tests with a hit-test fix; the grid dispatcher required; ReadyToRun for every
+published executable; the WPF parity table; TreeView limits documented and the 2.4 plan corrected; the Inter font kept
+out of the app, decision 13), 1 deferred to 2.4 (the grid adapter keyed by an interface). Lows listed. Measured
+(Release, this machine): Small dump checked lag 102 to 105 ms and longest operation at most 64 ms, Medium 71 ms and at
+most 69 ms (WPF, timed exactly: 44 to 68 ms); no whole-list grid walk; UI 219 to 229 MB private; published first window
+1.0 to 1.3 s; builds (CI) 266 to 370 MB unpacked, 112 to 139 MB as tarballs, each run from its unpacked tarball
+(worker ping, headless smoke) except `osx-x64`. Gate: 993 tests, 0 failed, 0 warnings (an earlier run hit the known
+SessionLibrary concurrency flake under load; it passed 5 of 5 alone). CI green on all jobs.
 
 ---
 

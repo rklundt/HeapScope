@@ -44,7 +44,12 @@ The reviewers confirmed:
   unpack. Fixed: both tar calls use relative names from inside the folder (portable to macOS bsdtar, unlike
   `--force-local`). Its Lows, also fixed: the worker's explicit restore passes `PublishReadyToRun`; DEVELOPER 2 says the
   download is a zip holding the tarball and how to unpack it.
-- CI (run on commit 2acd914): see the Review summary in SPRINTS.md.
+- H1, second pass: CONFIRMED by solution-architect (relative names on every runner, failures still stop the step, the
+  upload path matches, the unpacked tree is what runs; both Lows done; nothing new introduced).
+- The first CI run of the fixes (2acd914) also caught the architecture test refusing the font exclusion reference
+  (`LayerRules` allows only listed packages); `Avalonia.Fonts.Inter` is now listed for the app, with a note that it is
+  referenced only to exclude its assets.
+- CI on f2d0d1c: every job green, the four package legs included; three ran their unpacked build.
 
 ## Moderate (decided autonomously)
 
