@@ -10,6 +10,5 @@
   <ItemGroup>
     <InternalsVisibleTo Include="HeapScope.UI.ViewModels.Tests" />
     <InternalsVisibleTo Include="HeapScope.UI" />
-    <InternalsVisibleTo Include="HeapScope.UI.Wpf" />
   </ItemGroup>
 </Project>

@@ -144,7 +144,13 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     /// <summary>Why there is nothing to compare yet, if so.</summary>
     public string? Hint => Snapshots.Count < 2
         ? "Open two snapshots to compare them: the earlier one is the baseline."
-        : Baseline is null || Current is null ? "Pick a baseline and a current snapshot." : null;
+        : Baseline is null || Current is null ? "Pick a baseline and a current snapshot."
+        : ByOpenOrder ? "A Linux or macOS core dump records no capture time (its file's time is shown), so the snapshot opened first is the baseline. Swap if that is the later one."
+        : null;
+
+    // Sprint 2.3.6 (2.3.5 review M4): a capture time that is only the file's time can be changed by a copy, so it does not
+    // decide which snapshot is the baseline.
+    private bool ByOpenOrder => Snapshots.Any(s => s.Handle.Descriptor.CaptureTimeFromFile);
 
     protected override bool CanQuery => Baseline is not null && Current is not null;
 
@@ -231,10 +237,11 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
             return;
         }
 
-        // By capture time, open order breaking ties; snapshots without a capture time count as the newest.
+        // By capture time, open order breaking ties; snapshots without a capture time count as the newest. Open order alone
+        // when a capture time is only a file's time.
         var ordered = Snapshots
             .Select((s, i) => (Item: s, Order: i))
-            .OrderBy(x => x.Item.Handle.Descriptor.CapturedAtUtc ?? DateTimeOffset.MaxValue)
+            .OrderBy(x => ByOpenOrder ? DateTimeOffset.MinValue : x.Item.Handle.Descriptor.CapturedAtUtc ?? DateTimeOffset.MaxValue)
             .ThenBy(x => x.Order)
             .Select(x => x.Item)
             .ToList();

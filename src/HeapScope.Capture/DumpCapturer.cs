@@ -160,6 +160,7 @@ public sealed class DumpCapturer(
     public async Task CaptureAsync(DotNetProcess process, string path, IProgress<CaptureProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(process);
+        ArgumentException.ThrowIfNullOrEmpty(path);
         CapturePlatform.EnsureSupported();
         progress?.Report(new CaptureProgress("Checking"));
         Directory.CreateDirectory(PartialSnapshotFile.DirectoryOf(path, "dump"));

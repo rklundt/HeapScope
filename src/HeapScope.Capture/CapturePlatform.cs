@@ -23,19 +23,6 @@
 
 namespace HeapScope.Capture;
 
-/// <summary>
-/// Elevation off Windows (sprint 2.3.5): whether this process runs as root, from .NET's own cross-platform check. Another
-/// process's state is not looked up yet (Linux and macOS capture is a later sprint), so it is <see cref="ElevationState.Unknown"/>.
-/// </summary>
-public sealed class UnixElevationProbe : IElevationProbe
-{
-    public static UnixElevationProbe Instance { get; } = new();
-
-    public bool IsCurrentProcessElevated => Environment.IsPrivilegedProcess;
-
-    public ElevationState GetState(int processId) => ElevationState.Unknown;
-}
-
 /// <summary>Capture on the system HeapScope runs on (sprint 2.3.5).</summary>
 public static class CapturePlatform
 {

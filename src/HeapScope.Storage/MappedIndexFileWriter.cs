@@ -25,6 +25,7 @@ using System.Buffers;
 using System.IO.Hashing;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
+using HeapScope.Core;
 
 namespace HeapScope.Storage;
 
@@ -198,7 +199,7 @@ public sealed unsafe class MappedIndexFileWriter : IDisposable
 
         // The file ends at the last section's end (an empty last section's offset included), as a streamed file does.
         Length = position;
-        _stream = new FileStream(_temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1);
+        _stream = PrivateFiles.Open(_temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1);
         _stream.SetLength(Length);
         _file = MemoryMappedFile.CreateFromFile(_stream, mapName: null, Length, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: true);
         _view = _file.CreateViewAccessor(0, Length, MemoryMappedFileAccess.ReadWrite);

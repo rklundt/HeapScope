@@ -91,6 +91,19 @@ public sealed class CompareViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task When_a_capture_time_is_only_the_files_time_the_snapshot_opened_first_is_the_baseline()
+    {
+        // Sprint 2.3.6 (2.3.5 review M4): a copied core gets a new file time, so the times do not pick the baseline.
+        _worker.Service.CaptureTimeFromFile = path => Path.GetFileName(path) == "earlier-name.dmp";
+
+        await OpenBothAsync();
+
+        Compare.Baseline!.Title.ShouldBe("earlier-name.dmp", "opened first");
+        Compare.Current!.Title.ShouldBe("later-name.dmp");
+        Compare.Hint.ShouldNotBeNull().ShouldContain("opened first is the baseline");
+    }
+
+    [Fact]
     public async Task Swapping_queries_once_with_the_sides_exchanged()
     {
         await OpenBothAsync();

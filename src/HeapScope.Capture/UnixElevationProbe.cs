@@ -22,26 +22,17 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
-using System.Windows;
-using HeapScope.UI.Services;
-using Microsoft.Win32;
+namespace HeapScope.Capture;
 
-namespace HeapScope.UI.Wpf.Services;
-
-/// <summary>Standard Windows dialogs. Modal dialogs pump messages, so they never block the dispatcher.</summary>
-public sealed class WpfUserInteraction : IUserInteraction
+/// <summary>
+/// Elevation off Windows (sprint 2.3.5): whether this process runs as root, from .NET's own cross-platform check. Another
+/// process's state is not looked up yet (Linux and macOS capture is a later sprint), so it is <see cref="ElevationState.Unknown"/>.
+/// </summary>
+public sealed class UnixElevationProbe : IElevationProbe
 {
-    public Task<string?> PickDumpFileAsync()
-    {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Open a memory dump",
-            Filter = "Memory dumps (*.dmp)|*.dmp|All files (*.*)|*.*",
-            CheckFileExists = true,
-        };
-        return Task.FromResult(dialog.ShowDialog(System.Windows.Application.Current?.MainWindow) == true ? dialog.FileName : null);
-    }
+    public static UnixElevationProbe Instance { get; } = new();
 
-    public Task<bool> ConfirmAsync(string title, string message) =>
-        Task.FromResult(MessageBox.Show(System.Windows.Application.Current?.MainWindow!, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
+    public bool IsCurrentProcessElevated => Environment.IsPrivilegedProcess;
+
+    public ElevationState GetState(int processId) => ElevationState.Unknown;
 }

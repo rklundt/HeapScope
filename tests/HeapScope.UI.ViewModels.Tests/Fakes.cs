@@ -119,6 +119,9 @@ internal sealed class FakeWorkerService : IWorkerService
     /// <summary>The capture time reported for a path (null when not set).</summary>
     public Func<string, DateTimeOffset?>? CapturedAt { get; set; }
 
+    /// <summary>Whether a dump's capture time is only its file's time (sprint 2.3.6: Linux and macOS cores).</summary>
+    public Func<string, bool>? CaptureTimeFromFile { get; set; }
+
     /// <summary>The index cache identity reported for each open (0 when not set).</summary>
     public ulong CacheIdentity { get; set; }
 
@@ -135,7 +138,8 @@ internal sealed class FakeWorkerService : IWorkerService
         Opened.Add(request);
         return Task.FromResult(new SnapshotDescriptor(
             Guid.NewGuid(), request.Path, SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
-            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."], CacheIdentity));
+            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."], CacheIdentity,
+            CaptureTimeFromFile?.Invoke(request.Path) ?? false));
     }
 
     public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)

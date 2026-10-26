@@ -27,6 +27,7 @@ using HeapScope.Capture;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using HeapScope.Core;
 
 namespace HeapScope.Application.Monitoring;
 
@@ -434,7 +435,7 @@ public sealed class MonitorRun : IAsyncDisposable
                     var path = Path.Combine(_folder, n == 1 ? stem + ".csv" : string.Create(CultureInfo.InvariantCulture, $"{stem}-{n}.csv"));
                     try
                     {
-                        _timeline = new StreamWriter(new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                        _timeline = new StreamWriter(PrivateFiles.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
                         _timelinePath = path;
                     }
                     catch (IOException) when (File.Exists(path) && n < 100)

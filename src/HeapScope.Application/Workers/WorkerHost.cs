@@ -262,6 +262,11 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         string pipeName;
         if (_options.AttachPipeName is { Length: > 0 } attach)
         {
+            if (PipeNameProblem(attach, OperatingSystem.IsWindows(), Path.GetTempPath()) is { } problem)
+            {
+                throw new WorkerStartException(problem);
+            }
+
             pipeName = attach;
             _logger.LogInformation("Attaching to the worker on pipe {Pipe}", pipeName);
         }
@@ -320,6 +325,20 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
 
     /// <summary>A new worker pipe name: the prefix and 24 random hex digits (96 bits), short enough for macOS's socket paths.</summary>
     public static string NewPipeName() => WorkerProtocol.PipeNamePrefix + RandomNumberGenerator.GetHexString(24, lowercase: true);
+
+    /// <summary>
+    /// Why <paramref name="name"/> cannot name a pipe on this system, or null (2.3.5 review L16): off Windows a pipe is a
+    /// Unix domain socket at <c>&lt;temp&gt;/CoreFxPipe_&lt;name&gt;</c>, whose path holds at most 103 characters on macOS.
+    /// </summary>
+    public static string? PipeNameProblem(string name, bool isWindows, string tempPath)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        const int MaxSocketPath = 103;
+        var socket = Path.Combine(tempPath ?? string.Empty, "CoreFxPipe_" + name);
+        return isWindows || socket.Length <= MaxSocketPath
+            ? null
+            : string.Create(CultureInfo.InvariantCulture, $"The pipe name '{name}' is too long for this system: its socket path {socket} has {socket.Length} characters, and at most {MaxSocketPath} are allowed. Use a shorter name.");
+    }
 
     /// <summary>Connects to the pipe within the connect timeout, failing fast when the worker exits during startup.</summary>
     private async Task ConnectAsync(NamedPipeClientStream pipe, Process? process, CancellationToken timeout, CancellationToken caller)

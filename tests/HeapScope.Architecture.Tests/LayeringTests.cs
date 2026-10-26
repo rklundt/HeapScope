@@ -96,7 +96,7 @@ public class LayeringTests
             </Project>
             """);
 
-        var violations = LayerRules.Check(ProjectInfo.Parse("HeapScope.UI.Wpf", bad));
+        var violations = LayerRules.Check(ProjectInfo.Parse("HeapScope.UI", bad));
 
         violations.Count.ShouldBe(2);
         violations.ShouldContain(v => v.Contains("HeapScope.Analysis", StringComparison.Ordinal));
@@ -135,16 +135,16 @@ public class LayeringTests
     [Fact]
     public void Assembly_check_reports_ui_using_a_loader_or_diagnostics_library()
     {
-        LayerRules.CheckAssemblyReference("HeapScope.UI.Wpf", "HeapScope.Loaders.ClrMd").ShouldNotBeNull();
-        LayerRules.CheckAssemblyReference("HeapScope.UI.Wpf", "Microsoft.Diagnostics.Runtime").ShouldNotBeNull();
-        LayerRules.CheckAssemblyReference("HeapScope.UI.Wpf", "HeapScope.Contracts").ShouldBeNull();
+        LayerRules.CheckAssemblyReference("HeapScope.UI", "HeapScope.Loaders.ClrMd").ShouldNotBeNull();
+        LayerRules.CheckAssemblyReference("HeapScope.UI", "Microsoft.Diagnostics.Runtime").ShouldNotBeNull();
+        LayerRules.CheckAssemblyReference("HeapScope.UI", "HeapScope.Contracts").ShouldBeNull();
         LayerRules.CheckAssemblyReference("HeapScope.Loaders.ClrMd", "Microsoft.Diagnostics.Runtime").ShouldBeNull();
     }
 
     [Fact]
     public void Assembly_check_reports_disallowed_package_assemblies()
     {
-        LayerRules.CheckAssemblyReference("HeapScope.UI.Wpf", "StreamJsonRpc").ShouldNotBeNull();
+        LayerRules.CheckAssemblyReference("HeapScope.UI", "StreamJsonRpc").ShouldNotBeNull();
         LayerRules.CheckAssemblyReference("HeapScope.Core", "Microsoft.Extensions.Logging.Abstractions").ShouldNotBeNull();
         LayerRules.CheckAssemblyReference("HeapScope.Analysis", "StreamJsonRpc").ShouldNotBeNull();
         LayerRules.CheckAssemblyReference("HeapScope.Analysis", "System.IO.Hashing").ShouldBeNull("duplicate strings hash text (sprint 1.6)");
@@ -154,7 +154,7 @@ public class LayeringTests
     [Fact]
     public void Imported_worker_reference_is_seen_as_build_order_only()
     {
-        var ui = ProjectInfo.LoadEvaluated(Path.Combine(RepoPaths.Root, "src", "HeapScope.UI.Wpf", "HeapScope.UI.Wpf.csproj"));
+        var ui = ProjectInfo.LoadEvaluated(Path.Combine(RepoPaths.Root, "src", "HeapScope.UI", "HeapScope.UI.csproj"));
 
         ui.BuildOrderOnlyReferences.ShouldContain("HeapScope.Worker");
         ui.ProjectReferences.ShouldNotContain("HeapScope.Worker");

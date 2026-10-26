@@ -23,12 +23,17 @@ dotnet test --solution HeapScope.sln
   again. Run it before closing a sprint.
 - Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - A test run that never finishes: run the test executable directly with hung test detection, for example
-  `tests/HeapScope.UI.Wpf.Tests/bin/Debug/net10.0-windows/HeapScope.UI.Wpf.Tests.exe -longRunning 30 -noAutoReporters`;
+  `tests/HeapScope.UI.Tests/bin/Debug/net10.0/HeapScope.UI.Tests.exe -longRunning 30 -noAutoReporters`;
   it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
-- Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
-- The Avalonia prototype (sprint 2.3.5, ADR-025; outside `HeapScope.sln`, not shipped, removed by the port sprint 2.3.6):
-  `dotnet run --project spikes/AvaloniaGrid -- <dump>` shows the types grid and a type's objects through the real worker;
-  `--measure` scrolls the grids, prints first-show and stall times and the row lists' enumeration count, and exits.
+- Run the UI: `dotnet run --project src/HeapScope.UI` (Avalonia, sprint 2.3.6; Windows, Linux and macOS). Add
+  `--headless` to run it without a display (Avalonia's headless platform; the CI smoke runs use it).
+- UI tests: `HeapScope.UI.Tests` builds the views on the headless platform (one app for the assembly, `UiSession`);
+  a view test fails on any binding error Avalonia logs. Bindings are compiled (`x:DataType` on every view), so most
+  binding mistakes fail the build instead.
+- Builds per system (sprint 2.3.6): `bash build/publish.sh <rid> <folder>` publishes the app and the CLI for `win-x64`,
+  `linux-x64`, `osx-arm64` or `osx-x64`, self-contained and ReadyToRun, each with the self-contained worker in
+  `worker/`. CI uploads the four on pushes to `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`,
+  kept 14 days). macOS builds are not signed or notarized yet (Backlog).
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
@@ -105,10 +110,11 @@ dotnet test --solution HeapScope.sln
   (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
   Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
   `Worker:AttachPipeName` for the UI.
-- Live smoke run: `HeapScope.exe --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
+- Live smoke run: `HeapScope --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
   (no process, no timeline file) and exits with the same codes as the other smoke runs.
-- UI smoke run: `HeapScope.exe --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
-  (0 ok, 3 lag over the gate, 4 job failed); details in ARCHITECTURE.md 8. `HeapScope.exe --smoke-open <dump>`
+- UI smoke run: `HeapScope --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
+  (0 ok, 3 lag over the gate, 4 job failed, 5 the first window took over 30 s); details in ARCHITECTURE.md 8.
+  `HeapScope --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
   second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
   also drills down (types, instances, object, the object's incoming references and retention paths, the type's
@@ -116,7 +122,8 @@ dotnet test --solution HeapScope.sln
   shows the Inspections tab ("Smoke inspections": every inspection's
   finding and time) and logs the open phase on its own line ("Smoke open phase"); add
   `--smoke-trace <file.nettrace>` to record a CPU trace of the UI during the run. The log records
-  "First window rendered N ms after process start" for every run.
+  "First window rendered N ms after process start" for every run, and `--smoke-open` logs the largest types it showed
+  ("Smoke open types"), which CI checks against the known answers. Every smoke run also works with `--headless`.
 - Traces: `heapscope-cli trace --pid <id> [--duration 30] [--profile cpu|gc] [--out file.nettrace]` records an
   EventPipe trace of any .NET process (no dotnet-trace needed; Ctrl+C stops early and keeps it). Read it with PerfView,
   Visual Studio, or `dotnet run -c Release --project perf/HeapScope.Benchmarks -- trace-report --trace <file>`
@@ -141,11 +148,11 @@ dotnet test --solution HeapScope.sln
   time it is shown (one at a time, in the worker): a tile per inspection with its finding, cause and fix (or why it is
   unavailable), fragmentation bars per heap, and the selected inspection's rows; double-click or Enter opens a row's
   objects (a type in its scope, equal strings, or one object) on the Snapshot tab.
-- Theme: the UI follows the Windows app theme (light or dark) at startup; `--Ui:Theme Light|Dark` or the
-  `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI.Wpf/Themes/Light.xaml` and `Dark.xaml`, which
-  must define the same keys (a test checks it); views use `DynamicResource`, never literal colors.
-- Precompiled UI: `dotnet publish src/HeapScope.UI.Wpf -c Release -r win-x64 --self-contained false -o <folder>`
-  (ReadyToRun is on for publish; the worker is published into `worker/` next to it).
+- Theme: the UI follows the system's light or dark setting (Windows, macOS, the Linux desktop); `--Ui:Theme Light|Dark`
+  or the `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI/Themes/Light.axaml` and `Dark.axaml` (theme
+  dictionaries), which must define the same keys (a test checks it); views use `DynamicResource`, never literal colors.
+- Avalonia updates: before any update, check that no Avalonia component HeapScope uses moved to a paid license
+  (ADR-025, CLAUDE.md). Avalonia's build telemetry is off for the repository (`Directory.Build.targets`).
 - Sessions: captures go to `%LOCALAPPDATA%\HeapScope\sessions\<yyyyMMdd-HHmmss>` with a `session.json`; override the
   root with `--Sessions:Root <dir>` (UI) or the `Sessions__Root` environment variable. Integration tests point every
   front end they start at a temporary root.
@@ -203,12 +210,13 @@ of debuggable code) and exit when the process given as parent exits.
 - **Nullable** is enabled everywhere; no `!` suppressions without a comment explaining why.
 - **Warnings are errors**; do not disable a warning without a comment and reviewer agreement.
 - **Async**: every async method takes a `CancellationToken` last (after `IProgress<T>` when present). Library
-  code uses `ConfigureAwait(false)`, enforced by CA2007 for every `src/` project except UI.Wpf and Cli (see
-  `.editorconfig`). Never `.Result`, `.Wait()` or `async void` (except WPF event handlers,
+  code uses `ConfigureAwait(false)`, enforced by CA2007 for every `src/` project except the UI projects and Cli (see
+  `.editorconfig`). Never `.Result`, `.Wait()` or `async void` (except UI event handlers,
   which must catch everything).
 - **MVVM**: CommunityToolkit.Mvvm source generators (`[ObservableProperty]`, `[RelayCommand]`). No code-behind
-  logic beyond view-only concerns. View models get services by constructor injection and never reference WPF
-  controls. Long work uses async relay commands with cancellation.
+  logic beyond view-only concerns. View models live in `HeapScope.UI.ViewModels`, which references no UI toolkit; they
+  get services by constructor injection and never reference controls. Long work uses async relay commands with
+  cancellation. Views use compiled bindings (`x:DataType`).
 - **Logging**: `ILogger<T>` via DI. Use structured templates, not string interpolation. Never log snapshot
   field values or string contents.
 - **Exceptions**: throw specific exception types; catch only at boundaries (RPC methods, commands, CLI

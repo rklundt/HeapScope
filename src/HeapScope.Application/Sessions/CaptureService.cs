@@ -28,6 +28,7 @@ using HeapScope.Capture;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using HeapScope.Core;
 
 namespace HeapScope.Application.Sessions;
 
@@ -149,7 +150,7 @@ public sealed class CaptureService : ICaptureService
                 if (outputPath is null)
                 {
                     // Check against the library root before a session folder exists.
-                    Directory.CreateDirectory(Library.Root);
+                    PrivateFiles.CreateDirectory(Library.Root);
                     profile.Preflight?.Invoke(process, Path.Combine(Library.Root, "probe" + profile.Extension));
 
                     createdSession = !Library.HasCurrent;
