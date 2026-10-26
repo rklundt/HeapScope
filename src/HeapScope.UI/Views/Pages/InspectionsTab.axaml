@@ -22,10 +22,85 @@
 
   Commercial licenses are available. See COMMERCIAL.md.
 -->
+<!-- Inspections of the selected snapshot (sprint 1.6, ADR-020): tiles with finding, cause and fix, fragmentation bars, and
+     the selected inspection's rows; double-click opens a row's objects on the Snapshot tab. -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              x:Class="HeapScope.UI.Views.Pages.InspectionsTab"
              x:DataType="vm:SnapshotsViewModel">
-  <TextBlock Text="InspectionsTab" />
+  <UserControl.Styles>
+    <Style Selector="TextBlock.findings">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
+    </Style>
+    <Style Selector="TextBlock.unavailable">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+    </Style>
+  </UserControl.Styles>
+  <DockPanel DataContext="{Binding Inspections}" x:DataType="vm:InspectionsViewModel" Margin="0,8,0,0">
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,6"
+               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ScrollViewer DockPanel.Dock="Left" Width="360" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
+      <StackPanel>
+        <ListBox ItemsSource="{Binding Tiles}" SelectedItem="{Binding Selected, Mode=TwoWay}" Background="Transparent"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+              <Setter Property="Padding" Value="0" />
+              <Setter Property="Margin" Value="0,0,0,6" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:InspectionTileViewModel">
+              <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6">
+                <StackPanel>
+                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding Summary}" TextWrapping="Wrap"
+                             Classes.findings="{Binding HasFindings}" Classes.unavailable="{Binding !IsAvailable}" />
+                  <TextBlock Text="{Binding Status}" Classes="subtle"
+                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  <ItemsControl ItemsSource="{Binding FirstRows}" Margin="0,2,0,0">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Text="{Binding}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Classes="subtle"
+                             IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <TextBlock Text="Fragmentation (free share of each heap)" FontWeight="SemiBold" Margin="0,8,0,4"
+                   IsVisible="{Binding HasFragments}" />
+        <ItemsControl ItemsSource="{Binding Fragments}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:FragmentItem">
+              <StackPanel Margin="0,0,0,6">
+                <TextBlock Text="{Binding Text}" FontSize="11" TextWrapping="Wrap" />
+                <ProgressBar Height="6" MinHeight="6" Minimum="0" Maximum="1" Value="{Binding FreeFraction, Mode=OneWay}" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+    <Panel DockPanel.Dock="Top" IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <StackPanel DataContext="{Binding Selected}" x:DataType="vm:InspectionTileViewModel" Margin="0,0,0,6">
+        <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+        <TextBlock TextWrapping="Wrap" Classes="subtle"><Run Text="Cause: " /><Run Text="{Binding Cause}" /></TextBlock>
+        <TextBlock TextWrapping="Wrap" Classes="subtle"><Run Text="Fix: " /><Run Text="{Binding Fix}" /></TextBlock>
+      </StackPanel>
+    </Panel>
+    <DataGrid x:Name="InspectionGrid" CanUserSortColumns="False"
+              ctl:GridBehaviors.ResultColumns="{Binding Columns}"
+              ctl:GridBehaviors.Rows="{Binding Rows}"
+              ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+              ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab." />
+  </DockPanel>
 </UserControl>

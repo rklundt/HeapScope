@@ -22,10 +22,89 @@
 
   Commercial licenses are available. See COMMERCIAL.md.
 -->
+<!-- Comparison of two open snapshots (sprint 1.4, ADR-018): per-type deltas, no object identity. -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              x:Class="HeapScope.UI.Views.Pages.CompareTab"
              x:DataType="vm:SnapshotsViewModel">
-  <TextBlock Text="CompareTab" />
+  <DockPanel DataContext="{Binding Compare}" x:DataType="vm:CompareViewModel" Margin="0,8,0,0">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8">
+      <TextBlock Text="Baseline" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+      <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
+                ToolTip.Tip="The earlier snapshot; deltas are current minus baseline.">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:SnapshotItemViewModel">
+            <TextBlock Text="{Binding Title}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <Button Content="Swap" Margin="8,0" Command="{Binding SwapCommand}" />
+      <TextBlock Text="Current" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+      <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Current, Mode=TwoWay}">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:SnapshotItemViewModel">
+            <TextBlock Text="{Binding Title}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+    </StackPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap"
+               IsVisible="{Binding Hint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+      <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+      <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
+      <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
+      <TextBox Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+               ToolTip.Tip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
+    </WrapPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <DataGrid x:Name="CompareGrid" CanUserSortColumns="True"
+              ctl:GridBehaviors.Rows="{Binding Rows}"
+              ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+              ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+              ToolTip.Tip="Double-click or Enter opens the type's objects in the current snapshot.">
+      <DataGrid.Columns>
+        <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="vm:DiffRowItem">
+              <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"
+                         ctl:HighlightedText.Filter="{Binding $parent[DataGrid].((vm:CompareViewModel)DataContext).Filter}"
+                         ctl:HighlightedText.Text="{Binding Name}" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding Change}" Width="70" SortMemberPath="Change">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Change" ToolTip.Tip="new: only in the current snapshot. gone: only in the baseline. copies: the same type is loaded a different number of times (see the Types columns), for example a plugin reloaded while its old copy stays alive." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
+        <DataGridTemplateColumn Header="Objects +/-" Width="110" SortMemberPath="ObjectsDelta">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="vm:DiffRowItem">
+              <TextBlock Classes="number" VerticalAlignment="Center" Text="{Binding ObjectsDelta, StringFormat='{}{0:+#,0;-#,0;0}'}"
+                         Foreground="{Binding Trend, Converter={x:Static ctl:TrendBrushConverter.Instance}}" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTemplateColumn Header="Bytes +/-" Width="130" SortMemberPath="BytesDelta">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="vm:DiffRowItem">
+              <TextBlock Classes="number" VerticalAlignment="Center" Text="{Binding BytesDelta, StringFormat='{}{0:+#,0;-#,0;0}'}"
+                         Foreground="{Binding Trend, Converter={x:Static ctl:TrendBrushConverter.Instance}}" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn Header="Objects (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineObjects, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="BaselineObjects" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Objects (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentObjects, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="CurrentObjects" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Bytes (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineBytes, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="BaselineBytes" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Bytes (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentBytes, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="CurrentBytes" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Types (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="100" SortMemberPath="BaselineTypes" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Types (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="100" SortMemberPath="CurrentTypes" CellStyleClasses="number" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
 </UserControl>

@@ -22,10 +22,360 @@
 
   Commercial licenses are available. See COMMERCIAL.md.
 -->
+<!-- The Snapshot tab (sprints 1.3 to 2.3): the open snapshot's overview, then its subjects with back and forward: the types
+     grid, a type's objects, one object (fields, references, retention), a type's referrers and its key paths. -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              x:Class="HeapScope.UI.Views.Pages.SnapshotTab"
              x:DataType="vm:SnapshotsViewModel">
-  <TextBlock Text="SnapshotTab" />
+  <Grid Margin="0,8,0,0">
+    <TextBlock Text="Open a full memory dump (.dmp) to see what is on the heap." Classes="subtle"
+               IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}" />
+
+    <DockPanel IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <StackPanel DockPanel.Dock="Top" DataContext="{Binding Selected}" x:DataType="vm:SnapshotItemViewModel">
+        <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding Process}" Classes="subtle" />
+        <TextBlock Text="{Binding Source}" Classes="subtle" Margin="0,0,0,8" />
+        <WrapPanel>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Objects" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Heap size" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Size}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Types" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="References" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Roots" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+        </WrapPanel>
+        <Border Classes="note" IsVisible="{Binding HasNotes}">
+          <ItemsControl ItemsSource="{Binding Notes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Border>
+      </StackPanel>
+
+      <!-- Subjects (sprint 1.5): the types grid, a type's objects, one object, a type's referrers (2.1) and paths (2.2); back and forward. -->
+      <DockPanel DataContext="{Binding Navigator}" x:DataType="vm:NavigatorViewModel">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+          <Button Content="Back" Command="{Binding BackCommand}" ToolTip.Tip="Back (Alt+Left or the mouse's back button)" />
+          <Button Content="Forward" Margin="4,0,0,0" Command="{Binding ForwardCommand}" ToolTip.Tip="Forward (Alt+Right or the mouse's forward button)" />
+          <ItemsControl ItemsSource="{Binding Trail}" Margin="12,0,0,0" VerticalAlignment="Center">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text=" / " Classes="subtle" />
+                  <TextBlock Text="{ReflectionBinding Title}" MaxWidth="360" TextTrimming="CharacterEllipsis" ToolTip.Tip="{ReflectionBinding Title}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- One view per kind of subject, built with the page; the navigator swaps their data (sprint 1.5). -->
+        <Grid>
+          <!-- Types. -->
+          <Panel IsVisible="{Binding IsTypesShown}">
+          <DockPanel DataContext="{Binding Types}" x:DataType="vm:TypeSummaryViewModel">
+            <!-- Heap kinds: one fixed color per kind, width by share of the bytes. -->
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,8,8">
+              <ItemsControl ItemsSource="{Binding HeapKinds}" Height="10">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <ctl:ProportionalPanel />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HeapKindShare">
+                    <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip.Tip="{Binding Text}"
+                            Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <ItemsControl ItemsSource="{Binding HeapKinds}" Margin="0,4,0,0">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HeapKindShare">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                      <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+                      <TextBlock Text="{Binding Text}" FontSize="11" Classes="subtle" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+              <TextBlock Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+              <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+              <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
+              <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
+              <TextBox Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+                       ToolTip.Tip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+              <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center"
+                        IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
+                        ToolTip.Tip="Show bytes per generation (Gen0, Gen1, Gen2, LOH, POH, frozen) for every row." />
+              <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+                        IsChecked="{Binding ShowRetained, Mode=TwoWay}"
+                        ToolTip.Tip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
+              <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
+            </WrapPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+                       IsVisible="{Binding GenerationsExplanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+                       IsVisible="{Binding RetainedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <DataGrid x:Name="TypesGrid" CanUserSortColumns="True"
+                      ctl:GridBehaviors.Rows="{Binding Rows}"
+                      ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                      ctl:GridBehaviors.ShowRetained="{Binding RetainedColumnShown}" ctl:GridBehaviors.ShowGenerations="{Binding GenerationColumnsShown}"
+                      ToolTip.Tip="Double-click or Enter opens a type's objects.">
+              <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:TypeRowItem">
+                      <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"
+                                 ctl:HighlightedText.Filter="{Binding $parent[DataGrid].((vm:TypeSummaryViewModel)DataContext).Filter}"
+                                 ctl:HighlightedText.Text="{Binding Name}" />
+                    </DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Objects" x:DataType="vm:TypeRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Objects" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Bytes" x:DataType="vm:TypeRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="130" SortMemberPath="Bytes" CellStyleClasses="number" />
+                <DataGridTextColumn Header="%" x:DataType="vm:TypeRowItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CanUserSort="False" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Retained" x:DataType="vm:TypeRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="130" SortMemberPath="Retained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+                <DataGridTextColumn Header="Gen0" x:DataType="vm:TypeRowItem" Binding="{Binding Gen0, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+                <DataGridTextColumn Header="Gen1" x:DataType="vm:TypeRowItem" Binding="{Binding Gen1, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+                <DataGridTextColumn Header="Gen2" x:DataType="vm:TypeRowItem" Binding="{Binding Gen2, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+                <DataGridTextColumn Header="LOH" x:DataType="vm:TypeRowItem" Binding="{Binding LargeObjectHeap, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+                <DataGridTextColumn Header="POH" x:DataType="vm:TypeRowItem" Binding="{Binding PinnedObjectHeap, StringFormat='{}{0:N0}'}" Width="90" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+                <DataGridTextColumn Header="Frozen" x:DataType="vm:TypeRowItem" Binding="{Binding Frozen, StringFormat='{}{0:N0}'}" Width="90" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          </Panel>
+
+          <!-- A type's objects (sprint 1.5). -->
+          <Panel IsVisible="{Binding IsInstancesShown}">
+          <DockPanel DataContext="{Binding ShownInstances}" x:DataType="vm:InstancesViewModel">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+              <Button DockPanel.Dock="Right" Content="Referenced by" Command="{Binding ReferencedByCommand}"
+                      ToolTip.Tip="Which types' objects reference objects of this type" />
+              <Button DockPanel.Dock="Right" Content="Why alive" Margin="0,0,6,0" Command="{Binding WhyAliveCommand}"
+                      ToolTip.Tip="The key retention paths: from which roots, through which objects, these objects are kept alive" />
+              <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+              <TextBox DockPanel.Dock="Left" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+                       ToolTip.Tip="0x1f2a: address prefix. /pattern/: regular expression on the value. Anything else: text in the value (strings)." />
+              <CheckBox DockPanel.Dock="Left" Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+                        IsChecked="{Binding ShowRetained, Mode=TwoWay}"
+                        ToolTip.Tip="Show the bytes each object alone keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
+              <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+                       IsVisible="{Binding ValuesExplanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+                       IsVisible="{Binding RetainedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <DataGrid x:Name="InstancesGrid" CanUserSortColumns="True"
+                      ctl:GridBehaviors.Rows="{Binding Rows}"
+                      ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                      ctl:GridBehaviors.ShowRetained="{Binding RetainedColumnShown}"
+                      ToolTip.Tip="Double-click or Enter opens an object.">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Address" x:DataType="vm:InstanceRowItem" Binding="{Binding AddressText}" Width="150" SortMemberPath="Address" CellStyleClasses="address" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:InstanceRowItem" Binding="{Binding Type}" Width="*" SortMemberPath="Type" />
+                <DataGridTextColumn Header="Bytes" x:DataType="vm:InstanceRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="Bytes" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Retained" x:DataType="vm:InstanceRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="Retained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+                <DataGridTextColumn Header="Generation" x:DataType="vm:InstanceRowItem" Binding="{Binding Generation}" Width="120" SortMemberPath="Generation" />
+                <DataGridTextColumn Header="Value" x:DataType="vm:InstanceRowItem" Binding="{Binding Value}" Width="2*" SortMemberPath="Value" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          </Panel>
+
+          <!-- One object (sprint 1.5): fields, references both ways (2.1), retention and retained size (2.2, 2.3). -->
+          <Panel IsVisible="{Binding IsObjectShown}">
+          <DockPanel DataContext="{Binding ShownObject}" x:DataType="vm:ObjectViewModel">
+            <SelectableTextBlock DockPanel.Dock="Top" Text="{Binding Summary}" Margin="0,0,0,4" TextWrapping="Wrap" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <Border DockPanel.Dock="Top" Classes="info" IsVisible="{Binding FieldsUnavailable, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="{Binding FieldsUnavailable}" TextWrapping="Wrap" />
+            </Border>
+            <TextBox DockPanel.Dock="Top" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="120" Margin="0,0,8,6"
+                     IsVisible="{Binding Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <Grid ColumnDefinitions="*,8,*">
+              <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="Fields" FontWeight="SemiBold" Margin="0,0,0,4" />
+                <TreeView x:Name="FieldsTree" ItemsSource="{Binding Fields}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
+                  <TreeView.Styles>
+                    <Style Selector="TreeViewItem" x:DataType="vm:FieldNode">
+                      <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    </Style>
+                  </TreeView.Styles>
+                  <TreeView.ItemTemplate>
+                    <TreeDataTemplate DataType="vm:FieldNode" ItemsSource="{Binding Children}">
+                      <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="0,0,8,0" VerticalAlignment="Center" />
+                        <HyperlinkButton Content="{Binding Value}" Padding="0" IsVisible="{Binding IsLink}" VerticalAlignment="Center"
+                                         Command="{Binding $parent[TreeView].((vm:ObjectViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}"
+                                         ToolTip.Tip="Open this object" />
+                        <TextBlock Text="{Binding Value}" IsVisible="{Binding !IsLink}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding TypeName}" Margin="8,0,0,0" FontSize="11" Classes="subtle" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </TreeDataTemplate>
+                  </TreeView.ItemTemplate>
+                </TreeView>
+              </DockPanel>
+              <!-- Outgoing references (1.5) and the objects referencing this one (2.1, loaded when its tab is first shown). -->
+              <TabControl Grid.Column="2" SelectedIndex="{Binding ReferencesTab, Mode=TwoWay}">
+                <TabItem Header="Outgoing">
+                  <DockPanel Margin="0,4,0,0">
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Classes="subtle" />
+                    <DataGrid x:Name="ReferencesGrid" CanUserSortColumns="False"
+                              ctl:GridBehaviors.Rows="{Binding ReferenceRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
+                              ToolTip.Tip="Double-click or Enter opens the referenced object.">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Field" x:DataType="vm:ReferenceRowItem" Binding="{Binding Field}" Width="140" />
+                        <DataGridTextColumn Header="Address" x:DataType="vm:ReferenceRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
+                        <DataGridTextColumn Header="Type" x:DataType="vm:ReferenceRowItem" Binding="{Binding Type}" Width="*" />
+                        <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferenceRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </DockPanel>
+                </TabItem>
+                <TabItem Header="Incoming">
+                  <DockPanel Margin="0,4,0,0">
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle"
+                               IsVisible="{Binding IncomingTotals, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+                               IsVisible="{Binding IncomingStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <DataGrid x:Name="IncomingGrid" CanUserSortColumns="False"
+                              ctl:GridBehaviors.Rows="{Binding IncomingRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
+                              ToolTip.Tip="Double-click or Enter opens the referencing object.">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Field" x:DataType="vm:ReferrerRowItem" Binding="{Binding Field}" Width="140" />
+                        <DataGridTextColumn Header="Address" x:DataType="vm:ReferrerRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
+                        <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" />
+                        <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
+                        <DataGridTextColumn Header="Refs" x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </DockPanel>
+                </TabItem>
+                <!-- Sprint 2.2: why the object is alive, loaded when the tab is first shown. -->
+                <TabItem Header="Retention">
+                  <DockPanel Margin="0,4,0,0">
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+                               IsVisible="{Binding RetentionStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <!-- Sprint 2.3: the retained size and the immediate dominator, a link to open it. -->
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4"
+                               IsVisible="{Binding RetainedSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <TextBlock Text="{Binding RetainedSummary}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,4,0" />
+                      <HyperlinkButton Content="{Binding DominatorText}" Padding="0" VerticalAlignment="Center"
+                                       Command="{Binding OpenCommand}" CommandParameter="{Binding DominatorAddress}"
+                                       IsVisible="{Binding DominatorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       ToolTip.Tip="Open the immediate dominator: the closest object every path from a root to this one passes through" />
+                    </WrapPanel>
+                    <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" Margin="0,0,0,4"
+                              ToolTip.Tip="Runs of System and Microsoft objects between other steps are folded into one line unless shown." />
+                    <DataGrid x:Name="KeyPathsGrid" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
+                              ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
+                              ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Roots" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
+                        <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" />
+                        <DataGridTextColumn Header="Path" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                    <TreeView x:Name="RetentionTree" ItemsSource="{Binding RetentionTree}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
+                      <TreeView.Styles>
+                        <Style Selector="TreeViewItem" x:DataType="vm:RetentionNodeItem">
+                          <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                        </Style>
+                      </TreeView.Styles>
+                      <TreeView.ItemTemplate>
+                        <TreeDataTemplate DataType="vm:RetentionNodeItem" ItemsSource="{Binding Children}">
+                          <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Text}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                            <HyperlinkButton Content="{Binding AddressText}" Padding="0" FontFamily="Consolas, Menlo, DejaVu Sans Mono, monospace" VerticalAlignment="Center"
+                                             Command="{Binding $parent[TreeView].((vm:ObjectViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}"
+                                             ToolTip.Tip="Open this object" />
+                            <TextBlock Text="{Binding Root}" Margin="8,0,0,0" FontWeight="SemiBold" VerticalAlignment="Center"
+                                       IsVisible="{Binding Root, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                          </StackPanel>
+                        </TreeDataTemplate>
+                      </TreeView.ItemTemplate>
+                    </TreeView>
+                  </DockPanel>
+                </TabItem>
+              </TabControl>
+            </Grid>
+          </DockPanel>
+          </Panel>
+
+          <!-- Who references a type's objects (sprint 2.1). -->
+          <Panel IsVisible="{Binding IsTypeReferrersShown}">
+          <DockPanel DataContext="{Binding ShownTypeReferrers}" x:DataType="vm:TypeReferrersViewModel">
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Margin="0,0,0,6" Classes="subtle" TextTrimming="CharacterEllipsis" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap"
+                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <DataGrid x:Name="TypeReferrersGrid" CanUserSortColumns="True"
+                      ctl:GridBehaviors.Rows="{Binding Rows}"
+                      ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                      ToolTip.Tip="Double-click or Enter opens the objects of the referencing type.">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Referencing type" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding TypeName}" Width="*" SortMemberPath="Type" />
+                <DataGridTextColumn Header="Module" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Module}" Width="180" SortMemberPath="Module" />
+                <DataGridTextColumn Header="Objects" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Objects" CellStyleClasses="number" />
+                <DataGridTextColumn Header="References" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="References" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Targets" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Targets, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Targets" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Bytes" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="Bytes" CellStyleClasses="number" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          </Panel>
+
+          <!-- Why a type's objects are alive: key retention paths (sprint 2.2). -->
+          <Panel IsVisible="{Binding IsTypePathsShown}">
+          <DockPanel DataContext="{Binding ShownTypePaths}" x:DataType="vm:TypePathsViewModel">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+              <CheckBox DockPanel.Dock="Right" Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap"
+                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <DataGrid x:Name="TypePathsGrid" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                      ToolTip.Tip="Double-click or Enter opens an example object kept alive this way.">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Objects" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Bytes" x:DataType="vm:KeyPathItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" />
+                <DataGridTextColumn Header="Path from the root" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+          </Panel>
+        </Grid>
+      </DockPanel>
+    </DockPanel>
+  </Grid>
 </UserControl>
