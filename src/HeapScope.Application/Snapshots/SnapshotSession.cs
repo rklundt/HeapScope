@@ -406,6 +406,10 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         return new DominatorTreeAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
+    /// <summary>The icicle chart below <paramref name="focusAddress"/> (0 for the whole reachable heap). Sprint 2.4.</summary>
+    public Task<IcicleResult> QueryIcicleAsync(SnapshotHandle handle, ulong focusAddress, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.QueryIcicleAsync(new IcicleRequest(id, focusAddress), progress, ct), cancellationToken);
+
     /// <summary>
     /// What every object of a type retains together, exactly (sprint 2.4), by type; the totals next to the type summary's
     /// lower bound.

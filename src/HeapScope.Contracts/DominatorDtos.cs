@@ -155,3 +155,18 @@ public sealed record RetainedBySetResult(
     long TotalRetained,
     double Seconds,
     DominatorIndexInfo Dominators);
+
+/// <summary>
+/// The icicle chart of the dominator tree (sprint 2.4): <paramref name="Levels"/> levels below <paramref name="FocusAddress"/>
+/// (0 for the whole reachable heap), leaving out bars narrower than <paramref name="MinShare"/> of the top bar.
+/// </summary>
+public sealed record IcicleRequest(Guid SnapshotId, ulong FocusAddress = 0, int Levels = 6, double MinShare = 0.001);
+
+/// <summary>
+/// A bar of the icicle chart: its level (0 at the top), its left edge and width in bytes (the width is what it retains),
+/// its tree key (as in <see cref="DominatorTreeColumns.Key"/>; empty for the whole heap), its type and its address.
+/// </summary>
+public sealed record IcicleSegmentDto(int Level, long Offset, long Width, string Key, string Name, ulong Address);
+
+/// <summary>The icicle chart's bars in level order, left to right; the top bar's bytes; how the dominators were obtained.</summary>
+public sealed record IcicleResult(IReadOnlyList<IcicleSegmentDto> Segments, long Total, DominatorIndexInfo Dominators);

@@ -140,6 +140,12 @@ public interface IWorkerService
     /// </summary>
     Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The icicle chart below a focus object or the whole reachable heap (sprint 2.4). Fails like
+    /// <see cref="QueryDominatorTreeAsync"/> for a focus with no object or none a root reaches.
+    /// </summary>
+    Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 

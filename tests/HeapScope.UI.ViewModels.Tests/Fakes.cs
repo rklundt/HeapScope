@@ -448,6 +448,38 @@ internal sealed class FakeWorkerService : IWorkerService
             new ResultSetInfo(id, rows.Length, columns), SetRows.Count == 0 ? 0 : 1, set.Objects, set.Bytes, SetRows.Sum(r => r.Objects), total, set.Bytes, 10 * total, 0.25, Dominators));
     }
 
+    /// <summary>Icicle queries received (sprint 2.4).</summary>
+    public List<IcicleRequest> IcicleQueries { get; } = [];
+
+    /// <summary>
+    /// The fake's icicle: below the focus (or the top level), each <see cref="TreeNodes"/> child side by side, as wide as its
+    /// retained bytes, down to <see cref="IcicleRequest.Levels"/>.
+    /// </summary>
+    public Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        IcicleQueries.Add(request);
+        var focus = request.FocusAddress == 0 ? null : TreeNodes.First(n => n.Address == request.FocusAddress);
+        var total = focus?.Retained ?? TreeNodes.Where(n => n.ParentKey.Length == 0).Sum(n => n.Retained);
+        var segments = new List<IcicleSegmentDto> { new(0, 0, total, focus?.Key ?? string.Empty, focus?.Name ?? "All reachable objects", focus?.Address ?? 0) };
+        void Add(string parent, int level, long offset)
+        {
+            if (level > request.Levels)
+            {
+                return;
+            }
+
+            foreach (var node in TreeNodes.Where(n => n.ParentKey == parent))
+            {
+                segments.Add(new IcicleSegmentDto(level, offset, node.Retained, node.Key, node.Name, node.Address));
+                Add(node.Key, level + 1, offset);
+                offset += node.Retained;
+            }
+        }
+
+        Add(focus?.Key ?? string.Empty, 1, 0);
+        return Task.FromResult(new IcicleResult([.. segments.OrderBy(s => s.Level)], total, Dominators));
+    }
+
     /// <summary>Dominator tree queries received.</summary>
     public List<DominatorTreeRequest> TreeQueries { get; } = [];
 

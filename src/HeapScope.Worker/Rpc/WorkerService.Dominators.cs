@@ -24,6 +24,7 @@
 using System.Globalization;
 using HeapScope.Analysis.Retention;
 using HeapScope.Contracts;
+using HeapScope.Core.Graph;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
@@ -54,18 +55,9 @@ internal sealed partial class WorkerService
             try
             {
                 var graph = snapshot.Graph;
-                var focus = -1;
-                if (request.FocusAddress != 0 && !graph.TryGetIndex(request.FocusAddress, out focus))
-                {
-                    throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no object at 0x{request.FocusAddress:x} in this snapshot."));
-                }
+                var focus = FocusIndex(graph, request.FocusAddress);
 
-                var (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
-                var tree = dominators.Dominators;
-                if (focus >= 0 && !tree.IsReachable(focus))
-                {
-                    throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"No root reaches 0x{request.FocusAddress:x}, so it retains nothing and is not in the dominator tree."));
-                }
+                var (tree, info) = await FocusAsync(request.SnapshotId, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
 
                 progress?.Report(new JobProgress("Listing retainers", 0, null));
                 var grouping = request.Grouping switch
@@ -105,4 +97,70 @@ internal sealed partial class WorkerService
                 throw;
             }
         });
+
+    public Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        GuardAsync(request, async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.Levels is < 1 or > 20)
+            {
+                throw new ArgumentException("Levels must be between 1 and 20.", nameof(request));
+            }
+
+            if (request.MinShare is < 0.0001 or > 0.5 || double.IsNaN(request.MinShare))
+            {
+                throw new ArgumentException("MinShare must be between 0.0001 and 0.5.", nameof(request));
+            }
+
+            var (snapshot, lease) = Lease(request.SnapshotId);
+            using var _ = lease;
+            var graph = snapshot.Graph;
+            var focus = FocusIndex(graph, request.FocusAddress);
+            var (tree, info) = await FocusAsync(request.SnapshotId, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
+            var segments = await Task.Run(() => IcicleLayout.Build(graph, tree, focus, request.Levels, request.MinShare, cancellationToken), cancellationToken).ConfigureAwait(false);
+            var result = new IcicleResult(
+                [.. segments.Select(s => s.Object >= 0
+                    ? new IcicleSegmentDto(s.Level, (long)s.Offset, (long)s.Width, DominatorTreeRows.ObjectKey(graph.Addresses[s.Object]), graph.Types.GetName(graph.TypeIndices[s.Object]), graph.Addresses[s.Object])
+                    : new IcicleSegmentDto(s.Level, (long)s.Offset, (long)s.Width, DominatorTreeRows.RootKey, "All reachable objects", 0))],
+                (long)segments[0].Width,
+                info);
+
+            // The widest bars below the top, as drawn (sprint 2.3.7 review H3).
+            logger.LogInformation(
+                "Icicle of snapshot {Id}: focus {Focus}, {Levels} levels, share {Share}, {Segments} bars of {Total} bytes; widest {Widest}",
+                request.SnapshotId,
+                focus >= 0 ? string.Create(CultureInfo.InvariantCulture, $"0x{request.FocusAddress:x}") : "root",
+                request.Levels,
+                request.MinShare,
+                result.Segments.Count,
+                result.Total,
+                string.Join("; ", result.Segments.Where(s => s.Level > 0).OrderByDescending(s => s.Width).Take(5).Select(s => string.Create(CultureInfo.InvariantCulture, $"level {s.Level} {s.Name} 0x{s.Address:x} {s.Width}"))));
+            return result;
+        });
+
+    /// <summary>The index of the focus object, or -1 for none (address 0).</summary>
+    private static int FocusIndex(HeapGraph graph, ulong address)
+    {
+        if (address == 0)
+        {
+            return -1;
+        }
+
+        return graph.TryGetIndex(address, out var focus)
+            ? focus
+            : throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"There is no object at 0x{address:x} in this snapshot."));
+    }
+
+    /// <summary>The dominators, checking that a root reaches the focus.</summary>
+    private async Task<(Dominators Tree, DominatorIndexInfo Info)> FocusAsync(Guid snapshotId, ulong address, int focus, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        var (dominators, info) = await GetDominatorsAsync(snapshotId, progress, cancellationToken).ConfigureAwait(false);
+        var tree = dominators.Dominators;
+        if (focus >= 0 && !tree.IsReachable(focus))
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"No root reaches 0x{address:x}, so it retains nothing and is not in the dominator tree."));
+        }
+
+        return (tree, info);
+    }
 }

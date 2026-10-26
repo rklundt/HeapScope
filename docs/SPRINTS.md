@@ -2031,7 +2031,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 5. [x] Exact retention of a set: "objects retained by this set" for a type (or a scope) by a reachability pass from the
    roots that skips the set; totals (exact) next to the group's lower bound, and the retained objects by type as a grid.
    Tests: synthetic graphs with shared and exclusive children; the known answers' leaks.
-6. [ ] Icicle chart query and control: the top levels below a focus with segments of at least 0.1 percent; click
+6. [x] Icicle chart query and control: the top levels below a focus with segments of at least 0.1 percent; click
    selects and highlights the path in the tree, double-click focuses. Tests: layout widths and the threshold; the control
    builds headless.
 7. [ ] Retainers view (UI): a Retainers tab with the biggest retainers, the dominator tree grid (indentation, expand and
