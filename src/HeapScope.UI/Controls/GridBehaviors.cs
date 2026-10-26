@@ -221,7 +221,8 @@ public static class GridBehaviors
             var text = new DataGridTextColumn
             {
                 Header = ColumnHeaders.Header(column.Name),
-                Binding = new Binding($"Display[{index.ToString(CultureInfo.InvariantCulture)}]"),
+                // The cells are a read-only list whose runtime type may have no public indexer: pick the cell in a converter.
+                Binding = new Binding(nameof(InspectionRowItem.Display)) { Converter = CellAt.Instance, ConverterParameter = index, Mode = BindingMode.OneWay },
                 Width = column.Kind == ResultColumnKind.Address ? new DataGridLength(150)
                     : numeric ? new DataGridLength(110)
                     : new DataGridLength(1, DataGridLengthUnitType.Star),
@@ -239,5 +240,16 @@ public static class GridBehaviors
 
             grid.Columns.Add(text);
         }
+    }
+
+    /// <summary>The cell at the column's index of a row's display cells.</summary>
+    private sealed class CellAt : Avalonia.Data.Converters.IValueConverter
+    {
+        public static CellAt Instance { get; } = new();
+
+        public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+            value is IReadOnlyList<string> cells && parameter is int index && index >= 0 && index < cells.Count ? cells[index] : null;
+
+        public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
     }
 }
