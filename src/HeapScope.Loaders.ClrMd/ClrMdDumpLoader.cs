@@ -68,7 +68,10 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
 
         var stopwatch = Stopwatch.StartNew();
         progress?.Report(new LoadProgress("Opening dump", 0, null));
-        var header = MinidumpHeader.Read(fullPath);
+        // A Linux or macOS core file (sprint 2.3.5) has no minidump header: its capture time is the file's write time, and
+        // the minidump's truncation checks do not apply.
+        var minidump = IsMinidump(fullPath);
+        MinidumpHeader? header = minidump ? MinidumpHeader.Read(fullPath) : null;
         using var target = ClrMdDump.OpenDataTarget(fullPath, _options);
         var clr = ClrMdDump.FirstRuntime(target, fullPath);
         using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options);
@@ -128,12 +131,12 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             ProcessId(target),
             clr.Version.ToString(),
             target.DataReader.PointerSize,
-            header.CapturedAtUtc,
+            header is { } h ? h.CapturedAtUtc : new DateTimeOffset(File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero),
             freeBytes,
             SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations);
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
-        var capabilities = unreadable > 0 || incompleteSegments > 0 || MinidumpHeader.IsTruncated(fullPath)
+        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump && MinidumpHeader.IsTruncated(fullPath))
             ? SnapshotCapabilities.FullDump & ~(SnapshotCapabilities.CompleteGraph | SnapshotCapabilities.ExactCounts)
             : SnapshotCapabilities.FullDump;
         return new LoadResult(
@@ -553,6 +556,14 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         }
 
         return kind;
+    }
+
+    /// <summary>Whether the file is a Windows minidump rather than a Linux or macOS core file.</summary>
+    private static bool IsMinidump(string path)
+    {
+        Span<byte> start = stackalloc byte[4];
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return stream.ReadAtLeast(start, 4, throwOnEndOfStream: false) == 4 && SnapshotFileSignature.IsMinidump(start);
     }
 
     private static string? ProcessName(DataTarget target)
