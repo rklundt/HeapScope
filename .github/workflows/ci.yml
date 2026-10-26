@@ -69,6 +69,8 @@ jobs:
           done
           if [ -n "$failed" ]; then echo "Failed:$failed"; exit 1; fi
       - name: Dump the fixture and analyze it with the CLI
+        # Runs even when a test failed: the dump and the CLI are what this job is for.
+        if: ${{ !cancelled() }}
         run: |
           dotnet tool install --global dotnet-dump
           export PATH="$PATH:$HOME/.dotnet/tools"

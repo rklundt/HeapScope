@@ -53,6 +53,12 @@ public partial class App : System.Windows.Application
         NativeMethods.DisableExecutionSpeedThrottling();
 
         base.OnStartup(e);
+
+        // Grid queries let a pending render run before binding their rows (sprint 1.5); only on the dispatcher.
+        TaskSchedulerExtensions.RenderYield = static () =>
+            SynchronizationContext.Current is System.Windows.Threading.DispatcherSynchronizationContext
+                ? System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.Background).Task
+                : Task.CompletedTask;
         try
         {
             _host = UiHost.Build(e.Args, Dispatcher);

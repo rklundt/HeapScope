@@ -72,7 +72,7 @@ internal static class ClrMdDump
         var platform = CurrentPlatform();
         var dac = clr.DebuggingLibraries.FirstOrDefault(d =>
             d.Kind == DebugLibraryKind.Dac && d.Platform == platform);
-        var fileName = dac?.FileName is { Length: > 0 } name ? Path.GetFileName(name) : DefaultDacFileName(platform);
+        var fileName = dac?.FileName is { Length: > 0 } name ? RecordedPath.FileName(name) : DefaultDacFileName(platform);
         var request = new DacRequest(
             fileName,
             dac?.IndexTimeStamp ?? 0,

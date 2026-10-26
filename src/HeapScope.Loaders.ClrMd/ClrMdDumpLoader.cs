@@ -203,7 +203,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
                         type.MethodTable,
                         (uint)type.StaticSize,
                         (uint)type.ComponentSize,
-                        type.Module?.Name is { } module ? Path.GetFileName(module) : null,
+                        type.Module?.Name is { } module ? RecordedPath.FileName(module) : null,
                         KindOf(type));
                     typeIndices.Add(type.MethodTable, typeIndex);
                 }
@@ -491,7 +491,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         {
             if ((module.DebuggingMode & DebuggableAttribute.DebuggingModes.DisableOptimizations) != 0 && !module.IsDynamic)
             {
-                result.Add(Path.GetFileName(module.Name ?? module.AssemblyName ?? "?"));
+                result.Add(RecordedPath.FileName(module.Name ?? module.AssemblyName ?? "?"));
             }
         }
 

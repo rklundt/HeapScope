@@ -46,6 +46,7 @@ public sealed class DacLocatorTests : IDisposable
     [Fact]
     public void Candidates_are_runtime_folder_installed_runtimes_dump_folder_and_user_folder_in_order()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var request = Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13-custom");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], DacFolder = @"C:\dacs" };
 
@@ -62,6 +63,7 @@ public sealed class DacLocatorTests : IDisposable
     [Fact]
     public void The_dumped_runtime_folder_can_be_left_out()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], SearchDumpedRuntimeDirectory = false };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\x"), @"C:\dumps\app.dmp", options)
@@ -76,6 +78,7 @@ public sealed class DacLocatorTests : IDisposable
     [InlineData(@"C:\dotnet\shared\Microsoft.NETCore.App\..\..\..\elsewhere")]
     public void A_runtime_folder_recorded_in_the_dump_outside_the_installed_runtimes_is_never_searched(string recorded)
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"] };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: recorded), @"C:\dumps\app.dmp", options)
@@ -87,6 +90,7 @@ public sealed class DacLocatorTests : IDisposable
     [InlineData(@"\\?\UNC\server\share\app.dmp")]
     public void Network_dump_and_user_folders_are_not_searched(string dumpPath)
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [], DacFolder = @"\\server\dacs" };
 
         DacLocator.CandidateDirectories(Request(), dumpPath, options).ShouldBeEmpty();
@@ -101,6 +105,7 @@ public sealed class DacLocatorTests : IDisposable
     [InlineData(@"", false)]
     public void Local_fixed_paths_are_recognized(string path, bool expected)
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         DacLocator.IsLocalFixedPath(path).ShouldBe(expected);
     }
 
