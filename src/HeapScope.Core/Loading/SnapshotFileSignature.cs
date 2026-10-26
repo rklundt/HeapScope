@@ -21,6 +21,8 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Buffers.Binary;
+
 namespace HeapScope.Core.Loading;
 
 /// <summary>
@@ -54,7 +56,7 @@ public static class SnapshotFileSignature
     /// <summary>The kind of snapshot whose file starts with <paramref name="start"/>, or null.</summary>
     public static SnapshotKind? Detect(ReadOnlySpan<byte> start)
     {
-        if (start.StartsWith(s_minidump))
+        if (start.StartsWith(s_minidump) || IsCoreFile(start))
         {
             return SnapshotKind.FullDump;
         }
@@ -70,7 +72,32 @@ public static class SnapshotFileSignature
         return null;
     }
 
+    /// <summary>
+    /// True for a Windows minidump (<c>MDMP</c>); false for a Linux or macOS core file, which is also a full dump (sprint
+    /// 2.3.5) but has no minidump header.
+    /// </summary>
+    public static bool IsMinidump(ReadOnlySpan<byte> start) => start.StartsWith(s_minidump);
+
+    /// <summary>
+    /// True for a core file of a Linux process (64-bit little-endian ELF, type ET_CORE) or a macOS one (64-bit Mach-O, type MH_CORE), which
+    /// <c>dotnet-dump</c> and <c>createdump</c> write there (sprint 2.3.5).
+    /// </summary>
+    public static bool IsCoreFile(ReadOnlySpan<byte> start)
+    {
+        const ushort ElfCore = 4;
+        const uint MachOCore = 4;
+        if (start.Length >= 18 && start[0] == 0x7F && start[1] == (byte)'E' && start[2] == (byte)'L' && start[3] == (byte)'F'
+            && start[4] == 2 && start[5] == 1)
+        {
+            return BinaryPrimitives.ReadUInt16LittleEndian(start[16..]) == ElfCore;
+        }
+
+        return start.Length >= 16
+            && BinaryPrimitives.ReadUInt32LittleEndian(start) == 0xFEEDFACF
+            && BinaryPrimitives.ReadUInt32LittleEndian(start[12..]) == MachOCore;
+    }
+
     /// <summary>What to tell the user about a file that is not a snapshot.</summary>
     public static string DescribeUnknown(string path) =>
-        $"{path} is neither a full memory dump nor a gcdump, so it cannot be opened. Open a .dmp written by HeapScope, dotnet-dump, procdump or Task Manager, or a .gcdump written by HeapScope, dotnet-gcdump or PerfView.";
+        $"{path} is neither a full memory dump nor a gcdump, so it cannot be opened. Open a .dmp written by HeapScope, dotnet-dump, procdump or Task Manager, a core dump written by dotnet-dump or createdump on Linux or macOS, or a .gcdump written by HeapScope, dotnet-gcdump or PerfView.";
 }

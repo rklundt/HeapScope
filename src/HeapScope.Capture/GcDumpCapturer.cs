@@ -220,7 +220,7 @@ public sealed class GcDumpCapturer(IElevationProbe? elevation = null, IGcDumpWri
     /// <summary>How long the runtime may take to report the heap, like dotnet-gcdump's default.</summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
 
-    private readonly IElevationProbe _elevation = elevation ?? WindowsElevationProbe.Instance;
+    private readonly IElevationProbe _elevation = elevation ?? CapturePlatform.ElevationProbe();
     private readonly IGcDumpWriter _writer = writer ?? EventPipeGcDumpWriter.Instance;
 
     /// <summary>
@@ -231,6 +231,7 @@ public sealed class GcDumpCapturer(IElevationProbe? elevation = null, IGcDumpWri
     /// </summary>
     public async Task CaptureAsync(DotNetProcess process, string path, IProgress<CaptureProgress>? progress, TimeSpan? timeout, CancellationToken cancellationToken)
     {
+        CapturePlatform.EnsureSupported();
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(path);
         progress?.Report(new CaptureProgress("Checking"));

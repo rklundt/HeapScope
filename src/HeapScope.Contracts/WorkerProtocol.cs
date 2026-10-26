@@ -42,6 +42,10 @@ public static class WorkerProtocol
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;
 
-    /// <summary>Prefix of worker pipe names; the rest is a GUID.</summary>
-    public const string PipeNamePrefix = "HeapScope.Worker.";
+    /// <summary>
+    /// Prefix of worker pipe names; the rest is 24 random hex digits. Off Windows a pipe is a Unix domain socket in the
+    /// temp folder, whose path macOS limits to 104 characters with a long temp folder, so the name stays short (sprint
+    /// 2.3.5).
+    /// </summary>
+    public const string PipeNamePrefix = "HeapScope.W.";
 }

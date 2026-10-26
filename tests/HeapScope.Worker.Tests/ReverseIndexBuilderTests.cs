@@ -83,7 +83,11 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         using var _ = index.References;
         (index.FromSidecar, index.Mode, index.SidecarWritten).ShouldBe((false, MemoryMode.Mapped, true));
         AssertMatchesGraph(index.References);
-        Should.Throw<IOException>(() => File.Delete(Sidecar), "the mapping holds the sidecar open");
+        if (OperatingSystem.IsWindows())
+        {
+            // Linux and macOS allow deleting a mapped file (the mapping keeps it); Windows refuses.
+            Should.Throw<IOException>(() => File.Delete(Sidecar), "the mapping holds the sidecar open");
+        }
     }
 
     [Fact]

@@ -67,25 +67,47 @@ internal static class ClrMdDump
     /// <exception cref="SnapshotFormatException">The runtime could not be opened with the DAC found.</exception>
     public static ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath, ClrMdLoaderOptions options)
     {
-        var dac = clr.DebuggingLibraries.FirstOrDefault(d =>
-            d.Kind == DebugLibraryKind.Dac && d.Platform == OSPlatform.Windows);
-        var fileName = dac?.FileName is { Length: > 0 } name ? Path.GetFileName(name) : "mscordaccore.dll";
+        // The DAC that runs on this system (sprint 2.3.5): a dump is read with the DAC of the platform HeapScope runs on,
+        // so a Linux dump is read on Linux and a Windows dump on Windows (cross-platform DACs are not searched).
+        var platform = CurrentPlatform();
+
+        // An entry with the DAC's own build id first, then one archived under the runtime's (sprint 2.3.5 review M1).
+        var dac = clr.DebuggingLibraries
+            .Where(d => d.Kind == DebugLibraryKind.Dac && d.Platform == platform)
+            .OrderBy(d => d.IndexBuildId.IsDefaultOrEmpty ? 2 : d.ArchivedUnder == SymbolProperties.Coreclr ? 1 : 0)
+            .FirstOrDefault();
+        var fileName = dac?.FileName is { Length: > 0 } name ? RecordedPath.FileName(name) : DefaultDacFileName(platform);
+        var runtimeDirectory = Path.GetDirectoryName(clr.ModuleInfo.FileName);
         var request = new DacRequest(
             fileName,
             dac?.IndexTimeStamp ?? 0,
             dac?.IndexFileSize ?? 0,
-            clr.Version.ToString(),
-            Path.GetDirectoryName(clr.ModuleInfo.FileName));
+            DacLocator.RuntimeVersion(clr.Version, runtimeDirectory),
+            runtimeDirectory)
+        {
+            // A Linux or macOS DAC is archived under its own build id or under the runtime library's; when the dump lists
+            // none, the runtime library's own id still identifies the exact runtime the DAC ships with.
+            BuildId = dac is { IndexBuildId.IsDefaultOrEmpty: false } ? [.. dac.IndexBuildId]
+                : platform != OSPlatform.Windows && !clr.ModuleInfo.BuildId.IsDefaultOrEmpty ? [.. clr.ModuleInfo.BuildId]
+                : null,
+            BuildIdOfRuntime = platform == OSPlatform.Windows ? null
+                : dac is { IndexBuildId.IsDefaultOrEmpty: false } && dac.ArchivedUnder != SymbolProperties.Coreclr ? null
+                : RecordedPath.FileName(clr.ModuleInfo.FileName),
+        };
         var directories = DacLocator.CandidateDirectories(request, dumpPath, options);
-        var path = DacLocator.Find(request, directories, out var searched);
+        var path = DacLocator.Find(request, directories, out var searched, options.InstalledRuntimeRoots ?? DacLocator.DefaultRuntimeRoots());
         if (path is null && !options.AllowMicrosoftSymbolServer)
         {
-            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched);
+            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched, Hint(clr, platform, request));
         }
 
         try
         {
-            return path is not null ? clr.CreateRuntime(path) : clr.CreateRuntime();
+            // A DAC matched by build id is the exact build (its own id, or its runtime's with the pair checked), which is
+            // stronger than ClrMD's version check; that check is skipped then, since ClrMD reads a core file's runtime
+            // version as 0.0 at times (sprint 2.3.5, the Linux CI run).
+            return path is null ? clr.CreateRuntime()
+                : clr.CreateRuntime(path, ignoreMismatch: request.BuildId is { Length: > 0 });
         }
         catch (Exception ex) when (ex is ClrDiagnosticsException or InvalidOperationException or IOException or BadImageFormatException or DllNotFoundException)
         {
@@ -95,4 +117,39 @@ internal static class ClrMdDump
                 ex);
         }
     }
+
+    /// <summary>
+    /// What to do when no DAC was found, beyond installing the runtime (sprint 2.3.5 review): a dump of another system or
+    /// architecture needs HeapScope on that system (the DAC runs in HeapScope's process), and a DAC archived under its
+    /// runtime library is only accepted together with that library.
+    /// </summary>
+    internal static string? Hint(ClrInfo clr, OSPlatform platform, DacRequest request)
+    {
+        var reader = clr.DataTarget.DataReader;
+        var host = RuntimeInformation.ProcessArchitecture;
+        if (reader.TargetPlatform != platform)
+        {
+            return $"This dump comes from {SystemName(reader.TargetPlatform)} and HeapScope runs on {SystemName(platform)}: open it with HeapScope or heapscope-cli on {SystemName(reader.TargetPlatform)}.";
+        }
+
+        if (reader.Architecture != host)
+        {
+            return $"This dump comes from an {reader.Architecture} process and HeapScope runs as {host}: open it with the {reader.Architecture} build of HeapScope.";
+        }
+
+        return request.BuildIdOfRuntime is { } runtime
+            ? $"Copy {request.FileName} together with {runtime} from the same runtime folder: the dump identifies the DAC by its runtime library."
+            : null;
+    }
+
+    private static string SystemName(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "Windows" : platform == OSPlatform.OSX ? "macOS" : platform == OSPlatform.Linux ? "Linux" : platform.ToString();
+
+    /// <summary>The platform HeapScope runs on, in ClrMD's terms.</summary>
+    internal static OSPlatform CurrentPlatform() =>
+        OperatingSystem.IsWindows() ? OSPlatform.Windows : OperatingSystem.IsMacOS() ? OSPlatform.OSX : OSPlatform.Linux;
+
+    /// <summary>The DAC's file name on a platform, when the dump does not name it.</summary>
+    internal static string DefaultDacFileName(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "mscordaccore.dll" : platform == OSPlatform.OSX ? "libmscordaccore.dylib" : "libmscordaccore.so";
 }

@@ -254,6 +254,7 @@ public sealed class IndexCacheTests : IDisposable
     [Fact]
     public void Disposing_a_mapped_graph_releases_the_file()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to delete or replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var cache = WriteRich();
         var result = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
         Should.Throw<IOException>(() => File.Delete(cache));
@@ -266,6 +267,7 @@ public sealed class IndexCacheTests : IDisposable
     [Fact]
     public void Rewriting_a_cache_that_is_open_fails_clearly_and_keeps_the_old_cache()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to delete or replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var cache = WriteRich();
         var before = File.ReadAllBytes(cache);
         var open = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
@@ -302,6 +304,7 @@ public sealed class IndexCacheTests : IDisposable
     [Fact]
     public void Snapshot_lease_keeps_a_mapped_file_open_until_released()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to delete or replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var cache = WriteRich();
         var open = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
         var snapshot = new GraphSnapshot(_metadata.Info, _metadata.Capabilities, open.Graph!);

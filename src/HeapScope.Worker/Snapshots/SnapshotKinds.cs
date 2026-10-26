@@ -100,6 +100,11 @@ internal sealed class SnapshotKinds(WorkerOptions options)
             {
                 notes.Add("Parts of the managed heap could not be read from this dump, so some objects may be missing and counts are not exact. The dump may be truncated or damaged; capture another full dump if results look wrong.");
             }
+
+            if (metadata.Info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile))
+            {
+                notes.Add("This core dump does not record when it was taken; its capture time is the file's time, which a copy of the file can change.");
+            }
         }
 
         public override string ExplainMissingFact(string title) =>

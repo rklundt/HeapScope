@@ -48,7 +48,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<WorkerOperations>();
         services.AddSingleton<Snapshots.SnapshotSession>();
         services.AddOptions<Sessions.SessionOptions>();
-        services.TryAddSingleton<Capture.IElevationProbe>(Capture.WindowsElevationProbe.Instance);
+        services.TryAddSingleton(_ => Capture.CapturePlatform.ElevationProbe());
         services.TryAddSingleton<Capture.IProcessDiscovery>(sp => new Capture.ProcessDiscovery(sp.GetRequiredService<Capture.IElevationProbe>()));
         services.TryAddSingleton(sp => new Capture.DumpCapturer(sp.GetRequiredService<Capture.IElevationProbe>()));
         services.TryAddSingleton(sp => new Capture.GcDumpCapturer(

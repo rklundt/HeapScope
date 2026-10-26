@@ -57,6 +57,7 @@ public sealed class LocatorAndModeTests : IDisposable
     [Fact]
     public void Injected_write_check_controls_the_choice()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths.");
         var locator = new IndexCacheLocator(@"C:\cache-root", _ => false);
 
         locator.GetCachePath(@"D:\dumps\app.dmp").ShouldStartWith(@"C:\cache-root\");

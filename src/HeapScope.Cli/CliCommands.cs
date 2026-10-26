@@ -604,7 +604,8 @@ internal static partial class CliCommands
             await error.WriteLineAsync("Canceled.").ConfigureAwait(false);
             return Canceled;
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException
+            or CaptureFailedException { Reason: CaptureFailure.NotSupportedOnThisSystem })
         {
             await error.WriteLineAsync("Error: " + ex.Message).ConfigureAwait(false);
             return Failure;

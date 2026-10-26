@@ -35,4 +35,28 @@ public sealed class WorkerHostOptionsTests
         new WorkerHostOptions { GcHeapCount = 3 }.ResolveGcHeapCount().ShouldBe(3);
         new WorkerHostOptions { GcHeapCount = 0 }.ResolveGcHeapCount().ShouldBe(1);
     }
+
+    [Fact]
+    public void The_worker_is_found_by_this_systems_executable_name_unless_configured()
+    {
+        // Sprint 2.3.5: .NET's application host has no extension off Windows.
+        var expected = OperatingSystem.IsWindows() ? "HeapScope.Worker.exe" : "HeapScope.Worker";
+
+        WorkerHostOptions.WorkerExecutableName.ShouldBe(expected);
+        new WorkerHostOptions().ResolveWorkerPath().ShouldBe(Path.Combine(AppContext.BaseDirectory, "worker", expected));
+        new WorkerHostOptions { WorkerPath = "/opt/heapscope/w" }.ResolveWorkerPath().ShouldBe("/opt/heapscope/w");
+    }
+
+    [Fact]
+    public void Pipe_names_are_unique_and_fit_a_macos_socket_path()
+    {
+        // Sprint 2.3.5: off Windows the pipe is a socket at <temp>/CoreFxPipe_<name>, at most 104 characters on macOS,
+        // whose temp folder is about 49.
+        const string MacTemp = "/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/";
+        var first = WorkerHost.NewPipeName();
+
+        first.ShouldStartWith("HeapScope.W.");
+        (MacTemp + "CoreFxPipe_" + first).Length.ShouldBeLessThanOrEqualTo(104);
+        WorkerHost.NewPipeName().ShouldNotBe(first);
+    }
 }

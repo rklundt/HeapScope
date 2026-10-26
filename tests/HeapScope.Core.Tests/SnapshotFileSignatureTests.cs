@@ -42,6 +42,41 @@ public sealed class SnapshotFileSignatureTests : IDisposable
     public void Another_fast_serialization_stream_is_not_a_gcdump() =>
         SnapshotFileSignature.Detect(Write("trace.gcdump", GcDumpStart("TraceLog"))).ShouldBeNull();
 
+    [Fact]
+    public void A_linux_core_file_is_a_full_dump_but_not_a_minidump()
+    {
+        var start = ElfStart(type: 4);
+        SnapshotFileSignature.Detect(Write("core.1234", start)).ShouldBe(SnapshotKind.FullDump);
+        SnapshotFileSignature.IsMinidump(start).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_macos_core_file_is_a_full_dump() =>
+        SnapshotFileSignature.Detect(Write("core.5678", MachOStart(fileType: 4))).ShouldBe(SnapshotKind.FullDump);
+
+    [Fact]
+    public void A_shared_library_is_not_a_dump()
+    {
+        SnapshotFileSignature.Detect(Write("libcoreclr.so", ElfStart(type: 3))).ShouldBeNull();
+        SnapshotFileSignature.Detect(Write("libcoreclr.dylib", MachOStart(fileType: 6))).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_32_bit_or_big_endian_elf_core_and_a_short_header_are_not_dumps()
+    {
+        var start = ElfStart(type: 4);
+        start[4] = 1;
+        SnapshotFileSignature.IsCoreFile(start).ShouldBeFalse("HeapScope reads 64-bit dumps");
+        start[4] = 2;
+        start[5] = 2;
+        SnapshotFileSignature.IsCoreFile(start).ShouldBeFalse("a big-endian core");
+        SnapshotFileSignature.IsCoreFile(ElfStart(type: 4)[..17]).ShouldBeFalse("too short to hold e_type");
+    }
+
+    [Fact]
+    public void Only_a_minidump_is_a_minidump() =>
+        SnapshotFileSignature.IsMinidump([.. "MDMP"u8, 0x93, 0xA7]).ShouldBeTrue();
+
     [Theory]
     [InlineData("")]
     [InlineData("MDM")]
@@ -62,6 +97,14 @@ public sealed class SnapshotFileSignatureTests : IDisposable
         var name = Encoding.UTF8.GetBytes(typeName);
         return [.. BitConverter.GetBytes(signature.Length), .. signature, 5, 5, 5, .. BitConverter.GetBytes(name.Length), .. name, 1, 2, 3];
     }
+
+    // A 64-bit little-endian ELF header up to e_type (offset 16) and e_machine.
+    private static byte[] ElfStart(ushort type) =>
+        [0x7F, (byte)'E', (byte)'L', (byte)'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, .. BitConverter.GetBytes(type), 0x3E, 0, 1, 0, 0, 0];
+
+    // A 64-bit Mach-O header: magic, cputype (arm64), cpusubtype, filetype.
+    private static byte[] MachOStart(uint fileType) =>
+        [.. BitConverter.GetBytes(0xFEEDFACFu), .. BitConverter.GetBytes(0x0100000Cu), 0, 0, 0, 0, .. BitConverter.GetBytes(fileType), 0, 0, 0, 0];
 
     private string Write(string name, byte[] bytes)
     {

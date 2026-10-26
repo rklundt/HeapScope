@@ -46,6 +46,7 @@ public sealed class DacLocatorTests : IDisposable
     [Fact]
     public void Candidates_are_runtime_folder_installed_runtimes_dump_folder_and_user_folder_in_order()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var request = Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13-custom");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], DacFolder = @"C:\dacs" };
 
@@ -62,6 +63,7 @@ public sealed class DacLocatorTests : IDisposable
     [Fact]
     public void The_dumped_runtime_folder_can_be_left_out()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], SearchDumpedRuntimeDirectory = false };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\x"), @"C:\dumps\app.dmp", options)
@@ -76,6 +78,7 @@ public sealed class DacLocatorTests : IDisposable
     [InlineData(@"C:\dotnet\shared\Microsoft.NETCore.App\..\..\..\elsewhere")]
     public void A_runtime_folder_recorded_in_the_dump_outside_the_installed_runtimes_is_never_searched(string recorded)
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"] };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: recorded), @"C:\dumps\app.dmp", options)
@@ -87,6 +90,7 @@ public sealed class DacLocatorTests : IDisposable
     [InlineData(@"\\?\UNC\server\share\app.dmp")]
     public void Network_dump_and_user_folders_are_not_searched(string dumpPath)
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [], DacFolder = @"\\server\dacs" };
 
         DacLocator.CandidateDirectories(Request(), dumpPath, options).ShouldBeEmpty();
@@ -101,6 +105,7 @@ public sealed class DacLocatorTests : IDisposable
     [InlineData(@"", false)]
     public void Local_fixed_paths_are_recognized(string path, bool expected)
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         DacLocator.IsLocalFixedPath(path).ShouldBe(expected);
     }
 
@@ -151,6 +156,17 @@ public sealed class DacLocatorTests : IDisposable
         exception.Message.ShouldContain("Symbols:AllowMicrosoftSymbolServer");
         exception.Message.ShouldContain(@"C:\a\mscordaccore.dll");
         exception.RuntimeVersion.ShouldBe("8.0.11");
+    }
+
+    [Fact]
+    public void Missing_component_message_leads_with_the_hint_and_never_names_an_unknown_version()
+    {
+        // Sprint 2.3.5 review: a dump of another system needs HeapScope there; ClrMD reads some versions as 0.0.
+        var exception = new RuntimeComponentMissingException("0.0", "libmscordaccore.so", [], "This dump comes from Linux.");
+
+        exception.Message.ShouldContain("whose version it does not record");
+        exception.Message.ShouldNotContain(".NET 0.0");
+        exception.Message.ShouldContain("This dump comes from Linux. Install that runtime");
     }
 
     public void Dispose()

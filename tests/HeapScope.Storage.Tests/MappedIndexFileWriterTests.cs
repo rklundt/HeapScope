@@ -179,6 +179,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     [Fact]
     public void Replacing_a_file_that_is_open_keeps_it_and_leaves_no_temporary_file()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var path = Write(semanticsVersion: 7, dominators: [-2], retained: [8]);
         var opened = IndexCacheFile.Open(path, s_dominators, 0x42, Fingerprint(), MemoryMode.Mapped, Ct);
         using (opened.File)

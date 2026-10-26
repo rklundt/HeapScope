@@ -1,0 +1,111 @@
+# HeapScope CI (sprint 2.3.5): Windows builds everything and runs the fast tests; Linux and macOS build the engine, the
+# worker and the CLI, run the engine's tests, take a core dump of the LeakyConsole fixture and analyze it with the CLI.
+# The fixture dumps hold fixture data only; they are never uploaded (ARCHITECTURE.md 12).
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows (build, fast tests)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build HeapScope.sln -c Release
+      - name: Fast tests
+        run: dotnet test --solution HeapScope.sln -c Release --no-build --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8
+
+  unix:
+    name: ${{ matrix.name }} (engine, CLI, fixture dump)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    # macOS runs on an arm64 runner while HeapScope targets x64 (ADR-001): informational until the ADR decides.
+    continue-on-error: ${{ matrix.informational }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+            informational: false
+            platform: ''
+          - os: macos-latest
+            name: macOS
+            informational: true
+            platform: '-p:PlatformTarget=AnyCPU'
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build the CLI (with the worker) and the fixture
+        id: build
+        run: |
+          dotnet build src/HeapScope.Cli -c Release ${{ matrix.platform }}
+          dotnet build fixtures/LeakyConsole -c Release ${{ matrix.platform }}
+      - name: Engine tests
+        run: |
+          failed=""
+          for project in Core Analysis Storage Worker Application Loaders.ClrMd; do
+            dotnet test --project "tests/HeapScope.$project.Tests" -c Release ${{ matrix.platform }} || failed="$failed $project"
+          done
+          if [ -n "$failed" ]; then echo "Failed:$failed"; exit 1; fi
+      - name: Dump the fixture and analyze it with the CLI
+        # Runs when a test failed but the build did not: the dump and the CLI are what this job is for.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          dotnet tool install --global dotnet-dump --version 10.0.750501
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          fixture=fixtures/LeakyConsole/bin/Release/net10.0/LeakyConsole.dll
+          dotnet "$fixture" --leak all --count 2000 --payload 32 --late-garbage 300 > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill $fixture_pid 2>/dev/null || true' EXIT
+          for i in $(seq 1 120); do
+            grep -q READY "$RUNNER_TEMP/fixture.log" && break
+            kill -0 "$fixture_pid" 2>/dev/null || { echo "The fixture exited before it was ready:"; cat "$RUNNER_TEMP/fixture.log"; exit 1; }
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/fixture.log"
+          pid=$(sed -n 's/.*READY pid=\([0-9]*\).*/\1/p' "$RUNNER_TEMP/fixture.log")
+          [ -n "$pid" ] || { echo "The fixture did not report READY within 120 s."; exit 1; }
+          dump="$RUNNER_TEMP/leaky.dmp"
+          dotnet-dump collect --process-id "$pid" --type Full --output "$dump"
+          kill "$pid" || true
+          cli=src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli
+          "$cli" open "$dump" --top 5 | tee "$RUNNER_TEMP/open.txt"
+          "$cli" summary "$dump" --filter Fixtures.Leaks --format json > "$RUNNER_TEMP/summary.json"
+          "$cli" instances "$dump" --type Fixtures.Leaks.StaticCacheEntry --retained --top 5 --format json > "$RUNNER_TEMP/instances.json"
+          "$cli" paths "$dump" --type Fixtures.Leaks.StaticCacheEntry --format json > "$RUNNER_TEMP/paths.json"
+          # Known answers (fixtures/KnownAnswers, ADR-013): one object per item for each leak, 32 bytes per cache entry,
+          # 148 bytes retained by each, every entry held through the static s_cache, a complete heap, a named runtime.
+          grep -q "^Process: .*\.NET [1-9][0-9]*\." "$RUNNER_TEMP/open.txt" || { echo "No runtime version in the open output"; exit 1; }
+          if grep -q "Note: Parts of the managed heap could not be read" "$RUNNER_TEMP/open.txt"; then echo "The core dump was read as incomplete"; exit 1; fi
+          for leak in StaticCacheEntry SessionRecord LeakySubscriber UndisposedResource CapturedState; do
+            jq -e --arg t "Fixtures.Leaks.$leak" '[.Rows[] | select(.Name == $t)] | length == 1 and .[0].Objects == 2000' "$RUNNER_TEMP/summary.json" > /dev/null \
+              || { echo "Known answer failed: 2000 objects of $leak"; jq '.Rows[] | {Name, Objects}' "$RUNNER_TEMP/summary.json"; exit 1; }
+          done
+          jq -e '.TotalObjects == 2000 and .TotalBytes == 64000 and (.Rows | length) == 5 and all(.Rows[]; .Retained == 148)' "$RUNNER_TEMP/instances.json" > /dev/null \
+            || { echo "Known answer failed: StaticCacheEntry sizes"; cat "$RUNNER_TEMP/instances.json"; exit 1; }
+          jq -e '.CompleteGraph and .Objects == 2000 and .Unreachable == 0 and (.Paths[0].Objects == 2000) and (.Paths[0].Root.Description | contains("Fixtures.Leaks.StaticCacheLeak.s_cache"))' "$RUNNER_TEMP/paths.json" > /dev/null \
+            || { echo "Known answer failed: StaticCacheEntry path"; cat "$RUNNER_TEMP/paths.json"; exit 1; }
+          echo "Known answers match."

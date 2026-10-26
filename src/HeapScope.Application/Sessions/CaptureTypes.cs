@@ -71,6 +71,9 @@ public enum CaptureFailure
 
     /// <summary>The runtime could not write the dump (disk full, the target's account cannot write the folder).</summary>
     WriteFailed = 6,
+
+    /// <summary>Listing and capturing processes is not available on this system yet (Linux, macOS; ADR-025).</summary>
+    NotSupportedOnThisSystem = 7,
 }
 
 /// <summary>The capture use cases front ends depend on (faked in their tests).</summary>
