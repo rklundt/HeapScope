@@ -2016,16 +2016,16 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
    (no `List<object>`, no reflection binding); `SnapshotTabs` and `ReferenceTabs` enums instead of numbers; the navigator
    passed to grid view models by constructor; `SnapshotTab.axaml` split into a view per subject. Tests: the existing
    navigator and view tests; a navigation target per kind lands on its tab and subject.
-2. [ ] Dominator children (2.3.7 M9, ADR-027): the dominator tree's children as a CSR sorted by retained size
+2. [x] Dominator children (2.3.7 M9, ADR-027): the dominator tree's children as a CSR sorted by retained size
    (`DominatorTree.BuildChildren`), stored as two more sections of the dominators sidecar (semantics version 2, so older
    sidecars rebuild once) and in memory without one; kept bytes 12 to 20 per object; ARCHITECTURE 6.4 updated. Tests:
    children order and coverage on synthetic graphs; sidecar round trip; an old sidecar is refused.
-3. [ ] Dominator tree query (worker, protocol 12): a flattened, paged tree from the virtual root or a focus object,
+3. [x] Dominator tree query (worker, protocol 12): a flattened, paged tree from the virtual root or a focus object,
    expanded nodes by key, children as objects or grouped by type or namespace (siblings' retained sizes are disjoint, so
    group sums are exact), at most 100 children per node plus a "more" row, rows with key, parent key, depth, kind, name,
    module, address, objects, retained, shallow bytes, share of the heap and child count. Biggest retainers are the root
    level. Tests: flattening, grouping sums, the "more" row, keys stable across re-runs.
-4. [ ] Exactness on the wire (2.3.7 M7): `ResultColumn.Bound` (exact or lower bound) set by the worker, with the
+4. [x] Exactness on the wire (2.3.7 M7): `ResultColumn.Bound` (exact or lower bound) set by the worker, with the
    texts in Contracts; the CLI and the view models render from it. Tests: the type summary's retained column is a lower
    bound, the instances' and the tree's exact.
 5. [x] Exact retention of a set: "objects retained by this set" for a type (or a scope) by a reachability pass from the
