@@ -90,6 +90,19 @@ internal static class DominatorsBenchmark
                     });
                     var largest = Enumerable.Range(0, groups.Length).MaxBy(t => groups[t]);
                     Measurement.Line("Retained by type (lower bounds)", $"{groupTime.TotalSeconds:N1} s, peak {Measurement.Mb(groupPeak)}; largest {graph.Types.GetName(largest)} {Measurement.Mb((long)groups[largest])}");
+
+                    // Exact set retention (sprint 2.4 review): the type entry with the most objects, and its lower bound,
+                    // as the worker's "objects retained by this set" computes them, with their memory measured.
+                    var aggregation = TypeAggregation.Compute(graph);
+                    var crowded = Enumerable.Range(0, graph.Types.Count).MaxBy(t => aggregation.Counts[t]);
+                    var set = new bool[graph.Types.Count];
+                    set[crowded] = true;
+                    var ((exact, bound), setTime, setPeak) = Phase(() =>
+                    {
+                        var result = SetRetention.Compute(graph, dominators, set);
+                        return (result, GroupRetention.Compute(graph, dominators, Array.ConvertAll(set, s => s ? 0 : -1), 1)[0]);
+                    });
+                    Measurement.Line("Set retention", $"{setTime.TotalSeconds:N1} s, peak {Measurement.Mb(setPeak)}; {graph.Types.GetName(crowded)}: {exact.SetObjects:N0} objects retain {Measurement.Mb((long)exact.RetainedBytes)} (lower bound {Measurement.Mb((long)bound)})");
                 }
 
                 if (mode == MemoryMode.Mapped)

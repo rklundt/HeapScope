@@ -309,7 +309,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - `phase2-indices`: the 1.9 prototype of the Phase 2 indices (reverse references, semi-NCA dominators, retained sizes)
   on synthetic shapes or an index cache (ARCHITECTURE.md 6.4).
 - `dominators --cache <snapshot.hsidx> [--mode memory|mapped] [--out <folder>] [--max-working-set-mb N]` (sprint 2.3; since
-  2.4 it also builds the dominator tree's children and reports their time within the dominators phase; the
+  2.4 it also builds the dominator tree's children, reports their time within the dominators phase, and measures set
+  retention of the type entry with the most objects; the
   cap, a hard limit on the process's working set to see the computation under memory pressure, after the 2.3 review
   M14; it also reports page faults and the peak working set): the worker's path on a
   real index cache: the reverse references and the dominators, computed straight into sidecars (in `--out`, or a temporary

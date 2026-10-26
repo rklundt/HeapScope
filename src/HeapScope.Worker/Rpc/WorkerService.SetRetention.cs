@@ -51,6 +51,7 @@ internal sealed partial class WorkerService
                 // repeated in a message the log keeps.
                 throw new ArgumentException("No type of that name and module is in this snapshot. Names are case sensitive and include the namespace.");
             }
+
             var (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
             var tree = dominators.Dominators;
             var aggregation = await snapshots.GetAggregationAsync(request.SnapshotId, null, cancellationToken).ConfigureAwait(false)

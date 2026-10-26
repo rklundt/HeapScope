@@ -136,7 +136,7 @@ public interface IWorkerService
     /// <summary>
     /// The objects every object of a type retains together, exactly (sprint 2.4): one reachability pass from the roots that
     /// skips the set. Computes or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A type that
-    /// matches nothing answers with no rows.
+    /// matches nothing fails with <see cref="HeapScopeErrorCode.InvalidArgument"/> before anything is computed.
     /// </summary>
     Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 

@@ -199,7 +199,6 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             await retainers.SelectTask;
             Dispatcher.UIThread.RunJobs();
             tree.SelectedItem.ShouldBeSameAs(retainers.Rows.GetRow(0));
-            tree.Focus();
             window.KeyPressQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
             window.KeyReleaseQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
             Dispatcher.UIThread.RunJobs();

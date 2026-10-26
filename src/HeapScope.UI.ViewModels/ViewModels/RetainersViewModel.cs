@@ -59,6 +59,8 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
     private string? _revealKey;
     private string? _revealAsked;
     private int _revealIndex = -1;
+    private int _revealFallback = -1;
+    private int _fallbackAsked = -1;
     private string? _missingNote;
 
     [ObservableProperty]
@@ -240,8 +242,10 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
         var progress = new Progress<JobProgress>(p => Status = finished || cancellationToken.IsCancellationRequested ? Status : ReferrersText.Progress(p));
         var reveal = _revealKey ?? FocusKey;
         var missing = _missingNote;
+        var fallback = _revealFallback;
         _revealKey = null;
         _missingNote = null;
+        _revealFallback = -1;
         var answer = await _session.QueryDominatorTreeAsync(Snapshot!, [.. _expanded], Grouping, FocusAddress, MaxChildren, reveal, progress, cancellationToken);
         finished = true;
         var result = answer.Result;
@@ -259,7 +263,7 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
                     + (result.Truncated
                         ? string.Create(CultureInfo.CurrentCulture, $" The tree is cut at {DominatorTreeLimits.MaxRows:N0} rows; collapse rows or focus on one to see the rest.")
                         : string.Empty);
-                (_revealAsked, _revealIndex) = (reveal, result.RevealIndex);
+                (_revealAsked, _revealIndex, _fallbackAsked) = (reveal, result.RevealIndex, fallback);
                 _missingNote = result.RevealIndex < 0 ? missing : null;
             },
             onError => DominatorRowItem.CreateList(answer.Rows, result.Rows, typeGroups, onError, Logger));
@@ -267,16 +271,17 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
 
     protected override void OnRowsApplied()
     {
-        var (key, index, missing) = (_revealAsked, _revealIndex, _missingNote);
-        (_revealAsked, _revealIndex, _missingNote) = (null, -1, null);
+        var (key, index, fallback, missing) = (_revealAsked, _revealIndex, _fallbackAsked, _missingNote);
+        (_revealAsked, _revealIndex, _fallbackAsked, _missingNote) = (null, -1, -1, null);
         if (key is null)
         {
             return;
         }
 
-        if (index >= 0)
+        if (index >= 0 || (fallback >= 0 && fallback < Rows.Count))
         {
-            SelectTask = SelectAsync(Rows, index);
+            // An expanded "more" row is replaced by the next batch, whose first row takes its place (the 2.4 review).
+            SelectTask = SelectAsync(Rows, index >= 0 ? index : fallback);
         }
         else if (missing is not null)
         {
@@ -297,23 +302,28 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanExpandRow))]
     private void Expand(DominatorRowItem? row)
     {
-        if (row is { CanExpand: true } && row.Key != FocusKey && !_expanded.Contains(row.Key))
+        if (CanExpandRow(row))
         {
-            SetExpanded(row, true);
+            SetExpanded(row!, true);
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanCollapseRow))]
     private void Collapse(DominatorRowItem? row)
     {
-        if (row is not null && _expanded.Contains(row.Key))
+        if (CanCollapseRow(row))
         {
-            SetExpanded(row, false);
+            SetExpanded(row!, false);
         }
     }
+
+    // Left and Right on a row they cannot change pass through to the grid (the 2.4 review).
+    private bool CanExpandRow(DominatorRowItem? row) => row is { CanExpand: true } && row.Key != FocusKey && !_expanded.Contains(row.Key);
+
+    private bool CanCollapseRow(DominatorRowItem? row) => row is not null && _expanded.Contains(row.Key);
 
     /// <summary>Shows the tree below an object row, with its dominators as a trail.</summary>
     [RelayCommand(CanExecute = nameof(IsObjectRow))]
@@ -436,6 +446,7 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
         }
 
         _revealKey = row.Key;
+        _revealFallback = row.Kind == DominatorRowKinds.More ? row.Index : -1;
         RequeryTree();
     }
 
@@ -554,5 +565,6 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
         IcicleStatus = null;
         Note = null;
         (_revealKey, _revealAsked, _revealIndex, _missingNote) = (null, null, -1, null);
+        (_revealFallback, _fallbackAsked) = (-1, -1);
     }
 }

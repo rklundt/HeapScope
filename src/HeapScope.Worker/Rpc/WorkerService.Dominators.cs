@@ -71,7 +71,16 @@ internal sealed partial class WorkerService
             };
             var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
             var view = await Task.Run(() => DominatorTreeRows.Build(graph, tree, focus, expanded, grouping, request.MaxChildren, cancellationToken), cancellationToken).ConfigureAwait(false);
-            var reveal = request.RevealKey is { } revealKey ? view.Rows.ToList().FindIndex(r => r.Key == revealKey) : -1;
+            var reveal = -1;
+            for (var i = 0; request.RevealKey is not null && i < view.Rows.Count; i++)
+            {
+                if (view.Rows[i].Key == request.RevealKey)
+                {
+                    reveal = i;
+                    break;
+                }
+            }
+
             var ancestors = view.Ancestors.Select(a => new DominatorAncestorDto(DominatorTreeRows.ObjectKey(graph.Addresses[a]), graph.Types.GetName(graph.TypeIndices[a]), graph.Addresses[a], (long)tree.RetainedSize(a))).ToArray();
 
             // What the user looked at (sprint 2.3.7 review H3; the 2.4 review): the rows of the list just opened (or the

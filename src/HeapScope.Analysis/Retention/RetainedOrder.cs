@@ -26,15 +26,21 @@ namespace HeapScope.Analysis.Retention;
 /// <summary>
 /// The order the retention explorer shows objects in (sprint 2.4): largest retained size first, then by object index, so
 /// it never varies between runs. Only the rows a query shows are ordered: the largest k of a node's children are found in
-/// one pass with a heap of k (O(m log k)), so a node with millions of children answers in milliseconds.
+/// one pass with a heap of k (O(m log k)), so a node with millions of children answers in milliseconds. A filter picks
+/// the members of one group without a delegate per member (the 2.4 review; DEVELOPER 4).
 /// </summary>
 public static class RetainedOrder
 {
+    /// <summary>The first <paramref name="count"/> of <paramref name="members"/> in retained order.</summary>
+    public static int[] Top(ReadOnlySpan<int> members, int count, Dominators dominators) =>
+        Top(members, count, dominators, default(AllMembers));
+
     /// <summary>
-    /// The first <paramref name="count"/> of <paramref name="members"/> (those <paramref name="include"/> accepts, when
-    /// given) in retained order; fewer when fewer are accepted.
+    /// The first <paramref name="count"/> of the <paramref name="members"/> that <paramref name="filter"/> accepts, in
+    /// retained order; fewer when fewer are accepted.
     /// </summary>
-    public static int[] Top(ReadOnlySpan<int> members, int count, Dominators dominators, Func<int, bool>? include = null)
+    public static int[] Top<TFilter>(ReadOnlySpan<int> members, int count, Dominators dominators, TFilter filter)
+        where TFilter : IMemberFilter, allows ref struct
     {
         ArgumentNullException.ThrowIfNull(dominators);
         var sizes = dominators.RetainedSizes.Span;
@@ -49,7 +55,7 @@ public static class RetainedOrder
         var filled = 0;
         foreach (var member in members)
         {
-            if (include is not null && !include(member))
+            if (!filter.Includes(member))
             {
                 continue;
             }
@@ -127,4 +133,33 @@ public static class RetainedOrder
             at = later;
         }
     }
+}
+
+/// <summary>Which members of a list <see cref="RetainedOrder.Top{TFilter}"/> considers.</summary>
+public interface IMemberFilter
+{
+    bool Includes(int member);
+}
+
+/// <summary>Every member.</summary>
+public readonly struct AllMembers : IMemberFilter
+{
+    public bool Includes(int member) => true;
+}
+
+/// <summary>The members whose type belongs to one group, read straight from the type column.</summary>
+public readonly ref struct GroupMembers : IMemberFilter
+{
+    private readonly ReadOnlySpan<int> _typeIndices;
+    private readonly ReadOnlySpan<int> _groupOfType;
+    private readonly int _group;
+
+    public GroupMembers(ReadOnlySpan<int> typeIndices, ReadOnlySpan<int> groupOfType, int group)
+    {
+        _typeIndices = typeIndices;
+        _groupOfType = groupOfType;
+        _group = group;
+    }
+
+    public bool Includes(int member) => _groupOfType[_typeIndices[member]] == _group;
 }

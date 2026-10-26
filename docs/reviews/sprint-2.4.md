@@ -5,7 +5,7 @@ gc-specialist, and a support and system analyst (a general reviewer with a read-
 can back up any result a user contests). Moderates follow the lead engineer's recommendation (product owner, 2.3.7: "Go
 with your reco for moderate recommendations"), marked "decided autonomously".
 
-Totals after dedupe: 5 High, 15 Moderate, 24 Low. A finding raised by more than one reviewer is merged and keeps the
+Totals after dedupe: 5 High, 17 Moderate, 33 Low (the re-review of the fixes added 2 Moderates and 9 Lows). A finding raised by more than one reviewer is merged and keeps the
 highest severity. H5 was found by the lead engineer while measuring for the review; the gc-specialist saw its fix land
 mid-review and confirmed it.
 
@@ -119,6 +119,27 @@ The reviewers confirmed:
   crumbs, leaves, the focus row, a bar with no loaded row, a type with no top-level group, keyboard collapse, the row
   limit, grouped "more" rows, and scoped inspection rows.
 
+- **M16 The grouped-mode fix put hashing and a delegate in per-object loops** (gc-specialist, re-review). A dictionary
+  update per child and a capturing delegate per child of an open group, twice, against DEVELOPER 4. Fixed now (decided
+  autonomously): dense pooled sums per group, reset only where touched; `RetainedOrder.Top` takes a struct filter
+  (`GroupMembers` reads the type column as a span, no delegate); an open group's "more" row is its known totals less what
+  is shown, so the list is read once for the sums and once per open group.
+- **M17 Set retention's peak memory was never measured** (gc-specialist, re-review; DenseHeap projected at about
+  4.15 GB). Fixed now (decided autonomously): the `dominators` benchmark gained a set retention phase (the type entry with
+  the most objects, and its lower bound, as the worker computes them): Medium 5.2 s for 16M `System.Byte[]`, peak
+  3,300 MB; DenseHeap 3.0 s, peak 3,876 MB, no higher than the dominators' own. Both within the 4,096 MB budget.
+
+## Confirmations
+
+The fixes went back to the reviewers who raised them (2026-10-26), who re-read the code and tests:
+- solution-architect: H1 and H4 confirmed; M1 to M3 (its parts), M4, M5, M6 confirmed. Leftovers listed below (L25 to L33).
+- senior-dev: H3 confirmed (the new list's own row, `OnRowsApplied`, `ScrollToSelection`, keys deciding from the open
+  set, the view test pressing Right then Left on the grid's own selection); M1, M13, M14, M15 and its part of H1
+  confirmed; no new High or Moderate.
+- gc-specialist: H1, H2 and H5 confirmed, the in-memory budget confirmed as met after the working arrays are collected
+  ahead of the children; M10 and M11 confirmed; raised M16 and M17 (fixed above).
+- H1 to H5 are Fixed and confirmed.
+
 ## Low / Trivial (listed only)
 
 - L1 `retained-by` errors were not logged (support): the worker now refuses an unknown type before computing, which is
@@ -147,6 +168,20 @@ The reviewers confirmed:
 - L22 Left and Right were always marked handled; the icicle reacted to any button (senior-dev): fixed.
 - L23 The "more" sum had no cancellation check (senior-dev): fixed with M4.
 - L24 Frozen members count as retained by their set (gc-specialist); consistent with per-object retained sizes.
+- L25 Expanding a "more" row lost the selection (senior-dev, re-review): the first row of the new batch is selected now.
+- L26 Left and Right were still marked handled on a leaf (senior-dev, re-review): Expand and Collapse have CanExecute now.
+- L27 The view test focused the grid again before Left (senior-dev, re-review): removed.
+- L28 The chunked stack allocated a chunk at every crossing of a chunk boundary (senior-dev, gc-specialist): one spare
+  is kept.
+- L29 Stale comments: children "sorted by retained size" in `DominatorIndexBuilder`, "a type that matches nothing
+  answers with no rows" in `IWorkerService` (gc-specialist, solution-architect): fixed.
+- L30 A row at the depth limit shows an expander that does nothing, with no note (gc-specialist).
+- L31 The positive case of "Show in dominator tree" from a type with a top-level group is untested (the fake ignores
+  grouping) (senior-dev).
+- L32 A duplicate-strings row's "Show in dominator tree" focuses on its sample string (senior-dev): a tooltip could say so.
+- L33 The acceptance check accepts any row of the item type at the depth reached, not only one under the chain
+  (solution-architect); a row past the first page now has a reveal test (`A_row_expanded_past_the_first_page_stays_
+  selected`); `ValueBoundTexts.Marker` is unused (solution-architect).
 
 ## Measurements
 
@@ -162,7 +197,8 @@ memory, retained by type 5.6 s), since the machine was slower than when 2.3 reco
 | DenseHeap dominators mapped | not run | 10.6 s, peak 658 MB; 1,031 MB kept |
 | Medium set retention (`retained-by`, 3.2M objects) | 3.3 s | 3.3 s, now with its memory reserved |
 | Medium tree query, dominators open | 0.03 s | 0.03 s, also grouped by type with two levels open |
-| UI smoke, Small dump, Retainers drill warm | lag 50 ms, operation 32 ms | the same drill passes |
+| Set retention in memory (`dominators`' set phase) | not measured | Medium 5.2 s for 16M `Byte[]`, peak 3,300 MB; DenseHeap 3.0 s, peak 3,876 MB |
+| UI smoke, Small dump, Retainers drill warm | lag 50 ms, operation 32 ms | lag 58 ms, operation 62 ms; exit 0 |
 
 Gate notes: one full run failed `LoaderKnownAnswerTests.Cancellation_stops_the_load_within_two_seconds` (2.7 s against
 2 s) while the new LeakyApi acceptance test ran beside it; the loader is unchanged this sprint and the test passed three

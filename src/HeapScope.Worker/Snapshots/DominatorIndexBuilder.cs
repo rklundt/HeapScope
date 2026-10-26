@@ -207,7 +207,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
             var retained = writer.GetSection<ulong>(IndexSection.RetainedSizes);
             reachable = DominatorTree.Compute(graph, reverse, idom, retained, phases, cancellationToken);
 
-            // The tree's children (sprint 2.4, ADR-027), sorted by retained size, so expanding a node is a slice read.
+            // The tree's children (sprint 2.4, ADR-027), in object index order (each query orders what it shows, `RetainedOrder`), so expanding a node is a slice read.
             phases.Children();
             DominatorTree.BuildChildren(idom, writer.GetSection<int>(IndexSection.DominatorChildStarts), writer.GetSection<int>(IndexSection.DominatorChildren), cancellationToken);
             phases.Saving();

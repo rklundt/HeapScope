@@ -935,6 +935,8 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
     (2.3.7's code 5.6 s). DenseHeap 7.3 s in memory (children 0.6 s), peak 3,877 MB (4,289 MB, over the budget, until the
     working arrays were collected before the children are allocated); 10.6 s mapped, peak 658 MB; 1,031 MB kept. Storing
     the children sorted by retained size first took Medium's dominators to 13.4 s and its peak to 3,747 MB. Through the
+    `dominators` benchmark's set phase (the type entry with the most objects, and its lower bound): Medium 5.2 s for 16M
+    `System.Byte[]`, peak 3,300 MB; DenseHeap 3.0 s, peak 3,876 MB (no higher than the dominators'). Through the
     Release CLI on Medium: set retention of `SessionRecord` (3.2M objects) 3.3 s, a tree query 0.03 s once the dominators
     are open (grouped by type with two levels open too), the first `retainers` run 31 s with the dominators computed and
     saved, the next 2.2 s. In the UI smoke run on the Small dump the tree, the icicle, an expansion and a focus each answer

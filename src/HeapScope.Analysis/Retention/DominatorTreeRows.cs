@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Buffers;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using HeapScope.Core.Graph;
@@ -200,7 +201,7 @@ public static class DominatorTreeRows
             var children = _dominators.ChildrenOf(vertex);
             if (_groups is null)
             {
-                Objects(listKey, children, null, children.Length, depth);
+                Objects(listKey, children, default(AllMembers), children.Length, null, depth);
             }
             else
             {
@@ -208,11 +209,13 @@ public static class DominatorTreeRows
             }
         }
 
-        // The members of a list (those include accepts, count of them), the largest first, then a "more" row for the rest.
-        private void Objects(string listKey, ReadOnlySpan<int> members, Func<int, bool>? include, long count, int depth)
+        // The members of a list (those the filter accepts, count of them), the largest first, then a "more" row for the
+        // rest: the list's totals (when known) less what is shown, or one pass over the list.
+        private void Objects<TFilter>(string listKey, ReadOnlySpan<int> members, TFilter filter, long count, (ulong Retained, ulong Bytes)? totals, int depth)
+            where TFilter : IMemberFilter, allows ref struct
         {
             var shown = (int)Math.Min(count, Math.Min((long)Batches(listKey) * _maxChildren, MaxRows - Rows.Count + 1L));
-            var ordered = RetainedOrder.Top(members, shown, _dominators, include);
+            var ordered = RetainedOrder.Top(members, shown, _dominators, filter);
             for (var i = 0; i < ordered.Length && !Truncated; i++)
             {
                 var obj = ordered[i];
@@ -226,24 +229,7 @@ public static class DominatorTreeRows
 
             if (count > ordered.Length && !Truncated)
             {
-                // The rest: everything the list holds less what is shown.
-                ulong retained = 0;
-                ulong bytes = 0;
-                var seen = 0;
-                foreach (var obj in members)
-                {
-                    if (include is null || include(obj))
-                    {
-                        retained += _dominators.RetainedSize(obj);
-                        bytes += _graph.GetSize(obj);
-                    }
-
-                    if ((++seen & 0xFFFF) == 0)
-                    {
-                        _cancellationToken.ThrowIfCancellationRequested();
-                    }
-                }
-
+                var (retained, bytes) = totals ?? Sum(members);
                 foreach (var obj in ordered)
                 {
                     retained -= _dominators.RetainedSize(obj);
@@ -267,70 +253,114 @@ public static class DominatorTreeRows
             }
         }
 
-        private void Groups(string listKey, ReadOnlySpan<int> children, GroupTables tables, int depth)
+        private (ulong Retained, ulong Bytes) Sum(ReadOnlySpan<int> members)
         {
-            // Sums of the groups present only: a list's children touch few of a heap's types (the 2.4 review).
-            var types = _graph.TypeIndices.Span;
-            var sums = new Dictionary<int, (long Count, ulong Retained, ulong Bytes)>();
-            var seen = 0;
-            foreach (var obj in children)
+            var sizes = _dominators.RetainedSizes.Span;
+            ulong retained = 0;
+            ulong bytes = 0;
+            for (var i = 0; i < members.Length; i++)
             {
-                var group = tables.GroupOfType[types[obj]];
-                sums.TryGetValue(group, out var sum);
-                sums[group] = (sum.Count + 1, sum.Retained + _dominators.RetainedSize(obj), sum.Bytes + _graph.GetSize(obj));
-                if ((++seen & 0xFFFF) == 0)
+                retained += sizes[members[i]];
+                bytes += _graph.GetSize(members[i]);
+                if ((i & 0xFFFF) == 0xFFFF)
                 {
                     _cancellationToken.ThrowIfCancellationRequested();
                 }
             }
 
-            var present = sums.Keys
-                .OrderByDescending(g => sums[g].Retained).ThenBy(g => tables.Groups[g].Name, StringComparer.Ordinal).ThenBy(g => tables.Groups[g].Module, StringComparer.Ordinal)
-                .ToArray();
-            var shown = Math.Min(present.Length, Batches(listKey) * _maxChildren);
-            for (var i = 0; i < shown && !Truncated; i++)
+            return (retained, bytes);
+        }
+
+        private void Groups(string listKey, ReadOnlySpan<int> children, GroupTables tables, int depth)
+        {
+            // Dense sums per group, pooled and reset where touched: no hashing per child (the 2.4 review; DEVELOPER 4).
+            var groupCount = tables.Groups.Count;
+            var counts = ArrayPool<long>.Shared.Rent(groupCount);
+            Array.Clear(counts, 0, groupCount);
+            var retainedSums = ArrayPool<ulong>.Shared.Rent(groupCount);
+            var byteSums = ArrayPool<ulong>.Shared.Rent(groupCount);
+            var touched = new List<int>();
+            try
             {
-                var group = present[i];
-                var (name, module) = tables.Groups[group];
-                var (count, retained, bytes) = sums[group];
-                var key = GroupKey(listKey, GroupName(name, module));
-                var isExpanded = depth < MaxDepth && _expanded.Contains(key);
-                var row = new DominatorRow(key, listKey, depth, DominatorRowKind.Group, -1, name, module, count, retained, bytes, (int)Math.Min(count, int.MaxValue), isExpanded);
-                if (Add(row) && isExpanded)
+                var types = _graph.TypeIndices.Span;
+                var sizes = _dominators.RetainedSizes.Span;
+                var groupOfType = tables.GroupOfType;
+                for (var i = 0; i < children.Length; i++)
                 {
-                    // The group's largest members picked straight from the list: no copy of a group of millions.
-                    var groupOfType = tables.GroupOfType;
-                    var typeIndices = _graph.TypeIndices;
-                    Objects(key, children, obj => groupOfType[typeIndices[obj]] == group, count, depth + 1);
+                    var obj = children[i];
+                    var group = groupOfType[types[obj]];
+                    if (counts[group]++ == 0)
+                    {
+                        touched.Add(group);
+                        retainedSums[group] = 0;
+                        byteSums[group] = 0;
+                    }
+
+                    retainedSums[group] += sizes[obj];
+                    byteSums[group] += _graph.GetSize(obj);
+                    if ((i & 0xFFFF) == 0xFFFF)
+                    {
+                        _cancellationToken.ThrowIfCancellationRequested();
+                    }
+                }
+
+                var present = touched
+                    .OrderByDescending(g => retainedSums[g]).ThenBy(g => tables.Groups[g].Name, StringComparer.Ordinal).ThenBy(g => tables.Groups[g].Module, StringComparer.Ordinal)
+                    .ToArray();
+                var shown = Math.Min(present.Length, Batches(listKey) * _maxChildren);
+                for (var i = 0; i < shown && !Truncated; i++)
+                {
+                    var group = present[i];
+                    var (name, module) = tables.Groups[group];
+                    var key = GroupKey(listKey, GroupName(name, module));
+                    var isExpanded = depth < MaxDepth && _expanded.Contains(key);
+                    var row = new DominatorRow(key, listKey, depth, DominatorRowKind.Group, -1, name, module, counts[group], retainedSums[group], byteSums[group], (int)Math.Min(counts[group], int.MaxValue), isExpanded);
+                    if (Add(row) && isExpanded)
+                    {
+                        // The group's largest members picked straight from the list (no copy of a group of millions); its
+                        // "more" row is the group's totals less what is shown.
+                        Objects(key, children, new GroupMembers(types, groupOfType, group), counts[group], (retainedSums[group], byteSums[group]), depth + 1);
+                    }
+                }
+
+                if (present.Length > shown && !Truncated)
+                {
+                    long objects = 0;
+                    ulong moreRetained = 0;
+                    ulong moreBytes = 0;
+                    foreach (var group in present[shown..])
+                    {
+                        objects += counts[group];
+                        moreRetained += retainedSums[group];
+                        moreBytes += byteSums[group];
+                    }
+
+                    var remaining = present.Length - shown;
+                    Add(new DominatorRow(
+                        MoreKey(listKey, shown),
+                        listKey,
+                        depth,
+                        DominatorRowKind.More,
+                        -1,
+                        string.Create(CultureInfo.InvariantCulture, $"{remaining:N0} more groups ({objects:N0} objects)"),
+                        null,
+                        objects,
+                        moreRetained,
+                        moreBytes,
+                        Math.Min(remaining, _maxChildren),
+                        false));
                 }
             }
-
-            if (present.Length > shown && !Truncated)
+            finally
             {
-                long objects = 0;
-                ulong moreRetained = 0;
-                ulong moreBytes = 0;
-                foreach (var group in present[shown..])
+                foreach (var group in touched)
                 {
-                    objects += sums[group].Count;
-                    moreRetained += sums[group].Retained;
-                    moreBytes += sums[group].Bytes;
+                    counts[group] = 0;
                 }
 
-                var remaining = present.Length - shown;
-                Add(new DominatorRow(
-                    MoreKey(listKey, shown),
-                    listKey,
-                    depth,
-                    DominatorRowKind.More,
-                    -1,
-                    string.Create(CultureInfo.InvariantCulture, $"{remaining:N0} more groups ({objects:N0} objects)"),
-                    null,
-                    objects,
-                    moreRetained,
-                    moreBytes,
-                    Math.Min(remaining, _maxChildren),
-                    false));
+                ArrayPool<long>.Shared.Return(counts);
+                ArrayPool<ulong>.Shared.Return(retainedSums);
+                ArrayPool<ulong>.Shared.Return(byteSums);
             }
         }
 

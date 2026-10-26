@@ -107,6 +107,32 @@ public sealed class RetainersViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_row_expanded_past_the_first_page_stays_selected()
+    {
+        // The 2.4 review: the place is kept by the row's index in the answer, not by searching loaded pages.
+        _worker.Service.TreeNodes.Clear();
+        for (var i = 0; i < 250; i++)
+        {
+            _worker.Service.TreeNodes.Add(new FakeTreeNode($"o:{0x1000 + i:x}", string.Empty, "App.Node", (ulong)(0x1000 + i), 1_000 - i));
+        }
+
+        _worker.Service.TreeNodes.Add(new FakeTreeNode("o:9999", "o:10f0", "App.Leaf", 0x9999, 1));
+        await OpenAsync();
+        await ShowTabAsync();
+        var deep = Retainers.Rows.GetRow(240);
+        await Retainers.Rows.WhenLoadedAsync();
+        deep.Key.ShouldBe("o:10f0");
+
+        Retainers.ExpandCommand.Execute(deep);
+        await Retainers.QueryTask;
+        await Retainers.SelectTask;
+
+        Retainers.SelectedRow.ShouldNotBeNull().Index.ShouldBe(240);
+        (Retainers.SelectedRow.Key, Retainers.SelectedRow.IsExpanded).ShouldBe(("o:10f0", true));
+        Retainers.Rows.GetRow(241).Key.ShouldBe("o:9999");
+    }
+
+    [Fact]
     public async Task Grouping_focus_and_the_trail_ask_the_worker_again()
     {
         await OpenAsync();

@@ -28,7 +28,7 @@ everything else.
 | 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
 | 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
-| 2.4 | Retention explorer UI | In Progress | | |
+| 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
 | 2.7 | Navigation and polish | Planned | | |
@@ -2079,21 +2079,22 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 14. The README has no command list (it points to `--help`), so it needed no change.
 
 **Review summary** (`docs/reviews/sprint-2.4.md`): four reviewers (solution-architect, senior-dev, gc-specialist, and
-a support and system analyst). 5 High, 15 Moderate, 24 Low after dedupe.
+a support and system analyst). 5 High, 17 Moderate, 33 Low after dedupe (the re-review of the fixes added 2 Moderates).
 - High, all fixed and confirmed: set retention reserves its memory and uses a chunked stack (H1); the focus trail keeps
   the top 3 and nearest 20 dominators (H2); the toggled or linked row stays selected and in view in the new rows (H3,
   `RevealKey` and `RevealIndex`, `OnRowsApplied`, `ScrollToSelection`); the acceptance test also runs on a live LeakyApi
   dump (H4); the tree's children are kept in index order and only shown rows are ordered (H5: Medium's dominators 13.4
   to 6.4 s, peak 3,747 to 3,291 MB).
-- Moderate (decided autonomously): 13 fixed now (a message when a type has no top-level group; Contracts owns the
+- Moderate (decided autonomously): 15 fixed now (the re-review's two included: grouped trees without hashing or
+  delegates per object, set retention's peak measured): a message when a type has no top-level group; Contracts owns the
   tree's kinds, keys and limits; texts from the column's bound and one name for the set action; grouped trees cost what
   they show; published limits and CLI notes in every format; re-measured docs; provenance of what the user looked at
   and of each action; reachable versus all members; an unreachable focus's next step; a depth limit; set retention
-  checked against ClrMD; a bar with no loaded row; scoped inspection rows; test and fake fidelity); deferred: a
+  checked against ClrMD; a bar with no loaded row; scoped inspection rows; test and fake fidelity. Deferred: a
   `ValueBound.Approximate` and caveat codes, one type entry among several of a name (Backlog).
 - Measured (Release, 32 GB machine): Medium dominators with the children 6.4 to 6.9 s in memory (peak 3,291 MB), 11.4 s
   mapped (697 MB), 1,097 MB kept; DenseHeap 7.3 s in memory (3,877 MB), 10.6 s mapped (658 MB); set retention of 3.2M
-  objects 3.3 s; a tree query 0.03 s; the UI smoke run's Retainers drill warm: lag 50 ms, longest operation 32 ms.
+  objects 3.3 s through the CLI, peak 3,300 MB for 16M objects in the benchmark (DenseHeap 3,876 MB); a tree query 0.03 s; the UI smoke run's Retainers drill warm: lag 50 ms, longest operation 32 ms.
 - Both acceptance runs: every leak of LeakyConsole and of LeakyApi is at most three expansions from the biggest
   retainers (three need none, the unbounded dictionary one, the event handlers three).
 
