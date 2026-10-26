@@ -67,15 +67,19 @@ internal static class ClrMdDump
     /// <exception cref="SnapshotFormatException">The runtime could not be opened with the DAC found.</exception>
     public static ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath, ClrMdLoaderOptions options)
     {
+        // The DAC that runs on this system (sprint 2.3.5): a dump is read with the DAC of the platform HeapScope runs on,
+        // so a Linux dump is read on Linux and a Windows dump on Windows (cross-platform DACs are not searched).
+        var platform = CurrentPlatform();
         var dac = clr.DebuggingLibraries.FirstOrDefault(d =>
-            d.Kind == DebugLibraryKind.Dac && d.Platform == OSPlatform.Windows);
-        var fileName = dac?.FileName is { Length: > 0 } name ? Path.GetFileName(name) : "mscordaccore.dll";
+            d.Kind == DebugLibraryKind.Dac && d.Platform == platform);
+        var fileName = dac?.FileName is { Length: > 0 } name ? Path.GetFileName(name) : DefaultDacFileName(platform);
         var request = new DacRequest(
             fileName,
             dac?.IndexTimeStamp ?? 0,
             dac?.IndexFileSize ?? 0,
             clr.Version.ToString(),
-            Path.GetDirectoryName(clr.ModuleInfo.FileName));
+            Path.GetDirectoryName(clr.ModuleInfo.FileName),
+            dac is { IndexBuildId.IsDefaultOrEmpty: false } ? [.. dac.IndexBuildId] : null);
         var directories = DacLocator.CandidateDirectories(request, dumpPath, options);
         var path = DacLocator.Find(request, directories, out var searched);
         if (path is null && !options.AllowMicrosoftSymbolServer)
@@ -95,4 +99,12 @@ internal static class ClrMdDump
                 ex);
         }
     }
+
+    /// <summary>The platform HeapScope runs on, in ClrMD's terms.</summary>
+    internal static OSPlatform CurrentPlatform() =>
+        OperatingSystem.IsWindows() ? OSPlatform.Windows : OperatingSystem.IsMacOS() ? OSPlatform.OSX : OSPlatform.Linux;
+
+    /// <summary>The DAC's file name on a platform, when the dump does not name it.</summary>
+    internal static string DefaultDacFileName(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "mscordaccore.dll" : platform == OSPlatform.OSX ? "libmscordaccore.dylib" : "libmscordaccore.so";
 }

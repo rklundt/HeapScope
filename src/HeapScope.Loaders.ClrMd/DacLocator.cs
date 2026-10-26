@@ -31,7 +31,9 @@ namespace HeapScope.Loaders.ClrMd;
 /// <param name="ImageSize">PE image size the dump records for the DAC; 0 when unknown.</param>
 /// <param name="RuntimeVersion">Version of the dumped runtime, for example <c>10.0.13</c>.</param>
 /// <param name="RuntimeDirectory">Folder of the runtime in the dumped process (a path on the machine that took the dump).</param>
-public sealed record DacRequest(string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory);
+/// <param name="BuildId">The identity a Linux or macOS dump records for the DAC (ELF build id, Mach-O UUID; sprint
+/// 2.3.5); null for a Windows DAC, which is matched by <paramref name="TimeStamp"/> and <paramref name="ImageSize"/>.</param>
+public sealed record DacRequest(string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory, byte[]? BuildId = null);
 
 /// <summary>
 /// Finds the DAC on this machine only (ADR-017): the dumped runtime's own folder when it exists here, the matching
@@ -103,7 +105,10 @@ public static class DacLocator
         {
             var candidate = Path.Combine(directory, request.FileName);
             looked.Add(candidate);
-            if (File.Exists(candidate) && Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion))
+            var matches = request.BuildId is { Length: > 0 } buildId
+                ? ImageIdentity.Matches(candidate, buildId)
+                : Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion);
+            if (File.Exists(candidate) && matches)
             {
                 return candidate;
             }

@@ -25,7 +25,7 @@ everything else.
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
-| 2.3.5 | Cross-platform and sharing decision | Planned | | |
+| 2.3.5 | Cross-platform and sharing decision | In Progress | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1667,7 +1667,44 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 
 **Dependencies**: 2.3.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [ ] Portability survey: every Windows-only call outside the UI (capture's process discovery, elevation and disk space
+   checks; the memory status calls, already guarded), the worker's path, the pipe (already current-user only on every
+   system), the DAC locator's local-path rules on Linux and macOS. Written into the ADR.
+2. [ ] CI on GitHub's hosted runners (`.github/workflows/ci.yml`): Windows builds the solution and runs the fast tests;
+   Linux (ubuntu-latest) and macOS (macos-latest, informational: an arm64 runner) build the engine, the worker and the
+   CLI, run the engine's unit tests, start LeakyConsole, take a core dump of it with `dotnet-dump` (installed on the
+   runner only), and run `heapscope-cli summary`, `instances --retained` and `paths` on it. Tests: the workflow passes on
+   the sprint PR (Linux required, macOS reported).
+3. [ ] Small portability fixes the CI run asks for (the worker's executable name off Windows, the DAC locator's path
+   rules, capture refusing clearly where it is Windows-only). Tests: unit tests for each; the CI run.
+4. [ ] Avalonia prototype (`spikes/AvaloniaGrid`, outside `HeapScope.sln`, not shipped): one window that opens a dump
+   through the real `SnapshotSession` and shows the types grid and a type's objects with the existing data-virtualized
+   row lists, sorting and the filter, on MIT packages only. Measured on the Small dump: first show, scrolling 1.5 million
+   rows, the longest UI-thread block. Licenses of every package checked.
+5. [ ] Decision: ADR-025 (UI platform: Avalonia, amends ADR-001; the rule for Avalonia updates) and ADR-026 (sharing: an
+   exported analysis, analysis only by default); Phase 2 re-planned with a port sprint before 2.4.
+6. [ ] Docs: ARCHITECTURE (ADRs, 12 privacy for exports), DEVELOPER (CI, the prototype), CLAUDE.md (the Avalonia update
+   rule), SPRINTS.
+
+**Decisions** (the product owner answered on 2026-10-25; the rest decided autonomously, marked so)
+1. The Linux and macOS check runs on GitHub's hosted runners ("github"), not on this machine: no WSL or Docker here.
+   It also starts the CI the Backlog asked for.
+2. Avalonia packages may be downloaded for a throwaway prototype (MIT, about 50 MB). The web route is not prototyped:
+   the product owner chose Avalonia after the comparison ("avalonia", "port before 2.4").
+3. Port to Avalonia before 2.4, if the prototype performs and every package used is MIT; otherwise the product owner
+   decides again with the prototype's results.
+4. Before any Avalonia update, check that nothing HeapScope uses moved to a paid license (Avalonia sells "Accelerate"
+   components; TreeDataGrid moved there). Only MIT components are used (product owner, 2026-10-25).
+5. A shared result is an exported analysis, analysis only by default: type summaries, diffs, retained sizes, retention
+   paths with type and field names; never string text or field values unless the person exporting opts in for that
+   export (product owner: "Analysis only").
+6. The prototype lives in `spikes/` outside the solution and is deleted after the port sprint replaces it (decided
+   autonomously).
+7. macOS runs on an arm64 runner while HeapScope targets x64 (ADR-001): its job is informational (continue on error) and
+   its findings go into the ADR (decided autonomously).
+8. CI is not yet a required check on the protected branches; making it one is the product owner's call once it is
+   stable (decided autonomously).
 
 **Review summary**: to be filled by /wrap-sprint.
 

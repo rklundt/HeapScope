@@ -35,4 +35,15 @@ public sealed class WorkerHostOptionsTests
         new WorkerHostOptions { GcHeapCount = 3 }.ResolveGcHeapCount().ShouldBe(3);
         new WorkerHostOptions { GcHeapCount = 0 }.ResolveGcHeapCount().ShouldBe(1);
     }
+
+    [Fact]
+    public void The_worker_is_found_by_this_systems_executable_name_unless_configured()
+    {
+        // Sprint 2.3.5: .NET's application host has no extension off Windows.
+        var expected = OperatingSystem.IsWindows() ? "HeapScope.Worker.exe" : "HeapScope.Worker";
+
+        WorkerHostOptions.WorkerExecutableName.ShouldBe(expected);
+        new WorkerHostOptions().ResolveWorkerPath().ShouldBe(Path.Combine(AppContext.BaseDirectory, "worker", expected));
+        new WorkerHostOptions { WorkerPath = "/opt/heapscope/w" }.ResolveWorkerPath().ShouldBe("/opt/heapscope/w");
+    }
 }

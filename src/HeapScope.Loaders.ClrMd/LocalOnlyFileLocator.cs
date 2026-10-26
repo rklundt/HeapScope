@@ -39,5 +39,7 @@ internal sealed class LocalOnlyFileLocator : IFileLocator
     public string? FindPEImage(string fileName, int buildTimeStamp, int imageSize, bool checkProperties) =>
         DacLocator.IsLocalFixedPath(fileName) && File.Exists(fileName) && DacLocator.Matches(fileName, buildTimeStamp, imageSize) ? fileName : null;
 
-    public string? FindPEImage(string fileName, SymbolProperties archivedUnder, ImmutableArray<byte> buildIdOrUUID, OSPlatform originalPlatform, bool checkProperties) => null;
+    /// <summary>A Linux or macOS image at its recorded local path whose build id or UUID matches (sprint 2.3.5).</summary>
+    public string? FindPEImage(string fileName, SymbolProperties archivedUnder, ImmutableArray<byte> buildIdOrUUID, OSPlatform originalPlatform, bool checkProperties) =>
+        !buildIdOrUUID.IsDefaultOrEmpty && DacLocator.IsLocalFixedPath(fileName) && File.Exists(fileName) && ImageIdentity.Matches(fileName, buildIdOrUUID.AsSpan()) ? fileName : null;
 }
