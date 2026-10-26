@@ -2034,7 +2034,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 6. [x] Icicle chart query and control: the top levels below a focus with segments of at least 0.1 percent; click
    selects and highlights the path in the tree, double-click focuses. Tests: layout widths and the threshold; the control
    builds headless.
-7. [ ] Retainers view (UI): a Retainers tab with the biggest retainers, the dominator tree grid (indentation, expand and
+7. [x] Retainers view (UI): a Retainers tab with the biggest retainers, the dominator tree grid (indentation, expand and
    collapse with a click, Enter, Right and Left keys), grouping and the icicle; cross-links: type rows, diff rows and
    inspection rows open "show in dominator tree" and "objects retained by this set"; a tree node opens its object,
    its type's instances and its retention paths. Grid pieces from 2.3.7 M13 and M14: `VisibleColumnGroups`, a generic

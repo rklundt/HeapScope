@@ -133,6 +133,8 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
         : base(TypeDiffColumns.BytesDelta, dispatcher, logger)
     {
         OpenRowCommand = new RelayCommand<DiffRowItem?>(row => OpenRow(row, navigator));
+        ShowInRetainersCommand = new RelayCommand<DiffRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.Retainers(s, typeName: r.TypeName, module: r.Module)));
+        RetainedBySetCommand = new RelayCommand<DiffRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.RetainedBySet(s, r.TypeName!, r.Module)));
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         Snapshots.CollectionChanged += OnSnapshotsChanged;
@@ -200,6 +202,29 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     /// <summary>Swaps baseline and current.</summary>
     [RelayCommand]
     private void Swap() => SetPair(Current, Baseline, "swapped by the user");
+
+    /// <summary>A diff row's group in the current snapshot's dominator tree (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand ShowInRetainersCommand { get; }
+
+    /// <summary>What a diff row's objects in the current snapshot retain together (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand RetainedBySetCommand { get; }
+
+    // Retention is the current snapshot's: a type it no longer has retains nothing there.
+    private void Link(DiffRowItem? row, INavigator? navigator, Func<SnapshotHandle, DiffRowItem, NavigationTarget> target)
+    {
+        if (row is not { IsLoaded: true } || Current is not { } current)
+        {
+            return;
+        }
+
+        if (row.TypeName is null || row.CurrentObjects == 0)
+        {
+            Status = row.TypeName is null ? "Group by type to follow a row's objects." : "The current snapshot has no objects of this type.";
+            return;
+        }
+
+        navigator?.Navigate(target(current.Handle, row));
+    }
 
     /// <summary>
     /// Opens a row's type on the Snapshot tab: its objects in the current snapshot, or in the baseline for a type the

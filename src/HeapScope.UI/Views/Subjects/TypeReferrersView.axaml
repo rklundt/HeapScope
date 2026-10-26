@@ -31,8 +31,7 @@
              x:DataType="vm:TypeReferrersViewModel">
   <DockPanel>
     <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Margin="0,0,0,6" Classes="subtle" TextTrimming="CharacterEllipsis" />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
     <DataGrid x:Name="TypeReferrersGrid" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"

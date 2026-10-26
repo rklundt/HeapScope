@@ -69,6 +69,17 @@ public sealed class RetainedSourcesTests : IDisposable
     }
 
     [Fact]
+    public void The_trees_keys_are_the_ones_clients_link_with()
+    {
+        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string>(), DominatorGrouping.Type, 100, Ct);
+        var cache = _graph.Addresses[0];
+
+        view.Rows[0].Key.ShouldBe(DominatorTreeKeys.TypeGroup(DominatorTreeKeys.Root, "App.Cache", "App.dll"));
+        DominatorTreeRows.ObjectKey(cache).ShouldBe(DominatorTreeKeys.Object(cache));
+        DominatorTreeRows.RootKey.ShouldBe(DominatorTreeKeys.Root);
+    }
+
+    [Fact]
     public void What_a_set_retains_is_listed_by_type_largest_first_with_the_keys_that_open_instances()
     {
         var set = TypeGroups.MatchTypes(_graph, "App.Model.Order", "App.dll", out _);

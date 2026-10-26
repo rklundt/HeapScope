@@ -39,9 +39,12 @@ public sealed record NavigationTarget(
     string? Module = null,
     InstanceScope Scope = InstanceScope.All,
     ulong SameValueAs = 0,
-    string? NodeKey = null)
+    string? NodeKey = null,
+    ObjectReferenceTabs ObjectTab = ObjectReferenceTabs.Outgoing)
 {
-    public static NavigationTarget Object(SnapshotHandle snapshot, ulong address) => new(NavigationKind.Object, snapshot, Address: address);
+    /// <summary>One object, with <paramref name="tab"/> shown in its references panel.</summary>
+    public static NavigationTarget Object(SnapshotHandle snapshot, ulong address, ObjectReferenceTabs tab = ObjectReferenceTabs.Outgoing) =>
+        new(NavigationKind.Object, snapshot, Address: address, ObjectTab: tab);
 
     public static NavigationTarget Instances(SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope = InstanceScope.All, ulong sameValueAs = 0) =>
         new(NavigationKind.Instances, snapshot, TypeName: typeName, Module: module, Scope: scope, SameValueAs: sameValueAs);
@@ -52,9 +55,13 @@ public sealed record NavigationTarget(
     public static NavigationTarget TypePaths(SnapshotHandle snapshot, string typeName, string? module) =>
         new(NavigationKind.TypePaths, snapshot, TypeName: typeName, Module: module);
 
-    /// <summary>The dominator tree with <paramref name="nodeKey"/> shown and selected; null for the biggest retainers.</summary>
-    public static NavigationTarget Retainers(SnapshotHandle snapshot, string? nodeKey = null, ulong address = 0) =>
-        new(NavigationKind.Retainers, snapshot, Address: address, NodeKey: nodeKey);
+    /// <summary>
+    /// The dominator tree: below the object at <paramref name="address"/> (with its dominators as a trail), or the biggest
+    /// retainers grouped by type with <paramref name="typeName"/>'s group open, or (with neither) the biggest retainers.
+    /// </summary>
+    public static NavigationTarget Retainers(SnapshotHandle snapshot, ulong address = 0, string? typeName = null, string? module = null) =>
+        new(NavigationKind.Retainers, snapshot, Address: address, TypeName: typeName, Module: module,
+            NodeKey: address != 0 ? DominatorTreeKeys.Object(address) : typeName is null ? null : DominatorTreeKeys.TypeGroup(DominatorTreeKeys.Root, typeName, module));
 
     public static NavigationTarget RetainedBySet(SnapshotHandle snapshot, string typeName, string? module) =>
         new(NavigationKind.RetainedBySet, snapshot, TypeName: typeName, Module: module);

@@ -77,19 +77,22 @@
                 ToolTip.Tip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
     </WrapPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
-               IsVisible="{Binding GenerationsExplanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
-               IsVisible="{Binding RetainedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
 
     <DataGrid x:Name="TypesGrid" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ctl:GridBehaviors.ShowRetained="{Binding RetainedColumnShown}" ctl:GridBehaviors.ShowGenerations="{Binding GenerationColumnsShown}"
-              ToolTip.Tip="Double-click or Enter opens a type's objects.">
+              ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}"
+              ToolTip.Tip="Double-click or Enter opens a type's objects; right-click for what they retain.">
+      <DataGrid.ContextMenu>
+        <ContextMenu>
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" />
+          <MenuItem Header="Objects retained by this set" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" />
+        </ContextMenu>
+      </DataGrid.ContextMenu>
       <DataGrid.Columns>
         <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
           <DataGridTemplateColumn.CellTemplate>

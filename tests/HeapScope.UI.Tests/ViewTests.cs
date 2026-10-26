@@ -22,7 +22,9 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HeapScope.Application.Jobs;
@@ -122,11 +124,85 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             Dispatcher.UIThread.RunJobs();
             Grid(window, "TypePathsGrid").IsEffectivelyVisible.ShouldBeTrue();
 
-            foreach (var tab in new[] { 1, 2, 0 })
+            foreach (var tab in new[] { 1, 2, 3, 0 })
             {
                 snapshots.SelectedTab = tab;
                 Dispatcher.UIThread.RunJobs();
             }
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public async Task The_retainers_tab_expands_with_the_keys_and_a_type_rows_menu_opens_its_set()
+    {
+        await ui.RunAsync(async () =>
+        {
+            var (shell, worker) = Shell();
+            worker.Service.Rows.Add(["App.Order", "2", "80"]);
+            worker.Service.TreeNodes.AddRange(
+            [
+                new FakeTreeNode("o:100", string.Empty, "App.Cache", 0x100, 800),
+                new FakeTreeNode("o:200", "o:100", "App.Entry", 0x200, 400),
+                new FakeTreeNode("o:400", string.Empty, "App.Other", 0x400, 50),
+            ]);
+            worker.Service.SetRows.AddRange([("App.Order", 2, 80), ("System.Byte[]", 2, 2000)]);
+            var snapshots = shell.Snapshots;
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell) { Width = 1400, Height = 900 };
+            window.Show();
+            shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+            var dump = Path.Combine(_folder, "app.dmp");
+            await File.WriteAllBytesAsync(dump, [1]);
+            await snapshots.OpenPathAsync(dump);
+            await snapshots.Types.QueryTask;
+            await Settle(snapshots.Types.Rows);
+
+            // A type row's menu: right-click selects the row, then "Objects retained by this set".
+            var types = Grid(window, "TypesGrid");
+            var typeRow = types.GetVisualDescendants().OfType<DataGridRow>().First();
+            var at = typeRow.TranslatePoint(new Avalonia.Point(20, typeRow.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(at, Avalonia.Input.MouseButton.Right);
+            window.MouseUp(at, Avalonia.Input.MouseButton.Right);
+            Dispatcher.UIThread.RunJobs();
+            types.SelectedItem.ShouldBeSameAs(snapshots.Types.Rows.GetRow(0), "a right-click selects the row its menu acts on");
+            var item = types.ContextMenu.ShouldNotBeNull().Items.OfType<MenuItem>().Single(m => (string?)m.Header == "Objects retained by this set");
+            item.Command.ShouldNotBeNull().Execute(item.CommandParameter);
+            types.ContextMenu.Close();
+
+            var retainers = snapshots.Retainers;
+            await retainers.QueryTask;
+            await retainers.IcicleTask;
+            await retainers.Set.QueryTask;
+            await Settle(retainers.Rows);
+            await Settle(retainers.Set.Rows);
+            snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
+            worker.Service.SetQueries.ShouldHaveSingleItem().TypeName.ShouldBe("App.Order");
+            Grid(window, "SetGrid").IsEffectivelyVisible.ShouldBeTrue();
+            window.GetVisualDescendants().OfType<Controls.IcicleChart>().ShouldHaveSingleItem().Bounds.Width.ShouldBeGreaterThan(0);
+
+            // Right expands the selected row in place, Left collapses it.
+            var tree = Grid(window, "TreeGrid");
+            tree.IsEffectivelyVisible.ShouldBeTrue();
+            tree.SelectedIndex = 0;
+            tree.Focus();
+            window.KeyPressQwerty(Avalonia.Input.PhysicalKey.ArrowRight, Avalonia.Input.RawInputModifiers.None);
+            window.KeyReleaseQwerty(Avalonia.Input.PhysicalKey.ArrowRight, Avalonia.Input.RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await retainers.QueryTask;
+            await Settle(retainers.Rows);
+            retainers.Rows.Count.ShouldBe(3);
+
+            tree.SelectedIndex = 0;
+            tree.Focus();
+            window.KeyPressQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
+            window.KeyReleaseQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await retainers.QueryTask;
+            await Settle(retainers.Rows);
+            retainers.Rows.Count.ShouldBe(2);
 
             ui.BindingErrors.ShouldBeEmpty();
             window.Close();

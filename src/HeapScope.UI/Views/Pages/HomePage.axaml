@@ -24,6 +24,7 @@
 -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:sessions="using:HeapScope.Application.Sessions"
              x:Class="HeapScope.UI.Views.Pages.HomePage"
@@ -37,8 +38,7 @@
         <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
         <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
       </DockPanel>
-      <TextBlock Text="{Binding SessionStatus}" Classes="subtle" Margin="0,0,0,4"
-                 IsVisible="{Binding SessionStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      <ctl:NoteText Text="{Binding SessionStatus}" Classes="subtle" Margin="0,0,0,4" />
       <DataGrid x:Name="Sessions" ItemsSource="{Binding RecentSessions}" MaxHeight="220" Margin="0,0,0,24">
         <DataGrid.Columns>
           <DataGridTextColumn Header="Session" x:DataType="sessions:SessionSummary" Binding="{Binding Name}" Width="*" />

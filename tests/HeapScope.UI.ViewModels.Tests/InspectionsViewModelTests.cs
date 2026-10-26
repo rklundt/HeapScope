@@ -109,7 +109,7 @@ public sealed class InspectionsViewModelTests : IDisposable
         _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
 
-        Inspections.Rows.Cast<InspectionRowItem>().First().Display.Count.ShouldBe(8, "the view binds Display[i] before the page arrives");
+        Inspections.Rows.Cast<CellRowItem>().First().Display.Count.ShouldBe(8, "the view binds Display[i] before the page arrives");
     }
 
     [Fact]

@@ -128,7 +128,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(target);
         return target.Kind switch
         {
-            NavigationKind.Object => OpenObject(target.Snapshot, target.Address),
+            NavigationKind.Object => OpenObject(target.Snapshot, target.Address, target.ObjectTab),
             NavigationKind.Instances when target.TypeName is { } typeName => OpenInstances(target.Snapshot, typeName, target.Module, target.Scope, target.SameValueAs),
             NavigationKind.TypeReferrers when target.TypeName is { } typeName => OpenTypeReferrers(target.Snapshot, typeName, target.Module),
             NavigationKind.TypePaths when target.TypeName is { } typeName => OpenTypePaths(target.Snapshot, typeName, target.Module),
@@ -148,12 +148,13 @@ public sealed partial class NavigatorViewModel : ObservableObject
         return instances;
     }
 
-    /// <summary>Shows one object of <paramref name="snapshot"/>.</summary>
-    public ObjectViewModel OpenObject(SnapshotHandle snapshot, ulong address)
+    /// <summary>Shows one object of <paramref name="snapshot"/>, with <paramref name="tab"/> shown in its references panel.</summary>
+    public ObjectViewModel OpenObject(SnapshotHandle snapshot, ulong address, ObjectReferenceTabs tab = ObjectReferenceTabs.Outgoing)
     {
         var obj = new ObjectViewModel(_session, snapshot, address, _loggers?.CreateLogger<ObjectViewModel>(), _navigator);
         Push(obj);
         obj.Start();
+        obj.ReferencesView = tab;
         return obj;
     }
 

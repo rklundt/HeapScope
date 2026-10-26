@@ -189,6 +189,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GenerationColumnsShown))]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _hasGenerations = true;
 
     /// <summary>
@@ -197,6 +198,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GenerationColumnsShown))]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _showGenerations;
 
     /// <summary>Whether the per-generation columns are shown: asked for, and the snapshot has generations.</summary>
@@ -217,7 +219,11 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     /// <summary>Whether the shown rows carry retained bytes.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _retainedColumnShown;
+
+    /// <summary>The optional column groups shown (2.3.7 review M13).</summary>
+    public IReadOnlyList<string> VisibleColumnGroups => ColumnGroups.Of((ColumnGroups.Retained, RetainedColumnShown), (ColumnGroups.Generations, GenerationColumnsShown));
 
     /// <summary>How the retained sizes were obtained and what a row's value means, or why they are not shown; null without them.</summary>
     [ObservableProperty]
@@ -230,13 +236,35 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         OpenRowCommand = new RelayCommand<TypeRowItem?>(row => OpenRow(row, navigator));
+        ShowInRetainersCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.Retainers(s, typeName: r.TypeName, module: r.Module)));
+        RetainedBySetCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.RetainedBySet(s, r.TypeName!, r.Module)));
     }
+
+    /// <summary>A type row's group in the dominator tree, on the Retainers tab (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand ShowInRetainersCommand { get; }
+
+    /// <summary>What a type row's objects retain together, on the Retainers tab (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand RetainedBySetCommand { get; }
 
     /// <summary>The snapshot shown, if any.</summary>
     public SnapshotHandle? Snapshot => _snapshot;
 
     /// <summary>The navigation title of the root subject.</summary>
     public string Title => "Types";
+
+    private void Link(TypeRowItem? row, INavigator? navigator, Func<SnapshotHandle, TypeRowItem, NavigationTarget> target)
+    {
+        if (row is { IsLoaded: true } && _snapshot is { } snapshot)
+        {
+            if (row.TypeName is null)
+            {
+                Status = "Group by type to follow a row's objects.";
+                return;
+            }
+
+            navigator?.Navigate(target(snapshot, row));
+        }
+    }
 
     // A type row opens its objects (sprint 1.5); grouped rows have no single type.
     private void OpenRow(TypeRowItem? row, INavigator? navigator)

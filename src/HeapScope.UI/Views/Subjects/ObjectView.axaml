@@ -30,9 +30,12 @@
              x:Class="HeapScope.UI.Views.Subjects.ObjectView"
              x:DataType="vm:ObjectViewModel">
   <DockPanel>
-    <SelectableTextBlock DockPanel.Dock="Top" Text="{Binding Summary}" Margin="0,0,0,4" TextWrapping="Wrap" />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,8,4">
+      <Button DockPanel.Dock="Right" Content="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" VerticalAlignment="Top"
+              ToolTip.Tip="What this object alone keeps alive, and what keeps it alive, on the Retainers tab" />
+      <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+    </DockPanel>
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <Border DockPanel.Dock="Top" Classes="info" IsVisible="{Binding FieldsUnavailable, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
       <TextBlock Text="{Binding FieldsUnavailable}" TextWrapping="Wrap" />
     </Border>
@@ -80,10 +83,8 @@
         </TabItem>
         <TabItem Header="Incoming">
           <DockPanel Margin="0,4,0,0">
-            <TextBlock DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle"
-                       IsVisible="{Binding IncomingTotals, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            <TextBlock DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
-                       IsVisible="{Binding IncomingStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle" />
+            <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <DataGrid x:Name="IncomingGrid" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding IncomingRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Double-click or Enter opens the referencing object.">
@@ -100,8 +101,7 @@
         <!-- Sprint 2.2: why the object is alive, loaded when the tab is first shown. -->
         <TabItem Header="Retention">
           <DockPanel Margin="0,4,0,0">
-            <TextBlock DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
-                       IsVisible="{Binding RetentionStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <!-- Sprint 2.3: the retained size and the immediate dominator, a link to open it. -->
             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4"
                        IsVisible="{Binding RetainedSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -135,8 +135,7 @@
                     <HyperlinkButton Content="{Binding AddressText}" Padding="0" FontFamily="Consolas, Menlo, DejaVu Sans Mono, monospace" VerticalAlignment="Center"
                                      Command="{Binding $parent[TreeView].((vm:ObjectViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}"
                                      ToolTip.Tip="Open this object" />
-                    <TextBlock Text="{Binding Root}" Margin="8,0,0,0" FontWeight="SemiBold" VerticalAlignment="Center"
-                               IsVisible="{Binding Root, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <ctl:NoteText Text="{Binding Root}" Margin="8,0,0,0" FontWeight="SemiBold" VerticalAlignment="Center" />
                   </StackPanel>
                 </TreeDataTemplate>
               </TreeView.ItemTemplate>

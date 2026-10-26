@@ -36,6 +36,23 @@ public enum DominatorGroupingDto
     Namespace = 2,
 }
 
+/// <summary>
+/// The dominator tree's row keys (sprint 2.4), for clients that link into the tree: an object's is <c>o:</c> and its
+/// address in hex; a group's extends its list's key (the top level's is empty) with <c>|g:</c> and the group's name, which
+/// for a type is its name and module file name in brackets. The worker's tree uses the same format (a test checks it).
+/// </summary>
+public static class DominatorTreeKeys
+{
+    /// <summary>The top level's list key.</summary>
+    public const string Root = "";
+
+    public static string Object(ulong address) => "o:" + address.ToString("x", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A type's group in the list <paramref name="listKey"/>, when children are grouped by type.</summary>
+    public static string TypeGroup(string listKey, string typeName, string? module) =>
+        listKey + "|g:" + (string.IsNullOrEmpty(module) ? typeName : typeName + " [" + module + "]");
+}
+
 /// <summary>Column names of a dominator tree result set (sprint 2.4).</summary>
 public static class DominatorTreeColumns
 {

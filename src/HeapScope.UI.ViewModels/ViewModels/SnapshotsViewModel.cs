@@ -121,6 +121,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         Navigator = new NavigatorViewModel(session, Types, this, loggers);
         Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>(), this);
         Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>(), this);
+        Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this);
     }
 
     /// <summary>The detail tab (2.3.7 review M8: named, not numbered).</summary>
@@ -144,8 +145,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
         if (target.Kind is NavigationKind.Retainers or NavigationKind.RetainedBySet)
         {
+            // The target first, so showing the tab queries what it asks for rather than the biggest retainers.
+            Retainers.Navigate(target);
             Tab = SnapshotTabs.Retainers;
-            // The Retainers tab (task 7 of sprint 2.4) takes the target here.
             return;
         }
 
@@ -166,6 +168,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
     /// <summary>The selected snapshot's inspections (sprint 1.6); they run when their tab is shown.</summary>
     public InspectionsViewModel Inspections { get; }
+
+    /// <summary>The selected snapshot's dominator tree, icicle and set retention (sprint 2.4); queried when the tab is shown.</summary>
+    public RetainersViewModel Retainers { get; }
 
     public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
 
@@ -242,12 +247,14 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         Navigator.Reset();
         Types.Show(value?.Handle);
         Inspections.Show(value?.Handle);
+        Retainers.Show(value?.Handle);
     }
 
     partial void OnSelectedTabChanged(int value)
     {
         OnPropertyChanged(nameof(Tab));
         Inspections.IsActive = value == (int)SnapshotTabs.Inspections;
+        Retainers.IsActive = value == (int)SnapshotTabs.Retainers;
     }
 
     private void OnSnapshotsChanged(object? sender, EventArgs e) => _dispatcher.Post(Refresh);

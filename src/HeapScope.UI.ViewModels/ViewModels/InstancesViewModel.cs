@@ -101,7 +101,11 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     /// <summary>Whether the shown rows carry retained bytes.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _retainedColumnShown;
+
+    /// <summary>The optional column groups shown (2.3.7 review M13).</summary>
+    public IReadOnlyList<string> VisibleColumnGroups => ColumnGroups.Of((ColumnGroups.Retained, RetainedColumnShown));
 
     /// <summary>How the retained sizes were obtained and what they mean; null without them.</summary>
     [ObservableProperty]

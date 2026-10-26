@@ -39,8 +39,7 @@
     </Style>
   </UserControl.Styles>
   <DockPanel DataContext="{Binding Inspections}" x:DataType="vm:InspectionsViewModel" Margin="0,8,0,0">
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,6"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,6" />
     <ScrollViewer DockPanel.Dock="Left" Width="360" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
       <StackPanel>
         <ListBox ItemsSource="{Binding Tiles}" SelectedItem="{Binding Selected, Mode=TwoWay}" Background="Transparent"
@@ -59,8 +58,7 @@
                   <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
                   <TextBlock Text="{Binding Summary}" TextWrapping="Wrap"
                              Classes.findings="{Binding HasFindings}" Classes.unavailable="{Binding !IsAvailable}" />
-                  <TextBlock Text="{Binding Status}" Classes="subtle"
-                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  <ctl:NoteText Text="{Binding Status}" Classes="subtle" />
                   <ItemsControl ItemsSource="{Binding FirstRows}" Margin="0,2,0,0">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="x:String">
@@ -68,8 +66,7 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
-                  <TextBlock Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Classes="subtle"
-                             IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  <ctl:NoteText Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Classes="subtle" />
                 </StackPanel>
               </Border>
             </DataTemplate>
@@ -101,6 +98,13 @@
               ctl:GridBehaviors.ResultColumns="{Binding Columns}"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab." />
+              ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab; right-click for what they retain.">
+      <DataGrid.ContextMenu>
+        <ContextMenu>
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
+          <MenuItem Header="Objects retained by this set" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
+        </ContextMenu>
+      </DataGrid.ContextMenu>
+    </DataGrid>
   </DockPanel>
 </UserControl>

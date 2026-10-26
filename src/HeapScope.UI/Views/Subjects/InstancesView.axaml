@@ -31,6 +31,8 @@
              x:DataType="vm:InstancesViewModel">
   <DockPanel>
     <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+      <Button DockPanel.Dock="Right" Content="Retained by all" Margin="6,0,0,0" Command="{Binding RetainedBySetCommand}"
+              ToolTip.Tip="What all objects of this type keep alive together, exactly (on the Retainers tab)" />
       <Button DockPanel.Dock="Right" Content="Referenced by" Command="{Binding ReferencedByCommand}"
               ToolTip.Tip="Which types' objects reference objects of this type" />
       <Button DockPanel.Dock="Right" Content="Why alive" Margin="0,0,6,0" Command="{Binding WhyAliveCommand}"
@@ -43,17 +45,14 @@
                 ToolTip.Tip="Show the bytes each object alone keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
     </DockPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
-               IsVisible="{Binding ValuesExplanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
-               IsVisible="{Binding RetainedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <DataGrid x:Name="InstancesGrid" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ctl:GridBehaviors.ShowRetained="{Binding RetainedColumnShown}"
+              ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}"
               ToolTip.Tip="Double-click or Enter opens an object.">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Address" x:DataType="vm:InstanceRowItem" Binding="{Binding AddressText}" Width="150" SortMemberPath="Address" CellStyleClasses="address" />
