@@ -69,7 +69,12 @@ internal sealed class WorkerRpcServer(
             }
 
             logger.LogInformation("Client connected on pipe {Pipe}", options.Pipe);
-            using var rpc = new JsonRpc(new HeaderDelimitedMessageHandler(pipe, pipe, new JsonMessageFormatter()));
+            // Each request runs under an activity whose parent is the client's (W3C trace context in the request), so the
+            // worker's lines carry the trace id of the UI or CLI action that caused them (sprint 2.3.7 review M1).
+            using var rpc = new JsonRpc(new HeaderDelimitedMessageHandler(pipe, pipe, new JsonMessageFormatter()))
+            {
+                ActivityTracingStrategy = new ActivityTracingStrategy(),
+            };
             rpc.AddLocalRpcTarget<IWorkerService>(service, null);
             rpc.StartListening();
             try

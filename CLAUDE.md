@@ -35,7 +35,8 @@ resets it for the next sprint.
   (`develop` to `main`, tag `vX.Y.0`) happen only when the owner says so (DEVELOPER.md 7).
 - The owner is the sole author: no Co-Authored-By or generated-by lines in commits, PR titles or PR bodies.
 - Never one managed object per heap object (ADR-005). Hot paths use spans, indices and pooled buffers.
-- Never upload or log snapshot contents. Dumps and index caches are sensitive.
+- Never upload or log snapshot contents. Dumps and index caches are sensitive. Logs hold names and numbers only, and
+  must back up every result shown (ARCHITECTURE 11: provenance, trace ids); never log filter text or field values.
 - Definition of Done (DEVELOPER.md 9): zero warnings, all tests pass, acceptance criteria met or deferred by
   the human, review file with High fixed and Moderate decided, docs current, architecture test passes.
 

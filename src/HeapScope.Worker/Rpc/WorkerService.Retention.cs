@@ -34,7 +34,7 @@ namespace HeapScope.Worker.Rpc;
 internal sealed partial class WorkerService
 {
     public Task<ObjectPathsResult> QueryObjectPathsAsync(ObjectPathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             if (request.MaxRoots is < 1 or > 50)
@@ -74,7 +74,7 @@ internal sealed partial class WorkerService
         });
 
     public Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             if (string.IsNullOrEmpty(request.TypeName))

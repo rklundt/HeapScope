@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using HeapScope.Contracts;
+using System.Diagnostics;
 using HeapScope.Core;
 using HeapScope.Loaders.ClrMd;
 using HeapScope.Storage;
@@ -62,24 +63,67 @@ internal static class WorkerErrors
     };
 
     /// <summary>
-    /// Runs an RPC method body, translating domain exceptions into coded errors. Every failure except cancellation is
-    /// logged with its stack trace: coded ones as warnings, unexpected ones as errors (the client only sees the message).
+    /// Expected refusals: the request was understood and answered "no" for a reason the user can act on. They are logged
+    /// at Information without a stack trace; other coded failures keep their stack (sprint 2.3.7 review M2).
     /// </summary>
-    public static async Task<T> GuardAsync<T>(Func<Task<T>> body, ILogger? logger = null)
+    public static bool IsRefusal(HeapScopeErrorCode code) => code is HeapScopeErrorCode.CapabilityNotSupported
+        or HeapScopeErrorCode.InvalidArgument or HeapScopeErrorCode.SnapshotChanged or HeapScopeErrorCode.SnapshotNotLoaded
+        or HeapScopeErrorCode.ResultSetNotFound or HeapScopeErrorCode.RuntimeComponentMissing or HeapScopeErrorCode.InsufficientMemory;
+
+    /// <summary>
+    /// Runs an RPC method body, translating domain exceptions into coded errors. Every outcome except cancellation is
+    /// logged once with the operation and the request (<see cref="Provenance"/>): an answer at <paramref name="resultLevel"/>
+    /// with what was answered (sprint 2.3.7 review H3), a refusal at Information, a coded failure as a warning with its
+    /// stack, an unexpected one as an error (the client only sees the message).
+    /// </summary>
+    public static async Task<T> GuardAsync<T>(
+        Func<Task<T>> body,
+        ILogger? logger = null,
+        string operation = "Request",
+        object? request = null,
+        LogLevel resultLevel = LogLevel.Information)
     {
         ArgumentNullException.ThrowIfNull(body);
+        var started = Stopwatch.GetTimestamp();
         try
         {
-            return await body().ConfigureAwait(false);
+            var result = await body().ConfigureAwait(false);
+            if (logger is not null && logger.IsEnabled(resultLevel))
+            {
+                logger.Log(
+                    resultLevel,
+                    "{Operation} answered in {Seconds:N2} s: request {Request}; result {Result}",
+                    operation,
+                    Stopwatch.GetElapsedTime(started).TotalSeconds,
+                    Provenance.Describe(request),
+                    Provenance.Describe(result));
+            }
+
+            return result;
         }
-        catch (Exception ex) when (ex is not LocalRpcException and not OperationCanceledException && CodeOf(ex) is { } code)
+        catch (LocalRpcException ex)
         {
-            logger?.LogWarning(ex, "Request failed with {Code}", code);
+            // Errors the worker creates as codes (an unknown snapshot or result set, a rejected argument) were logged
+            // nowhere before sprint 2.3.7.
+            logger?.LogInformation("{Operation} refused ({Code}): {Message}; request {Request}", operation, (HeapScopeErrorCode)ex.ErrorCode, ex.Message, Provenance.Describe(request));
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && CodeOf(ex) is { } code)
+        {
+            if (IsRefusal(code))
+            {
+                logger?.LogInformation("{Operation} refused ({Code}): {Message}; request {Request}", operation, code, MessageOf(ex, code), Provenance.Describe(request));
+            }
+            else
+            {
+                logger?.LogWarning(ex, "{Operation} failed with {Code}; request {Request}", operation, code, Provenance.Describe(request));
+            }
+
             throw new LocalRpcException(MessageOf(ex, code), ex) { ErrorCode = (int)code };
         }
-        catch (Exception ex) when (ex is not LocalRpcException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger?.LogError(ex, "Request failed unexpectedly");
+            logger?.LogError(ex, "{Operation} failed unexpectedly; request {Request}", operation, Provenance.Describe(request));
             throw;
         }
     }

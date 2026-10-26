@@ -36,6 +36,7 @@ using HeapScope.UI.ViewModels;
 using HeapScope.UI.ViewModels.Tests;
 using HeapScope.UI.Views;
 using HeapScope.UI.Views.Pages;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HeapScope.UI.Tests;
 
@@ -186,13 +187,22 @@ public sealed class ViewTests(UiSession ui) : IDisposable
 
     private (ShellViewModel Shell, FakeWorkerClient Worker) Shell(string? unavailable = null)
     {
+        // The app's own view model wiring over fakes (sprint 2.3.7 review M15).
         var worker = new FakeWorkerClient();
-        var operations = new WorkerOperations(worker, new JobTracker(TimeProvider.System));
-        var snapshots = new SnapshotsViewModel(new SnapshotSession(worker, operations.Jobs), operations, ImmediateUiDispatcher.Instance, new FakeUserInteraction());
-        var capture = new FakeCaptureService(Path.Combine(_folder, "sessions"), operations.Jobs) { UnavailableReason = unavailable };
-        var processes = new ProcessesViewModel(capture, snapshots, new FakeUserInteraction());
-        var live = new LiveViewModel(new MonitorService(capture, new SyntheticCounterSource(0, perSecond: 1)), capture, ImmediateUiDispatcher.Instance);
-        var home = new HomeViewModel(operations, snapshots, new Application.Sessions.SessionLibrary(Path.Combine(_folder, "sessions")));
-        return (new ShellViewModel(operations, ImmediateUiDispatcher.Instance, home, snapshots, processes, new AboutViewModel(operations), live), worker);
+        var jobs = new JobTracker(TimeProvider.System);
+        var capture = new FakeCaptureService(Path.Combine(_folder, "sessions"), jobs) { UnavailableReason = unavailable };
+        var services = new ServiceCollection()
+            .AddSingleton(jobs)
+            .AddSingleton<IWorkerClient>(worker)
+            .AddSingleton(new WorkerOperations(worker, jobs))
+            .AddSingleton(new SnapshotSession(worker, jobs))
+            .AddSingleton<Application.Sessions.ICaptureService>(capture)
+            .AddSingleton(new MonitorService(capture, new SyntheticCounterSource(0, perSecond: 1)))
+            .AddSingleton(new Application.Sessions.SessionLibrary(Path.Combine(_folder, "sessions")))
+            .AddSingleton<IUiDispatcher>(ImmediateUiDispatcher.Instance)
+            .AddSingleton<IUserInteraction>(new FakeUserInteraction())
+            .AddHeapScopeViewModels()
+            .BuildServiceProvider();
+        return (services.GetRequiredService<ShellViewModel>(), worker);
     }
 }

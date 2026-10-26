@@ -110,6 +110,10 @@ internal static partial class CliCommands
             {
                 await error.WriteLineAsync("Note: this snapshot cannot read string text, so string values are empty and value filters match nothing.").ConfigureAwait(false);
             }
+            else if (result.FilterNote is { } filterNote)
+            {
+                await error.WriteLineAsync("Note: " + filterNote).ConfigureAwait(false);
+            }
 
             var wanted = parseResult.GetValue(all) ? result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), result.Rows.TotalCount);
             var rows = await FetchRowsAsync(instances.Rows, wanted, ct).ConfigureAwait(false);

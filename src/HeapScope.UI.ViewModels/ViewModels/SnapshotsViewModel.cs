@@ -168,7 +168,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         {
             Status = "Open canceled.";
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+        catch (Exception ex) when (ex is WorkerException)
         {
             Status = ex.Message;
         }
@@ -200,7 +200,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         {
             await _session.CloseAsync(item.Handle, CancellationToken.None);
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+        catch (Exception ex) when (ex is WorkerException)
         {
             Status = ex.Message;
         }

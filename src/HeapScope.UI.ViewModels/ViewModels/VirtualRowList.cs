@@ -220,7 +220,7 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
         {
             // The page can be asked for again (scrolling back retries it).
             _pages.Remove(page);
-            if (ex is not (WorkerStartException or WorkerCrashedException or WorkerOperationException))
+            if (ex is not (WorkerException))
             {
                 _logger.LogError(ex, "Loading rows {Start} to {End} of a grid failed", start, start + VirtualRowList.PageSize - 1);
             }

@@ -34,7 +34,7 @@ namespace HeapScope.Worker.Rpc;
 internal sealed partial class WorkerService
 {
     public Task<ReferrersResult> QueryReferrersAsync(ReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
 
@@ -66,7 +66,7 @@ internal sealed partial class WorkerService
         });
 
     public Task<TypeReferrersResult> QueryTypeReferrersAsync(TypeReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             if (string.IsNullOrEmpty(request.TypeName))

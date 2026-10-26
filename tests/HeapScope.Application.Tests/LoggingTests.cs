@@ -51,6 +51,116 @@ public sealed class LoggingTests : IDisposable
     }
 
     [Fact]
+    public void Two_processes_on_one_folder_keep_every_line_in_files_of_their_own()
+    {
+        // Sprint 2.3.7 review H1: one shared daily file let a second process write over the first one's lines.
+        using (var ui = new FileLoggerProvider(_directory, app: "ui", processId: 100))
+        using (var cli = new FileLoggerProvider(_directory, app: "cli", processId: 200))
+        {
+            var a = ui.CreateLogger("A");
+            var b = cli.CreateLogger("B");
+            for (var i = 0; i < 50; i++)
+            {
+                a.LogInformation("ui line {Index}", i);
+                b.LogInformation("cli line {Index}", i);
+            }
+        }
+
+        var files = Directory.GetFiles(_directory, "heapscope-*.log").Select(Path.GetFileName).Order(StringComparer.Ordinal).ToArray();
+        files.Length.ShouldBe(2);
+        files[0].ShouldEndWith("-cli-200.log");
+        files[1].ShouldEndWith("-ui-100.log");
+        var uiText = File.ReadAllText(Path.Combine(_directory, files[1]!));
+        uiText.ShouldStartWith("# HeapScope ");
+        uiText.ShouldContain("ui pid 100");
+        Enumerable.Range(0, 50).ShouldAllBe(i => uiText.Contains($"ui line {i}" + Environment.NewLine, StringComparison.Ordinal));
+        uiText.ShouldNotContain("cli line");
+    }
+
+    [Fact]
+    public void A_full_file_rolls_over_and_old_files_are_removed()
+    {
+        Directory.CreateDirectory(_directory);
+        var old = Path.Combine(_directory, "heapscope-20200101-ui-1.log");
+        File.WriteAllText(old, "old");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-30));
+        var recent = Path.Combine(_directory, "heapscope-recent-ui-2.log");
+        File.WriteAllText(recent, "recent");
+
+        using (var provider = new FileLoggerProvider(_directory, app: "ui", processId: 7, maxFileBytes: 2048, keepDays: 14))
+        {
+            var logger = provider.CreateLogger("C");
+            for (var i = 0; i < 100; i++)
+            {
+                logger.LogInformation("line {Index} {Padding}", i, new string('x', 40));
+            }
+        }
+
+        File.Exists(old).ShouldBeFalse("files older than the kept days are removed");
+        File.Exists(recent).ShouldBeTrue();
+        var parts = Directory.GetFiles(_directory, "heapscope-*-ui-7*.log");
+        parts.Length.ShouldBeGreaterThan(1, "the file rolled over at its size limit");
+        parts.ShouldContain(p => p.EndsWith("-ui-7-2.log", StringComparison.Ordinal));
+        parts.ShouldAllBe(p => File.ReadAllText(p).StartsWith("# HeapScope ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Lines_carry_an_offset_and_their_scopes()
+    {
+        using (var provider = new FileLoggerProvider(_directory, app: "ui", processId: 9))
+        {
+            provider.SetScopeProvider(new LoggerExternalScopeProvider());
+            var logger = provider.CreateLogger("C");
+            using (logger.BeginScope(new Dictionary<string, object?> { ["TraceId"] = "abc123" }))
+            {
+                logger.LogInformation("inside");
+            }
+
+            logger.LogInformation("outside");
+        }
+
+        var lines = File.ReadAllLines(Directory.GetFiles(_directory, "heapscope-*.log").ShouldHaveSingleItem());
+        lines.ShouldContain(l => l.Contains("C: inside => TraceId:abc123", StringComparison.Ordinal));
+        lines.ShouldContain(l => l.EndsWith("C: outside", StringComparison.Ordinal));
+
+        // ISO 8601 with the offset: 2026-10-26T10:15:08.123+02:00.
+        lines[1].ShouldMatch(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} \[INF\] ");
+    }
+
+    [Theory]
+    [InlineData(null, LogLevel.Information)]
+    [InlineData("debug", LogLevel.Debug)]
+    [InlineData("Warning", LogLevel.Warning)]
+    [InlineData("None", LogLevel.Information)]
+    [InlineData("loud", LogLevel.Information)]
+    public void The_file_level_is_read_from_configuration(string? value, LogLevel expected) =>
+        FileLoggerProvider.ParseLevel(value).ShouldBe(expected);
+
+    [Fact]
+    public void Forwarded_worker_lines_name_the_worker_and_its_generation()
+    {
+        var logger = new RecordingLogger();
+        WorkerLogForwarder.Forward(logger, "12:00:00.000 info: HeapScope.Worker[0] started", workerPid: 4321, generation: 2);
+        logger.Lines.ShouldHaveSingleItem().ShouldBe("w4321 g2 12:00:00.000 info: HeapScope.Worker[0] started");
+    }
+
+    [Theory]
+    [InlineData(137, "out-of-memory")]
+    [InlineData(unchecked((int)0xE0434352), "unhandled .NET exception")]
+    [InlineData(1, null)]
+    public void Worker_exit_codes_are_explained(int code, string? expected)
+    {
+        if (expected is null)
+        {
+            WorkerLogForwarder.ExplainExitCode(code).ShouldBeNull();
+        }
+        else
+        {
+            WorkerLogForwarder.ExplainExitCode(code).ShouldNotBeNull().ShouldContain(expected);
+        }
+    }
+
+    [Fact]
     public void File_logger_ignores_writes_after_dispose()
     {
         var provider = new FileLoggerProvider(_directory);

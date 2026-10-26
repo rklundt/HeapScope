@@ -51,6 +51,12 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
     /// </summary>
     public const int CurrentVersion = 3;
 
+    /// <summary>The ClrMD library's version, for the worker's versions line (sprint 2.3.7).</summary>
+    public static string LibraryVersion { get; } =
+        System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Microsoft.Diagnostics.Runtime.ClrRuntime).Assembly)?.InformationalVersion
+        ?? typeof(Microsoft.Diagnostics.Runtime.ClrRuntime).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
     public SnapshotKind Kind => SnapshotKind.FullDump;
 
     public int Version => CurrentVersion;
@@ -75,7 +81,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         MinidumpHeader? header = minidump ? MinidumpHeader.Read(fullPath) : null;
         using var target = ClrMdDump.OpenDataTarget(fullPath, _options);
         var clr = ClrMdDump.FirstRuntime(target, fullPath);
-        using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options);
+        using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options, out var dac);
         ClrHeap heap;
         try
         {
@@ -145,7 +151,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             graph,
             info,
             capabilities,
-            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments),
+            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments, dac),
             new LoadTimings(open, objects, references, roots, build));
     }
 

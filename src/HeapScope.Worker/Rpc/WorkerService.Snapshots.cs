@@ -30,13 +30,13 @@ namespace HeapScope.Worker.Rpc;
 internal sealed partial class WorkerService
 {
     public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) =>
-        GuardAsync(() => Task.Run(() => snapshots.Probe(path), cancellationToken));
+        GuardAsync(() => Task.Run(() => snapshots.Probe(path), cancellationToken), LogLevel.Debug);
 
     public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(() =>
+        GuardAsync(request, () =>
         {
             ArgumentNullException.ThrowIfNull(request);
-            logger.LogInformation("Opening snapshot (rebuild {Rebuild}, mode {Mode})", request.Rebuild, request.Mode);
+            logger.LogInformation("Opening snapshot {Path} (rebuild {Rebuild}, mode {Mode}, reopen {Reopen})", request.Path, request.Rebuild, request.Mode, request.RequireCache);
             return snapshots.OpenAsync(request, progress, cancellationToken);
         });
 

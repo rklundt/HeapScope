@@ -244,7 +244,7 @@ public sealed partial class TypePathsViewModel : ObservableObject
         {
             // Left the history while loading.
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             finished = true;
             Status = ex.Message;

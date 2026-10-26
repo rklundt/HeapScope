@@ -154,10 +154,27 @@ public sealed class MonitorService(ICaptureService capture, ICounterSource? coun
     {
         ArgumentNullException.ThrowIfNull(options);
         var run = new MonitorRun(processId, options, _capture, _logger);
+
+        // What the run will do, so a later automatic capture can be traced to its rule (sprint 2.3.7 review M4).
+        _logger.LogInformation(
+            "Monitoring pid {Pid} started: every {IntervalSeconds:N1} s, rules {Rules}, at most {Max} snapshots, capture {Kind}, timeline {Timeline}",
+            processId,
+            options.Interval.TotalSeconds,
+            options.Rules.Rules.Count == 0 ? "none" : string.Join("; ", options.Rules.Rules.Select(Describe)),
+            options.Rules.MaxSnapshots?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unlimited",
+            options.CaptureKind,
+            options.WriteTimeline);
         attach?.Invoke(run);
         run.Begin(_counters);
         return run;
     }
+
+    private static string Describe(SnapshotRule rule) => rule switch
+    {
+        AboveRule above => $"{rule.Label} (rearm {above.Rearm})",
+        GrowthRule growth => $"{rule.Label} (rearm {growth.Rearm})",
+        _ => rule.Label,
+    };
 }
 
 /// <summary>
@@ -172,6 +189,7 @@ public sealed class MonitorRun : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly object _gate = new();
     private readonly List<MonitorCapture> _captures = [];
+    private bool _maximumLogged;
     private StreamWriter? _timeline;
     private bool _timelineFailed;
     private string? _folder;
@@ -290,6 +308,8 @@ public sealed class MonitorRun : IAsyncDisposable
         }
         finally
         {
+            _logger.LogInformation("Monitoring pid {Pid} ended: {Captures} snapshots taken", ProcessId, _rules.Count);
+
             // Teardown never throws: a capture's own failure is recorded by CaptureAsync, and the timeline is closed
             // whatever happened (review H3 of 1.7).
             Task? pending;
@@ -338,19 +358,25 @@ public sealed class MonitorRun : IAsyncDisposable
             if (fired is not null)
             {
                 // Started outside the lock: a capture logs and adds a job, which raises events.
-                _capturing = Task.Run(() => CaptureAsync(fired, sample.At));
+                var decision = _rules.LastDecision;
+                _capturing = Task.Run(() => CaptureAsync(fired, sample.At, decision));
+            }
+            else if (_rules.AtMaximum && !_maximumLogged)
+            {
+                _maximumLogged = true;
+                _logger.LogInformation("Monitoring pid {Pid}: the maximum of {Max} snapshots is reached; rules no longer capture", ProcessId, _rules.Count);
             }
         }
 
         Raise(SampleReceived, seen);
     }
 
-    private async Task CaptureAsync(SnapshotRule rule, DateTimeOffset at)
+    private async Task CaptureAsync(SnapshotRule rule, DateTimeOffset at, RuleDecision? decision)
     {
         MonitorCapture result;
         try
         {
-            _logger.LogInformation("Monitoring pid {Pid}: {Rule} fired, capturing", ProcessId, rule.Label);
+            _logger.LogInformation("Monitoring pid {Pid}: {Rule} fired at {At:O}, capturing: {Decision}", ProcessId, rule.Label, at, decision?.ToString() ?? "no decision recorded");
             var captured = await _capture.StartCapture(ProcessId, label: rule.Label, source: SnapshotSource.Timed, kind: Options.CaptureKind).Result.ConfigureAwait(false);
             result = new MonitorCapture(at, rule.Label, captured, null);
         }

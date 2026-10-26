@@ -231,7 +231,7 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
         {
             // A newer query (or clearing the grid) replaced this one; whatever it failed with is stale.
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             Status = ex.Message;
         }
@@ -243,16 +243,11 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     }
 
     private static string PageError(Exception ex) =>
-        ex is WorkerStartException or WorkerCrashedException or WorkerOperationException
+        ex is WorkerException
             ? ex.Message
             : "Some rows could not be loaded. Details are in the log; scroll to retry.";
 
-    private void Release(ResultSetHandle? handle) =>
-        _ = handle?.ReleaseAsync(CancellationToken.None).ContinueWith(
-            t => Logger.LogDebug(t.Exception, "Releasing a previous result set failed"),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+    private void Release(ResultSetHandle? handle) => handle?.ReleaseInBackground(Logger);
 }
 
 /// <summary>

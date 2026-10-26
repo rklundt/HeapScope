@@ -89,6 +89,18 @@ public sealed partial class App : Avalonia.Application
         {
             _host = UiHost.Build(_args, Dispatcher.UIThread);
             InstallLastChanceHandlers(_host.Services);
+            var startLogger = _host.Services.GetRequiredService<ILogger<App>>();
+            Services.AvaloniaLogSink.Target = startLogger;
+
+            // What this run was started with (sprint 2.3.7 review H4); the log file's header names the build and system.
+            startLogger.LogInformation(
+                "{Product} {Version} desktop app starting: arguments {Arguments}; headless {Headless}; log folder {LogFolder}, level {LogLevel}",
+                ProductName,
+                Contracts.ProductInfo.InformationalVersion,
+                _args.Length == 0 ? "(none)" : string.Join(' ', _args),
+                Program.IsHeadless,
+                _host.Services.GetRequiredService<Application.Logging.FileLoggerProvider>().Directory,
+                _host.Services.GetRequiredService<Application.Logging.FileLoggerProvider>().MinimumLevel);
             RequestedThemeVariant = ThemeChooser.Choose(_host.Services.GetService<IConfiguration>()?["Ui:Theme"]);
             await _host.StartAsync();
 
@@ -162,7 +174,7 @@ public sealed partial class App : Avalonia.Application
             _ = MessageWindow.ShowAsync(
                 _window,
                 ProductName,
-                $"Something went wrong: {e.Exception.Message}\n\nHeapScope keeps running. Details are in the log at {Application.Logging.FileLoggerProvider.DefaultDirectory}.",
+                $"Something went wrong: {e.Exception.Message}\n\nHeapScope keeps running. Details are in the log at {services.GetRequiredService<Application.Logging.FileLoggerProvider>().Directory}.",
                 MessageButtons.Ok);
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>

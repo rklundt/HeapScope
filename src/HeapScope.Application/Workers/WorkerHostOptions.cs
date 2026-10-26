@@ -68,6 +68,9 @@ public sealed class WorkerHostOptions
     /// <summary>Starts the worker with its crash and hang test hooks enabled (tests only).</summary>
     public bool EnableTestHooks { get; set; }
 
+    /// <summary>The lowest level the worker logs; the front ends set their file log's level (sprint 2.3.7).</summary>
+    public Microsoft.Extensions.Logging.LogLevel WorkerLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Information;
+
     /// <summary>Protocol version the client announces in the handshake. Tests override it to exercise mismatches.</summary>
     internal int ClientProtocolVersion { get; set; } = WorkerProtocol.Version;
 

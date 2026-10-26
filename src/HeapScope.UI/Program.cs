@@ -43,15 +43,35 @@ internal static class Program
     {
         var headless = IsHeadless = args.Contains(HeadlessSwitch, StringComparer.OrdinalIgnoreCase);
         var appArgs = args.Where(a => !string.Equals(a, HeadlessSwitch, StringComparison.OrdinalIgnoreCase)).ToArray();
-        return BuildApp(appArgs, headless).StartWithClassicDesktopLifetime(appArgs);
+        try
+        {
+            return BuildApp(appArgs, headless).StartWithClassicDesktopLifetime(appArgs);
+        }
+        catch (Exception ex)
+        {
+            // A failure before the host exists (no display, a missing native library, a bad option) reached no log, and a
+            // desktop launch has no console (sprint 2.3.7 review M18): it is written to the file log directly.
+            LogFatalStart(appArgs, ex);
+            Console.Error.WriteLine($"HeapScope could not start: {ex.Message}");
+            return 1;
+        }
     }
 
     /// <summary>The app builder; headless runs draw with Skia off screen, so layout and text are measured as on screen.</summary>
     public static AppBuilder BuildApp(string[] args, bool headless)
     {
-        var builder = AppBuilder.Configure(() => new App(args)).LogToTrace();
+        // Avalonia's own warnings (binding errors, platform problems) go to the HeapScope log once it exists (review M18).
+        var builder = AppBuilder.Configure(() => new App(args)).AfterSetup(_ => Avalonia.Logging.Logger.Sink = new Services.AvaloniaLogSink());
         return headless
             ? builder.UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             : builder.UsePlatformDetect();
+    }
+
+    private static void LogFatalStart(string[] args, Exception exception)
+    {
+        var directoryAt = Array.FindIndex(args, a => string.Equals(a, "--" + Application.Logging.FileLogging.DirectoryKey, StringComparison.OrdinalIgnoreCase));
+        var directory = directoryAt >= 0 && directoryAt + 1 < args.Length ? args[directoryAt + 1] : null;
+        using var provider = new Application.Logging.FileLoggerProvider(directory, app: "ui");
+        Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(provider.CreateLogger("HeapScope.UI.Program"), exception, "HeapScope could not start; arguments {Arguments}", string.Join(' ', args));
     }
 }

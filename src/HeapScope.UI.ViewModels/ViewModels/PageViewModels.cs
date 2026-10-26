@@ -30,6 +30,7 @@ using HeapScope.Application.Jobs;
 using HeapScope.Application.Sessions;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 
 namespace HeapScope.UI.ViewModels;
 
@@ -141,7 +142,7 @@ public sealed partial class HomeViewModel(WorkerOperations operations, Snapshots
         {
             LastResult = "Canceled.";
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+        catch (Exception ex) when (ex is WorkerException)
         {
             LastResult = ex.Message;
         }
@@ -167,13 +168,27 @@ public sealed partial class JobsPageViewModel(ObservableCollection<JobViewModel>
     }
 }
 
-/// <summary>About page: product and worker versions.</summary>
-public sealed partial class AboutViewModel(WorkerOperations operations) : ObservableObject
+/// <summary>
+/// About page: product and worker versions, what HeapScope runs on and where its logs are, with a copy action for support
+/// (sprint 2.3.7 review M16).
+/// </summary>
+public sealed partial class AboutViewModel(WorkerOperations operations, IUserInteraction? interaction = null, string? logFolder = null) : ObservableObject
 {
     [ObservableProperty]
     private string _workerDetails = "Not queried yet.";
 
     public string ProductVersion { get; } = $"{ProductInfo.Name} {ProductInfo.Version}";
+
+    /// <summary>The build with its source revision, the system, architecture and runtime.</summary>
+    public string Environment { get; } = RuntimeEnvironment.Summary;
+
+    /// <summary>Where this run writes its log; null when it is not known.</summary>
+    public string? LogFolder { get; } = logFolder;
+
+    /// <summary>The details above as one text, for a support request.</summary>
+    [RelayCommand]
+    private Task CopyDetailsAsync() => interaction?.CopyTextAsync(
+        $"{Environment}{System.Environment.NewLine}Log folder: {LogFolder ?? "unknown"}{System.Environment.NewLine}{WorkerDetails}") ?? Task.CompletedTask;
 
     [RelayCommand]
     private async Task RefreshAsync(CancellationToken cancellationToken)
@@ -185,7 +200,7 @@ public sealed partial class AboutViewModel(WorkerOperations operations) : Observ
                 CultureInfo.CurrentCulture,
                 $"Worker {info.ProductVersion}, protocol {info.ProtocolVersion}, pid {info.ProcessId}, server GC {info.ServerGc}, working set {info.WorkingSetBytes / (1024.0 * 1024.0):N0} MB");
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             WorkerDetails = ex.Message;
         }

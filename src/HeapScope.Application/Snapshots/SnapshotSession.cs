@@ -25,6 +25,8 @@ using System.Globalization;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.Application.Snapshots;
 
@@ -72,9 +74,10 @@ public sealed class SnapshotHandle
 /// <see cref="UseAsync{T}"/>, which reopens it after a worker restart (stale ids fail with
 /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/> in the worker).
 /// </summary>
-public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<PhysicalMemory>? memory = null)
+public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<PhysicalMemory>? memory = null, ILogger<SnapshotSession>? logger = null)
 {
     private readonly Func<PhysicalMemory> _memory = memory ?? PhysicalMemory.Current;
+    private readonly ILogger _logger = logger ?? (ILogger)NullLogger.Instance;
 
     private readonly object _gate = new();
     private readonly List<SnapshotHandle> _snapshots = [];
@@ -111,6 +114,16 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
                 handle.Update(descriptor, generation);
             }
 
+            // The worker's identity line (sprint 2.3.7 review H2) has the details; this ties the front end's snapshot to it.
+            _logger.LogInformation(
+                "Snapshot {Path} opened as worker snapshot {WorkerSnapshotId} (worker generation {Generation}, {Source}, cache identity {Identity:x16}, rebuild {Rebuild}, mode {Mode})",
+                descriptor.Path,
+                descriptor.SnapshotId,
+                generation,
+                descriptor.FromCache ? "index cache" : "dump",
+                descriptor.CacheIdentity,
+                rebuild,
+                descriptor.Mode);
             SnapshotsChanged?.Invoke(this, EventArgs.Empty);
             return handle;
         });
@@ -148,6 +161,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             handle.IsClosed = true;
         }
 
+        _logger.LogInformation("Snapshot {Path} (worker snapshot {WorkerSnapshotId}) closed", handle.Path, handle.WorkerSnapshotId);
         SnapshotsChanged?.Invoke(this, EventArgs.Empty);
         if (handle.Generation == worker.Generation && worker.State == WorkerState.Running)
         {
@@ -197,7 +211,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new TypeSummary(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new TypeSummary(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>
@@ -232,7 +246,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new SnapshotDiff(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new SnapshotDiff(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>
@@ -274,7 +288,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new InstanceList(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new InstanceList(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
@@ -299,7 +313,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new InspectionRun(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new InspectionRun(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>One object's details and, when the snapshot reads its dump, its fields (sprint 1.5).</summary>
@@ -313,7 +327,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         Task<ResultSetInfo> RunAsync(CancellationToken ct) =>
             UseAsync(handle, (service, id, innerCt) => service.QueryReferencesAsync(new ReferencesRequest(id, address), progress, innerCt), ct);
 
-        return new ResultSetHandle(worker, await RunAsync(cancellationToken).ConfigureAwait(false), RunAsync);
+        return new ResultSetHandle(worker, await RunAsync(cancellationToken).ConfigureAwait(false), RunAsync, _logger);
     }
 
     /// <summary>
@@ -333,7 +347,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new ReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new ReferrerList(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>The objects referencing a type's objects, grouped by their own type (sprint 2.1).</summary>
@@ -359,7 +373,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         }
 
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
-        return new TypeReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new TypeReferrerList(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>
@@ -458,13 +472,31 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     private async Task ReopenAsync(SnapshotHandle handle, CancellationToken cancellationToken)
     {
         var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true);
-        var (descriptor, generation) = await OpenInWorkerAsync(request, null, cancellationToken).ConfigureAwait(false);
+        var previous = (handle.WorkerSnapshotId, handle.Generation);
+        _logger.LogInformation("Reopening {Path} after a worker restart (was worker snapshot {WorkerSnapshotId}, generation {Generation})", handle.Path, previous.WorkerSnapshotId, previous.Generation);
+        (SnapshotDescriptor Descriptor, int Generation) reopened;
+        try
+        {
+            reopened = await OpenInWorkerAsync(request, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WorkerOperationException ex)
+        {
+            _logger.LogInformation("Reopening {Path} failed ({Code}): {Message}", handle.Path, ex.ErrorCode, ex.Message);
+            throw;
+        }
+
+        var (descriptor, generation) = reopened;
 
         // A cache rebuilt meanwhile (another front end, a newer loader, --rebuild) is a different graph: the handle's rows,
         // totals and addresses would no longer match it (sprint 2.1 review M10).
         var opened = handle.Descriptor.CacheIdentity;
         if (opened != 0 && descriptor.CacheIdentity != 0 && descriptor.CacheIdentity != opened)
         {
+            _logger.LogInformation(
+                "Not reopening {Path}: its index cache was rebuilt since it was opened (identity {Opened:x16}, now {Now:x16})",
+                handle.Path,
+                opened,
+                descriptor.CacheIdentity);
             await worker.InvokeAsync((service, ct) => service.CloseSnapshotAsync(descriptor.SnapshotId, ct), CancellationToken.None).ConfigureAwait(false);
             throw new WorkerOperationException(
                 HeapScopeErrorCode.SnapshotChanged,
@@ -482,6 +514,13 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             }
         }
 
+        _logger.LogInformation(
+            "Snapshot {Path} reopened: worker snapshot {OldId} (generation {OldGeneration}) is now {NewId} (generation {NewGeneration})",
+            handle.Path,
+            previous.WorkerSnapshotId,
+            previous.Generation,
+            descriptor.SnapshotId,
+            generation);
         if (closedMeanwhile)
         {
             // Closed while the reopen was running: do not leave an orphaned snapshot in the worker.

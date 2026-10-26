@@ -58,4 +58,12 @@ public sealed class AvaloniaUserInteraction(Func<Window?> owner) : IUserInteract
 
     public Task<bool> ConfirmAsync(string title, string message) =>
         MessageWindow.ShowAsync(owner(), title, message, MessageButtons.YesNo);
+
+    public async Task CopyTextAsync(string text)
+    {
+        if (owner()?.Clipboard is { } clipboard)
+        {
+            await Avalonia.Input.Platform.ClipboardExtensions.SetTextAsync(clipboard, text);
+        }
+    }
 }

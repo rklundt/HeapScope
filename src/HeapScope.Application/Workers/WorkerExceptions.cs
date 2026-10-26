@@ -26,7 +26,7 @@ using HeapScope.Contracts;
 namespace HeapScope.Application.Workers;
 
 /// <summary>The worker process exited or the pipe broke while a call was in flight (ARCHITECTURE.md 4.3).</summary>
-public sealed class WorkerCrashedException : Exception
+public sealed class WorkerCrashedException : WorkerException
 {
     public WorkerCrashedException()
         : this("The analysis worker stopped unexpectedly.")
@@ -53,12 +53,12 @@ public sealed class WorkerCrashedException : Exception
     public int? ExitCode { get; }
 
     private static string Describe(int? exitCode) => exitCode is int code
-        ? $"The analysis worker stopped unexpectedly (exit code {code}). It restarts automatically on the next operation; see the log for its last messages."
+        ? $"The analysis worker stopped unexpectedly (exit code {code}{(WorkerLogForwarder.ExplainExitCode(code) is { } meaning ? ", " + meaning : string.Empty)}). It restarts automatically on the next operation; see the log for its last messages."
         : "The connection to the analysis worker was lost. It restarts automatically on the next operation; see the log for details.";
 }
 
 /// <summary>The worker rejected an operation with a <see cref="HeapScopeErrorCode"/>.</summary>
-public sealed class WorkerOperationException : Exception
+public sealed class WorkerOperationException : WorkerException
 {
     public WorkerOperationException()
     {
@@ -84,7 +84,7 @@ public sealed class WorkerOperationException : Exception
 }
 
 /// <summary>The worker could not be started or connected.</summary>
-public sealed class WorkerStartException : Exception
+public sealed class WorkerStartException : WorkerException
 {
     public WorkerStartException()
     {

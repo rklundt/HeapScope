@@ -14,6 +14,14 @@ never leave the machine.
 
 Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Logs and getting help
+
+HeapScope writes a log file per run, which records the versions, the snapshots opened and why each result was produced
+(never values from a dump): `%LOCALAPPDATA%\HeapScope\logs` on Windows, `~/.local/share/HeapScope/logs` on Linux and
+`~/Library/Application Support/HeapScope/logs` on macOS. The About page shows the folder and copies the version details
+for a support request; `--Logging:File:MinimumLevel Debug` adds detail for one run. Logs are kept 14 days. They hold
+file paths and type names, so share them only with someone you trust.
+
 ## License
 
 Copyright (C) 2026 Ray Klundt.

@@ -42,7 +42,11 @@ internal static class WorkerLogForwarder
         ("crit:", LogLevel.Critical),
     ];
 
-    public static void Forward(ILogger logger, string? line)
+    /// <summary>
+    /// Logs one worker line at its level, prefixed with the worker's process id and generation, so lines of a worker
+    /// that crashed and its replacement are never confused (sprint 2.3.7 review M1).
+    /// </summary>
+    public static void Forward(ILogger logger, string? line, int workerPid = 0, int generation = 0)
     {
         if (string.IsNullOrWhiteSpace(line))
         {
@@ -52,9 +56,26 @@ internal static class WorkerLogForwarder
         var level = LevelOf(line);
         if (logger.IsEnabled(level))
         {
-            logger.Log(level, "{WorkerLine}", line);
+            logger.Log(level, "w{WorkerPid} g{Generation} {WorkerLine}", workerPid, generation, line);
         }
     }
+
+    /// <summary>
+    /// What a worker's exit code usually means (sprint 2.3.7 review M19), or null for codes without a known cause. Linux
+    /// and macOS report a signal as 128 plus its number.
+    /// </summary>
+    public static string? ExplainExitCode(int code) => code switch
+    {
+        137 => "killed (SIGKILL), on Linux usually by the out-of-memory killer: the system ran out of memory",
+        134 => "aborted (SIGABRT), a fatal runtime error",
+        139 => "a crash (SIGSEGV)",
+        unchecked((int)0xE0434352) => "an unhandled .NET exception",
+        unchecked((int)0xC0000005) => "a crash (access violation)",
+        unchecked((int)0xC00000FD) => "a stack overflow",
+        unchecked((int)0xC0000409) => "a fatal runtime error (fail fast)",
+        unchecked((int)0x80131506) => "a fatal error in the .NET runtime",
+        _ => null,
+    };
 
     internal static LogLevel LevelOf(string line)
     {

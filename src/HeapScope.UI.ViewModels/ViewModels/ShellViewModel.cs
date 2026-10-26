@@ -124,7 +124,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             await _operations.Worker.RestartAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             CrashMessage = ex.Message;
             IsCrashBannerVisible = true;

@@ -312,7 +312,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
         {
             // Another snapshot (or none) is shown now.
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+        catch (Exception ex) when (ex is WorkerException)
         {
             Status = ex.Message;
         }
@@ -394,12 +394,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
         OnPropertyChanged(nameof(HasFragments));
     }
 
-    private void Release(InspectionRun? run) =>
-        _ = run?.Rows.ReleaseAsync(CancellationToken.None).ContinueWith(
-            t => _logger.LogDebug(t.Exception, "Releasing an inspection's rows failed"),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+    private void Release(InspectionRun? run) => run?.Rows.ReleaseInBackground(_logger);
 
     private static VirtualRowList<InspectionRowItem> Empty() =>
         InspectionRowItem.CreateList(null, new ResultSetInfo(Guid.Empty, 0, []));

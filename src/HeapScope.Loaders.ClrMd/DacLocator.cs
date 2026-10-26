@@ -41,6 +41,12 @@ namespace HeapScope.Loaders.ClrMd;
 public sealed record DacRequest(
     string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory, byte[]? BuildId = null, string? BuildIdOfRuntime = null);
 
+/// <summary>A file the DAC search looked at, and why it was or was not used (sprint 2.3.7).</summary>
+public sealed record DacCandidate(string Path, string Outcome)
+{
+    public override string ToString() => $"{Path} ({Outcome})";
+}
+
 /// <summary>
 /// Finds the DAC on this machine only (ADR-017): the dumped runtime's own folder when it exists here, the matching
 /// installed shared runtime, the dump's folder and the user's DAC folder. A file is accepted only when its PE time
@@ -135,39 +141,78 @@ public static class DacLocator
     /// </summary>
     public static string? Find(DacRequest request, IReadOnlyList<string> directories, out IReadOnlyList<string> searched, IReadOnlyList<string>? installedRoots = null)
     {
+        var path = Find(request, directories, out var candidates, out _, installedRoots);
+        searched = [.. candidates.Select(c => c.Path)];
+        return path;
+    }
+
+    /// <summary>
+    /// As <see cref="Find(DacRequest, IReadOnlyList{string}, out IReadOnlyList{string}, IReadOnlyList{string}?)"/>, and says
+    /// why each file was or was not used and which rule accepted the one returned (sprint 2.3.7 review M3): a rejected
+    /// file must not look like a missing one.
+    /// </summary>
+    public static string? Find(DacRequest request, IReadOnlyList<string> directories, out IReadOnlyList<DacCandidate> candidates, out string? rule, IReadOnlyList<string>? installedRoots = null)
+    {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(directories);
-        var looked = new List<string>();
-        searched = looked;
+        var looked = new List<DacCandidate>();
+        candidates = looked;
+        rule = null;
         foreach (var directory in directories)
         {
             var candidate = Path.Combine(directory, request.FileName);
-            looked.Add(candidate);
             if (!IsReadableImage(candidate))
             {
+                looked.Add(new DacCandidate(candidate, "missing or not on a local disk"));
                 continue;
             }
 
-            bool matches;
+            string? accepted = null;
+            string rejected;
             if (request.BuildId is not { Length: > 0 } buildId)
             {
-                matches = Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion);
+                var byIndex = request.TimeStamp != 0 || request.ImageSize != 0;
+                accepted = Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion)
+                    ? byIndex ? "time stamp and image size" : $"file version {request.RuntimeVersion}"
+                    : null;
+                rejected = byIndex ? "another build (time stamp or image size differ)" : "another build (file version differs)";
             }
             else if (request.BuildIdOfRuntime is { } runtimeName)
             {
                 var runtime = Path.Combine(directory, runtimeName);
-                matches = IsReadableImage(runtime)
-                    && ImageIdentity.Matches(runtime, buildId)
-                    && (IsUnderAny(directory, installedRoots ?? [])
-                        || (ImageIdentity.ReadVersionString(candidate) is { } dac && dac == ImageIdentity.ReadVersionString(runtime)));
+                if (!IsReadableImage(runtime))
+                {
+                    rejected = $"{runtimeName} is not next to it";
+                }
+                else if (!ImageIdentity.Matches(runtime, buildId))
+                {
+                    rejected = $"{runtimeName} next to it is another build";
+                }
+                else if (IsUnderAny(directory, installedRoots ?? []))
+                {
+                    accepted = "runtime library's build id, installed runtime folder";
+                    rejected = string.Empty;
+                }
+                else if (ImageIdentity.ReadVersionString(candidate) is { } dac && dac == ImageIdentity.ReadVersionString(runtime))
+                {
+                    accepted = "runtime library's build id, equal version strings";
+                    rejected = string.Empty;
+                }
+                else
+                {
+                    rejected = $"its version string differs from {runtimeName}'s";
+                }
             }
             else
             {
-                matches = ImageIdentity.Matches(candidate, buildId);
+                accepted = ImageIdentity.Matches(candidate, buildId) ? "own build id" : null;
+                rejected = "another build (build id differs)";
             }
 
-            if (matches)
+            looked.Add(new DacCandidate(candidate, accepted is null ? rejected : "used: " + accepted));
+            if (accepted is not null)
             {
+                rule = accepted;
                 return candidate;
             }
         }
