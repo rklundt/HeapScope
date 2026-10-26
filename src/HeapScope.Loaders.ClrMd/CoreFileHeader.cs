@@ -79,7 +79,7 @@ public static class CoreFileHeader
         {
             var sectionTable = BinaryPrimitives.ReadUInt64LittleEndian(header[0x28..]);
             Span<byte> info = stackalloc byte[4];
-            if (sectionTable > length - 0x30 || !ReadAt(stream, sectionTable + 0x2C, info))
+            if (sectionTable < 0x40 || sectionTable > length - 0x30 || !ReadAt(stream, sectionTable + 0x2C, info))
             {
                 return true;
             }

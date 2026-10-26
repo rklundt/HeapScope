@@ -4,7 +4,7 @@ Reviewers: solution-architect, senior-dev, gc-specialist (in parallel, on the ch
 32a616a). Phase 2 runs autonomously, one sprint at a time, so Moderate findings were decided by the lead engineer, each
 with its recommendation, and are marked "decided autonomously".
 
-Totals after dedupe: 2 High, 12 Moderate, 17 Low. A finding raised by more than one reviewer is merged and keeps the
+Totals after dedupe: 2 High, 13 Moderate, 20 Low (one Moderate and three Lows came from the confirmations). A finding raised by more than one reviewer is merged and keeps the
 highest severity.
 
 The reviewers confirmed:
@@ -39,9 +39,28 @@ The reviewers confirmed:
 
 ### Confirmations
 
-The fixes were checked against each reviewer's suggested fix and by CI on Linux and macOS (the temp folder test, the
-fixture's core read as complete, the paired DAC found with the version strings); see the Review summary in SPRINTS.md
-for the run.
+- H1: CONFIRMED by solution-architect (the walk, the mount checked before a link is read, regular files of a header's
+  size, the pair rule, the hint, the tests, the ADR-017 amendment) and by gc-specialist (the path rule). Both raised how
+  the mount table was read, recorded as M13 below and fixed.
+- H2: CONFIRMED by gc-specialist (ELF bounds without overflow, PN_XNUM from section 0, PT_LOAD and PT_NOTE ranges,
+  Mach-O command sizes and segment ranges, unknown formats truncated, every core checked, loader version 3). Its Low
+  leftovers: PN_XNUM with no section table now counts as truncated (fixed); Mach-O LC_NOTE ranges are not checked (L18).
+- CI on Linux (required) read the fixture's core with every known answer above, a named runtime version and the
+  capture time note; macOS ran the same step after the fixes below.
+
+## Follow-up from the confirmations
+
+- **M13 The Unix mount table was read with statfs on every mount, and a mount that failed was dropped** (gc-specialist
+  Moderate, solution-architect Low). `DriveInfo.DriveType` and `DriveFormat` statfs each mount, so a hung NFS mount
+  could block any lookup and automounts could fire; a mount whose description failed was left out, so its paths fell to
+  `/` and passed. Fix now: on Linux the types are read as text from `/proc/self/mountinfo` and classified by a list of
+  local types (ext2 to ext4, xfs, btrfs, zfs, overlay, f2fs, jfs, reiserfs, bcachefs, squashfs; tmpfs); anything else is
+  not local; a mount that cannot be described is kept as not local (macOS, through `DriveInfo`). Test:
+  `Linux_mounts_are_read_as_text_and_only_known_local_types_are_local`. Fixed.
+- L18 Mach-O LC_NOTE ranges in cores are not checked for truncation (gc-specialist).
+- L19 `ImageIdentity.ReadVersionString` allocated a 1 MB buffer per call (gc-specialist). Fixed: rented from the pool.
+- L20 macOS still describes mounts through `DriveInfo` (statfs); getmntinfo with MNT_NOWAIT is the macOS counterpart
+  of the Linux fix, for when macOS ships (solution-architect, gc-specialist).
 
 ## Moderate (decided autonomously)
 

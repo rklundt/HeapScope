@@ -25,7 +25,7 @@ everything else.
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
-| 2.3.5 | Cross-platform and sharing decision | In Progress | | |
+| 2.3.5 | Cross-platform and sharing decision | Wrapping | | |
 | 2.3.6 | Avalonia port | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
@@ -1707,7 +1707,22 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 8. CI is not yet a required check on the protected branches; making it one is the product owner's call once it is
    stable (decided autonomously).
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (`docs/reviews/sprint-2.3.5.md`): 2 High, 13 Moderate, 20 Low after dedupe.
+- High, both fixed and confirmed: the local path rule (ADR-017) did nothing on Linux and macOS, now `UnixLocalPath`
+  (the mount holding the path, links resolved, types read from `/proc/self/mountinfo`); Linux and macOS cores had no
+  truncation check, now `CoreFileHeader`.
+- Moderate, fixed (decided autonomously): a DAC paired through `libcoreclr` is checked by its version string outside
+  installed runtimes; the runtime version is named from the runtime's folder when ClrMD reads 0.0; CI asserts the known
+  answers with `jq`; a core's capture time is marked as the file's time; the missing DAC message says where to open a
+  dump of another system or architecture; Unix runtime roots; ADR-026 amended; capture refused off Windows is
+  `CaptureFailure.NotSupportedOnThisSystem`; section 1, ADR-007, ADR-012 and CLAUDE.md updated; 2.3.6 to 2.6 re-planned.
+- Deferred: the grid adapter's enumeration (2.3.6 scope), Compare's baseline with file-time captures, Unix file
+  semantics tests and Capture.Tests on Linux, a Windows CI dump step (Backlog).
+- Measured: CI on GitHub's runners reads a `dotnet-dump` core of LeakyConsole on Linux (required) and macOS arm64
+  (informational) with the known answers: 2,000 objects per leak type, 64,000 bytes and 148 retained per cache entry,
+  the path from `StaticCacheLeak.s_cache`, a complete graph, .NET 10.0.14. The Avalonia prototype on the Small dump:
+  zero row list enumerations, 197 MB private (540 MB before the adapter), scroll stalls at most 36 ms, first show
+  108 to 162 ms (WPF 140 ms). Local gate before the review: 932 tests, 0 failed, 0 warnings.
 
 ---
 

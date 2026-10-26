@@ -1443,7 +1443,9 @@ sprint 0.1.
 - Amended in sprint 2.3.5 (review H1, M1): on Linux and macOS a path is local when the mount that holds it, after
   symbolic links are resolved, is a local disk (fixed, container overlays included, or tmpfs); network mounts (NFS,
   SMB, autofs, FUSE), `/proc`, `/sys` and `/dev` are refused, and a mount is checked before anything on it is looked at
-  (`UnixLocalPath`). A candidate image must be a local file of at least a header's size (pipes and devices never are).
+  (`UnixLocalPath`). On Linux the mount types are read as text from `/proc/self/mountinfo` against a list of local
+  types, so no mount is ever asked (a hung network mount cannot block a lookup); a mount that cannot be described is
+  not local. A candidate image must be a local file of at least a header's size (pipes and devices never are).
   A Linux or macOS DAC is matched by the dump's build id or UUID: its own, or its runtime library's (`libcoreclr`) when
   the dump archives it that way; then the pair is accepted from an installed runtime folder, or elsewhere only when
   both files embed the same `@(#)Version` string. A DAC matched by build id is the exact build, so ClrMD's own version

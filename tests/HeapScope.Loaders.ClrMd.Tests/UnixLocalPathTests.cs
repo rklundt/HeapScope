@@ -88,6 +88,41 @@ public sealed class UnixLocalPathTests
     }
 
     [Fact]
+    public void Linux_mounts_are_read_as_text_and_only_known_local_types_are_local()
+    {
+        // Review of the H1 fix: no statfs on any mount, so a hung network mount cannot block a lookup.
+        var file = Path.Combine(Path.GetTempPath(), "heapscope-mountinfo-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllLines(file,
+        [
+            "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
+            "23 22 0:21 / /tmp rw shared:2 - tmpfs tmpfs rw",
+            "24 22 0:5 / /mnt/my\\040share rw shared:3 - nfs4 server:/export rw",
+            "25 22 0:6 / /home/me/remote rw - fuse.sshfs me@host: rw",
+            "26 22 7:0 / /snap/dotnet/1 ro - squashfs /dev/loop0 ro",
+            "not a mount line",
+        ]);
+        try
+        {
+            var mounts = UnixLocalPath.ReadMountInfo(file).ShouldNotBeNull();
+
+            mounts.Select(m => (m.Path, m.Type)).ShouldBe(
+            [
+                ("/", DriveType.Fixed),
+                ("/tmp", DriveType.Ram),
+                ("/mnt/my share", DriveType.Network),
+                ("/home/me/remote", DriveType.Network),
+                ("/snap/dotnet/1", DriveType.Fixed),
+            ]);
+            UnixLocalPath.IsLocal("/mnt/my share/core", mounts, _ => null).ShouldBeFalse();
+            UnixLocalPath.ReadMountInfo(file + ".missing").ShouldBeNull();
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
     public void A_path_under_no_known_mount_is_refused() =>
         UnixLocalPath.IsLocal("/data/x", [new MountPoint("/data2", DriveType.Fixed, "ext4")], _ => null).ShouldBeFalse();
 

@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 
@@ -53,10 +54,10 @@ public static class ImageIdentity
         ReadOnlySpan<byte> marker = "@(#)Version "u8;
         const int Chunk = 1 << 20;
         const int MaxLength = 256;
+        var buffer = ArrayPool<byte>.Shared.Rent(Chunk + MaxLength + marker.Length);
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan);
-            var buffer = new byte[Chunk + MaxLength + marker.Length];
             var kept = 0;
             while (true)
             {
@@ -96,6 +97,10 @@ public static class ImageIdentity
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

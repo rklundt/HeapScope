@@ -38,9 +38,23 @@ public static class UnixLocalPath
 {
     private const int MaxLinks = 40;
 
-    /// <summary>The file systems mounted on this machine; one that cannot be described is left out (and so refused).</summary>
+    // Local disk file systems on Linux, by the type /proc/self/mountinfo names; anything else is not local (squashfs holds
+    // snap packages, such as a snap-installed .NET).
+    private static readonly HashSet<string> s_localTypes =
+        ["ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "overlay", "overlayfs", "f2fs", "jfs", "reiserfs", "bcachefs", "squashfs"];
+
+    /// <summary>
+    /// The file systems mounted on this machine; one that cannot be described is kept as not local. On Linux the
+    /// types are read as text from <c>/proc/self/mountinfo</c>: <see cref="DriveInfo"/> asks each mount with statfs, which
+    /// a hung network mount answers never (review of the H1 fix).
+    /// </summary>
     public static IReadOnlyList<MountPoint> CurrentMounts()
     {
+        if (OperatingSystem.IsLinux() && ReadMountInfo("/proc/self/mountinfo") is { } linux)
+        {
+            return linux;
+        }
+
         var mounts = new List<MountPoint>();
         foreach (var drive in DriveInfo.GetDrives())
         {
@@ -50,6 +64,8 @@ public static class UnixLocalPath
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // Kept as not local: left out, the paths under it would fall to the mount above, usually "/".
+                mounts.Add(new MountPoint(drive.Name, DriveType.Unknown, "unknown"));
             }
         }
 
@@ -147,6 +163,66 @@ public static class UnixLocalPath
 
         return best is { } local
             && (local.Type == DriveType.Fixed || (local.Type == DriveType.Ram && local.Format == "tmpfs"));
+    }
+
+    /// <summary>
+    /// The mounts a Linux <c>mountinfo</c> file lists (field 5 the mount point, with octal escapes such as <c>\040</c>; the
+    /// type after the <c>-</c> separator), classified without asking any file system; null when the file cannot be read.
+    /// </summary>
+    public static IReadOnlyList<MountPoint>? ReadMountInfo(string path)
+    {
+        string[] lines;
+        try
+        {
+            lines = File.ReadAllLines(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        var mounts = new List<MountPoint>(lines.Length);
+        foreach (var line in lines)
+        {
+            var fields = line.Split(' ');
+            var separator = Array.IndexOf(fields, "-");
+            if (fields.Length < 5 || separator < 6 || separator + 1 >= fields.Length)
+            {
+                continue;
+            }
+
+            var type = fields[separator + 1];
+            var kind = type == "tmpfs" ? DriveType.Ram : s_localTypes.Contains(type) ? DriveType.Fixed : DriveType.Network;
+            mounts.Add(new MountPoint(Unescape(fields[4]), kind, type));
+        }
+
+        return mounts;
+    }
+
+    private static string Unescape(string field)
+    {
+        if (!field.Contains('\\', StringComparison.Ordinal))
+        {
+            return field;
+        }
+
+        var text = new System.Text.StringBuilder(field.Length);
+        for (var i = 0; i < field.Length; i++)
+        {
+            if (field[i] == '\\' && i + 3 < field.Length && IsOctal(field[i + 1]) && IsOctal(field[i + 2]) && IsOctal(field[i + 3]))
+            {
+                text.Append((char)(((field[i + 1] - '0') << 6) | ((field[i + 2] - '0') << 3) | (field[i + 3] - '0')));
+                i += 3;
+            }
+            else
+            {
+                text.Append(field[i]);
+            }
+        }
+
+        return text.ToString();
+
+        static bool IsOctal(char c) => c is >= '0' and <= '7';
     }
 
     // A link's target as written (null for anything else, or a path that does not exist), read without following it.
