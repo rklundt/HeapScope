@@ -5,7 +5,8 @@ Status: living document. Every sprint updates it to match what was actually buil
 
 ## 1. Purpose, scope, non-goals
 
-**Purpose.** HeapScope is a Windows desktop memory profiler for modern .NET applications. It replaces the
+**Purpose.** HeapScope is a desktop memory profiler for modern .NET applications, on Windows today and on Linux and macOS
+after the Avalonia port (ADR-025; the engine, worker and CLI already run there). It replaces the
 core of JetBrains dotMemory for one primary workflow: a memory leak is suspected in an ASP.NET Core API, the
 developer runs the API locally, replays representative traffic, takes snapshots over time, and uses HeapScope
 to find what is growing and why it is retained.
@@ -17,12 +18,14 @@ to find what is growing and why it is retained.
 - Live counters and timed snapshots.
 - Reverse references, retention paths, dominator tree, retained sizes, smart leak detectors.
 - A CLI with the same capabilities as the UI, usable in automation.
+- Linux and macOS core dumps read on the system that took them (sprint 2.3.5, ADR-025); capture there is a backlog item.
+- Sharing results as an exported analysis the user writes and passes on (ADR-026).
 
 **Non-goals (for now).**
 - .NET Framework targets (backlog).
-- Linux dumps, containers, remote machines (backlog).
+- Reading a dump on another system than the one that took it, containers' own tooling, remote machines (backlog).
 - Native memory analysis beyond an overview (backlog).
-- Uploading or sharing anything. HeapScope never sends data off the machine.
+- Uploading anything. HeapScope never sends data off the machine; a shared result is a file the user passes on.
 - Dumps larger than the Medium tier (see section 10). The Large tier is a backlog item.
 
 ## 2. Context
@@ -209,6 +212,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   without a type, segments whose memory is missing, files shorter than their minidump directory) [1.2, 1.8];
   `ClrMdObjectReader` (opens the dump on first use, serialized, disposed with the snapshot) and `ClrMdDump` (opening
   shared with the loader, runtime creation failures wrapped with a next step) [1.5]; `MinidumpHeader` [1.2, 1.8];
+  `CoreFileHeader` (a Linux or macOS core cut short: program headers or load commands, or a segment's file range, past
+  the end of the file; such a core loses CompleteGraph and ExactCounts like a truncated minidump), a core's capture time
+  from the file's write time marked `SnapshotFacts.CaptureTimeFromFile` with a note, loader version 3 [2.3.5];
+  `UnixLocalPath` (the local path rule on Linux and macOS: the mount holding the path, links resolved) [2.3.5];
   `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2];
   the DAC of the system HeapScope runs on, matched on Linux and macOS by `ImageIdentity` (ELF GNU build id, Mach-O
   UUID) against the DAC itself or, when the dump archives it under the runtime's identity, against `libcoreclr` in the
@@ -1328,6 +1335,8 @@ sprint 0.1.
 - Decision: a separate x64 worker; named pipes with StreamJsonRpc; progress and cancellation on every long
   operation.
 - Consequences: DTO contracts, paging of large results, crash detection and restart.
+- Amended by ADR-025 (sprint 2.3.5): the worker is built per system and architecture; a dump is read by a worker of
+  the system and architecture that took it.
 
 ### ADR-008 Headless core and CLI
 - Context: correctness needs automated tests; CI leak checks need a scriptable tool.
@@ -1362,6 +1371,9 @@ sprint 0.1.
   PR, tagged `sprint-X.Y` on `develop`. A release is a PR from `develop` to `main` (merge commit), tagged `vX.Y.0`
   with a GitHub Release (pre-release for now). A ruleset on both branches requires a PR and blocks direct and force
   pushes and deletion. CI is still a backlog item; `./build/gate.ps1` is the local gate.
+- Amended in sprint 2.3.5: CI runs on GitHub's hosted runners (`.github/workflows/ci.yml`; DEVELOPER.md 7) for every PR
+  into `develop` or `main`; it is not yet a required check. The local gate stays the full check before closing a
+  sprint.
 
 ### ADR-013 Leaky fixtures as source of truth
 - Context: analysis correctness can only be proven against known leaks.
@@ -1428,6 +1440,14 @@ sprint 0.1.
   the target's DAC, sprint 1.1); every installed runtime folder is a candidate (the dump records the file
   version, folders use the product version) and the PE match picks the right one; when the dump records no index the
   file version must equal the runtime version.
+- Amended in sprint 2.3.5 (review H1, M1): on Linux and macOS a path is local when the mount that holds it, after
+  symbolic links are resolved, is a local disk (fixed, container overlays included, or tmpfs); network mounts (NFS,
+  SMB, autofs, FUSE), `/proc`, `/sys` and `/dev` are refused, and a mount is checked before anything on it is looked at
+  (`UnixLocalPath`). A candidate image must be a local file of at least a header's size (pipes and devices never are).
+  A Linux or macOS DAC is matched by the dump's build id or UUID: its own, or its runtime library's (`libcoreclr`) when
+  the dump archives it that way; then the pair is accepted from an installed runtime folder, or elsewhere only when
+  both files embed the same `@(#)Version` string. A DAC matched by build id is the exact build, so ClrMD's own version
+  check, which reads some core files' version as 0.0, is skipped for it.
 
 ### ADR-018 Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4)
 - Context: dotMemory's comparison splits objects into survived, new and dead, using its profiler's allocation
@@ -1579,7 +1599,8 @@ sprint 0.1.
     memory status calls (guarded by `OperatingSystem.IsWindows()`; off Windows they read the GC's view of the
     machine's memory, `GC.GetGCMemoryInfo()`, which honors container limits).
   - Windows only for now: capture (process discovery, dump writing, elevation). Off Windows it refuses with
-    `PlatformNotSupportedException` naming `dotnet-dump` (`CapturePlatform.EnsureSupported`); the elevation probe
+    `PlatformNotSupportedException` naming `dotnet-dump` (`CapturePlatform.EnsureSupported`), which Application reports
+    as `CaptureFailedException` with `CaptureFailure.NotSupportedOnThisSystem`; the elevation probe
     reports `Environment.IsPrivilegedProcess`. Linux and macOS capture (createdump through the diagnostics client,
     `/proc` for discovery) is a backlog item.
   - Some tests depend on Windows file semantics (an open or mapped file cannot be deleted or replaced there; it can on
@@ -1593,6 +1614,10 @@ sprint 0.1.
   - With it: scrolling stalls at most 36 ms; the first showing of a grid 108 to 162 ms (WPF's smoke run: 140 ms).
   - Sorting and the filter work through the view models unchanged; the WPF-only part was the render yield, now
     `TaskSchedulerExtensions.RenderYield`, set by the UI.
+- A dump is read by a worker of the system and architecture that took it (review): ClrMD loads the DAC into the
+  worker's process, and HeapScope does not search cross-system DACs. So HeapScope ships a worker per runtime identifier
+  (`win-x64`, `linux-x64`, `osx-arm64`, `osx-x64`); opening a dump of another system or architecture fails with a
+  message that says where to open it. Linux arm64 (for example Docker on Apple silicon) is a backlog item.
 - Decision: the UI moves to Avalonia (MIT), on Windows x64, Linux x64 and macOS (arm64 and x64), in a port sprint before
   2.4 (product owner: "port before 2.4"). The WPF UI is retired when the port reaches parity; the view models move to a
   platform-neutral UI library. Only MIT (or otherwise allowed) Avalonia components are used: TreeDataGrid moved to the
@@ -1617,8 +1642,16 @@ sprint 0.1.
   capture time, the target's process name). String text and field values are left out unless the person exporting opts
   in for that export, and the export then says so on its first line (product owner: "Analysis only").
 - Consequences:
-  - The export reads from the index cache and the sidecars, which already hold no values (12); opt-in values are read
-    from the dump at export time, like inspection.
+  - The export runs in the worker against an open snapshot: paths, field names and inspections need the dump, not only
+    the index cache and the sidecars (which hold no values, 12). Opt-in values are read from the dump at export time,
+    like inspection.
+  - Values are marked where they are produced: result columns gain a flag for columns that carry values (the `Value`
+    column of instances, a duplicate string's text), which the export leaves out unless the opt-in is given. The CLI's
+    `--format csv|json` output is a local view for the person running it, not a shared export, and keeps its columns.
+  - The export file has a versioned schema. HeapScope opens a JSON export as its own kind of document, with no graph
+    capabilities (never presented as a snapshot).
+  - Metadata left out by default: the dump's and the cache's file paths (they contain user names), the target's
+    command line, the machine name.
   - The Backlog's "HTML report export" and 2.7's CSV export are forms of it: one export model, rendered as HTML, JSON
     or CSV. Opening a shared JSON export in HeapScope (without the dump) is part of the same item.
   - A hosted or web view for teams is not planned; the export file is shared by the team's own means.

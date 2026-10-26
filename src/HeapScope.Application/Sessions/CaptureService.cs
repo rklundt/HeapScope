@@ -77,7 +77,7 @@ public sealed class CaptureService : ICaptureService
         _gcDumpCapturer = gcDumpCapturer ?? new GcDumpCapturer(elevation);
         Library = library ?? throw new ArgumentNullException(nameof(library));
         Jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
-        _elevation = elevation ?? WindowsElevationProbe.Instance;
+        _elevation = elevation ?? CapturePlatform.ElevationProbe();
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<CaptureService>.Instance;
 

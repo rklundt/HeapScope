@@ -1,6 +1,7 @@
 # HeapScope
 
-HeapScope is a Windows desktop memory profiler for modern .NET applications (.NET 10, WPF, x64), replacing
+HeapScope is a desktop memory profiler for modern .NET applications (.NET 10, WPF on Windows x64 today, Avalonia
+on Windows, Linux and macOS from sprint 2.3.6, ADR-025; the engine, worker and CLI already run on Linux), replacing
 the core of JetBrains dotMemory. Primary use case: find what is growing and why it is retained in an ASP.NET
 Core API run locally under replayed traffic. Snapshots (full dumps and gcdumps) are loaded by an
 out-of-process x64 worker into a compact struct-of-arrays object graph, cached on disk, and explored through a

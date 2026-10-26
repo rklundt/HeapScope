@@ -72,6 +72,7 @@ jobs:
       - name: Dump the fixture and analyze it with the CLI
         # Runs when a test failed but the build did not: the dump and the CLI are what this job is for.
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 15
         run: |
           dotnet tool install --global dotnet-dump --version 10.0.750501
           export PATH="$PATH:$HOME/.dotnet/tools"
@@ -88,7 +89,7 @@ jobs:
           pid=$(sed -n 's/.*READY pid=\([0-9]*\).*/\1/p' "$RUNNER_TEMP/fixture.log")
           [ -n "$pid" ] || { echo "The fixture did not report READY within 120 s."; exit 1; }
           dump="$RUNNER_TEMP/leaky.dmp"
-          timeout 300 dotnet-dump collect --process-id "$pid" --type Full --output "$dump"
+          dotnet-dump collect --process-id "$pid" --type Full --output "$dump"
           kill "$pid" || true
           cli=src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli
           "$cli" open "$dump" --top 5 | tee "$RUNNER_TEMP/open.txt"

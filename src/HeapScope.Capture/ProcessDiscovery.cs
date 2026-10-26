@@ -45,7 +45,7 @@ public sealed partial class ProcessDiscovery(IElevationProbe? elevation = null) 
     /// <summary>HeapScope's own executables live under this folder (the worker in its worker subfolder).</summary>
     private static readonly string s_ownFolder = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
 
-    private readonly IElevationProbe _elevation = elevation ?? WindowsElevationProbe.Instance;
+    private readonly IElevationProbe _elevation = elevation ?? CapturePlatform.ElevationProbe();
 
     public IReadOnlyList<DotNetProcess> List(CancellationToken cancellationToken = default)
     {

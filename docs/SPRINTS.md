@@ -1725,6 +1725,13 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 - The render yield, power throttling (ADR-019, Windows only) and the UI smoke and lag gates move to the Avalonia app;
   UI tests move to Avalonia's headless test platform.
 - CI: Linux and macOS also build the UI and run its headless tests.
+- Layering: the view model library and the Avalonia UI project get their rows in ARCHITECTURE 3.1 and `LayerRules` (the
+  architecture test refuses unknown projects).
+- From the 2.3.5 review: the grid adapter's enumeration and `CopyTo` pass through to the row list, which makes a
+  placeholder row per index; select all, copy and keyboard paths that enumerate must go through indices or the worker,
+  and a probe test (as `RowListProbe` does) proves no grid path enumerates 1.5 million rows. The render yield moves
+  into `IUiDispatcher` (Wpf, Avalonia, Immediate) instead of the static `TaskSchedulerExtensions.RenderYield`. Front
+  ends ask `ICaptureService` whether capture is available (with the reason) before showing capture views.
 - Capture stays Windows only (the views say so off Windows and point to opening a dump taken with `dotnet-dump`).
 - Retire `HeapScope.UI.Wpf` and `spikes/AvaloniaGrid` once parity is reached; update THIRD-PARTY-NOTICES.
 
@@ -1783,7 +1790,9 @@ diff the "new since the baseline" view that dumps alone cannot (ADR-018).
 
 **Acceptance criteria**: LeakyApi's leaking allocation site appears in the top call stacks under LoadGen.
 
-**Dependencies**: 1.7.
+**Dependencies**: 1.7, 2.3.6 (the UI is built in Avalonia, ADR-025). Platform scope: EventPipe allocation sampling works on
+Linux and macOS too, but the trace recorder attaches through capture's process discovery, Windows only until the Linux
+capture item; the sprint says which systems it covers.
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -1805,7 +1814,7 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): one card per de
 **Acceptance criteria**: every LeakyApi leak is detected with its known answer; no detector fires on a clean
 LeakyApi run.
 
-**Dependencies**: 2.2, 1.4.
+**Dependencies**: 2.2, 1.4, 2.3.6 (the detector cards are built in Avalonia, ADR-025).
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -1851,6 +1860,15 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
+- From the 2.3.5 review (decided autonomously, deferred):
+  - Compare's default baseline when a capture time is only the file's time (`SnapshotFacts.CaptureTimeFromFile`, Linux
+    and macOS cores): order by open order instead and say so, since a copy of a file changes its time. **Revisit
+    when:** Linux capture lands, or compare is used with core dumps.
+  - Unix file semantics stated by tests: replacing or deleting a mapped index cache on Linux and macOS succeeds and
+    the open graph keeps reading the old file; the Windows-only tests skip there today. Capture.Tests join the Linux CI
+    job with the Linux capture item.
+  - A Windows CI step that loads a dump (capture LeakyConsole with the CLI, `summary`), so the Windows DAC path is
+    checked by CI too, not only by the local gate's integration tests.
 - gcdump survivors without a recorded root as path and dominator sources (from the 2.3 review M6; agreed with the
   product owner on 2026-10-25 to defer the fix). Today they retain nothing, and the note beside retained sizes gives their
   count and bytes. The fix marks them "root not recorded" sources in `PathRoots.Sources` (so paths and dominators keep
@@ -1941,5 +1959,6 @@ switches.
   job row 130 to 190 ms once per run; first showing of the Compare tab with rows 97 to 238 ms (1.4). Template preloading and deferring startup work remain options (from 0.3).
 - WPF and WinForms specific leak inspections.
 - Unmanaged/native memory overview.
-- Linux dump analysis.
+- Reading a dump on another system or architecture than the one that took it (cross-system DACs), and a Linux arm64
+  worker (from the 2.3.5 review; ADR-025: a dump is read by a worker of its own system and architecture).
 - Attach to processes in containers.
