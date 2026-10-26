@@ -51,7 +51,7 @@ internal static class RetainedText
     /// <summary>How the dominators were obtained, in a line, with the worker's caveats (review M6).</summary>
     public static string Source(DominatorIndexInfo dominators) => string.Create(
         CultureInfo.CurrentCulture,
-        $"Retained sizes {(dominators.FromSidecar ? "read from the saved index" : "computed")} in {dominators.Seconds:N1} s; {dominators.ReachableObjects:N0} objects are reachable from the roots.")
+        $"Retained sizes {ValueBoundTexts.DominatorsSource(dominators.FromSidecar)} in {dominators.Seconds:N1} s; {dominators.ReachableObjects:N0} objects are reachable from the roots.")
         + (dominators.Note is { } note ? " " + note : string.Empty);
 
     /// <summary>Why retained sizes are not shown after a failed retained query (review M8), with the worker's reason.</summary>

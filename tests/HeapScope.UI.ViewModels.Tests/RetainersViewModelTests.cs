@@ -88,10 +88,15 @@ public sealed class RetainersViewModelTests : IDisposable
         await Retainers.QueryTask;
 
         _worker.Service.TreeQueries[^1].Expanded.ShouldBe(["o:100"]);
+        _worker.Service.TreeQueries[^1].RevealKey.ShouldBe("o:100", "the worker is asked where the toggled row landed");
         var rows = await RowsAsync();
         rows.Select(r => (r.Name, r.Depth)).ShouldBe([("App.Cache", 0), ("App.Entry", 1), ("App.Entry", 1), ("App.Other", 0)]);
         (rows[0].IsExpanded, rows[0].Glyph, rows[1].Indent).ShouldBe((true, "▾", DominatorRowItem.IndentPerLevel));
-        await WaitUntilAsync(() => Retainers.SelectedRow?.Key == "o:100");
+        await Retainers.SelectTask;
+        Retainers.SelectedRow.ShouldBeSameAs(rows[0], "the row of the new list, so the grid can select it and keys keep working (the 2.4 review)");
+        (rows[1].CanExpand, rows[1].Glyph).ShouldBe((false, string.Empty), "an entry has no children");
+        Retainers.ToggleCommand.Execute(rows[1]);
+        _worker.Service.TreeQueries.Count.ShouldBe(2, "a leaf does not ask again");
 
         Retainers.ExpandCommand.Execute(rows[0]);
         _worker.Service.TreeQueries.Count.ShouldBe(2, "an expanded row does not expand again");
@@ -139,6 +144,35 @@ public sealed class RetainersViewModelTests : IDisposable
 
         Retainers.SelectedRow = rows[0];
         Retainers.SelectedSegment!.Address.ShouldBe(0x100UL);
+
+        // A bar whose row is not shown selects no row, so the row buttons never act on another one (the 2.4 review).
+        Retainers.SelectedSegment = Retainers.IcicleSegments.First(s => s.Address == 0x200);
+        Retainers.SelectedRow.ShouldBeNull();
+        Retainers.FocusCommand.CanExecute(Retainers.SelectedRow).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_focus_shows_its_trail_and_a_crumb_focuses_on_that_dominator()
+    {
+        await OpenAsync();
+        await ShowTabAsync();
+
+        Retainers.FocusCommand.Execute((await RowsAsync())[0]);
+        await Retainers.QueryTask;
+        Retainers.FocusSegmentCommand.Execute(Retainers.IcicleSegments.First(s => s.Address == 0x200));
+        await Retainers.QueryTask;
+        await Retainers.SelectTask;
+
+        Retainers.Trail.Select(t => (t.Text, t.IsLink)).ShouldBe([("App.Cache", true)]);
+        Retainers.SelectedRow!.Key.ShouldBe("o:200", "the focus row is selected");
+        Retainers.CollapseCommand.Execute(Retainers.SelectedRow);
+        Retainers.ToggleCommand.Execute(Retainers.SelectedRow);
+        _worker.Service.TreeQueries[^1].FocusAddress.ShouldBe(0x200UL);
+        _worker.Service.TreeQueries[^1].Expanded.ShouldBeEmpty("the focus row is always open");
+
+        Retainers.FocusAncestorCommand.Execute(Retainers.Trail[0]);
+        await Retainers.QueryTask;
+        _worker.Service.TreeQueries[^1].FocusAddress.ShouldBe(0x100UL);
     }
 
     [Fact]
@@ -184,7 +218,13 @@ public sealed class RetainersViewModelTests : IDisposable
         _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
         var query = _worker.Service.TreeQueries[^1];
         (query.Grouping, query.FocusAddress).ShouldBe((DominatorGroupingDto.Type, 0UL));
-        query.Expanded.ShouldBe([DominatorTreeKeys.TypeGroup(DominatorTreeKeys.Root, "App.Order", "App.dll")]);
+        var group = DominatorTreeKeys.TypeGroup(DominatorTreeKeys.Root, "App.Order", "App.dll");
+        (query.Expanded.Single(), query.RevealKey).ShouldBe((group, group));
+
+        // No App.Order object is itself a top-level retainer here: the tab says so instead of showing nothing (the 2.4 review).
+        Retainers.Status!.ShouldContain("No App.Order object is itself a top-level retainer");
+        Retainers.Status!.ShouldContain(ValueBoundTexts.SetAction);
+        Retainers.Expanded.ShouldBeEmpty();
 
         Retainers.Set.HideCommand.Execute(null);
         Retainers.Set.IsShown.ShouldBeFalse();

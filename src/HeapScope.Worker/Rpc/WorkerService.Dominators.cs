@@ -24,6 +24,7 @@
 using System.Globalization;
 using HeapScope.Analysis.Retention;
 using HeapScope.Contracts;
+using HeapScope.Core;
 using HeapScope.Core.Graph;
 using Microsoft.Extensions.Logging;
 
@@ -32,70 +33,82 @@ namespace HeapScope.Worker.Rpc;
 /// <summary>The dominator tree explorer (sprint 2.4, ADR-027).</summary>
 internal sealed partial class WorkerService
 {
-    /// <summary>The most expanded keys one request may carry (a user expands rows one at a time).</summary>
-    private const int MaxExpanded = 10_000;
+    /// <summary>Rows of the revealed list (or the top) and trail entries written to the provenance line.</summary>
+    private const int LoggedRows = 10;
+
+    /// <summary>Expanded keys written to the provenance line.</summary>
+    private const int LoggedKeys = 20;
 
     public Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (request.MaxChildren is < 1 or > 1_000)
+            if (request.MaxChildren is < DominatorTreeLimits.MinChildren or > DominatorTreeLimits.MaxChildren)
             {
-                throw new ArgumentException("MaxChildren must be between 1 and 1,000.", nameof(request));
+                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"Children per row must be between {DominatorTreeLimits.MinChildren} and {DominatorTreeLimits.MaxChildren:N0}."));
             }
 
-            if (request.Expanded is null || request.Expanded.Count > MaxExpanded)
+            if (request.Expanded is null || request.Expanded.Count > DominatorTreeLimits.MaxExpanded)
             {
-                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"Expanded must list at most {MaxExpanded:N0} keys."), nameof(request));
+                throw new ArgumentException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"At most {DominatorTreeLimits.MaxExpanded:N0} rows can be open at once. Collapse some rows, or focus on one to see the tree below it."));
             }
 
-            // The set keeps the lease while its rows are paged (they hold no graph data, but the snapshot must stay open
-            // for the links they lead to).
+            // The rows hold no graph data (addresses are copied per row), so the set needs no lease of its own.
             var (snapshot, lease) = Lease(request.SnapshotId);
-            try
+            using var _ = lease;
+            var graph = snapshot.Graph;
+            var focus = FocusIndex(graph, request.FocusAddress);
+            var (tree, info) = await FocusAsync(request.SnapshotId, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
+
+            progress?.Report(new JobProgress("Listing retainers", 0, null));
+            var grouping = request.Grouping switch
             {
-                var graph = snapshot.Graph;
-                var focus = FocusIndex(graph, request.FocusAddress);
+                DominatorGroupingDto.Type => DominatorGrouping.Type,
+                DominatorGroupingDto.Namespace => DominatorGrouping.Namespace,
+                _ => DominatorGrouping.None,
+            };
+            var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
+            var view = await Task.Run(() => DominatorTreeRows.Build(graph, tree, focus, expanded, grouping, request.MaxChildren, cancellationToken), cancellationToken).ConfigureAwait(false);
+            var reveal = request.RevealKey is { } revealKey ? view.Rows.ToList().FindIndex(r => r.Key == revealKey) : -1;
+            var ancestors = view.Ancestors.Select(a => new DominatorAncestorDto(DominatorTreeRows.ObjectKey(graph.Addresses[a]), graph.Types.GetName(graph.TypeIndices[a]), graph.Addresses[a], (long)tree.RetainedSize(a))).ToArray();
 
-                var (tree, info) = await FocusAsync(request.SnapshotId, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
-
-                progress?.Report(new JobProgress("Listing retainers", 0, null));
-                var grouping = request.Grouping switch
-                {
-                    DominatorGroupingDto.Type => DominatorGrouping.Type,
-                    DominatorGroupingDto.Namespace => DominatorGrouping.Namespace,
-                    _ => DominatorGrouping.None,
-                };
-                var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
-                var view = await Task.Run(() => DominatorTreeRows.Build(graph, tree, focus, expanded, grouping, request.MaxChildren, cancellationToken), cancellationToken).ConfigureAwait(false);
-
-                // The rows as shown at the top (sprint 2.3.7 review H3): a disputed "biggest retainer" is answered from the log.
-                logger.LogInformation(
-                    "Dominator tree of snapshot {Id}: focus {Focus}, {Rows} rows{Truncated}, top level {TopLevel}, total retained {Total} bytes; first rows {First}",
-                    request.SnapshotId,
-                    focus >= 0 ? string.Create(CultureInfo.InvariantCulture, $"0x{request.FocusAddress:x}") : "root",
-                    view.Rows.Count,
-                    view.Truncated ? " (cut at the row limit)" : string.Empty,
-                    tree.ChildCount(tree.Root),
-                    view.TotalRetained,
-                    string.Join("; ", view.Rows.Take(10).Select(r => string.Create(CultureInfo.InvariantCulture, $"{r.Kind} {r.Name}{(r.Object >= 0 ? $" 0x{graph.Addresses[r.Object]:x}" : string.Empty)} retains {r.Retained}"))));
-                var rowAddresses = view.Rows.Select(r => r.Object >= 0 ? graph.Addresses[r.Object] : 0).ToArray();
-                var rows = resultSets.Add(new DominatorTreeSource(view, rowAddresses), lease);
-                return new DominatorTreeResult(
-                    rows,
-                    focus >= 0 ? DominatorTreeRows.ObjectKey(request.FocusAddress) : null,
-                    [.. view.Ancestors.Select(a => new DominatorAncestorDto(DominatorTreeRows.ObjectKey(graph.Addresses[a]), graph.Types.GetName(graph.TypeIndices[a]), graph.Addresses[a], (long)tree.RetainedSize(a)))],
-                    (long)view.FocusRetained,
-                    (long)view.TotalRetained,
-                    tree.ChildCount(tree.Root),
-                    view.Truncated,
-                    info);
-            }
-            catch
-            {
-                lease.Dispose();
-                throw;
-            }
+            // What the user looked at (sprint 2.3.7 review H3; the 2.4 review): the rows of the list just opened (or the
+            // top), the trail and the open keys, so a disputed row or trail is answered from the log. Types, addresses and
+            // sizes only (11).
+            string Describe(DominatorRow r) => string.Create(CultureInfo.InvariantCulture, $"{r.Kind} {r.Name}{(r.Object >= 0 ? $" 0x{graph.Addresses[r.Object]:x}" : string.Empty)} retains {r.Retained}");
+            var shown = reveal >= 0 && view.Rows[reveal].Expanded
+                ? view.Rows.Where(r => r.ParentKey == request.RevealKey).Take(LoggedRows)
+                : view.Rows.Take(LoggedRows);
+            logger.LogInformation(
+                "Dominator tree of snapshot {Id}: focus {Focus}, grouping {Grouping}, {Rows} rows{Truncated}, top level {TopLevel}, total retained {Total} bytes; trail ({Depth} dominators) {Trail}; {Open} open rows {Keys}; reveal {Reveal} at row {RevealIndex}; rows shown under it {Shown}",
+                request.SnapshotId,
+                focus >= 0 ? string.Create(CultureInfo.InvariantCulture, $"0x{request.FocusAddress:x}") : "root",
+                grouping,
+                view.Rows.Count,
+                view.Truncated ? " (cut at the row limit)" : string.Empty,
+                tree.ChildCount(tree.Root),
+                view.TotalRetained,
+                view.AncestorDepth,
+                string.Join(" > ", ancestors.Select(a => string.Create(CultureInfo.InvariantCulture, $"{a.Name} 0x{a.Address:x} ({a.Retained})"))),
+                request.Expanded.Count,
+                string.Join(", ", request.Expanded.Take(LoggedKeys)),
+                request.RevealKey ?? "none",
+                reveal,
+                string.Join("; ", shown.Select(Describe)));
+            var rowAddresses = view.Rows.Select(r => r.Object >= 0 ? graph.Addresses[r.Object] : 0).ToArray();
+            return new DominatorTreeResult(
+                resultSets.Add(new DominatorTreeSource(view, rowAddresses)),
+                focus >= 0 ? DominatorTreeRows.ObjectKey(request.FocusAddress) : null,
+                ancestors,
+                (long)view.FocusRetained,
+                (long)view.TotalRetained,
+                tree.ChildCount(tree.Root),
+                view.Truncated,
+                info,
+                view.AncestorDepth,
+                reveal);
         });
 
     public Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
@@ -158,7 +171,11 @@ internal sealed partial class WorkerService
         var tree = dominators.Dominators;
         if (focus >= 0 && !tree.IsReachable(focus))
         {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"No root reaches 0x{address:x}, so it retains nothing and is not in the dominator tree."));
+            // Why, for this kind of snapshot, and where to go instead (the 2.4 review).
+            var kind = snapshots.TryGet(snapshotId)?.Info.Kind ?? SnapshotKind.FullDump;
+            throw new ArgumentException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"0x{address:x} is not in the dominator tree. {RetentionMapping.UnreachableNote(kind)} It retains nothing; the biggest retainers show the tree from the top."));
         }
 
         return (tree, info);

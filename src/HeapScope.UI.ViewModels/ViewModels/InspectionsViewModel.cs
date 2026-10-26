@@ -193,27 +193,34 @@ public sealed partial class InspectionsViewModel : ObservableObject
             : NavigationTarget.Object(snapshot, target.Address));
     }
 
-    /// <summary>A row's object, or its type's group, in the dominator tree (sprint 2.4).</summary>
+    /// <summary>A row's object (when it names one), or its type's group, in the dominator tree (sprint 2.4).</summary>
     [RelayCommand]
     private void ShowInRetainers(CellRowItem? row)
     {
         if (row is { IsLoaded: true } && Snapshot is { } snapshot && TargetOf(row) is { } target)
         {
-            _navigator?.Navigate(target.Address != 0 && target.TypeName is null
+            _navigator?.Navigate(target.Address != 0
                 ? NavigationTarget.Retainers(snapshot, address: target.Address)
                 : NavigationTarget.Retainers(snapshot, typeName: target.TypeName, module: target.Module));
         }
     }
 
-    /// <summary>What a row's type's objects retain together (sprint 2.4); a row with an address only has no type to ask about.</summary>
-    [RelayCommand]
+    /// <summary>
+    /// What a row's objects retain together (sprint 2.4). Only for a row that stands for every object of its type: a
+    /// scoped row (some of a type's objects, such as the empty collections) would get the whole type's answer, so it is
+    /// off until sets narrower than a type exist (the 2.4 review; Backlog).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(IsWholeType))]
     private void RetainedBySet(CellRowItem? row)
     {
-        if (row is { IsLoaded: true } && Snapshot is { } snapshot && TargetOf(row) is { TypeName: { } typeName } target)
+        if (IsWholeType(row) && Snapshot is { } snapshot && TargetOf(row!) is { TypeName: { } typeName } target)
         {
             _navigator?.Navigate(NavigationTarget.RetainedBySet(snapshot, typeName, target.Module));
         }
     }
+
+    private static bool IsWholeType(CellRowItem? row) =>
+        row is { IsLoaded: true } && TargetOf(row) is { TypeName: not null, Scope: InstanceScope.All, Address: 0 };
 
     /// <summary>What a row opens: its hidden type, module and scope, or its address alone (ADR-020).</summary>
     public static InspectionTarget? TargetOf(CellRowItem row)

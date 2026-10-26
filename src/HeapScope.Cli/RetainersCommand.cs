@@ -60,9 +60,9 @@ internal static partial class CliCommands
         var top = new Option<int>("--top") { Description = "Rows per level: the biggest children of each expanded row (1 to 1,000).", DefaultValueFactory = _ => 20 };
         top.Validators.Add(result =>
         {
-            if (result.GetValueOrDefault<int>() is < 1 or > 1_000)
+            if (result.GetValueOrDefault<int>() is < DominatorTreeLimits.MinChildren or > DominatorTreeLimits.MaxChildren)
             {
-                result.AddError("--top must be between 1 and 1,000.");
+                result.AddError(string.Create(CultureInfo.InvariantCulture, $"--top must be between {DominatorTreeLimits.MinChildren} and {DominatorTreeLimits.MaxChildren:N0}."));
             }
         });
         var format = FormatOption();
@@ -95,21 +95,30 @@ internal static partial class CliCommands
             var grouping = s_groupings[parseResult.GetValue(group)!];
             var perLevel = parseResult.GetValue(top);
 
-            // Each level expands the rows of the one above it (the tree is flattened by the worker; keys survive re-runs).
+            // Each level expands the rows of the one above it (the tree is flattened by the worker; keys survive re-runs). It
+            // stops when the tree is cut or the open keys would pass the worker's limit, and says so (the 2.4 review).
             var expanded = new List<string>();
             DominatorTreeAnswer answer;
             List<IReadOnlyList<string?>> rows;
             var level = 0;
+            var wanted = parseResult.GetValue(depth);
             while (true)
             {
-                answer = await session.QueryDominatorTreeAsync(handle, expanded, grouping, focus, perLevel, progress: null, ct).ConfigureAwait(false);
+                answer = await session.QueryDominatorTreeAsync(handle, expanded, grouping, focus, perLevel, revealKey: null, progress: null, ct).ConfigureAwait(false);
                 rows = await FetchRowsAsync(answer.Rows, answer.Result.Rows.TotalCount, ct).ConfigureAwait(false);
                 var deepest = focus != 0 ? level + 1 : level;
-                var next = level < parseResult.GetValue(depth)
-                    ? Cells(answer, rows).Where(r => r.Depth == deepest && r.Children > 0 && r.Kind != "More").Select(r => r.Key).ToList()
+                var next = level < wanted && !answer.Result.Truncated
+                    ? Cells(answer, rows).Where(r => r.Depth == deepest && r.Children > 0 && r.Kind != DominatorRowKinds.More).Select(r => r.Key).ToList()
                     : [];
                 if (next.Count == 0)
                 {
+                    break;
+                }
+
+                if (expanded.Count + next.Count > DominatorTreeLimits.MaxExpanded)
+                {
+                    await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                        $"Note: shown to depth {level} of {wanted}: going deeper would open more than {DominatorTreeLimits.MaxExpanded:N0} rows; use a smaller --top or --address.")).ConfigureAwait(false);
                     break;
                 }
 
@@ -134,17 +143,27 @@ internal static partial class CliCommands
                             result.TotalRetained,
                             result.TopLevel,
                             result.Truncated,
+                            result.AncestorDepth,
                             Grouping = grouping.ToString(),
+                            Depth = level,
+                            Top = perLevel,
+                            RetainedBound = Bound(columns, DominatorTreeColumns.Retained).ToString(),
                             result.Dominators,
                             Rows = JsonRows(columns, rows),
                         }).ConfigureAwait(false);
                     break;
                 default:
-                    await output.WriteLineAsync(RetainedNote(result.Dominators) + " Retained per row: exact (siblings never share).").ConfigureAwait(false);
+                    await output.WriteLineAsync(RetainedNote(result.Dominators) + " Retained per row: " + ValueBoundTexts.For(Bound(columns, DominatorTreeColumns.Retained))).ConfigureAwait(false);
                     if (focus != 0)
                     {
+                        var trail = result.Ancestors.Select(a => $"{a.Name} {Hex(a.Address)}").ToList();
+                        if (result.AncestorDepth > result.Ancestors.Count)
+                        {
+                            trail.Insert(Math.Min(DominatorTreeLimits.TrailHead, trail.Count), string.Create(CultureInfo.InvariantCulture, $"({result.AncestorDepth - result.Ancestors.Count:N0} more)"));
+                        }
+
                         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{Hex(focus)} retains {result.FocusRetained:N0} bytes of {result.TotalRetained:N0} reachable; dominated by {(result.Ancestors.Count == 0 ? "the roots only" : string.Join(" > ", result.Ancestors.Select(a => $"{a.Name} {Hex(a.Address)}")))}")).ConfigureAwait(false);
+                            $"{Hex(focus)} retains {result.FocusRetained:N0} bytes of {result.TotalRetained:N0} reachable; dominated by {(trail.Count == 0 ? "the roots only" : string.Join(" > ", trail))}")).ConfigureAwait(false);
                     }
                     else
                     {
@@ -156,15 +175,17 @@ internal static partial class CliCommands
                     foreach (var row in Cells(answer, rows))
                     {
                         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{row.Retained,16:N0} {row.Percent,7} {row.Objects,12:N0} {row.Address,-18}  {new string(' ', 2 * row.Depth)}{row.Name}{(row.Kind == "Group" && row.Module is { Length: > 0 } groupModule ? $" [{groupModule}]" : string.Empty)}")).ConfigureAwait(false);
-                    }
-
-                    if (result.Truncated)
-                    {
-                        await error.WriteLineAsync("Note: the tree was cut at its row limit; use a smaller --depth or --top.").ConfigureAwait(false);
+                            $"{row.Retained,16:N0} {row.Percent,7} {row.Objects,12:N0} {row.Address,-18}  {new string(' ', 2 * row.Depth)}{row.Name}{(row.Kind == DominatorRowKinds.Group && row.Module is { Length: > 0 } groupModule ? $" [{groupModule}]" : string.Empty)}")).ConfigureAwait(false);
                     }
 
                     break;
+            }
+
+            // Every format: a cut tree must not pass for a whole one (the 2.4 review).
+            if (result.Truncated)
+            {
+                await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                    $"Note: the tree was cut at {DominatorTreeLimits.MaxRows:N0} rows; use a smaller --depth or --top, or --address to start lower.")).ConfigureAwait(false);
             }
 
             await ReleaseQuietlyAsync(answer.Rows, ct).ConfigureAwait(false);
@@ -207,14 +228,9 @@ internal static partial class CliCommands
                 return Failure;
             }
 
+            // A type that matches nothing is refused by the worker before it computes anything.
             var answer = await session.QueryRetainedBySetAsync(handle, typeName, moduleName, progress: null, ct).ConfigureAwait(false);
             var result = answer.Result;
-            if (result.MatchedTypes == 0)
-            {
-                await error.WriteLineAsync($"Error: there is no type {typeName} in module '{moduleName}' in this snapshot.").ConfigureAwait(false);
-                await ReleaseQuietlyAsync(answer.Rows, ct).ConfigureAwait(false);
-                return Failure;
-            }
 
             var rows = await FetchRowsAsync(answer.Rows, parseResult.GetValue(all) ? result.Types.TotalCount : Math.Min(parseResult.GetValue(top), result.Types.TotalCount), ct).ConfigureAwait(false);
             var columns = answer.Rows.Info.Columns;
@@ -229,6 +245,7 @@ internal static partial class CliCommands
                             TypeName = typeName,
                             Module = moduleName,
                             result.MatchedTypes,
+                            result.AllObjects,
                             result.SetObjects,
                             result.SetBytes,
                             result.RetainedObjects,
@@ -243,12 +260,13 @@ internal static partial class CliCommands
                 default:
                     await output.WriteLineAsync(RetainedNote(result.Dominators)).ConfigureAwait(false);
                     await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                        $"{result.SetObjects:N0} objects of {typeName} ({moduleName}), {result.SetBytes:N0} bytes, retain {result.RetainedObjects:N0} objects of {result.RetainedBytes:N0} bytes exactly; the summary's lower bound is {result.LowerBoundBytes:N0}. {result.Types.TotalCount:N0} types, showing {rows.Count:N0}")).ConfigureAwait(false);
+                        $"{result.SetObjects:N0} reachable objects of {typeName} ({moduleName}), {result.SetBytes:N0} bytes{(result.AllObjects > result.SetObjects ? $" ({result.AllObjects - result.SetObjects:N0} more that no root reaches retain nothing)" : string.Empty)}, retain {result.RetainedObjects:N0} objects of {result.RetainedBytes:N0} bytes exactly; the summary's lower bound is {result.LowerBoundBytes:N0}. {result.Types.TotalCount:N0} types, showing {rows.Count:N0}")).ConfigureAwait(false);
                     await output.WriteLineAsync($"{"Objects",12} {"Retained",16} {"%",7}  Type").ConfigureAwait(false);
+                    var (name, objects, retained, percent) = (At(columns, RetainedBySetColumns.Name), At(columns, RetainedBySetColumns.Objects), At(columns, RetainedBySetColumns.Retained), At(columns, RetainedBySetColumns.Percent));
                     foreach (var row in rows)
                     {
                         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{Long(row[1]),12:N0} {Long(row[2]),16:N0} {row[3],7}  {row[0]}")).ConfigureAwait(false);
+                            $"{Long(row[objects]),12:N0} {Long(row[retained]),16:N0} {row[percent],7}  {row[name]}")).ConfigureAwait(false);
                     }
 
                     break;
@@ -259,6 +277,23 @@ internal static partial class CliCommands
         }));
         return command;
     }
+
+    /// <summary>A column's index by name (cells are read by name, the 2.4 review).</summary>
+    private static int At(IReadOnlyList<ResultColumn> columns, string name)
+    {
+        for (var i = 0; i < columns.Count; i++)
+        {
+            if (columns[i].Name == name)
+            {
+                return i;
+            }
+        }
+
+        throw new InvalidOperationException($"The worker's result has no {name} column. The worker and the CLI are from different builds.");
+    }
+
+    /// <summary>Whether a column's values are exact or lower bounds, as the worker says (2.3.7 review M7).</summary>
+    private static ValueBound Bound(IReadOnlyList<ResultColumn> columns, string name) => columns[At(columns, name)].Bound;
 
     /// <summary>The tree's rows by column name.</summary>
     private static IEnumerable<TreeCells> Cells(DominatorTreeAnswer answer, List<IReadOnlyList<string?>> rows)

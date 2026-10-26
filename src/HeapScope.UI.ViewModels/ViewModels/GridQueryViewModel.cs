@@ -137,6 +137,14 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
         OnCleared();
     }
 
+    /// <summary>
+    /// Runs once a query's rows are bound (sprint 2.4 review): what must refer to the new rows, such as selecting one,
+    /// happens here, not in the query's apply step, which runs while the old rows are still shown.
+    /// </summary>
+    protected virtual void OnRowsApplied()
+    {
+    }
+
     /// <summary>Clears results specific to the grid (bars, explanations).</summary>
     protected virtual void OnCleared()
     {
@@ -228,6 +236,7 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
             Rows.Cancel();
             Rows = rows;
             Status = query.Handle.Info.TotalCount == 0 ? EmptyText : null;
+            OnRowsApplied();
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {

@@ -46,7 +46,7 @@ namespace HeapScope.UI.Controls;
 /// <item><c>VisibleColumnGroups</c>: a column tagged with a group name (<see cref="ColumnGroups"/>) is shown when the
 /// group is in the list (columns are outside the visual tree, so they cannot bind themselves; 2.3.7 review M13).</item>
 /// <item><c>ExpandCommand</c> and <c>CollapseCommand</c>: the Right and Left keys on the selected row (the dominator
-/// tree, sprint 2.4).</item>
+/// tree, sprint 2.4); <c>ScrollToSelection</c> keeps the selected row in view when the view model selects one.</item>
 /// <item><c>ResultColumns</c>: columns built from a result set's column list (inspections, sprint 1.6).</item>
 /// </list>
 /// </summary>
@@ -72,6 +72,9 @@ public static class GridBehaviors
 
     public static readonly AttachedProperty<ICommand?> CollapseCommandProperty =
         AvaloniaProperty.RegisterAttached<DataGrid, ICommand?>("CollapseCommand", typeof(GridBehaviors));
+
+    public static readonly AttachedProperty<bool> ScrollToSelectionProperty =
+        AvaloniaProperty.RegisterAttached<DataGrid, bool>("ScrollToSelection", typeof(GridBehaviors));
 
     public static readonly AttachedProperty<IReadOnlyList<(ResultColumn Column, int Index)>?> ResultColumnsProperty =
         AvaloniaProperty.RegisterAttached<DataGrid, IReadOnlyList<(ResultColumn Column, int Index)>?>("ResultColumns", typeof(GridBehaviors));
@@ -108,6 +111,14 @@ public static class GridBehaviors
         ExpandCommandProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchKeys(grid));
         CollapseCommandProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchKeys(grid));
         VisibleColumnGroupsProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchColumns(grid));
+        ScrollToSelectionProperty.Changed.AddClassHandler<DataGrid>((grid, e) =>
+        {
+            grid.SelectionChanged -= OnSelectionChanged;
+            if (e.NewValue is true)
+            {
+                grid.SelectionChanged += OnSelectionChanged;
+            }
+        });
         ResultColumnsProperty.Changed.AddClassHandler<DataGrid>((grid, e) => BuildColumns(grid, e.NewValue as IReadOnlyList<(ResultColumn Column, int Index)>));
     }
 
@@ -138,6 +149,10 @@ public static class GridBehaviors
     public static ICommand? GetCollapseCommand(DataGrid grid) => grid?.GetValue(CollapseCommandProperty);
 
     public static void SetCollapseCommand(DataGrid grid, ICommand? value) => grid?.SetValue(CollapseCommandProperty, value);
+
+    public static bool GetScrollToSelection(DataGrid grid) => grid?.GetValue(ScrollToSelectionProperty) ?? false;
+
+    public static void SetScrollToSelection(DataGrid grid, bool value) => grid?.SetValue(ScrollToSelectionProperty, value);
 
     public static IReadOnlyList<(ResultColumn Column, int Index)>? GetResultColumns(DataGrid grid) => grid?.GetValue(ResultColumnsProperty);
 
@@ -219,10 +234,19 @@ public static class GridBehaviors
             Key.Left => GetCollapseCommand(grid),
             _ => null,
         };
-        if (command is not null)
+        // Handled only when it did something, so an arrow on a leaf still moves as the grid would (the 2.4 review).
+        if (command is not null && Run(command, item))
         {
-            Run(command, item);
             e.Handled = true;
+        }
+    }
+
+    // The view model selects the row it kept the user's place on; bring it into view (the 2.4 review).
+    private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is DataGrid { SelectedItem: { } item } grid)
+        {
+            grid.ScrollIntoView(item, null);
         }
     }
 
@@ -234,12 +258,15 @@ public static class GridBehaviors
         }
     }
 
-    private static void Run(ICommand command, object item)
+    private static bool Run(ICommand command, object item)
     {
-        if (command.CanExecute(item))
+        if (!command.CanExecute(item))
         {
-            command.Execute(item);
+            return false;
         }
+
+        command.Execute(item);
+        return true;
     }
 
     private static void BuildColumns(DataGrid grid, IReadOnlyList<(ResultColumn Column, int Index)>? columns)

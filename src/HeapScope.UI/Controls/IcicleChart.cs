@@ -108,7 +108,7 @@ public sealed class IcicleChart : Control
         ArgumentNullException.ThrowIfNull(e);
         base.OnPointerPressed(e);
         var point = e.GetPosition(this);
-        if (IcicleGeometry.HitTest(_bars, point.X, point.Y) is not { } segment)
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || IcicleGeometry.HitTest(_bars, point.X, point.Y) is not { } segment)
         {
             return;
         }

@@ -28,6 +28,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:dto="using:HeapScope.Contracts"
              x:Class="HeapScope.UI.Views.Pages.InspectionsTab"
              x:DataType="vm:SnapshotsViewModel">
   <UserControl.Styles>
@@ -102,7 +103,7 @@
       <DataGrid.ContextMenu>
         <ContextMenu>
           <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
-          <MenuItem Header="Objects retained by this set" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
+          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
         </ContextMenu>
       </DataGrid.ContextMenu>
     </DataGrid>

@@ -25,7 +25,8 @@ namespace HeapScope.Analysis.Retention;
 
 /// <summary>
 /// A flattened dominator tree (sprint 2.4): its rows in display order, whether they were cut at
-/// <see cref="DominatorTreeRows.MaxRows"/>, the focus's ancestors from the top (object indices), the bytes the focus
-/// retains and the reachable heap's total.
+/// <see cref="DominatorTreeRows.MaxRows"/>, the focus's ancestors from the top (object indices; a long trail keeps its top
+/// and its nearest, <see cref="DominatorTreeRows.TrailHead"/> and <see cref="DominatorTreeRows.TrailTail"/>) and how
+/// many there are, the bytes the focus retains and the reachable heap's total.
 /// </summary>
-public sealed record DominatorTreeView(IReadOnlyList<DominatorRow> Rows, bool Truncated, IReadOnlyList<int> Ancestors, ulong FocusRetained, ulong TotalRetained);
+public sealed record DominatorTreeView(IReadOnlyList<DominatorRow> Rows, bool Truncated, IReadOnlyList<int> Ancestors, int AncestorDepth, ulong FocusRetained, ulong TotalRetained);

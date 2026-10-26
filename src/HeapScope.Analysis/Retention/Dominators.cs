@@ -53,7 +53,7 @@ public sealed class Dominators : IDisposable
     /// <summary>The tree's row offsets (sprint 2.4): n + 2 elements, vertex n is the virtual root (<see cref="DominatorTree.BuildChildren"/>).</summary>
     public Column<int> ChildStarts { get; }
 
-    /// <summary>The tree's children, each vertex's slice largest retained size first.</summary>
+    /// <summary>The tree's children, each vertex's slice in object index order (<see cref="RetainedOrder"/> orders them by size).</summary>
     public Column<int> Children { get; }
 
     public int ObjectCount => ImmediateDominators.Length;
@@ -73,7 +73,7 @@ public sealed class Dominators : IDisposable
         DominatorTree.Compute(graph, reverse, idom, retained, progress, cancellationToken);
         var starts = new int[graph.ObjectCount + 2];
         var children = new int[graph.ObjectCount];
-        DominatorTree.BuildChildren(idom, retained, starts, children, cancellationToken);
+        DominatorTree.BuildChildren(idom, starts, children, cancellationToken);
         return new Dominators(Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), Column<int>.FromArray(starts), Column<int>.FromArray(children), owner: null);
     }
 
@@ -95,7 +95,7 @@ public sealed class Dominators : IDisposable
 
     /// <summary>
     /// The children of <paramref name="vertex"/> in the dominator tree (an object index, or <see cref="Root"/> for the
-    /// top-level dominators), largest retained size first. Sprint 2.4.
+    /// top-level dominators), in object index order. Sprint 2.4.
     /// </summary>
     public ReadOnlySpan<int> ChildrenOf(int vertex)
     {

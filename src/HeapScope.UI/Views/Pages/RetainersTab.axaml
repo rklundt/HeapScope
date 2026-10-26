@@ -53,15 +53,15 @@
               ToolTip.Tip="Back to the top of the tree: the objects that alone keep the most alive" />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
     </WrapPanel>
-    <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Ancestors}" IsVisible="{Binding HasFocus}" Margin="0,0,8,2">
+    <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Trail}" IsVisible="{Binding HasFocus}" Margin="0,0,8,2">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate>
           <WrapPanel />
         </ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="dto:DominatorAncestorDto">
-          <Button Classes="crumb" Content="{Binding Name}"
+        <DataTemplate x:DataType="vm:TrailItem">
+          <Button Classes="crumb" Content="{Binding Text}" IsEnabled="{Binding IsLink}"
                   Command="{Binding $parent[ItemsControl].((vm:RetainersViewModel)DataContext).FocusAncestorCommand}" CommandParameter="{Binding}"
                   ToolTip.Tip="Show the tree below this dominator" />
         </DataTemplate>
@@ -83,7 +83,7 @@
         <DockPanel DockPanel.Dock="Top">
           <Button DockPanel.Dock="Right" Content="Close" Command="{Binding HideCommand}" />
           <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-            <Run Text="Objects retained by all " /><Run Text="{Binding TypeName}" />
+            <Run Text="{x:Static vm:RetainedBySetViewModel.Title}" /><Run Text=": all " /><Run Text="{Binding TypeName}" />
           </TextBlock>
         </DockPanel>
         <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,2,0,2" />
@@ -105,10 +105,10 @@
               ToolTip.Tip="All objects of the selected row's type" />
       <Button Content="Why alive" Margin="0,0,6,0" Command="{Binding OpenPathsCommand}" CommandParameter="{Binding SelectedRow}"
               ToolTip.Tip="The selected object's retention paths from the roots" />
-      <Button Content="Retained by all of this type" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding SelectedRow}"
+      <Button Content="{x:Static vm:RetainersViewModel.SetActionText}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding SelectedRow}"
               ToolTip.Tip="What every object of the selected row's type keeps alive together, exactly" />
     </WrapPanel>
-    <DataGrid x:Name="TreeGrid" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+    <DataGrid x:Name="TreeGrid" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ctl:GridBehaviors.ExpandCommand="{Binding ExpandCommand}" ctl:GridBehaviors.CollapseCommand="{Binding CollapseCommand}"

@@ -82,7 +82,7 @@ internal static class DominatorsBenchmark
                 var ((dominators, reachable), time, peak) = Phase(() => Compute(graph, reverse, mode, sidecar, fingerprint, layout));
                 using (dominators)
                 {
-                    Measurement.Line("Dominators and retained sizes", $"{time.TotalSeconds:N1} s, {reachable:N0} reachable, {Measurement.Mb(dominators.ColumnBytes)} kept, peak {Measurement.Mb(peak)}");
+                    Measurement.Line("Dominators and retained sizes", $"{time.TotalSeconds:N1} s (the tree's children {s_childrenTime.TotalSeconds:N1} s), {reachable:N0} reachable, {Measurement.Mb(dominators.ColumnBytes)} kept, peak {Measurement.Mb(peak)}");
                     var (groups, groupTime, groupPeak) = Phase(() =>
                     {
                         var byType = TypeGroups.GroupOfType(graph, GroupKey.Type, out var names);
@@ -156,6 +156,9 @@ internal static class DominatorsBenchmark
         return ReverseReferences.FromColumns(graph, starts, edges, file);
     }
 
+    // The children pass's share of the dominators phase (the 2.4 review).
+    private static TimeSpan s_childrenTime;
+
     private static (Dominators Dominators, int Reachable) Compute(HeapGraph graph, ReverseReferences reverse, MemoryMode mode, string sidecar, SnapshotFingerprint fingerprint, IndexFileLayout layout)
     {
         if (mode == MemoryMode.InMemory)
@@ -163,9 +166,14 @@ internal static class DominatorsBenchmark
             var idom = GC.AllocateUninitializedArray<int>(graph.ObjectCount);
             var retained = GC.AllocateUninitializedArray<ulong>(graph.ObjectCount);
             var count = DominatorTree.Compute(graph, reverse, idom, retained);
+
+            // As the worker does: the working arrays are collected before the children are allocated (the 2.4 review).
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
             var starts = new int[graph.ObjectCount + 2];
             var children = new int[graph.ObjectCount];
-            DominatorTree.BuildChildren(idom, retained, starts, children);
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            DominatorTree.BuildChildren(idom, starts, children);
+            s_childrenTime = timer.Elapsed;
             return (Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), Column<int>.FromArray(starts), Column<int>.FromArray(children), null), count);
         }
 
@@ -182,7 +190,9 @@ internal static class DominatorsBenchmark
             var idom = writer.GetSection<int>(IndexSection.ImmediateDominators);
             var retained = writer.GetSection<ulong>(IndexSection.RetainedSizes);
             reachable = DominatorTree.Compute(graph, reverse, idom, retained);
-            DominatorTree.BuildChildren(idom, retained, writer.GetSection<int>(IndexSection.DominatorChildStarts), writer.GetSection<int>(IndexSection.DominatorChildren));
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            DominatorTree.BuildChildren(idom, writer.GetSection<int>(IndexSection.DominatorChildStarts), writer.GetSection<int>(IndexSection.DominatorChildren));
+            s_childrenTime = timer.Elapsed;
             writer.Commit(fingerprint, 0, layout.SemanticsVersion);
         }
 

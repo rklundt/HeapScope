@@ -2016,7 +2016,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
    (no `List<object>`, no reflection binding); `SnapshotTabs` and `ReferenceTabs` enums instead of numbers; the navigator
    passed to grid view models by constructor; `SnapshotTab.axaml` split into a view per subject. Tests: the existing
    navigator and view tests; a navigation target per kind lands on its tab and subject.
-2. [x] Dominator children (2.3.7 M9, ADR-027): the dominator tree's children as a CSR sorted by retained size
+2. [x] Dominator children (2.3.7 M9, ADR-027): the dominator tree's children as a CSR (index order since the review, H5)
    (`DominatorTree.BuildChildren`), stored as two more sections of the dominators sidecar (semantics version 2, so older
    sidecars rebuild once) and in memory without one; kept bytes 12 to 20 per object; ARCHITECTURE 6.4 updated. Tests:
    children order and coverage on synthetic graphs; sidecar round trip; an old sidecar is refused.
@@ -2051,7 +2051,8 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 
 **Decisions** (decided autonomously from the recommended defaults)
 1. The children of the dominator tree are stored, not scanned per expand: a scan reads every object's dominator
-   (57.5 million on Medium) per click; stored children cost 8 bytes per object once and make an expand a slice read.
+   (57.5 million on Medium) per click; stored children cost 8 bytes per object once and make an expand a slice read
+   (the review's H5: kept in index order; a query orders only the rows it shows).
    They live in the dominators sidecar (new sections, semantics version 2), so existing sidecars are rebuilt once.
 2. Tree rows are keyed by address (objects) and by parent key plus group name (groups), so a re-run after a worker
    restart keeps the expansion; at most 100 children per node with a "more" row that expands by 100, and at most
@@ -2077,7 +2078,24 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
     (Backlog).
 14. The README has no command list (it points to `--help`), so it needed no change.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (`docs/reviews/sprint-2.4.md`): four reviewers (solution-architect, senior-dev, gc-specialist, and
+a support and system analyst). 5 High, 15 Moderate, 24 Low after dedupe.
+- High, all fixed and confirmed: set retention reserves its memory and uses a chunked stack (H1); the focus trail keeps
+  the top 3 and nearest 20 dominators (H2); the toggled or linked row stays selected and in view in the new rows (H3,
+  `RevealKey` and `RevealIndex`, `OnRowsApplied`, `ScrollToSelection`); the acceptance test also runs on a live LeakyApi
+  dump (H4); the tree's children are kept in index order and only shown rows are ordered (H5: Medium's dominators 13.4
+  to 6.4 s, peak 3,747 to 3,291 MB).
+- Moderate (decided autonomously): 13 fixed now (a message when a type has no top-level group; Contracts owns the
+  tree's kinds, keys and limits; texts from the column's bound and one name for the set action; grouped trees cost what
+  they show; published limits and CLI notes in every format; re-measured docs; provenance of what the user looked at
+  and of each action; reachable versus all members; an unreachable focus's next step; a depth limit; set retention
+  checked against ClrMD; a bar with no loaded row; scoped inspection rows; test and fake fidelity); deferred: a
+  `ValueBound.Approximate` and caveat codes, one type entry among several of a name (Backlog).
+- Measured (Release, 32 GB machine): Medium dominators with the children 6.4 to 6.9 s in memory (peak 3,291 MB), 11.4 s
+  mapped (697 MB), 1,097 MB kept; DenseHeap 7.3 s in memory (3,877 MB), 10.6 s mapped (658 MB); set retention of 3.2M
+  objects 3.3 s; a tree query 0.03 s; the UI smoke run's Retainers drill warm: lag 50 ms, longest operation 32 ms.
+- Both acceptance runs: every leak of LeakyConsole and of LeakyApi is at most three expansions from the biggest
+  retainers (three need none, the unbounded dictionary one, the event handlers three).
 
 ---
 
@@ -2260,6 +2278,17 @@ switches.
 
 - Set retention of a namespace or an assembly (from 2.4): "objects retained by this set" takes one type; a scope
   of several types is the same pass with more types marked.
+- Sets narrower than a type (from the 2.4 review M14): "objects retained by this set" for an inspection's scoped row
+  (the empty collections, one duplicate string's copies); it is off for those rows until then.
+- Place a type's objects in the dominator tree (from the 2.4 review M1): "Show in dominator tree" from a type row opens
+  its top-level group, which a leak's item type rarely has; group its objects by their top-level dominator instead.
+- `ValueBound.Approximate` and caveat codes (from the 2.4 review M3, an ADR-024 amendment): a result on an incomplete
+  graph or a gcdump says its retained values may be overstated through the column, not only in free text.
+- One type entry among several with one name and module (from the 2.4 review M12): the set and the tree's Type grouping
+  take every entry of the name; naming one entry (an unloaded `AssemblyLoadContext`'s stale copy) is an additive field.
+- Reveal an icicle bar's row by opening its dominator path (from the 2.4 review M13).
+- The navigator's history at the Snapshots page level, keyed by `NavigationTarget`, so Back returns from the Retainers
+  tab (from the 2.4 review L14; with 2.7's history).
 - Extract the type grid toolbar (2.3.7 M14 rest, from 2.4): group by, filter and totals are repeated on the types
   grid and the Compare tab; extract it when a third grid needs it.
 - Typed fake rows for the older fakes (2.3.7 M15 rest, from 2.4): the type, instance and reference fakes still take

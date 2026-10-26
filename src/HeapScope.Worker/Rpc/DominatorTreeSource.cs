@@ -63,7 +63,12 @@ internal sealed class DominatorTreeSource(DominatorTreeView view, ulong[] rowAdd
         cells[0] = row.Key;
         cells[1] = row.ParentKey;
         cells[2] = row.Depth.ToString(CultureInfo.InvariantCulture);
-        cells[3] = row.Kind.ToString();
+        cells[3] = row.Kind switch
+        {
+            DominatorRowKind.Group => DominatorRowKinds.Group,
+            DominatorRowKind.More => DominatorRowKinds.More,
+            _ => DominatorRowKinds.Object,
+        };
         cells[4] = row.Name;
         cells[5] = row.Module;
         cells[6] = row.Object >= 0 ? "0x" + rowAddresses[index].ToString("x", CultureInfo.InvariantCulture) : null;

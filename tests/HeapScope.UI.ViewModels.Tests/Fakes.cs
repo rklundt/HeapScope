@@ -488,13 +488,22 @@ internal sealed class FakeWorkerService : IWorkerService
         TreeQueries.Add(request);
         var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
         var focus = request.FocusAddress == 0 ? null : TreeNodes.FirstOrDefault(n => n.Address == request.FocusAddress);
+        var total = TreeNodes.Where(n => n.ParentKey.Length == 0).Sum(n => n.Retained);
         var rows = new List<IReadOnlyList<string?>>();
+        var keys = new List<string>();
+        int ChildCount(FakeTreeNode node) => TreeNodes.Count(n => n.ParentKey == node.Key);
+        void Add(FakeTreeNode node, int depth, bool open)
+        {
+            rows.Add(node.Cells(depth, open, ChildCount(node), total));
+            keys.Add(node.Key);
+        }
+
         void Emit(string parent, int depth)
         {
             foreach (var node in TreeNodes.Where(n => n.ParentKey == parent))
             {
-                var open = expanded.Contains(node.Key) && TreeNodes.Any(n => n.ParentKey == node.Key);
-                rows.Add(node.Cells(depth, open));
+                var open = expanded.Contains(node.Key) && ChildCount(node) > 0;
+                Add(node, depth, open);
                 if (open)
                 {
                     Emit(node.Key, depth + 1);
@@ -502,9 +511,16 @@ internal sealed class FakeWorkerService : IWorkerService
             }
         }
 
+        // The focus's dominators from the top: its parents by key.
+        var ancestors = new List<DominatorAncestorDto>();
         if (focus is not null)
         {
-            rows.Add(focus.Cells(0, true));
+            for (var parent = TreeNodes.FirstOrDefault(n => n.Key == focus.ParentKey); parent is not null; parent = TreeNodes.FirstOrDefault(n => n.Key == parent.ParentKey))
+            {
+                ancestors.Insert(0, new DominatorAncestorDto(parent.Key, parent.Name, parent.Address, parent.Retained));
+            }
+
+            Add(focus, 0, true);
             Emit(focus.Key, 1);
         }
         else
@@ -514,26 +530,17 @@ internal sealed class FakeWorkerService : IWorkerService
 
         var id = Guid.NewGuid();
         _sets[id] = rows;
-        var columns = new ResultColumn[]
-        {
-            new(DominatorTreeColumns.Key, ResultColumnKind.Text, IsKey: true), new(DominatorTreeColumns.ParentKey, ResultColumnKind.Text),
-            new(DominatorTreeColumns.Depth, ResultColumnKind.Integer), new(DominatorTreeColumns.Kind, ResultColumnKind.Text),
-            new(DominatorTreeColumns.Name, ResultColumnKind.Text), new(DominatorTreeColumns.Module, ResultColumnKind.Text),
-            new(DominatorTreeColumns.Address, ResultColumnKind.Address), new(DominatorTreeColumns.Objects, ResultColumnKind.Integer),
-            new(DominatorTreeColumns.Retained, ResultColumnKind.Bytes), new(DominatorTreeColumns.Bytes, ResultColumnKind.Bytes),
-            new(DominatorTreeColumns.Percent, ResultColumnKind.Percent), new(DominatorTreeColumns.Children, ResultColumnKind.Integer),
-            new(DominatorTreeColumns.Expanded, ResultColumnKind.Integer),
-        };
-        var total = TreeNodes.Where(n => n.ParentKey.Length == 0).Sum(n => n.Retained);
         return Task.FromResult(new DominatorTreeResult(
-            new ResultSetInfo(id, rows.Count, columns),
+            new ResultSetInfo(id, rows.Count, FakeTreeNode.Columns),
             focus?.Key,
-            [],
+            [.. ancestors.Take(DominatorTreeLimits.TrailHead), .. ancestors.Skip(DominatorTreeLimits.TrailHead).TakeLast(DominatorTreeLimits.TrailTail)],
             focus?.Retained ?? total,
             total,
             TreeNodes.Count(n => n.ParentKey.Length == 0),
             false,
-            Dominators));
+            Dominators,
+            ancestors.Count,
+            request.RevealKey is { } reveal ? keys.IndexOf(reveal) : -1));
     }
 
     /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>

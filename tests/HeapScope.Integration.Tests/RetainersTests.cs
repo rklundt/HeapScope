@@ -62,21 +62,55 @@ public sealed class RetainersTests : IClassFixture<AllLeaksDump>, IAsyncDisposab
     public async Task Every_leak_is_three_expansions_or_fewer_from_the_biggest_retainers()
     {
         var handle = await _session.StartOpen(_dump).Result;
+
+        (await LeakMissesAsync(handle, _shared.Dump)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Every_LeakyApi_leak_is_three_expansions_or_fewer_from_the_biggest_retainers()
+    {
+        // The acceptance criterion names LeakyApi (the 2.4 review): an ASP.NET heap, with its container and statics, has
+        // many more top-level retainers and deeper chains than the console fixture.
+        using var api = await FixtureProcess.StartApiAsync("--Leaks:Enabled=all", "--Leaks:ItemsPerRequest=100", "--Leaks:PayloadBytes=32", "--Leaks:Publishers=64");
+        await api.PostWorkAsync(10, Ct);
+        var path = _folder.File("api.dmp");
+        api.CaptureDump(path);
+        using var dump = DumpAnalysis.Open(path);
+        var handle = await _session.StartOpen(path).Result;
+
+        (await LeakMissesAsync(handle, dump)).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// For each leak of the catalog: its first item's dominators from the top, the expansions from the biggest retainers to
+    /// its growing collection or its items (at most <see cref="MaxClicks"/>), and the rows those expansions show. Returns
+    /// what fails.
+    /// </summary>
+    private async Task<List<string>> LeakMissesAsync(SnapshotHandle handle, DumpAnalysis dump)
+    {
         var top = await TreeAsync(handle, []);
         var misses = new List<string>();
         foreach (var name in LeakCatalog.All.Select(l => l.Name))
         {
             var answer = KnownAnswer.Load(name);
             var itemType = answer.Types[0].Type;
-            var item = _shared.Dump.Instances(itemType).First();
+            var item = dump.Instances(itemType).First();
+            var itemKey = DominatorTreeKeys.Object(item.Address);
 
             // The item's dominators from the top: the row a user starts from, then each row to expand.
-            var focus = await _session.QueryDominatorTreeAsync(handle, [], DominatorGroupingDto.None, item.Address, 1, null, Ct);
+            var focus = await _session.QueryDominatorTreeAsync(handle, [], DominatorGroupingDto.None, item.Address, 1, null, null, Ct);
             await focus.Rows.ReleaseAsync(Ct);
             var chain = focus.Result.Ancestors;
+            if (focus.Result.AncestorDepth > chain.Count)
+            {
+                misses.Add($"{name}: {focus.Result.AncestorDepth} dominators deep");
+                continue;
+            }
+
             var collection = chain.Select((a, i) => (a, i)).FirstOrDefault(x => x.a.Name == answer.GrowingCollection).i;
             var clicks = chain.Any(a => a.Name == answer.GrowingCollection) ? collection : chain.Count;
-            if (chain.Count == 0 || !top.Any(r => r[DominatorTreeColumns.Key] == chain[0].Key))
+            var start = chain.Count > 0 ? chain[0].Key : itemKey;
+            if (!top.Any(r => r[DominatorTreeColumns.Key] == start))
             {
                 misses.Add($"{name}: its top dominator is not among the biggest retainers shown");
                 continue;
@@ -99,7 +133,7 @@ public sealed class RetainersTests : IClassFixture<AllLeaksDump>, IAsyncDisposab
             }
         }
 
-        misses.ShouldBeEmpty();
+        return misses;
     }
 
     [Fact]
@@ -163,7 +197,7 @@ public sealed class RetainersTests : IClassFixture<AllLeaksDump>, IAsyncDisposab
 
     private async Task<List<Dictionary<string, string?>>> TreeAsync(SnapshotHandle handle, IReadOnlyList<string> expanded)
     {
-        var answer = await _session.QueryDominatorTreeAsync(handle, expanded, DominatorGroupingDto.None, 0, 100, null, Ct);
+        var answer = await _session.QueryDominatorTreeAsync(handle, expanded, DominatorGroupingDto.None, 0, 100, null, null, Ct);
         var rows = await RetainedSizesTests.AllRowsAsync(answer.Rows);
         await answer.Rows.ReleaseAsync(Ct);
         return rows;

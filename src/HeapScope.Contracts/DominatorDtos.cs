@@ -38,8 +38,9 @@ public enum DominatorGroupingDto
 
 /// <summary>
 /// The dominator tree's row keys (sprint 2.4), for clients that link into the tree: an object's is <c>o:</c> and its
-/// address in hex; a group's extends its list's key (the top level's is empty) with <c>|g:</c> and the group's name, which
-/// for a type is its name and module file name in brackets. The worker's tree uses the same format (a test checks it).
+/// address in hex; a group's extends its list's key (the top level's is empty) with <c>|g:</c> and the group's name (a
+/// type's name and module file name in brackets, or a namespace); a "more" row's extends it with <c>|m:</c> and how many
+/// rows precede it. Contracts owns the format; the worker's tree mirrors it (ADR-016, a test checks every form).
 /// </summary>
 public static class DominatorTreeKeys
 {
@@ -48,9 +49,50 @@ public static class DominatorTreeKeys
 
     public static string Object(ulong address) => "o:" + address.ToString("x", System.Globalization.CultureInfo.InvariantCulture);
 
+    /// <summary>A group's name as its key carries it.</summary>
+    public static string GroupName(string name, string? module) => string.IsNullOrEmpty(module) ? name : name + " [" + module + "]";
+
     /// <summary>A type's group in the list <paramref name="listKey"/>, when children are grouped by type.</summary>
-    public static string TypeGroup(string listKey, string typeName, string? module) =>
-        listKey + "|g:" + (string.IsNullOrEmpty(module) ? typeName : typeName + " [" + module + "]");
+    public static string TypeGroup(string listKey, string typeName, string? module) => listKey + "|g:" + GroupName(typeName, module);
+
+    /// <summary>A namespace's group in the list <paramref name="listKey"/>, when children are grouped by namespace.</summary>
+    public static string NamespaceGroup(string listKey, string ns) => listKey + "|g:" + ns;
+
+    /// <summary>The "more" row of the list <paramref name="listKey"/> after <paramref name="shown"/> rows.</summary>
+    public static string More(string listKey, int shown) => listKey + "|m:" + shown.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+/// <summary>The kinds of a dominator tree row (<see cref="DominatorTreeColumns.Kind"/>).</summary>
+public static class DominatorRowKinds
+{
+    public const string Object = "Object";
+
+    public const string Group = "Group";
+
+    public const string More = "More";
+}
+
+/// <summary>The dominator tree query's limits (sprint 2.4), so clients can keep within them and say when they were met.</summary>
+public static class DominatorTreeLimits
+{
+    /// <summary>Rows in one answer; beyond it the answer is cut (<see cref="DominatorTreeResult.Truncated"/>).</summary>
+    public const int MaxRows = 50_000;
+
+    /// <summary>Keys one request may expand.</summary>
+    public const int MaxExpanded = 10_000;
+
+    /// <summary>The range of children per node before a "more" row.</summary>
+    public const int MinChildren = 1;
+
+    public const int MaxChildren = 1_000;
+
+    /// <summary>The deepest level shown; expansions below it are not followed.</summary>
+    public const int MaxDepth = 1_000;
+
+    /// <summary>The focus's dominators sent: the top ones and the nearest ones (<see cref="DominatorTreeResult.AncestorDepth"/> has them all).</summary>
+    public const int TrailHead = 3;
+
+    public const int TrailTail = 20;
 }
 
 /// <summary>Column names of a dominator tree result set (sprint 2.4).</summary>
@@ -100,14 +142,16 @@ public static class DominatorTreeColumns
 /// The dominator tree as a flattened, paged list (sprint 2.4, ADR-027): from the virtual root (the biggest retainers are
 /// its top level) or from <paramref name="FocusAddress"/>, with the rows of <paramref name="Expanded"/> keys expanded, each
 /// node's children as objects or groups, at most <paramref name="MaxChildren"/> per node plus a "more" row (expanding it
-/// shows the next ones).
+/// shows the next ones). <paramref name="RevealKey"/> asks where a row landed (the one just expanded or linked to), so
+/// the client can keep the user's place (<see cref="DominatorTreeResult.RevealIndex"/>; the 2.4 review).
 /// </summary>
 public sealed record DominatorTreeRequest(
     Guid SnapshotId,
     IReadOnlyList<string> Expanded,
     DominatorGroupingDto Grouping = DominatorGroupingDto.None,
     ulong FocusAddress = 0,
-    int MaxChildren = 100);
+    int MaxChildren = 100,
+    string? RevealKey = null);
 
 /// <summary>An ancestor of the focus in the dominator tree, from the top: its key, type, address and retained bytes.</summary>
 public sealed record DominatorAncestorDto(string Key, string Name, ulong Address, long Retained);
@@ -115,7 +159,11 @@ public sealed record DominatorAncestorDto(string Key, string Name, ulong Address
 /// <summary>
 /// The answer to a dominator tree query: the rows, the focus (none for the root) and its ancestors, the bytes the focus
 /// retains and the reachable heap's total, the number of top-level dominators, whether the rows were cut at the row
-/// limit, and how the dominators were obtained.
+/// limit, and how the dominators were obtained. <see cref="Ancestors"/> holds at most
+/// <see cref="DominatorTreeLimits.TrailHead"/> from the top and <see cref="DominatorTreeLimits.TrailTail"/> nearest the
+/// focus; <see cref="AncestorDepth"/> counts them all, so the ones between are <c>AncestorDepth - Ancestors.Count</c>,
+/// after the first <see cref="DominatorTreeLimits.TrailHead"/>. <see cref="RevealIndex"/> is the row of the request's
+/// <see cref="DominatorTreeRequest.RevealKey"/>, or -1 when it is not shown.
 /// </summary>
 public sealed record DominatorTreeResult(
     ResultSetInfo Rows,
@@ -125,7 +173,9 @@ public sealed record DominatorTreeResult(
     long TotalRetained,
     int TopLevel,
     bool Truncated,
-    DominatorIndexInfo Dominators);
+    DominatorIndexInfo Dominators,
+    int AncestorDepth = 0,
+    int RevealIndex = -1);
 
 /// <summary>Column names of an "objects retained by this set" result set (sprint 2.4): one row per retained type.</summary>
 public static class RetainedBySetColumns
@@ -157,7 +207,8 @@ public sealed record RetainedBySetRequest(Guid SnapshotId, string TypeName, stri
 
 /// <summary>
 /// The answer to <see cref="RetainedBySetRequest"/>: the retained objects by type, largest first (<see cref="RetainedBySetColumns"/>);
-/// how many type table entries matched; the set's reachable objects and bytes; the objects and bytes the set retains
+/// how many type table entries matched; the set's reachable objects and bytes (<see cref="AllObjects"/> counts the ones
+/// no root reaches too, which retain nothing); the objects and bytes the set retains
 /// (exact, the set included); the type summary's lower bound for the same type, to compare; the reachable heap's bytes;
 /// the seconds the reachability pass took; and how the dominators were obtained.
 /// </summary>
@@ -171,7 +222,8 @@ public sealed record RetainedBySetResult(
     long LowerBoundBytes,
     long TotalRetained,
     double Seconds,
-    DominatorIndexInfo Dominators);
+    DominatorIndexInfo Dominators,
+    long AllObjects = 0);
 
 /// <summary>
 /// The icicle chart of the dominator tree (sprint 2.4): <paramref name="Levels"/> levels below <paramref name="FocusAddress"/>

@@ -26,14 +26,43 @@ using HeapScope.Contracts;
 
 namespace HeapScope.UI.ViewModels.Tests;
 
-/// <summary>A node of the fake worker's dominator tree (sprint 2.4), formatted as the worker's columns.</summary>
-public sealed record FakeTreeNode(string Key, string ParentKey, string Name, ulong Address, long Retained, string Kind = "Object", long Objects = 1, string? Module = "App.dll")
+/// <summary>
+/// A node of the fake worker's dominator tree (sprint 2.4), formatted by column name (2.3.7 review M15): a row's cells
+/// come from <see cref="DominatorTreeColumns"/> names, in whatever order the fake's columns list them.
+/// </summary>
+public sealed record FakeTreeNode(string Key, string ParentKey, string Name, ulong Address, long Retained, string Kind = DominatorRowKinds.Object, long Objects = 1, string? Module = "App.dll", long Bytes = 16)
 {
-    /// <summary>The row's cells in <see cref="DominatorTreeColumns"/> order.</summary>
-    public IReadOnlyList<string?> Cells(int depth, bool expanded) =>
+    /// <summary>The worker's tree columns, in the worker's order.</summary>
+    public static readonly ResultColumn[] Columns =
     [
-        Key, ParentKey, depth.ToString(CultureInfo.InvariantCulture), Kind, Name, Module,
-        Address == 0 ? null : "0x" + Address.ToString("x", CultureInfo.InvariantCulture),
-        Objects.ToString(CultureInfo.InvariantCulture), Retained.ToString(CultureInfo.InvariantCulture), "16", "1", "2", expanded ? "1" : "0",
+        new(DominatorTreeColumns.Key, ResultColumnKind.Text, IsKey: true), new(DominatorTreeColumns.ParentKey, ResultColumnKind.Text),
+        new(DominatorTreeColumns.Depth, ResultColumnKind.Integer), new(DominatorTreeColumns.Kind, ResultColumnKind.Text),
+        new(DominatorTreeColumns.Name, ResultColumnKind.Text), new(DominatorTreeColumns.Module, ResultColumnKind.Text),
+        new(DominatorTreeColumns.Address, ResultColumnKind.Address), new(DominatorTreeColumns.Objects, ResultColumnKind.Integer),
+        new(DominatorTreeColumns.Retained, ResultColumnKind.Bytes), new(DominatorTreeColumns.Bytes, ResultColumnKind.Bytes),
+        new(DominatorTreeColumns.Percent, ResultColumnKind.Percent), new(DominatorTreeColumns.Children, ResultColumnKind.Integer),
+        new(DominatorTreeColumns.Expanded, ResultColumnKind.Integer),
     ];
+
+    /// <summary>The row's cells, by column name, with its real child count and share of <paramref name="total"/>.</summary>
+    public IReadOnlyList<string?> Cells(int depth, bool expanded, int children, long total)
+    {
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [DominatorTreeColumns.Key] = Key,
+            [DominatorTreeColumns.ParentKey] = ParentKey,
+            [DominatorTreeColumns.Depth] = depth.ToString(CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Kind] = Kind,
+            [DominatorTreeColumns.Name] = Name,
+            [DominatorTreeColumns.Module] = Module,
+            [DominatorTreeColumns.Address] = Address == 0 ? null : "0x" + Address.ToString("x", CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Objects] = Objects.ToString(CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Retained] = Retained.ToString(CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Bytes] = Bytes.ToString(CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Percent] = (total == 0 ? 0 : 100.0 * Retained / total).ToString("0.##", CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Children] = children.ToString(CultureInfo.InvariantCulture),
+            [DominatorTreeColumns.Expanded] = expanded ? "1" : "0",
+        };
+        return [.. Columns.Select(c => values[c.Name])];
+    }
 }

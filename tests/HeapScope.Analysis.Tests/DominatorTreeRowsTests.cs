@@ -131,7 +131,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
     [Fact]
     public void A_focus_shows_itself_expanded_with_its_ancestors()
     {
-        var entry = _dominators.ChildrenOf(_cache.Id)[0];
+        var entry = RetainedOrder.Top(_dominators.ChildrenOf(_cache.Id), 1, _dominators)[0];
         var view = DominatorTreeRows.Build(_graph, _dominators, entry, s_none, DominatorGrouping.None, 100, Ct);
 
         view.Rows[0].Object.ShouldBe(entry);
@@ -139,6 +139,102 @@ public sealed class DominatorTreeRowsTests : IDisposable
         view.Rows.Skip(1).ShouldAllBe(r => r.Depth == 1);
         view.Ancestors.ShouldBe([_cache.Id]);
         view.FocusRetained.ShouldBe(400UL);
+    }
+
+    [Fact]
+    public void A_long_trail_keeps_its_top_and_its_nearest_and_says_how_long_it_is()
+    {
+        // The 2.4 review: a chain of 10,000 nodes must not send (and draw) 10,000 crumbs.
+        var (graph, dominators, chain) = Chain(10_000);
+        using (graph)
+        using (dominators)
+        {
+            var view = DominatorTreeRows.Build(graph, dominators, chain[^1].Id, s_none, DominatorGrouping.None, 100, Ct);
+
+            view.AncestorDepth.ShouldBe(9_999);
+            view.Ancestors.Count.ShouldBe(DominatorTreeRows.TrailHead + DominatorTreeRows.TrailTail);
+            view.Ancestors.Take(DominatorTreeRows.TrailHead).ShouldBe(chain.Take(DominatorTreeRows.TrailHead).Select(o => o.Id));
+            view.Ancestors.Skip(DominatorTreeRows.TrailHead).ShouldBe(chain.Skip(9_999 - DominatorTreeRows.TrailTail).Take(DominatorTreeRows.TrailTail).Select(o => o.Id));
+
+            var short_ = DominatorTreeRows.Build(graph, dominators, chain[5].Id, s_none, DominatorGrouping.None, 100, Ct);
+            (short_.AncestorDepth, short_.Ancestors.Count).ShouldBe((5, 5));
+            short_.Ancestors.ShouldBe(chain.Take(5).Select(o => o.Id));
+        }
+    }
+
+    [Fact]
+    public void Expanding_a_long_chain_stops_at_the_depth_limit()
+    {
+        // The 2.4 review: one stack frame pair per open level; past the limit levels are not followed.
+        var (graph, dominators, chain) = Chain(3_000);
+        using (graph)
+        using (dominators)
+        {
+            var all = chain.Select(o => DominatorTreeRows.ObjectKey(o.Address)).ToHashSet();
+
+            var view = DominatorTreeRows.Build(graph, dominators, -1, all, DominatorGrouping.None, 100, Ct);
+
+            view.Rows.Max(r => r.Depth).ShouldBe(DominatorTreeRows.MaxDepth);
+            view.Rows.Last().Expanded.ShouldBeFalse();
+        }
+    }
+
+    [Fact]
+    public void An_open_group_shows_its_largest_members_and_a_more_row_sums_the_rest()
+    {
+        var cacheGroup = DominatorTreeRows.GroupKey(DominatorTreeRows.RootKey, "App.Cache [App.dll]");
+        var cacheKey = DominatorTreeRows.ObjectKey(_cache.Address);
+        var entriesKey = DominatorTreeRows.GroupKey(cacheKey, "App.Entry [App.dll]");
+
+        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheGroup, cacheKey, entriesKey }, DominatorGrouping.Type, maxChildren: 2, Ct);
+
+        var entries = view.Rows.Where(r => r.ParentKey == entriesKey).ToList();
+        entries.Select(r => (r.Kind, r.Retained)).ShouldBe([(DominatorRowKind.Object, 400UL), (DominatorRowKind.Object, 100UL), (DominatorRowKind.More, 300UL)]);
+        entries[2].Objects.ShouldBe(3);
+    }
+
+    [Fact]
+    public void A_tree_past_the_row_limit_is_cut_and_says_so()
+    {
+        // One holder of 60,000 objects with every "more" row open: the answer stops at the row limit.
+        var builder = new SyntheticGraphBuilder();
+        var holder = builder.Object("App.Holder", size: 8);
+        for (var i = 0; i < 60_000; i++)
+        {
+            builder.Reference(holder, builder.Object("App.Item", size: 8));
+        }
+
+        builder.Root(holder);
+        using var graph = builder.Build();
+        using var reverse = ReverseReferences.Build(graph, cancellationToken: Ct);
+        using var dominators = Dominators.Compute(graph, reverse, cancellationToken: Ct);
+        var holderKey = DominatorTreeRows.ObjectKey(holder.Address);
+        var open = Enumerable.Range(1, 59).Select(b => DominatorTreeRows.MoreKey(holderKey, b * 1_000)).Append(holderKey).ToHashSet();
+
+        var view = DominatorTreeRows.Build(graph, dominators, -1, open, DominatorGrouping.None, 1_000, Ct);
+
+        view.Truncated.ShouldBeTrue();
+        view.Rows.Count.ShouldBe(DominatorTreeRows.MaxRows);
+    }
+
+    // A rooted singly linked chain of n nodes: each node is the only path to the next.
+    private static (HeapGraph Graph, Dominators Dominators, List<SyntheticObject> Chain) Chain(int n)
+    {
+        var builder = new SyntheticGraphBuilder();
+        var chain = new List<SyntheticObject>(n);
+        for (var i = 0; i < n; i++)
+        {
+            chain.Add(builder.Object("App.Node", size: 16));
+            if (i > 0)
+            {
+                builder.Reference(chain[i - 1], chain[i]);
+            }
+        }
+
+        builder.Root(chain[0]);
+        var graph = builder.Build();
+        using var reverse = ReverseReferences.Build(graph, cancellationToken: Ct);
+        return (graph, Dominators.Compute(graph, reverse, cancellationToken: Ct), chain);
     }
 
     [Fact]

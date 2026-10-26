@@ -320,7 +320,7 @@ public sealed class DominatorTests
     }
 
     [Fact]
-    public void The_tree_children_are_every_dominated_object_largest_retained_first()
+    public void The_tree_children_are_every_dominated_object_and_are_shown_largest_retained_first()
     {
         // Sprint 2.4 (ADR-027): a root holds a small and a large list; a second root shares an object with the first.
         var builder = new SyntheticGraphBuilder();
@@ -339,9 +339,13 @@ public sealed class DominatorTests
         using var graph = builder.Build();
         using var dominators = Compute(graph);
 
-        dominators.ChildrenOf(dominators.Root).ToArray().ShouldBe([holder.Id, shared.Id, other.Id], "top-level dominators, largest first: shared is held by two roots");
-        dominators.ChildrenOf(holder.Id).ToArray().ShouldBe([large.Id, small.Id], "the list with the item retains more");
-        dominators.ChildrenOf(small.Id).ToArray().ShouldBe([tieA.Id, tieB.Id], "equal sizes by index");
+        // Kept in index order; shown in retained order (the 2.4 review: sorting every node's children cost 10 s on Medium).
+        dominators.ChildrenOf(dominators.Root).ToArray().ShouldBe([holder.Id, shared.Id, other.Id]);
+        dominators.ChildrenOf(holder.Id).ToArray().ShouldBe([small.Id, large.Id]);
+        RetainedOrder.Top(dominators.ChildrenOf(dominators.Root), 3, dominators).ShouldBe([holder.Id, shared.Id, other.Id], "top-level dominators, largest first: shared is held by two roots");
+        RetainedOrder.Top(dominators.ChildrenOf(holder.Id), 2, dominators).ShouldBe([large.Id, small.Id], "the list with the item retains more");
+        RetainedOrder.Top(dominators.ChildrenOf(small.Id), 2, dominators).ShouldBe([tieA.Id, tieB.Id], "equal sizes by index");
+        RetainedOrder.Top(dominators.ChildrenOf(holder.Id), 1, dominators).ShouldBe([large.Id], "the largest k only");
         dominators.ChildCount(item.Id).ShouldBe(0);
         dominators.ChildCount(garbage.Id).ShouldBe(0);
         Enumerable.Range(0, graph.ObjectCount + 1).Sum(dominators.ChildCount).ShouldBe(graph.ObjectCount - 1, "every reachable object is someone's child once");
@@ -355,7 +359,7 @@ public sealed class DominatorTests
         var starts = Enumerable.Repeat(-5, graph.ObjectCount + 2).ToArray();
         var children = new int[graph.ObjectCount];
 
-        DominatorTree.BuildChildren(dominators.ImmediateDominators.Span, dominators.RetainedSizes.Span, starts, children, Ct);
+        DominatorTree.BuildChildren(dominators.ImmediateDominators.Span, starts, children, Ct);
 
         starts.ShouldBe(dominators.ChildStarts.Span.ToArray());
         children.ShouldBe(dominators.Children.Span.ToArray());
@@ -363,11 +367,16 @@ public sealed class DominatorTests
         for (var v = 0; v <= graph.ObjectCount; v++)
         {
             var slice = dominators.ChildrenOf(v).ToArray();
-            slice.Select(c => retained[c]).ShouldBeInOrder(SortDirection.Descending);
+            slice.ShouldBeInOrder(SortDirection.Ascending);
             slice.ShouldAllBe(c => DominatorTree.Parent(dominators.ImmediateDominator(c), graph.ObjectCount) == v);
+
+            // The largest k agree with a full sort, ties by index.
+            var expected = slice.OrderByDescending(c => retained[c]).ThenBy(c => c).ToArray();
+            RetainedOrder.Top(slice, 5, dominators).ShouldBe(expected.Take(5));
+            RetainedOrder.Top(slice, slice.Length, dominators).ShouldBe(expected);
         }
 
-        Should.Throw<ArgumentException>(() => DominatorTree.BuildChildren(dominators.ImmediateDominators.Span, dominators.RetainedSizes.Span, new int[3], children));
+        Should.Throw<ArgumentException>(() => DominatorTree.BuildChildren(dominators.ImmediateDominators.Span, new int[3], children));
     }
 
     [Fact]

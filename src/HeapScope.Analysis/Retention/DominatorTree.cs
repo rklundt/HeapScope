@@ -98,20 +98,20 @@ public static class DominatorTree
     /// <summary>
     /// The dominator tree's children (sprint 2.4, ADR-027) as a CSR: vertex v's children are
     /// <c>children[childStarts[v]..childStarts[v + 1]]</c>, where v is an object index or n (the virtual root, whose
-    /// children are the top-level dominators); each slice is ordered by retained size, largest first, then by index.
-    /// <paramref name="childStarts"/> has n + 2 elements and <paramref name="children"/> n (unreachable objects leave its tail
-    /// unused). No working memory beyond a key buffer the size of the largest slice: the counts and the cursors live in
-    /// <paramref name="childStarts"/>.
+    /// children are the top-level dominators); each slice is in object index order. Queries order the rows they show by
+    /// retained size (<see cref="RetainedOrder"/>): sorting every slice here took 10 s on Medium and scattered the walk of
+    /// <see cref="GroupRetention"/> (the 2.4 review). <paramref name="childStarts"/> has n + 2 elements and
+    /// <paramref name="children"/> n (unreachable objects leave its tail unused). No working memory: the counts and the
+    /// cursors live in <paramref name="childStarts"/>.
     /// </summary>
     public static void BuildChildren(
         ReadOnlySpan<int> immediateDominators,
-        ReadOnlySpan<ulong> retainedSizes,
         Span<int> childStarts,
         Span<int> children,
         CancellationToken cancellationToken = default)
     {
         var n = immediateDominators.Length;
-        if (retainedSizes.Length != n || childStarts.Length != n + 2 || children.Length != n)
+        if (childStarts.Length != n + 2 || children.Length != n)
         {
             throw new ArgumentException("The children's columns do not match the dominators.");
         }
@@ -156,52 +156,6 @@ public static class DominatorTree
         }
 
         childStarts[0] = 0;
-
-        // Each slice by retained size, largest first; equal sizes by index, so the order never varies between runs.
-        var keys = Array.Empty<ulong>();
-        for (var v = 0; v <= n; v++)
-        {
-            var start = childStarts[v];
-            var length = childStarts[v + 1] - start;
-            if (length < 2)
-            {
-                continue;
-            }
-
-            if (keys.Length < length)
-            {
-                keys = new ulong[Math.Max(length, Math.Min(n, 1024))];
-            }
-
-            var slice = children.Slice(start, length);
-            var sliceKeys = keys.AsSpan(0, length);
-            for (var k = 0; k < length; k++)
-            {
-                sliceKeys[k] = ~retainedSizes[slice[k]];
-            }
-
-            sliceKeys.Sort(slice);
-            for (var k = 0; k < length;)
-            {
-                var end = k + 1;
-                while (end < length && sliceKeys[end] == sliceKeys[k])
-                {
-                    end++;
-                }
-
-                if (end - k > 1)
-                {
-                    slice[k..end].Sort();
-                }
-
-                k = end;
-            }
-
-            if ((v & (Chunk - 1)) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-        }
     }
 
     /// <summary>The tree vertex of an object's dominator: an object index, n for the virtual root, -1 when unreachable.</summary>

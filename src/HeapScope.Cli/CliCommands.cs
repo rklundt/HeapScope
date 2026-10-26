@@ -343,7 +343,7 @@ internal static partial class CliCommands
     /// <summary>One line on how the dominators were obtained and how much of the heap the roots reach.</summary>
     internal static string RetainedNote(DominatorIndexInfo dominators) => string.Create(
         CultureInfo.InvariantCulture,
-        $"Retained sizes: dominators {(dominators.FromSidecar ? "opened from their saved file" : "computed")} in {dominators.Seconds:N1} s, {dominators.ReachableObjects:N0} objects reachable from the roots.")
+        $"Retained sizes: dominators {ValueBoundTexts.DominatorsSource(dominators.FromSidecar)} in {dominators.Seconds:N1} s, {dominators.ReachableObjects:N0} objects reachable from the roots.")
         + (dominators.Note is { } note ? " " + note : string.Empty);
 
     private static async Task WriteSummaryJsonAsync(TextWriter output, TypeSummaryResult result, SnapshotKindDto kind, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)

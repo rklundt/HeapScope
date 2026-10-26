@@ -121,7 +121,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         Navigator = new NavigatorViewModel(session, Types, this, loggers);
         Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>(), this);
         Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>(), this);
-        Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this);
+        Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this, loggers?.CreateLogger<RetainedBySetViewModel>());
     }
 
     /// <summary>The detail tab (2.3.7 review M8: named, not numbered).</summary>

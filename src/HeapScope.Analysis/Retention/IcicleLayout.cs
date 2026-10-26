@@ -66,14 +66,19 @@ public static class IcicleLayout
             foreach (var (vertex, offset) in level)
             {
                 var x = offset;
+                var wide = new List<int>();
                 foreach (var child in dominators.ChildrenOf(vertex))
                 {
                     var width = dominators.RetainedSize(child);
-                    if (width < minBytes || width == 0 || segments.Count >= MaxSegments)
+                    if (width >= minBytes && width > 0)
                     {
-                        break; // Children come largest first: the rest are smaller still.
+                        wide.Add(child);
                     }
+                }
 
+                foreach (var child in RetainedOrder.Top(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(wide), Math.Min(wide.Count, MaxSegments - segments.Count), dominators))
+                {
+                    var width = dominators.RetainedSize(child);
                     segments.Add(new IcicleSegment(depth, x, width, child));
                     next.Add((child, x));
                     x += width;

@@ -195,7 +195,10 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             await Settle(retainers.Rows);
             retainers.Rows.Count.ShouldBe(3);
 
-            tree.SelectedIndex = 0;
+            // The expanded row stays selected in the new rows, so Left works without selecting it again (the 2.4 review).
+            await retainers.SelectTask;
+            Dispatcher.UIThread.RunJobs();
+            tree.SelectedItem.ShouldBeSameAs(retainers.Rows.GetRow(0));
             tree.Focus();
             window.KeyPressQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
             window.KeyReleaseQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);

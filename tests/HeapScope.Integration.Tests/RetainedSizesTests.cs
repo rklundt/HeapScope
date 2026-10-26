@@ -135,8 +135,10 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
     [Fact]
     public async Task A_leak_types_objects_retain_together_at_least_their_lower_bound_and_their_items()
     {
-        // Sprint 2.4: the exact retention of each leak's item type, next to the type summary's lower bound.
+        // Sprint 2.4: the exact retention of each leak's item type, next to the type summary's lower bound, and equal to
+        // an independent walk of the dump with ClrMD (the 2.4 review).
         var handle = await _session.StartOpen(_dump).Result;
+        var reachable = _shared.Dump.ReachableFromRoots();
         var mismatches = new List<string>();
         foreach (var name in LeakCatalog.All.Select(l => l.Name))
         {
@@ -147,6 +149,12 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
             await set.Rows.ReleaseAsync(Ct);
             var result = set.Result;
             var ownRow = rows.SingleOrDefault(r => r[RetainedBySetColumns.TypeName] == answer.Types[0].Type);
+            var expected = (long)_shared.Dump.SetRetainedBytes(answer.Types[0].Type, reachable);
+            if (result.RetainedBytes != expected)
+            {
+                mismatches.Add($"{name}: HeapScope {result.RetainedBytes}, ClrMD {expected}");
+            }
+
             if (result.MatchedTypes != 1 || result.SetObjects != AllLeaksDump.Items || result.RetainedBytes < result.LowerBoundBytes
                 || result.RetainedBytes < minimum || rows.Sum(r => long.Parse(r[RetainedBySetColumns.Retained]!, CultureInfo.InvariantCulture)) != result.RetainedBytes
                 || ownRow is null || long.Parse(ownRow[RetainedBySetColumns.Retained]!, CultureInfo.InvariantCulture) != result.SetBytes)
@@ -158,6 +166,8 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
         mismatches.ShouldBeEmpty();
         var garbage = await _session.QueryRetainedBySetAsync(handle, KnownAnswer.Load("LateGarbage").PresentButUnreachable![0], Module, null, Ct);
         (garbage.Result.MatchedTypes, garbage.Result.SetObjects, garbage.Result.RetainedBytes, garbage.Result.Types.TotalCount).ShouldBe((1, 0L, 0L, 0));
+        garbage.Result.AllObjects.ShouldBe(AllLeaksDump.LateGarbageItems, "the objects no root reaches are counted apart");
+        (await Should.ThrowAsync<WorkerOperationException>(() => _session.QueryRetainedBySetAsync(handle, "Fixtures.Leaks.NoSuchType", Module, null, Ct))).ErrorCode.ShouldBe(HeapScopeErrorCode.InvalidArgument);
     }
 
     [Fact]
@@ -236,7 +246,7 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
         }
 
         instancesCode.ShouldBe(0, instances);
-        instances.ShouldContain("Retained sizes: dominators opened from their saved file");
+        instances.ShouldContain("Retained sizes: dominators read from the saved index");
 
         // Review H2: an object no root reaches has a null retained cell, written as JSON null.
         var garbageType = KnownAnswer.Load("LateGarbage").PresentButUnreachable![0];

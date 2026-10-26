@@ -34,7 +34,10 @@ namespace HeapScope.Analysis.Retention;
 /// </summary>
 public static class SetRetention
 {
-    /// <summary>Bytes per object of working memory: a bit per object, and the search stack (an int per object at worst).</summary>
+    /// <summary>
+    /// Bytes per object of working memory at worst: a bit per object, and the search stack (an int per object at worst,
+    /// held in 64 KB chunks that grow and shrink with it; the 2.4 review: a doubling list held two copies while it grew).
+    /// </summary>
     public const int WorkingBytesPerObject = 5;
 
     private const int Chunk = 1 << 16;
@@ -63,27 +66,25 @@ public static class SetRetention
         var starts = graph.EdgeStarts.Span;
         var edges = graph.Edges.Span;
         var visited = new ulong[(n + 63) / 64];
-        var stack = new List<int>();
+        var stack = new ChunkedStack();
         long done = 0;
 
         foreach (var source in PathRoots.Sources(graph))
         {
             if (!typeInSet[types[source]] && Mark(visited, source))
             {
-                stack.Add(source);
+                stack.Push(source);
             }
         }
 
-        while (stack.Count > 0)
+        while (stack.TryPop(out var current))
         {
-            var current = stack[^1];
-            stack.RemoveAt(stack.Count - 1);
             for (var e = starts[current]; e < starts[current + 1]; e++)
             {
                 var target = edges[e];
                 if (!typeInSet[types[target]] && Mark(visited, target))
                 {
-                    stack.Add(target);
+                    stack.Push(target);
                 }
             }
 
@@ -96,12 +97,18 @@ public static class SetRetention
 
         var objectsByType = new long[graph.Types.Count];
         var bytesByType = new ulong[graph.Types.Count];
+        long allObjects = 0;
         long setObjects = 0;
         ulong setBytes = 0;
         long retainedObjects = 0;
         ulong retainedBytes = 0;
         for (var i = 0; i < n; i++)
         {
+            if (typeInSet[types[i]])
+            {
+                allObjects++;
+            }
+
             if (!dominators.IsReachable(i))
             {
                 continue;
@@ -129,7 +136,45 @@ public static class SetRetention
         }
 
         progress?.Report(done);
-        return new SetRetentionResult(setObjects, setBytes, retainedObjects, retainedBytes, objectsByType, bytesByType);
+        return new SetRetentionResult(allObjects, setObjects, setBytes, retainedObjects, retainedBytes, objectsByType, bytesByType);
+    }
+
+    /// <summary>An int stack in fixed chunks below the large object heap's threshold; emptied chunks are dropped.</summary>
+    private sealed class ChunkedStack
+    {
+        private const int ChunkSize = 16 * 1024;
+
+        private readonly List<int[]> _chunks = [];
+        private int _top; // Items in the last chunk.
+
+        public void Push(int value)
+        {
+            if (_chunks.Count == 0 || _top == ChunkSize)
+            {
+                _chunks.Add(new int[ChunkSize]);
+                _top = 0;
+            }
+
+            _chunks[^1][_top++] = value;
+        }
+
+        public bool TryPop(out int value)
+        {
+            if (_chunks.Count == 0)
+            {
+                value = 0;
+                return false;
+            }
+
+            value = _chunks[^1][--_top];
+            if (_top == 0)
+            {
+                _chunks.RemoveAt(_chunks.Count - 1);
+                _top = ChunkSize;
+            }
+
+            return true;
+        }
     }
 
     private static bool Mark(ulong[] visited, int index)
@@ -147,7 +192,8 @@ public static class SetRetention
 }
 
 /// <summary>
-/// What a set retains (sprint 2.4): the set's reachable members and their bytes, the objects it retains (members included)
-/// and their bytes, and the retained objects and bytes per type table entry.
+/// What a set retains (sprint 2.4): all of the set's members (no root reaches the others, so they retain nothing), its
+/// reachable members and their bytes, the objects it retains (members included) and their bytes, and the retained
+/// objects and bytes per type table entry.
 /// </summary>
-public sealed record SetRetentionResult(long SetObjects, ulong SetBytes, long RetainedObjects, ulong RetainedBytes, long[] ObjectsByType, ulong[] BytesByType);
+public sealed record SetRetentionResult(long AllObjects, long SetObjects, ulong SetBytes, long RetainedObjects, ulong RetainedBytes, long[] ObjectsByType, ulong[] BytesByType);

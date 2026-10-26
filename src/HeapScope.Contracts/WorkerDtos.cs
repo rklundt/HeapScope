@@ -92,8 +92,20 @@ public enum ValueBound
 /// <summary>What a value bound means, said the same way by every front end (sprint 2.4, 2.3.7 review M7).</summary>
 public static class ValueBoundTexts
 {
+    /// <summary>The one name of the action that computes what a set retains exactly (the 2.4 review: it had four).</summary>
+    public const string SetAction = "Objects retained by this set";
+
     /// <summary>The note for a column of lower bounds, such as a group's retained bytes.</summary>
-    public const string LowerBound = "At least this much: a group's retained bytes count only what its objects retain apart from each other; objects held by several of them together are not counted. \"Objects they retain\" computes the exact figure.";
+    public const string LowerBound = "At least this much: a group's retained bytes count only what its objects retain apart from each other; objects held by several of them together are not counted. \"" + SetAction + "\" (the CLI's retained-by) computes the exact figure.";
+
+    /// <summary>The note for a column of exact retained bytes, such as the dominator tree's.</summary>
+    public const string Exact = "Exactly this much: what each row alone keeps alive; rows side by side never share.";
+
+    /// <summary>The note for <paramref name="bound"/>.</summary>
+    public static string For(ValueBound bound) => bound == ValueBound.LowerBound ? LowerBound : Exact;
+
+    /// <summary>How the dominators were obtained, said the same way by the UI and the CLI.</summary>
+    public static string DominatorsSource(bool fromSidecar) => fromSidecar ? "read from the saved index" : "computed";
 
     /// <summary>The marker a table puts on a lower bound.</summary>
     public const string Marker = "≥";

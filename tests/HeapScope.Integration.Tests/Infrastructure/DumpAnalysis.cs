@@ -143,6 +143,28 @@ public sealed class DumpAnalysis : IDisposable
     }
 
     /// <summary>
+    /// What every object of <paramref name="typeName"/> retains together (sprint 2.4, the 2.4 review), by brute force: the
+    /// bytes reachable from the roots now, less those still reachable without entering the set. <paramref name="reachable"/>
+    /// is <see cref="ReachableFromRoots"/>, passed in so several sets share one walk.
+    /// </summary>
+    public ulong SetRetainedBytes(string typeName, HashSet<ulong> reachable)
+    {
+        ArgumentNullException.ThrowIfNull(reachable);
+        var set = Instances(typeName).Select(o => o.Address).ToHashSet();
+        var without = ReachableFromRoots(set);
+        ulong total = 0;
+        foreach (var address in reachable)
+        {
+            if (!without.Contains(address))
+            {
+                total += Heap.GetObject(address).Size;
+            }
+        }
+
+        return total;
+    }
+
+    /// <summary>
     /// Shortest path (type names) from <paramref name="start"/> to the first object of <paramref name="targetType"/>,
     /// with <see cref="DependentHandleStep"/> inserted before steps reached through a dependent handle.
     /// </summary>

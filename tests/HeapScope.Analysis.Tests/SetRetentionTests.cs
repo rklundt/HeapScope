@@ -86,6 +86,29 @@ public sealed class SetRetentionTests
     }
 
     [Fact]
+    public void Dependent_handles_frozen_objects_and_weak_handles_follow_the_retention_rules()
+    {
+        // ADR-024 (the 2.4 review): a dependent handle's value is retained by its key; a frozen object is a source; a weak
+        // handle retains nothing; a retained object that points back into the set changes nothing.
+        var builder = new SyntheticGraphBuilder();
+        var key = builder.Object("App.Key", size: 10);
+        var value = builder.Object("App.Value", size: 100);
+        var literal = builder.Object("System.String", size: 30, heapKind: HeapKind.Frozen);
+        var fromLiteral = builder.Object("App.Value", size: 7);
+        var weakOnly = builder.Object("App.Key", size: 10);
+        var back = builder.Object("App.Back", size: 5);
+        builder.DependentHandle(key, value).Reference(literal, fromLiteral).Reference(value, back).Reference(back, key);
+        builder.Root(key).Root(weakOnly, RootKind.WeakHandle, flags: RootFlags.None);
+        var (graph, dominators) = Build(builder);
+
+        var keys = SetRetention.Compute(graph, dominators, TypesNamed(graph, "App.Key"), cancellationToken: Ct);
+        var values = SetRetention.Compute(graph, dominators, TypesNamed(graph, "App.Value"), cancellationToken: Ct);
+
+        (keys.SetObjects, keys.RetainedObjects, keys.RetainedBytes).ShouldBe((1L, 3L, 115UL), "the key, its handle's value and what the value holds; not the weakly held key");
+        (values.SetObjects, values.RetainedObjects, values.RetainedBytes).ShouldBe((2L, 3L, 112UL), "the value with what only it holds, and the frozen literal's own value, which only the literal reaches");
+    }
+
+    [Fact]
     public void An_empty_set_retains_nothing()
     {
         var builder = new SyntheticGraphBuilder();

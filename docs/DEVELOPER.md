@@ -101,8 +101,10 @@ dotnet test --solution HeapScope.sln
   exact: siblings never share), with `--depth` levels expanded below each of the `--top` biggest rows; with `--address`,
   the tree below that object and its dominators from the top. `retained-by <snapshot> <type> [--module <file>] [--top N
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
-  with the summary's lower bound beside it. Both compute the snapshot's dominators on first use and save them next to
-  the index cache; an unknown type exits 1, a bad option 64.
+  with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
+  Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
+  `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
+  that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.
   `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]` runs the simple inspections (sprint 1.6):
   without a name, every inspection with its time, finding and note (one line each); with a name
   (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
@@ -306,7 +308,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   (used to set the incomplete-segment rule).
 - `phase2-indices`: the 1.9 prototype of the Phase 2 indices (reverse references, semi-NCA dominators, retained sizes)
   on synthetic shapes or an index cache (ARCHITECTURE.md 6.4).
-- `dominators --cache <snapshot.hsidx> [--mode memory|mapped] [--out <folder>] [--max-working-set-mb N]` (sprint 2.3; the
+- `dominators --cache <snapshot.hsidx> [--mode memory|mapped] [--out <folder>] [--max-working-set-mb N]` (sprint 2.3; since
+  2.4 it also builds the dominator tree's children and reports their time within the dominators phase; the
   cap, a hard limit on the process's working set to see the computation under memory pressure, after the 2.3 review
   M14; it also reports page faults and the peak working set): the worker's path on a
   real index cache: the reverse references and the dominators, computed straight into sidecars (in `--out`, or a temporary

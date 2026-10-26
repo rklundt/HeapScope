@@ -27,11 +27,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:dto="using:HeapScope.Contracts"
              x:Class="HeapScope.UI.Views.Subjects.InstancesView"
              x:DataType="vm:InstancesViewModel">
   <DockPanel>
     <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-      <Button DockPanel.Dock="Right" Content="Retained by all" Margin="6,0,0,0" Command="{Binding RetainedBySetCommand}"
+      <Button DockPanel.Dock="Right" Content="{x:Static dto:ValueBoundTexts.SetAction}" Margin="6,0,0,0" Command="{Binding RetainedBySetCommand}"
               ToolTip.Tip="What all objects of this type keep alive together, exactly (on the Retainers tab)" />
       <Button DockPanel.Dock="Right" Content="Referenced by" Command="{Binding ReferencedByCommand}"
               ToolTip.Tip="Which types' objects reference objects of this type" />
