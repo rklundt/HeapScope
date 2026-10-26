@@ -592,32 +592,59 @@ internal static partial class CliCommands
     /// <summary>Runs a command body with the CLI's error handling boundary (ARCHITECTURE.md 11).</summary>
     private static async Task<int> RunAsync(ParseResult parseResult, Func<TextWriter, TextWriter, Task<int>> body)
     {
-        var logger = s_services?.Invoke().GetService<ILoggerFactory>()?.CreateLogger("HeapScope.Cli");
+        var services = s_services?.Invoke();
+        var logger = services?.GetService<ILoggerFactory>()?.CreateLogger("HeapScope.Cli");
+        var logFolder = services?.GetService<FileLoggerProvider>()?.Directory ?? FileLoggerProvider.DefaultDirectory;
         var output = parseResult.InvocationConfiguration.Output;
         var error = parseResult.InvocationConfiguration.Error;
+
+        // The command and what it was given, under one activity whose trace id the worker's lines carry too (sprint 2.3.7
+        // review H4, M1). Paths and numbers are logged as they are; any other value by its length (a filter may be secret).
+        using var activity = new System.Diagnostics.Activity("HeapScope.Cli").Start();
+        var command = parseResult.CommandResult.Command.Name;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        logger?.LogInformation("Command {Command} started: {Arguments}", command, DescribeTokens(parseResult));
+        int exitCode;
         try
         {
-            return await body(output, error).ConfigureAwait(false);
+            exitCode = await body(output, error).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             await error.WriteLineAsync("Canceled.").ConfigureAwait(false);
-            return Canceled;
+            exitCode = Canceled;
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException
+        catch (Exception ex) when (ex is WorkerException
             or CaptureFailedException { Reason: CaptureFailure.NotSupportedOnThisSystem })
         {
+            // What the user was told, in the log too (sprint 2.3.7 review H4).
+            logger?.LogInformation("Command {Command} failed: {Message}", command, ex.Message);
             await error.WriteLineAsync("Error: " + ex.Message).ConfigureAwait(false);
-            return Failure;
+            exitCode = Failure;
         }
         catch (Exception ex)
         {
             // Last-chance boundary: a plain message for the user, the stack trace for the log (ARCHITECTURE.md 11).
-            logger?.LogError(ex, "Command failed");
-            await error.WriteLineAsync($"Error: {ex.Message} Details are in the log in {FileLoggerProvider.DefaultDirectory}.").ConfigureAwait(false);
-            return Failure;
+            logger?.LogError(ex, "Command {Command} failed", command);
+            await error.WriteLineAsync($"Error: {ex.Message} Details are in the log in {logFolder}.").ConfigureAwait(false);
+            exitCode = Failure;
         }
+
+        logger?.LogInformation("Command {Command} exited with {ExitCode} after {Seconds:N2} s", command, exitCode, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds);
+        return exitCode;
     }
+
+    /// <summary>The command line for the log: option names, paths and numbers as given, other values by their length.</summary>
+    internal static string DescribeTokens(ParseResult parseResult) => string.Join(
+        " ",
+        parseResult.Tokens.Select(token => token.Type switch
+        {
+            System.CommandLine.Parsing.TokenType.Argument when File.Exists(token.Value) || Directory.Exists(token.Value)
+                || double.TryParse(token.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+                || token.Value is "true" or "false" => token.Value,
+            System.CommandLine.Parsing.TokenType.Argument => string.Create(CultureInfo.InvariantCulture, $"({token.Value.Length} chars)"),
+            _ => token.Value,
+        }));
 
     internal sealed class ProductVersionAction : SynchronousCommandLineAction
     {

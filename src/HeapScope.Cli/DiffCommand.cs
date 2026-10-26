@@ -26,6 +26,7 @@ using System.Globalization;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Cli;
 
@@ -138,7 +139,25 @@ internal static partial class CliCommands
                 }
 
                 var limit = threshold.LimitFor(result.MatchingBaselineBytes);
-                if (threshold.IsExceededBy(result.MatchingBytesDelta, result.MatchingBaselineBytes))
+                var exceeded = threshold.IsExceededBy(result.MatchingBytesDelta, result.MatchingBaselineBytes);
+
+                // The gate's decision in the log, so a failed CI run can be explained later (sprint 2.3.7 review M4). The
+                // filter is logged by its length only.
+                services().GetRequiredService<ILoggerFactory>().CreateLogger("HeapScope.Cli.Diff").LogInformation(
+                    "Growth gate {Outcome}: matching rows grew by {Delta} bytes from {BaselineBytes} bytes, limit {Threshold} ({Limit} bytes); {Rows} matching rows, filter {FilterLength} chars; baseline {Baseline} (worker snapshot {BaselineId}), current {Current} (worker snapshot {CurrentId}); exact counts {ExactCounts}",
+                    exceeded ? "failed" : "passed",
+                    result.MatchingBytesDelta,
+                    result.MatchingBaselineBytes,
+                    text,
+                    limit,
+                    result.Rows.TotalCount,
+                    parseResult.GetValue(filter)?.Length ?? 0,
+                    before.Path,
+                    before.Descriptor.SnapshotId,
+                    after.Path,
+                    after.Descriptor.SnapshotId,
+                    result.ExactCounts);
+                if (exceeded)
                 {
                     await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
                         $"Grew by {Signed(result.MatchingBytesDelta)} bytes, more than {text} ({limit:N0} bytes).")).ConfigureAwait(false);

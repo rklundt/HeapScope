@@ -88,28 +88,14 @@ internal sealed class SmokeRunner(IServiceProvider services)
         var enumerations = Controls.VirtualCollectionViews.Enumerations;
         using (var process = System.Diagnostics.Process.GetCurrentProcess())
         {
-            _services.GetRequiredService<ILogger<App>>().LogInformation(
+            _services.GetRequiredService<ILogger<SmokeRunner>>().LogInformation(
                 "Smoke memory: UI private {PrivateMb:N0} MB, managed heap {ManagedMb:N0} MB; whole-list grid enumerations {Enumerations}",
                 process.PrivateMemorySize64 / (1024.0 * 1024),
                 GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
                 enumerations);
         }
 
-        if (result == 0 && enumerations > 0)
-        {
-            return SmokeGridEnumerated;
-        }
-
-        // Headless runs (CI) check that every step works; the lags are logged but not gated, since a shared runner drawing
-        // in software measures the machine, not HeapScope.
-        if (Program.IsHeadless && result == SmokeLagExceeded)
-        {
-            return 0;
-        }
-
-        return result is 0 && !Program.IsHeadless && App.FirstWindowTime is { } first && first > FirstWindowLimit
-            ? SmokeColdStartExceeded
-            : result;
+        return SmokeVerdict.Final(result.Value, enumerations, Program.IsHeadless, App.FirstWindowTime);
     }
 
     // Waits until the UI thread has nothing left to do, rendering included.
@@ -119,7 +105,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
     private async Task<int> RunSmokeAsync(int objects)
     {
         var services = _services;
-        var logger = services.GetRequiredService<ILogger<App>>();
+        var logger = services.GetRequiredService<ILogger<SmokeRunner>>();
         var watchdog = services.GetRequiredService<DispatcherWatchdog>();
         var home = services.GetRequiredService<HomeViewModel>();
 
@@ -147,9 +133,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
 
         // The budget's subject (a single dispatcher work item, its upper bound since sprint 2.3.6) is checked hard at
         // 100 ms; probe lag, which also contains OS scheduling noise, is checked at the 2x gate (sprint 0.3 decision 10).
-        return !completed ? SmokeJobFailed
-            : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
-            : 0;
+        return SmokeVerdict.Phase(completed, operation, lag);
     }
 
     /// <summary>
@@ -159,7 +143,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
     private async Task<int> RunSmokeLiveAsync(int count)
     {
         var services = _services;
-        var logger = services.GetRequiredService<ILogger<App>>();
+        var logger = services.GetRequiredService<ILogger<SmokeRunner>>();
         var watchdog = services.GetRequiredService<DispatcherWatchdog>();
         var shell = services.GetRequiredService<ShellViewModel>();
         var live = shell.Live ?? throw new InvalidOperationException("The Live page is not registered.");
@@ -194,9 +178,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
             live.Status ?? "ok",
             lag.TotalMilliseconds,
             operation.TotalMilliseconds);
-        return !completed ? SmokeJobFailed
-            : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
-            : 0;
+        return SmokeVerdict.Phase(completed, operation, lag);
     }
 
     /// <summary>
@@ -206,7 +188,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
     private async Task<int> RunSmokeOpenAsync(string dump)
     {
         var services = _services;
-        var logger = services.GetRequiredService<ILogger<App>>();
+        var logger = services.GetRequiredService<ILogger<SmokeRunner>>();
         var watchdog = services.GetRequiredService<DispatcherWatchdog>();
         var home = services.GetRequiredService<HomeViewModel>();
         var snapshots = services.GetRequiredService<SnapshotsViewModel>();
@@ -247,15 +229,11 @@ internal sealed class SmokeRunner(IServiceProvider services)
 
             // Touch the first rows as the grid would, and wait for their page.
             rows = snapshots.Types.Rows;
-            for (var i = 0; i < Math.Min(rows.Count, 50); i++)
-            {
-                rows.GetRow(i);
-            }
-
-            await rows.WhenLoadedAsync();
+            await TouchRowsAsync(rows);
             completed = snapshots.Selected is not null && rows.Count > 0 && rows.GetRow(0).IsLoaded;
 
-            // The largest types as shown, for checks of the known answers in CI (sprint 2.3.6).
+            // The largest types as shown, for checks of the known answers in CI (sprint 2.3.6). A contract: ci.yml matches
+            // "Smoke open types: ... <type> <count>"; keep the wording (sprint 2.3.7 review M11).
             logger.LogInformation(
                 "Smoke open types: {Types}",
                 string.Join("; ", Enumerable.Range(0, Math.Min(rows.Count, 50)).Select(rows.GetRow).Where(r => r.IsLoaded).Select(r => $"{r.Name} {r.Objects}")));
@@ -321,9 +299,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
             (rows.Count + VirtualRowList.PageSize - 1) / VirtualRowList.PageSize,
             lag.TotalMilliseconds,
             operation.TotalMilliseconds);
-        return !completed ? SmokeJobFailed
-            : operation > DispatcherWatchdog.Budget || lag > SmokeLagLimit ? SmokeLagExceeded
-            : 0;
+        return SmokeVerdict.Phase(completed, operation, lag);
     }
 
     /// <summary>
@@ -338,26 +314,21 @@ internal sealed class SmokeRunner(IServiceProvider services)
         navigator.OpenTypeRowCommand.Execute(type);
         if (navigator.Current is not InstancesViewModel instances)
         {
-            return false;
+            return Failed(logger, "the largest type's objects did not open");
         }
 
         await instances.QueryTask;
         var objects = instances.Rows;
-        for (var i = 0; i < Math.Min(objects.Count, 50); i++)
-        {
-            objects.GetRow(i);
-        }
-
-        await objects.WhenLoadedAsync();
+        await TouchRowsAsync(objects);
         if (objects.Count == 0)
         {
-            return false;
+            return Failed(logger, "the largest type has no objects");
         }
 
         navigator.OpenInstanceRowCommand.Execute(objects.GetRow(0));
         if (navigator.Current is not ObjectViewModel first)
         {
-            return false;
+            return Failed(logger, "the first object did not open");
         }
 
         await first.LoadTask;
@@ -378,7 +349,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
         instances.WhyAliveCommand!.Execute(null);
         if (navigator.Current is not TypePathsViewModel typePaths)
         {
-            return false;
+            return Failed(logger, "the type's retention paths did not open");
         }
 
         await typePaths.LoadTask;
@@ -387,7 +358,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
         instances.ReferencedByCommand!.Execute(null);
         if (navigator.Current is not TypeReferrersViewModel referrers)
         {
-            return false;
+            return Failed(logger, "the type's referrers did not open");
         }
 
         await referrers.QueryTask;
@@ -422,16 +393,11 @@ internal sealed class SmokeRunner(IServiceProvider services)
         await instances.QueryTask;
         var retainedShown = instances.RetainedColumnShown;
         objects = instances.Rows;
-        for (var i = 0; i < Math.Min(objects.Count, 50); i++)
-        {
-            objects.GetRow(i);
-        }
-
-        await objects.WhenLoadedAsync();
+        await TouchRowsAsync(objects);
         navigator.OpenInstanceRowCommand.Execute(objects.GetRow(objects.Count > 1 ? 1 : 0));
         if (navigator.Current is not ObjectViewModel second)
         {
-            return false;
+            return Failed(logger, "the second object did not open");
         }
 
         await second.LoadTask;
@@ -442,11 +408,42 @@ internal sealed class SmokeRunner(IServiceProvider services)
         second.ReferencesTab = 2;
         await second.RetentionTask;
         await second.RetainedTask;
-        return first.Status is null && second.Status is null && (first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null)
-            && first.IncomingTotals is not null && second.IncomingTotals is not null && referrersShown
-            && first.RetentionTree.Count == 1 && second.RetentionTree.Count == 1 && typePathsShown
-            && retainedShown && first.RetainedSummary?.StartsWith("Retains", StringComparison.Ordinal) == true
-            && second.RetainedSummary?.StartsWith("Retains", StringComparison.Ordinal) == true;
+        // Each check by name, so a red run says which view did not show its data (sprint 2.3.7 review M11).
+        (string Check, bool Passed)[] checks =
+        [
+            ("first object read", first.Status is null),
+            ("second object read", second.Status is null),
+            ("first object's fields or text", first.Fields.Count > 0 || first.FieldsUnavailable is not null || first.Text is not null),
+            ("first object's referrers", first.IncomingTotals is not null),
+            ("second object's referrers", second.IncomingTotals is not null),
+            ("type's referrers", referrersShown),
+            ("first object's retention tree", first.RetentionTree.Count == 1),
+            ("second object's retention tree", second.RetentionTree.Count == 1),
+            ("type's retention paths", typePathsShown),
+            ("retained column", retainedShown),
+            ("first object's retained size", first.RetainedSummary?.StartsWith("Retains", StringComparison.Ordinal) == true),
+            ("second object's retained size", second.RetainedSummary?.StartsWith("Retains", StringComparison.Ordinal) == true),
+        ];
+        var failed = checks.Where(c => !c.Passed).Select(c => c.Check).ToArray();
+        return failed.Length == 0 || Failed(logger, string.Join(", ", failed));
+    }
+
+    private static bool Failed(ILogger logger, string step)
+    {
+        logger.LogWarning("Smoke step failed: {Step}", step);
+        return false;
+    }
+
+    /// <summary>Asks for the first rows as a grid on screen would, and waits for their page.</summary>
+    private static async Task TouchRowsAsync<TRow>(VirtualRowList<TRow> rows)
+        where TRow : class, IIndexedRow
+    {
+        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
+        {
+            rows.GetRow(i);
+        }
+
+        await rows.WhenLoadedAsync();
     }
 
     /// <summary>
@@ -461,12 +458,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
         var inspections = snapshots.Inspections;
         await inspections.RunTask;
         var rows = inspections.Rows;
-        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
-        {
-            rows.GetRow(i);
-        }
-
-        await rows.WhenLoadedAsync();
+        await TouchRowsAsync(rows);
         await IdleAsync();
         var finished = inspections.Tiles.Count > 0 && inspections.Tiles.All(t => !t.IsAvailable || (t.Run is not null && t.Status is null));
         logger.LogInformation(
@@ -494,12 +486,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
         await snapshots.OpenPathAsync(dump);
         await snapshots.Compare.QueryTask;
         var rows = snapshots.Compare.Rows;
-        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
-        {
-            rows.GetRow(i);
-        }
-
-        await rows.WhenLoadedAsync();
+        await TouchRowsAsync(rows);
         var shown = rows.Count > 0 && rows.GetRow(0).IsLoaded;
         logger.LogInformation(
             "Smoke compare: {Shown} ({Status}), {Rows:N0} rows, first {First}; {Totals}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
@@ -518,12 +505,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
         snapshots.Compare.SortByCommand.Execute(TypeDiffColumns.ObjectsDelta);
         await snapshots.Compare.QueryTask;
         rows = snapshots.Compare.Rows;
-        for (var i = 0; i < Math.Min(rows.Count, 50); i++)
-        {
-            rows.GetRow(i);
-        }
-
-        await rows.WhenLoadedAsync();
+        await TouchRowsAsync(rows);
         return shown && rows.Count > 0 && rows.GetRow(0).IsLoaded;
     }
 }

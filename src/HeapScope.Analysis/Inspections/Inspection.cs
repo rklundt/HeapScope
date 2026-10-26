@@ -50,6 +50,15 @@ public interface IInspection
     /// <summary>Facts the loader must have recorded (sprint 1.6 review); none for most inspections.</summary>
     SnapshotFacts RequiresFacts => SnapshotFacts.None;
 
+    /// <summary>
+    /// The rule's version: raised whenever what the inspection counts or its thresholds change, so a result disputed
+    /// after an upgrade is traced to the rule that produced it (sprint 2.3.7 review M5). Logged with every result.
+    /// </summary>
+    int Version => 1;
+
+    /// <summary>The thresholds the rule uses, as <c>Name=value</c> pairs for the log; empty when it has none.</summary>
+    string Parameters => string.Empty;
+
     InspectionResult Run(InspectionContext context);
 }
 
@@ -69,8 +78,10 @@ public sealed record InspectionProgress(string Phase, long Done, long Total);
 /// <summary>
 /// An inspection's answer: how many findings, the bytes they cover, the bytes they waste (null when "waste" does not
 /// apply, as for the large object heap's contents), a note on what could not be measured, and the rows.
+/// <paramref name="Basis"/> says what the answer rests on (objects scanned, skipped, groups compared), for the log
+/// only: it backs up a disputed result without any value from the dump (sprint 2.3.7 review H3).
 /// </summary>
-public sealed record InspectionResult(long Count, long Bytes, long? WastedBytes, string? Note, InspectionTable Rows);
+public sealed record InspectionResult(long Count, long Bytes, long? WastedBytes, string? Note, InspectionTable Rows, string? Basis = null);
 
 /// <summary>Kinds of inspection columns (mirrored by the worker's result columns).</summary>
 public enum InspectionColumnKind

@@ -80,7 +80,7 @@ public enum InstanceScope
 /// value filters match nothing.
 /// </summary>
 /// <param name="Dominators">How the dominators were obtained, when retained bytes were asked for.</param>
-public sealed record InstancesResult(ResultSetInfo Rows, long TotalObjects, long TotalBytes, int MatchedTypes, bool ValuesAvailable, double ElapsedSeconds, DominatorIndexInfo? Dominators = null);
+public sealed record InstancesResult(ResultSetInfo Rows, long TotalObjects, long TotalBytes, int MatchedTypes, bool ValuesAvailable, double ElapsedSeconds, DominatorIndexInfo? Dominators = null, string? FilterNote = null);
 
 /// <summary>What an <see cref="ObjectFieldDto"/> holds (mirrors Core's <c>ObjectFieldKind</c>).</summary>
 public enum ObjectFieldKindDto

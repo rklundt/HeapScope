@@ -120,6 +120,15 @@ public sealed class SnapshotRuleEngine
     public int Count { get; private set; }
 
     /// <summary>
+    /// Why the last rule fired: the metric and its source, the threshold actually used (after steps), the baseline and
+    /// the rearm mode (sprint 2.3.7 review M4). "Above 500 MB" can fire at 1.5 GB after two steps, and the log says so.
+    /// </summary>
+    public RuleDecision? LastDecision { get; private set; }
+
+    /// <summary>Whether the run stopped taking snapshots because it reached its maximum.</summary>
+    public bool AtMaximum => _rules.MaxSnapshots is { } max && Count >= max;
+
+    /// <summary>
     /// Whether time in GC averaged <see cref="PressurePercent"/> or more over the last intervals that had a GC (the
     /// counter is the last GC's share and stays put between collections, so idle intervals must not count).
     /// </summary>
@@ -167,6 +176,8 @@ public sealed class SnapshotRuleEngine
                     state.NextDue ??= _start.Value + every.Interval;
                     if (sample.At >= state.NextDue)
                     {
+                        LastDecision = new RuleDecision(rule, metric, sample.HeapAfterGcBytes > 0, null, Baseline, 0, null, state.NextDue);
+
                         // The next one is due an interval after this one, not after a missed slot.
                         state.NextDue = sample.At + every.Interval;
                         return rule;
@@ -174,6 +185,7 @@ public sealed class SnapshotRuleEngine
 
                     break;
                 case AboveRule or GrowthRule when state.Armed && Threshold(rule, state) is { } threshold && metric >= threshold:
+                    LastDecision = new RuleDecision(rule, metric, sample.HeapAfterGcBytes > 0, threshold, Baseline, state.Steps, RearmOf(rule), null);
                     Fire(rule, state);
                     return rule;
             }
@@ -229,5 +241,23 @@ public sealed class SnapshotRuleEngine
         public int Steps { get; set; }
 
         public DateTimeOffset? NextDue { get; set; }
+    }
+}
+
+/// <summary>
+/// Why a rule fired (sprint 2.3.7 review M4): the rule, the metric and whether it was the heap after the last GC or the
+/// heap now (no GC yet), the threshold it fired at after <paramref name="Step"/> steps, the growth baseline, the rearm
+/// mode, and for a timed rule when it was due.
+/// </summary>
+public sealed record RuleDecision(SnapshotRule Rule, long Metric, bool MetricAfterGc, long? Threshold, long? Baseline, int Step, RearmMode? Rearm, DateTimeOffset? Due)
+{
+    public override string ToString()
+    {
+        static string Mb(long bytes) => string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024.0):0.#} MB");
+        var source = MetricAfterGc ? "heap after the last GC" : "heap now, no GC yet";
+        var baseline = Baseline is { } b ? Mb(b) : "none";
+        return Threshold is { } threshold
+            ? string.Create(CultureInfo.InvariantCulture, $"{Rule.Label}: metric {Mb(Metric)} ({source}) reached threshold {Mb(threshold)} at step {Step}; baseline {baseline}; rearm {Rearm}")
+            : string.Create(CultureInfo.InvariantCulture, $"{Rule.Label}: due at {Due:O}; metric {Mb(Metric)} ({source}); baseline {baseline}");
     }
 }

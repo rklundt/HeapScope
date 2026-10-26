@@ -62,8 +62,9 @@ internal sealed class InstancesSource : IResultSource
     private readonly string?[]? _values;
     private readonly Dominators? _dominators;
 
-    private InstancesSource(HeapGraph graph, IObjectReader? reader, int[] objects, string?[]? values, long totalObjects, long totalBytes, int matchedTypes, Dominators? dominators)
+    private InstancesSource(HeapGraph graph, IObjectReader? reader, int[] objects, string?[]? values, long totalObjects, long totalBytes, int matchedTypes, Dominators? dominators, string? note = null)
     {
+        Note = note;
         _graph = graph;
         _dominators = dominators;
         _reader = reader;
@@ -86,6 +87,12 @@ internal sealed class InstancesSource : IResultSource
     public long TotalBytes { get; }
 
     public int MatchedTypes { get; }
+
+    /// <summary>
+    /// What the filter could not test (sprint 2.3.7 review M10): strings that could not be read and regular expression
+    /// matches that timed out are left out; null when nothing was.
+    /// </summary>
+    public string? Note { get; }
 
     /// <summary>
     /// Lists the objects of the types keyed by <paramref name="request"/>, filtered and sorted. Memory stays at one
@@ -184,8 +191,10 @@ internal sealed class InstancesSource : IResultSource
             }
         }
 
-        // Filter in place: the kept objects move to the front, still in address order.
+        // Filter in place: the kept objects move to the front, still in address order. Strings that cannot be read are
+        // counted, so a filter that silently missed them says so (sprint 2.3.7 review M10).
         var kept = total;
+        var unreadable = 0;
         if (filter.IsActive)
         {
             kept = 0;
@@ -198,7 +207,13 @@ internal sealed class InstancesSource : IResultSource
                 }
 
                 var obj = objects[k];
-                if (filter.IsMatch(graph.Addresses[obj], filter.NeedsValues ? Value(graph, reader, obj) : null))
+                var value = filter.NeedsValues ? Value(graph, reader, obj) : null;
+                if (filter.NeedsValues && value is null && graph.Types.Kinds[graph.TypeIndices[obj]].HasFlag(TypeKind.String))
+                {
+                    unreadable++;
+                }
+
+                if (filter.IsMatch(graph.Addresses[obj], value))
                 {
                     objects[kept++] = obj;
                 }
@@ -207,13 +222,21 @@ internal sealed class InstancesSource : IResultSource
             Array.Resize(ref objects, kept);
         }
 
+        var note = (unreadable, filter.Timeouts) switch
+        {
+            (0, 0) => null,
+            (_, 0) => string.Create(CultureInfo.InvariantCulture, $"{unreadable:N0} strings could not be read from the dump, so the filter could not test them; they are left out."),
+            (0, _) => string.Create(CultureInfo.InvariantCulture, $"The pattern took too long on {filter.Timeouts:N0} values (over 100 ms each); they are left out."),
+            _ => string.Create(CultureInfo.InvariantCulture, $"{unreadable:N0} strings could not be read and the pattern took too long on {filter.Timeouts:N0} values; both are left out."),
+        };
+
         if (sortColumn == InstanceColumns.Value && strings)
         {
-            return SortedByText(graph, reader, objects, request.Descending, total, totalBytes, matchedTypes, dominators, progress, cancellationToken);
+            return SortedByText(graph, reader, objects, request.Descending, total, totalBytes, matchedTypes, dominators, progress, cancellationToken, note);
         }
 
         SortByKey(graph, dominators, objects, sortColumn, request.Descending, cancellationToken);
-        return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes, dominators);
+        return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes, dominators, note);
     }
 
     /// <summary>The objects of the scope: on the large object heap, still to be finalized, or strings equal to one string.</summary>
@@ -262,7 +285,8 @@ internal sealed class InstancesSource : IResultSource
         int matchedTypes,
         Dominators? dominators,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? note)
     {
         var count = objects.Length;
         if (count > MaxValueSort)
@@ -299,7 +323,7 @@ internal sealed class InstancesSource : IResultSource
             sortedValues[k] = values[positions[k]];
         }
 
-        return new InstancesSource(graph, reader, sortedObjects, sortedValues, total, totalBytes, matchedTypes, dominators);
+        return new InstancesSource(graph, reader, sortedObjects, sortedValues, total, totalBytes, matchedTypes, dominators, note);
     }
 
     /// <summary>
@@ -408,6 +432,9 @@ internal sealed class InstancesSource : IResultSource
 
         public bool NeedsValues => _regex is not null || _text is not null;
 
+        /// <summary>Values the pattern timed out on (left out).</summary>
+        public int Timeouts { get; private set; }
+
         public bool IsActive => NeedsValues || _addressPrefix is not null;
 
         public static InstanceFilter Parse(string? filter)
@@ -423,7 +450,9 @@ internal sealed class InstancesSource : IResultSource
                 var hex = text[2..].TrimStart('0');
                 if (!hex.All(Uri.IsHexDigit))
                 {
-                    throw new ArgumentException($"{text} is not a hexadecimal address.");
+                    // The filter's text stays out of the message: the worker logs refusals, and a filter may be a value
+                    // copied from the dump (sprint 2.3.7 review M6).
+                    throw new ArgumentException("The filter starts with 0x but is not a hexadecimal address.");
                 }
 
                 return new InstanceFilter(hex.ToLowerInvariant(), null, null);
@@ -435,9 +464,9 @@ internal sealed class InstancesSource : IResultSource
                 {
                     return new InstanceFilter(null, new Regex(text[1..^1], RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)), null);
                 }
-                catch (ArgumentException ex)
+                catch (RegexParseException ex)
                 {
-                    throw new ArgumentException($"{text} is not a valid regular expression: {ex.Message}", ex);
+                    throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"The filter is not a valid regular expression: {ex.Error} at position {ex.Offset}."));
                 }
             }
 
@@ -459,6 +488,7 @@ internal sealed class InstancesSource : IResultSource
                 }
                 catch (RegexMatchTimeoutException)
                 {
+                    Timeouts++;
                     return false;
                 }
             }

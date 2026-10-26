@@ -159,6 +159,8 @@ internal sealed class OversizedCollectionsInspection : IInspection
 
     public string Name => "oversized-collections";
 
+    public string Parameters => $"Capacity>=2*Count+{Slack}";
+
     public string Title => "Oversized collections";
 
     public string Cause => "Capacity far above the count: the unused slots of the backing array are allocated and never used.";
@@ -240,6 +242,12 @@ internal sealed class DuplicateStringsInspection : IInspection
 
     public string Name => "duplicate-strings";
 
+    // Version 2 (sprint 2.3.7): unreadable strings are counted and named in the note; the note says unreachable strings
+    // are included.
+    public int Version => 2;
+
+    public string Parameters => "equal UTF-16 text by 64-bit XxHash3 within equal sizes; reachable and unreachable strings";
+
     public string Title => "Duplicate strings";
 
     public string Cause => "The same text is held in many separate string objects; every copy after the first is wasted.";
@@ -282,6 +290,9 @@ internal sealed class DuplicateStringsInspection : IInspection
         Array.Sort(sizes, sorted);
         var rows = new List<DuplicateRow>();
         var done = 0;
+        var groups = 0;
+        long hashed = 0;
+        long unreadable = 0;
         for (var start = 0; start < sorted.Length;)
         {
             var end = start + 1;
@@ -292,7 +303,9 @@ internal sealed class DuplicateStringsInspection : IInspection
 
             if (end - start > 1)
             {
-                HashGroup(graph, reader, sorted.AsSpan(start, end - start).ToArray(), (long)sizes[start], rows, context.CancellationToken);
+                groups++;
+                hashed += end - start;
+                unreadable += HashGroup(graph, reader, sorted.AsSpan(start, end - start).ToArray(), (long)sizes[start], rows, context.CancellationToken);
             }
 
             done += end - start;
@@ -306,7 +319,13 @@ internal sealed class DuplicateStringsInspection : IInspection
         var table = rows.Select((r, i) => r with { Text = Shorten(shown[i]) })
             .OrderByDescending(r => r.Wasted).ThenBy(r => r.Representative)
             .ToArray();
-        return new InspectionResult(table.Length, table.Sum(r => r.Copies * r.Size), table.Sum(r => r.Wasted), null, new RowTable<DuplicateRow>(s_columns, table, 80 + (2 * ShownLength), (row, cells) =>
+        // Every string in the dump counts, reachable or not: a full dump also holds garbage the next collection frees, the
+        // likeliest reason a figure here is disputed (sprint 2.3.7 review H3); unreadable strings are left out, and said so.
+        var note = unreadable > 0
+            ? $"{unreadable:N0} strings could not be read from the dump and were left out. Unreachable strings are included."
+            : "Unreachable strings (garbage the next collection would free) are included.";
+        var basis = $"strings {total}, size groups hashed {groups}, strings hashed {hashed}, unreadable {unreadable}";
+        return new InspectionResult(table.Length, table.Sum(r => r.Copies * r.Size), table.Sum(r => r.Wasted), note, new RowTable<DuplicateRow>(s_columns, table, 80 + (2 * ShownLength), (row, cells) =>
         {
             var type = graph.TypeIndices[row.Representative];
             cells[0] = row.Text;
@@ -317,11 +336,14 @@ internal sealed class DuplicateStringsInspection : IInspection
             cells[5] = graph.Types.GetName(type);
             cells[6] = TypeGroups.ModuleKey(graph.Types.GetModule(type));
             cells[7] = InspectionScopes.SameValue;
-        }));
+        }), basis);
     }
 
-    /// <summary>Hashes one size group and adds a row per hash shared by two or more strings (sorting the hashes, no table).</summary>
-    private static void HashGroup(HeapGraph graph, IObjectReader reader, int[] group, long size, List<DuplicateRow> rows, CancellationToken cancellationToken)
+    /// <summary>
+    /// Hashes one size group and adds a row per hash shared by two or more strings (sorting the hashes, no table). Returns
+    /// how many strings of the group could not be read.
+    /// </summary>
+    private static int HashGroup(HeapGraph graph, IObjectReader reader, int[] group, long size, List<DuplicateRow> rows, CancellationToken cancellationToken)
     {
         var addresses = new ulong[group.Length];
         for (var k = 0; k < group.Length; k++)
@@ -330,12 +352,14 @@ internal sealed class DuplicateStringsInspection : IInspection
         }
 
         var hashes = StringHashes.Compute(reader, addresses, out var valid, cancellationToken);
+        var unreadable = 0;
 
         // Unreadable strings sort apart: they take no part in a run.
         var keys = new (bool Valid, ulong Hash)[group.Length];
         for (var k = 0; k < group.Length; k++)
         {
             keys[k] = (valid[k], hashes[k]);
+            unreadable += valid[k] ? 0 : 1;
         }
 
         Array.Sort(keys, group);
@@ -355,6 +379,8 @@ internal sealed class DuplicateStringsInspection : IInspection
 
             start = end;
         }
+
+        return unreadable;
     }
 
     private static string? Shorten(string? text) =>

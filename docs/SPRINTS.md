@@ -27,6 +27,7 @@ everything else.
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
 | 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
 | 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
+| 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1872,6 +1873,106 @@ SessionLibrary concurrency flake under load; it passed 5 of 5 alone). CI green o
 
 ---
 
+## Sprint 2.3.7: Port peer review
+
+**Goal**: a second, wider review of the Avalonia port (2.3.6 changed 173 files) from three perspectives, solution
+architect, developer and support or system analyst, looking for refactoring items and for logging that can back up
+every result HeapScope shows.
+
+**Scope** (product owner, 2026-10-26: "Really look at this for refactor items and also assure logging telemetry is
+solid. If someone contests a finding, we'll need logging to back up why result was proposed."):
+- Review the port's change set (`sprint-2.3.5..sprint-2.3.6`) and the code it touches for refactoring: duplication,
+  misplaced responsibilities, seams 2.4 will need, dead code from the WPF era.
+- Result provenance in the logs: when a user contests a result (an inspection finding, a retained size, a retention
+  path, a diff row, a growth alert, a refused capability, a DAC choice, a cache reuse), the local log shows why it was
+  produced: the snapshot's identity and loader facts, versions, the rule and its thresholds, counts, timings, with ids
+  that tie the UI, the CLI and the worker lines together. Never dump contents (ARCHITECTURE 12): no field values or
+  strings. "Telemetry" here means local diagnostics only; HeapScope sends nothing anywhere.
+- A support perspective: can someone diagnose a user's problem from the log folder alone (where logs are, how long they
+  are kept, what a failure looks like, what is missing).
+- Fix every High; Moderates follow the lead engineer's recommendation (product owner: "Go with your reco for moderate
+  recommendations").
+
+**Acceptance criteria**: docs/reviews/sprint-2.3.7.md with the three perspectives; every High fixed and confirmed;
+every Moderate decided; a test or a logged run shows each fixed provenance gap; docs describe the logging that exists.
+
+**Version**: 2.3.7.
+
+**Dependencies**: 2.3.6.
+
+**Task breakdown** (from docs/reviews/sprint-2.3.7.md; the review ran first, as this sprint's purpose)
+1. [x] Log files per process (H1, M17): `heapscope-yyyyMMdd-<app>-<pid>.log`, each starting with a header (product and
+   informational version, app, pid, system, architecture, runtime, self-contained or not, log folder); lines in ISO 8601
+   with offset; scopes rendered; files kept 14 days; a file rolls at 50 MB; `Logging:File:MinimumLevel` (also passed
+   to the worker). Tests: two providers on one folder keep every line; old files removed; the roll; scopes; the level.
+2. [x] Snapshot identity (H2): one structured line when a snapshot opens (id, path, size, fingerprint, kind,
+   capabilities, facts, runtime, capture time and its source, loader and cache writer versions, cache path and identity,
+   from cache or rebuilt or reopened, memory mode, notes, load timings, loader diagnostics); incomplete segments and
+   static roots kept in the cache metadata (optional fields); the client logs its handle with the worker id on open,
+   reopen and a changed-file refusal. Tests: the line's fields on a fixture open; the metadata round trip.
+3. [x] Result provenance (H3, M5): one structured line per answered query at the worker's RPC boundary (operation,
+   snapshot ids, parameters without filter text, versions and thresholds, outcome counts and flags, elapsed);
+   inspections get a version and parameters; duplicate strings count unreadable strings and say unreachable strings are
+   included; the Compare view model logs how the pair was chosen. Tests: a captured logger sees each result line; the
+   duplicate strings note.
+4. [x] Who ran what (H4, M20): `ProductInfo.InformationalVersion` (with the commit); a start line for the UI, the CLI
+   (with its command and options, never values) and the worker (protocol, system, architecture, runtime, path, rule and
+   format versions); `JobTracker` logs each job's start and end with id, title, elapsed, status and error code; the CLI
+   logs its exit code; worker start failures and the errors shown to the user are logged. Tests: job lines; CLI exit
+   line.
+5. [x] Correlation (M1, M20): an `Activity` per job, CLI command and grid query; StreamJsonRpc's activity tracing on both
+   ends so worker lines carry the client's trace id; scopes in the worker's console log; forwarded worker lines prefixed
+   with the worker pid and generation; result set re-runs logged. Tests: a worker line carries the client's trace id.
+6. [x] Errors and refusals (M2): expected refusals logged at Information without a stack, with operation, snapshot and
+   reason; errors created as codes logged; inspection availability reasons logged; the CLI console shows worker errors
+   only; ARCHITECTURE 4.3 and 11 corrected. Tests: refusal logged without stack.
+7. [x] DAC choice (M3): `DacChoice` (path, rule, folders searched, downloaded) returned through the loader's diagnostics
+   and the reader, logged with the identity line, kept in the cache metadata; each rejected candidate's reason in the
+   failure message; a download logged as a warning. Tests: the rule and the rejection reasons.
+8. [x] Monitoring and the growth gate (M4): run start and end lines with the rules; a fire line with metric, source,
+   baseline, threshold, step and rearm; the same in the timeline marker and the session record; the CLI gate decision
+   logged. Tests: the rule decision; the gate line.
+9. [x] Log content policy (M6): ARCHITECTURE 11 says what logs may hold (paths, names, counts, addresses; never values or
+   strings) and that logs are local evidence, not for publishing; the instances filter text kept out of logged messages.
+   Test: a refused filter's log line has no text.
+10. [x] Instances filter drops (M10): unreadable strings and regex timeouts counted, returned as a note and logged.
+    Tests: the counts.
+11. [x] Smoke runner (M11): shared measuring and step helpers, the failed step named in the log, `ILogger<SmokeRunner>`,
+    the CI-matched lines marked as a contract with event ids; the operation bound and the exit-code verdict extracted and
+    unit tested.
+12. [x] Shared patterns (M12, M15): a `WorkerException` base, `ResultSetHandle.ReleaseInBackground`, a section loader for
+    `ObjectViewModel`; one `AddHeapScopeViewModels` used by the app and the tests.
+13. [x] Support docs (M16): the log folder per system in README and DEVELOPER; the About page shows the log folder,
+    versions and runtime, with a copy action; messages name the actual log folder.
+14. [x] Early and fatal failures (M18, M19): `Main` logs failures before the host exists; Avalonia's warnings reach the
+    log without message text; worker exit codes explained (out of memory kill, abort, unhandled exception); a worker
+    last-chance line.
+15. [x] Docs: ARCHITECTURE 11 (logging and provenance, the policy), 4.3, 12; DEVELOPER (logs, support); CLAUDE.md;
+    SPRINTS 2.4 gets the deferred items (M7, M8, M9, M13, M14, typed fake rows).
+
+**Decisions** (decided autonomously from the recommendations)
+1. One log file per process rather than shared appends: no cross-process locking, and each file says who wrote it.
+2. Provenance is logged now; a provenance record on the result DTOs (protocol 11) waits for the shared analysis export
+   (ADR-026), which needs the same record.
+3. Correlation uses W3C trace ids through StreamJsonRpc's activity tracing, so the protocol does not change.
+
+**Review summary**: 4 High, 20 Moderate, 27 Low (docs/reviews/sprint-2.3.7.md; three perspectives: solution-architect,
+senior-dev, support and system analyst). The Highs were all logging: processes overwrote each other's log lines, a
+snapshot's identity was never logged, no result was ever logged, and there was no trail of versions, jobs or shown
+errors. All four fixed and confirmed by the reviewers that raised them (two gaps from the confirmations fixed too:
+retention path roots in the log, and host build failures). Moderates, decided autonomously: 14 fixed (trace ids from the
+UI or CLI to the worker, refusals logged without stacks, the DAC choice with every candidate's outcome, monitoring rule
+decisions and the CLI growth gate, rule versions and parameters, a log content policy, instance filter drops, the smoke
+runner's steps and tested verdicts, a worker exception base and shared release and section helpers, one view model
+wiring, support docs and the About page, early UI failures and Avalonia's warnings, worker exit codes, job and re-run
+lines), 6 deferred to 2.4 (navigation targets, the dominator tree's worker pieces, exactness on the wire, column groups,
+shared view controls, typed fake rows). Also found: the session lock's 10 second deadline caused the long-standing
+SessionLibrary gate flake (now 30 s). Protocol 11. Measured (Release, Small dump smoke): longest UI operation at most 63
+to 64 ms, lag 101 to 115 ms, UI 227 to 233 MB, about 80 log lines per smoke run. Gate: 1,025 tests, 0 failed, 0
+warnings; CI green on all jobs.
+
+---
+
 ## Sprint 2.4: Retention explorer UI
 
 **Goal**: explore what retains memory.
@@ -1885,6 +1986,21 @@ From 2.3.5 (ADR-025): built in Avalonia after the port (2.3.6). The tree is buil
 data-virtualized row list with indentation in the DataGrid), not the paid TreeDataGrid. Avalonia's `TreeView` is not
 virtualized and stays for small, capped trees only (2.3.6 review). A grid whose column set or row count changes on a
 re-query gets an adapter keyed by an interface rather than by row type (2.3.6 review).
+
+From the 2.3.7 peer review (deferred here, decided autonomously):
+- M8 first: one navigation target (snapshot, type key with scope, object, retention node, diff row) and one
+  `Navigate(target)` on the Snapshots view model that picks the tab, a subject interface with a typed trail (no more
+  `List<object>` and reflection binding), tab enums instead of numbers, and the navigator passed to grids by
+  constructor instead of settable commands; `SnapshotTab.axaml` split into a view per subject.
+- M9: decide at the start, as a decision or ADR, how the dominator tree's children are found (a children section in the
+  dominators sidecar, sorted by retained size, or a measured scan per expand), the request shape (expanded node ids;
+  `NodeId`, `ParentId` and `Depth` columns) and the updated memory budget (ARCHITECTURE 6.4).
+- M7: whether a value is exact or a lower bound travels on the wire (a column or result flag), with caveat codes whose
+  texts live in Contracts; the CLI and the view models render from that one source.
+- M13: column groups as one `VisibleColumnGroups` behavior and a generic cell row, with the grid adapter work above.
+- M14: a note text control and a type grid toolbar control (grouping, filter, totals), used by the types grid,
+  Compare and the dominator grid.
+- M15 rest: typed fake rows keyed by the Contracts column names in the view model test fakes.
 
 From 2.3 (decisions 6 and 7): the exact retention of a set ("open objects retained by this set": a reachability pass from
 the roots that skips the set, since a group's retained column is only a lower bound), the biggest retainers tile and the

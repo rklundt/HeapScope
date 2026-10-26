@@ -23,6 +23,7 @@
 
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Application.Snapshots;
 
@@ -37,17 +38,19 @@ public sealed class ResultSetHandle
 {
     private readonly IWorkerClient _worker;
     private readonly Func<CancellationToken, Task<ResultSetInfo>> _query;
+    private readonly ILogger? _logger;
 
     // Serializes re-queries and the release. Never disposed: it is not used through AvailableWaitHandle, so it holds
     // no kernel object.
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile bool _released;
 
-    internal ResultSetHandle(IWorkerClient worker, ResultSetInfo info, Func<CancellationToken, Task<ResultSetInfo>> query)
+    internal ResultSetHandle(IWorkerClient worker, ResultSetInfo info, Func<CancellationToken, Task<ResultSetInfo>> query, ILogger? logger = null)
     {
         _worker = worker;
         Info = info;
         _query = query;
+        _logger = logger;
     }
 
     /// <summary>The current result set (replaced when the query had to run again).</summary>
@@ -104,6 +107,18 @@ public sealed class ResultSetHandle
         }
     }
 
+    /// <summary>
+    /// Releases the set without waiting, for a view that moved on (sprint 2.3.7 review M12): a failure only means the set
+    /// is already gone with its worker, so it is logged at Debug and nothing else happens.
+    /// </summary>
+    public void ReleaseInBackground(ILogger? logger) =>
+        _ = ReleaseAsync(CancellationToken.None).ContinueWith(
+            static (t, state) => (state as ILogger)?.LogDebug(t.Exception, "Releasing a result set failed"),
+            logger,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+
     private async Task RequeryAsync(Guid failedId, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -116,6 +131,15 @@ public sealed class ResultSetHandle
             {
                 Info = await _query(cancellationToken).ConfigureAwait(false);
                 Requeries++;
+
+                // The rows shown from here on come from a new run (sprint 2.3.7 review M20); the worker logged its answer.
+                _logger?.LogInformation(
+                    "Result set {OldId} was gone (evicted, or the worker restarted); the query ran again as {NewId} with {Rows} rows (re-run {Count}, worker generation {Generation})",
+                    failedId,
+                    Info.Id,
+                    Info.TotalCount,
+                    Requeries,
+                    _worker.Generation);
             }
         }
         finally

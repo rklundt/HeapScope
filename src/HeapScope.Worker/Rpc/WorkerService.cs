@@ -23,6 +23,7 @@
 
 using System.Diagnostics;
 using System.Runtime;
+using System.Runtime.CompilerServices;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Synthetic;
@@ -81,7 +82,7 @@ internal sealed partial class WorkerService(
     }
 
     public Task<SyntheticJobResult> RunSyntheticJobAsync(SyntheticJobRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             Validate(request);
@@ -114,7 +115,8 @@ internal sealed partial class WorkerService(
             resultSets.TryGetPage(resultSetId, offset, count)
                 ?? throw WorkerErrors.Create(
                     HeapScopeErrorCode.ResultSetNotFound,
-                    $"Result set {resultSetId} is not available: it was released, evicted or never existed. Run the query again.")));
+                    $"Result set {resultSetId} is not available: it was released, evicted or never existed. Run the query again.")),
+            LogLevel.Debug);
     }
 
     public Task ReleaseResultSetAsync(Guid resultSetId, CancellationToken cancellationToken)
@@ -149,7 +151,13 @@ internal sealed partial class WorkerService(
         await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
     }
 
-    private Task<T> GuardAsync<T>(Func<Task<T>> body) => WorkerErrors.GuardAsync(body, logger);
+    // Every answer is logged with its request (sprint 2.3.7 review H3); page reads and probes, which a grid makes many of,
+    // at Debug.
+    private Task<T> GuardAsync<T>(Func<Task<T>> body, LogLevel resultLevel = LogLevel.Information, [CallerMemberName] string operation = "") =>
+        WorkerErrors.GuardAsync(body, logger, operation, null, resultLevel);
+
+    private Task<T> GuardAsync<T>(object? request, Func<Task<T>> body, LogLevel resultLevel = LogLevel.Information, [CallerMemberName] string operation = "") =>
+        WorkerErrors.GuardAsync(body, logger, operation, request, resultLevel);
 
     /// <summary>A loaded snapshot and a lease on it; a snapshot closed meanwhile refuses the lease.</summary>
     private (ISnapshot Snapshot, SnapshotLease Lease) Lease(Guid snapshotId)
