@@ -33,7 +33,13 @@ public sealed class WriterHookCollection
 [Collection(WriterHookCollection.Name)]
 public sealed class MappedIndexFileWriterTests : IDisposable
 {
-    private static readonly IndexFileLayout s_dominators = IndexFileLayout.ForDominators(7);
+    // Two sections of the dominators sidecar with a semantics version: the writer's mechanics, not the sidecar's full
+    // layout (which grew the tree's children in sprint 2.4).
+    private static readonly IndexFileLayout s_dominators = new("dominators", new Dictionary<IndexSection, int>
+    {
+        [IndexSection.ImmediateDominators] = sizeof(int),
+        [IndexSection.RetainedSizes] = sizeof(ulong),
+    }, 7);
 
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "HeapScopeTests", Guid.NewGuid().ToString("N"));
     private readonly string _snapshot;

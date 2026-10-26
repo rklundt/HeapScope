@@ -163,20 +163,35 @@ internal static class DominatorsBenchmark
             var idom = GC.AllocateUninitializedArray<int>(graph.ObjectCount);
             var retained = GC.AllocateUninitializedArray<ulong>(graph.ObjectCount);
             var count = DominatorTree.Compute(graph, reverse, idom, retained);
-            return (Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), null), count);
+            var starts = new int[graph.ObjectCount + 2];
+            var children = new int[graph.ObjectCount];
+            DominatorTree.BuildChildren(idom, retained, starts, children);
+            return (Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), Column<int>.FromArray(starts), Column<int>.FromArray(children), null), count);
         }
 
         int reachable;
-        using (var writer = MappedIndexFileWriter.Create(sidecar, [new(IndexSection.ImmediateDominators, 4, graph.ObjectCount), new(IndexSection.RetainedSizes, 8, graph.ObjectCount)]))
+        using (var writer = MappedIndexFileWriter.Create(
+            sidecar,
+            [
+                new(IndexSection.ImmediateDominators, 4, graph.ObjectCount),
+                new(IndexSection.RetainedSizes, 8, graph.ObjectCount),
+                new(IndexSection.DominatorChildStarts, 4, graph.ObjectCount + 2),
+                new(IndexSection.DominatorChildren, 4, graph.ObjectCount),
+            ]))
         {
-            reachable = DominatorTree.Compute(graph, reverse, writer.GetSection<int>(IndexSection.ImmediateDominators), writer.GetSection<ulong>(IndexSection.RetainedSizes));
+            var idom = writer.GetSection<int>(IndexSection.ImmediateDominators);
+            var retained = writer.GetSection<ulong>(IndexSection.RetainedSizes);
+            reachable = DominatorTree.Compute(graph, reverse, idom, retained);
+            DominatorTree.BuildChildren(idom, retained, writer.GetSection<int>(IndexSection.DominatorChildStarts), writer.GetSection<int>(IndexSection.DominatorChildren));
             writer.Commit(fingerprint, 0, layout.SemanticsVersion);
         }
 
         var file = IndexCacheFile.Open(sidecar, layout, 0, fingerprint, MemoryMode.Mapped).File!;
         file.TryGetSection<int>(IndexSection.ImmediateDominators, out var idoms);
         file.TryGetSection<ulong>(IndexSection.RetainedSizes, out var sizes);
-        return (Dominators.FromColumns(graph, idoms, sizes, file), reachable);
+        file.TryGetSection<int>(IndexSection.DominatorChildStarts, out var childStarts);
+        file.TryGetSection<int>(IndexSection.DominatorChildren, out var childList);
+        return (Dominators.FromColumns(graph, idoms, sizes, childStarts, childList, file), reachable);
     }
 
     private static (T Result, TimeSpan Time, long Peak) Phase<T>(Func<T> body)

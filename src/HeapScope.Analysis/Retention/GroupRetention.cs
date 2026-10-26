@@ -33,8 +33,11 @@ namespace HeapScope.Analysis.Retention;
 /// </summary>
 public static class GroupRetention
 {
-    /// <summary>Bytes per object of working arrays: the dominator tree's children (row offsets, rows, a cursor per object).</summary>
-    public const int WorkingBytesPerObject = 12;
+    /// <summary>
+    /// Bytes per object of working arrays: a cursor per vertex. The tree's children are the dominators' own since sprint 2.4
+    /// (they were built here, 12 bytes per object, on every run).
+    /// </summary>
+    public const int WorkingBytesPerObject = 4;
 
     /// <summary>Items between cancellation checks and progress reports (DEVELOPER.md 4: at most 64K).</summary>
     private const int Chunk = 1 << 16;
@@ -62,49 +65,14 @@ public static class GroupRetention
             throw new ArgumentException("The dominators or the groups do not match the graph.");
         }
 
-        // The dominator tree as a CSR of children; the virtual root is vertex n.
+        // The dominator tree's children, kept with the dominators (sprint 2.4); the virtual root is vertex n.
         var idom = dominators.ImmediateDominators.Span;
-        var starts = new int[n + 2];
-        var reachable = 0;
-        for (var i = 0; i < n; i++)
-        {
-            var parent = Parent(idom[i], n);
-            if (parent >= 0)
-            {
-                starts[parent + 1]++;
-                reachable++;
-            }
-
-            if ((i & (Chunk - 1)) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-        }
-
-        for (var i = 1; i < starts.Length; i++)
-        {
-            starts[i] += starts[i - 1];
-        }
-
-        var children = GC.AllocateUninitializedArray<int>(reachable);
+        var starts = dominators.ChildStarts.Span;
+        var children = dominators.Children.Span;
         var cursor = GC.AllocateUninitializedArray<int>(n + 1);
-        starts.AsSpan(0, n + 1).CopyTo(cursor);
-        for (var i = 0; i < n; i++)
-        {
-            var parent = Parent(idom[i], n);
-            if (parent >= 0)
-            {
-                children[cursor[parent]++] = i;
-            }
-
-            if ((i & (Chunk - 1)) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-        }
 
         // Depth first without a stack: each vertex's cursor is its next child, and the search climbs back through idom.
-        starts.AsSpan(0, n + 1).CopyTo(cursor);
+        starts[..(n + 1)].CopyTo(cursor);
         var types = graph.TypeIndices.Span;
         var retained = dominators.RetainedSizes.Span;
         var active = new int[groupCount];
@@ -153,11 +121,5 @@ public static class GroupRetention
         return totals;
     }
 
-    /// <summary>The vertex of an object's dominator: an object index, n for the virtual root, -1 when unreachable.</summary>
-    private static int Parent(int immediateDominator, int n) => immediateDominator switch
-    {
-        DominatorTree.VirtualRoot => n,
-        DominatorTree.Unreachable => -1,
-        var d => d,
-    };
+    private static int Parent(int immediateDominator, int n) => DominatorTree.Parent(immediateDominator, n);
 }

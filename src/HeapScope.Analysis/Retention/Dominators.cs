@@ -35,10 +35,12 @@ public sealed class Dominators : IDisposable
     private readonly IDisposable? _owner;
     private int _disposed;
 
-    private Dominators(Column<int> immediateDominators, Column<ulong> retainedSizes, IDisposable? owner)
+    private Dominators(Column<int> immediateDominators, Column<ulong> retainedSizes, Column<int> childStarts, Column<int> children, IDisposable? owner)
     {
         ImmediateDominators = immediateDominators;
         RetainedSizes = retainedSizes;
+        ChildStarts = childStarts;
+        Children = children;
         _owner = owner;
     }
 
@@ -48,10 +50,19 @@ public sealed class Dominators : IDisposable
     /// <summary>Per object: the retained size in bytes (0 for an object no root reaches).</summary>
     public Column<ulong> RetainedSizes { get; }
 
+    /// <summary>The tree's row offsets (sprint 2.4): n + 2 elements, vertex n is the virtual root (<see cref="DominatorTree.BuildChildren"/>).</summary>
+    public Column<int> ChildStarts { get; }
+
+    /// <summary>The tree's children, each vertex's slice largest retained size first.</summary>
+    public Column<int> Children { get; }
+
     public int ObjectCount => ImmediateDominators.Length;
 
-    /// <summary>Bytes held by the two columns.</summary>
-    public long ColumnBytes => ImmediateDominators.ByteLength + RetainedSizes.ByteLength;
+    /// <summary>The vertex of the virtual root, whose children are the top-level dominators.</summary>
+    public int Root => ObjectCount;
+
+    /// <summary>Bytes held by the columns.</summary>
+    public long ColumnBytes => ImmediateDominators.ByteLength + RetainedSizes.ByteLength + ChildStarts.ByteLength + Children.ByteLength;
 
     /// <summary>Computes the dominators of <paramref name="graph"/> into managed arrays.</summary>
     public static Dominators Compute(HeapGraph graph, ReverseReferences reverse, IProgress<DominatorProgress>? progress = null, CancellationToken cancellationToken = default)
@@ -60,22 +71,43 @@ public sealed class Dominators : IDisposable
         var idom = GC.AllocateUninitializedArray<int>(graph.ObjectCount);
         var retained = GC.AllocateUninitializedArray<ulong>(graph.ObjectCount);
         DominatorTree.Compute(graph, reverse, idom, retained, progress, cancellationToken);
-        return new Dominators(Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), owner: null);
+        var starts = new int[graph.ObjectCount + 2];
+        var children = new int[graph.ObjectCount];
+        DominatorTree.BuildChildren(idom, retained, starts, children, cancellationToken);
+        return new Dominators(Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), Column<int>.FromArray(starts), Column<int>.FromArray(children), owner: null);
     }
 
     /// <summary>
     /// Dominators from existing columns (a sidecar), checked against <paramref name="graph"/>'s object count; contents are
     /// guaranteed by the file's checksums. <paramref name="owner"/> is disposed with the result.
     /// </summary>
-    public static Dominators FromColumns(HeapGraph graph, Column<int> immediateDominators, Column<ulong> retainedSizes, IDisposable? owner)
+    public static Dominators FromColumns(HeapGraph graph, Column<int> immediateDominators, Column<ulong> retainedSizes, Column<int> childStarts, Column<int> children, IDisposable? owner)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        if (immediateDominators.Length != graph.ObjectCount || retainedSizes.Length != graph.ObjectCount)
+        if (immediateDominators.Length != graph.ObjectCount || retainedSizes.Length != graph.ObjectCount
+            || childStarts.Length != graph.ObjectCount + 2 || children.Length != graph.ObjectCount)
         {
             throw new ArgumentException("The dominators do not match the graph's object count.");
         }
 
-        return new Dominators(immediateDominators, retainedSizes, owner);
+        return new Dominators(immediateDominators, retainedSizes, childStarts, children, owner);
+    }
+
+    /// <summary>
+    /// The children of <paramref name="vertex"/> in the dominator tree (an object index, or <see cref="Root"/> for the
+    /// top-level dominators), largest retained size first. Sprint 2.4.
+    /// </summary>
+    public ReadOnlySpan<int> ChildrenOf(int vertex)
+    {
+        var starts = ChildStarts.Span;
+        return Children.Span[starts[vertex]..starts[vertex + 1]];
+    }
+
+    /// <summary>How many children <paramref name="vertex"/> has.</summary>
+    public int ChildCount(int vertex)
+    {
+        var starts = ChildStarts.Span;
+        return starts[vertex + 1] - starts[vertex];
     }
 
     /// <summary>The immediate dominator of <paramref name="objectIndex"/> (an object index, or a marker of <see cref="DominatorTree"/>).</summary>

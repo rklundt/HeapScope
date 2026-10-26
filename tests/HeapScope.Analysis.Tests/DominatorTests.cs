@@ -315,7 +315,59 @@ public sealed class DominatorTests
     {
         using var graph = SyntheticGraphs.Chain(3);
 
-        Should.Throw<ArgumentException>(() => Dominators.FromColumns(graph, Column<int>.FromArray([Root, 0]), Column<ulong>.FromArray([1, 2, 3]), null));
+        Should.Throw<ArgumentException>(() => Dominators.FromColumns(graph, Column<int>.FromArray([Root, 0]), Column<ulong>.FromArray([1, 2, 3]), Column<int>.FromArray(new int[5]), Column<int>.FromArray(new int[3]), null));
+        Should.Throw<ArgumentException>(() => Dominators.FromColumns(graph, Column<int>.FromArray([Root, 0, 1]), Column<ulong>.FromArray([1, 2, 3]), Column<int>.FromArray(new int[4]), Column<int>.FromArray(new int[3]), null));
+    }
+
+    [Fact]
+    public void The_tree_children_are_every_dominated_object_largest_retained_first()
+    {
+        // Sprint 2.4 (ADR-027): a root holds a small and a large list; a second root shares an object with the first.
+        var builder = new SyntheticGraphBuilder();
+        var holder = builder.Object("App.Holder", size: 10);
+        var small = builder.Object("App.List", size: 20);
+        var large = builder.Object("App.List", size: 20);
+        var item = builder.Object("App.Item", size: 500);
+        var shared = builder.Object("App.Shared", size: 40);
+        var other = builder.Object("App.Other", size: 10);
+        var tieA = builder.Object("App.Tie", size: 7);
+        var tieB = builder.Object("App.Tie", size: 7);
+        var garbage = builder.Object("App.Garbage", size: 999);
+        builder.Reference(holder, small).Reference(holder, large).Reference(large, item).Reference(holder, shared).Reference(other, shared)
+            .Reference(small, tieB).Reference(small, tieA);
+        builder.Root(holder).Root(other, RootKind.StrongHandle);
+        using var graph = builder.Build();
+        using var dominators = Compute(graph);
+
+        dominators.ChildrenOf(dominators.Root).ToArray().ShouldBe([holder.Id, shared.Id, other.Id], "top-level dominators, largest first: shared is held by two roots");
+        dominators.ChildrenOf(holder.Id).ToArray().ShouldBe([large.Id, small.Id], "the list with the item retains more");
+        dominators.ChildrenOf(small.Id).ToArray().ShouldBe([tieA.Id, tieB.Id], "equal sizes by index");
+        dominators.ChildCount(item.Id).ShouldBe(0);
+        dominators.ChildCount(garbage.Id).ShouldBe(0);
+        Enumerable.Range(0, graph.ObjectCount + 1).Sum(dominators.ChildCount).ShouldBe(graph.ObjectCount - 1, "every reachable object is someone's child once");
+    }
+
+    [Fact]
+    public void Children_built_in_given_spans_match_the_managed_ones()
+    {
+        using var graph = RandomGraph(11, objects: 2_000);
+        using var dominators = Compute(graph);
+        var starts = Enumerable.Repeat(-5, graph.ObjectCount + 2).ToArray();
+        var children = new int[graph.ObjectCount];
+
+        DominatorTree.BuildChildren(dominators.ImmediateDominators.Span, dominators.RetainedSizes.Span, starts, children, Ct);
+
+        starts.ShouldBe(dominators.ChildStarts.Span.ToArray());
+        children.ShouldBe(dominators.Children.Span.ToArray());
+        var retained = dominators.RetainedSizes.Span.ToArray();
+        for (var v = 0; v <= graph.ObjectCount; v++)
+        {
+            var slice = dominators.ChildrenOf(v).ToArray();
+            slice.Select(c => retained[c]).ShouldBeInOrder(SortDirection.Descending);
+            slice.ShouldAllBe(c => DominatorTree.Parent(dominators.ImmediateDominator(c), graph.ObjectCount) == v);
+        }
+
+        Should.Throw<ArgumentException>(() => DominatorTree.BuildChildren(dominators.ImmediateDominators.Span, dominators.RetainedSizes.Span, new int[3], children));
     }
 
     [Fact]
