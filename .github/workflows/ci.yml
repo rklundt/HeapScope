@@ -160,7 +160,8 @@ jobs:
         run: |
           bash build/publish.sh ${{ matrix.rid }} "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}"
           # A tarball keeps the executables' modes, which an artifact upload of the folder drops (sprint 2.3.6 review H1).
-          tar -czf "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz" -C "$RUNNER_TEMP" "HeapScope-${{ matrix.rid }}"
+          # Relative names: Git Bash's GNU tar reads "D:" in a Windows path as a remote host.
+          (cd "$RUNNER_TEMP" && tar -czf "HeapScope-${{ matrix.rid }}.tar.gz" "HeapScope-${{ matrix.rid }}")
           du -sh "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}" "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz"
       - name: Run the build as a user would get it
         # Unpacked from the tarball: the CLI, its worker (started through the pipe) and the app without a display.
@@ -168,7 +169,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/unpacked"
-          tar -xzf "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          (cd "$RUNNER_TEMP/unpacked" && tar -xzf "../HeapScope-${{ matrix.rid }}.tar.gz")
           dir="$RUNNER_TEMP/unpacked/HeapScope-${{ matrix.rid }}"
           ext=""; [ "${{ matrix.rid }}" = "win-x64" ] && ext=".exe"
           "$dir/heapscope-cli$ext" --version

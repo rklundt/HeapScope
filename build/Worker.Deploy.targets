@@ -35,7 +35,7 @@
     need an installed .NET runtime.
   -->
   <Target Name="HeapScopePublishWorkerForRuntime" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
-    <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="Restore" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);HeapScopeRestore=true" />
+    <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="Restore" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);PublishReadyToRun=$(PublishReadyToRun);HeapScopeRestore=true" />
     <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="Publish"
              Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishReadyToRun=$(PublishReadyToRun);PublishDir=$(PublishDir)worker" />
   </Target>

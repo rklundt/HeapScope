@@ -1790,9 +1790,9 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
    buttons, Alt+arrows) and the attribution strip with the same text, link, place, surface and contrast (ADR-022).
    Tests (`HeapScope.UI.Tests`, headless): the window builds with no binding errors; the attribution checks move to
    the Avalonia markup; both themes define the same keys.
-4. [x] Grids: the `IDataGridCollectionView` pass-through (from the prototype) where enumeration and `CopyTo` never
-   create placeholder rows, worker-side sorting with header arrows, open by
-   double-click or Enter, highlighted filter matches, columns from a result set's column list, column visibility from
+4. [x] Grids: the `IDataGridCollectionView` pass-through (from the prototype), through which no grid path enumerates
+   or copies the list (a walk would still make a placeholder row per index, so walks are counted and every smoke run
+   fails on one, review M3), worker-side sorting with header arrows, open by double-click or Enter, highlighted filter matches, columns from a result set's column list, column visibility from
    the view model, the heap kinds bar. Whole-list walks are counted (`VirtualCollectionViews.Enumerations`) rather than
    failed, so the tests can prove there are none without breaking the app if a grid path ever does one. Tests
    (headless, 1.5 million rows): first show, scrolling, select all, copy and keyboard moves enumerate nothing; a header

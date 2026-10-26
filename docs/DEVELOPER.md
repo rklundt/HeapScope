@@ -40,7 +40,8 @@ dotnet test --solution HeapScope.sln
 - Builds per system (sprint 2.3.6): `bash build/publish.sh <rid> <folder>` publishes the app and the CLI for `win-x64`,
   `linux-x64`, `osx-arm64` or `osx-x64`, self-contained and ReadyToRun, each with the self-contained worker in
   `worker/`. CI uploads the four on pushes to `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`,
-  kept 14 days). macOS builds are not signed or notarized yet (Backlog).
+  kept 14 days): the download is a zip holding `HeapScope-<rid>.tar.gz`; unpack that with `tar -xzf`, which keeps the
+  executables' modes. macOS builds are not signed or notarized yet (Backlog).
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
