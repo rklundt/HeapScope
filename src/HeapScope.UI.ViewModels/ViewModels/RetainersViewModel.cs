@@ -96,6 +96,9 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
         OpenRowCommand = ToggleCommand;
     }
 
+    /// <summary>Children listed per node before a "more" row.</summary>
+    public const int MaxChildren = 100;
+
     public static IReadOnlyList<DominatorGroupingDto> Groupings { get; } = Enum.GetValues<DominatorGroupingDto>();
 
     public bool HasFocus => FocusAddress != 0;
@@ -195,7 +198,7 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
     {
         var finished = false;
         var progress = new Progress<JobProgress>(p => Status = finished || cancellationToken.IsCancellationRequested ? Status : ReferrersText.Progress(p));
-        var answer = await _session.QueryDominatorTreeAsync(Snapshot!, [.. _expanded], Grouping, FocusAddress, progress, cancellationToken);
+        var answer = await _session.QueryDominatorTreeAsync(Snapshot!, [.. _expanded], Grouping, FocusAddress, MaxChildren, progress, cancellationToken);
         finished = true;
         var result = answer.Result;
         var select = _selectKey;

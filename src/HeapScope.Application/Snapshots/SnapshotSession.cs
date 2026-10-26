@@ -379,13 +379,15 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// <summary>
     /// The dominator tree's rows (sprint 2.4): the top level (the biggest retainers) or the tree below
     /// <paramref name="focusAddress"/>, with the <paramref name="expanded"/> rows expanded. A re-run after a worker restart
-    /// keeps the expansion: the keys are addresses and group names.
+    /// keeps the expansion: the keys are addresses and group names. A node lists at most <paramref name="maxChildren"/>
+    /// children before a "more" row.
     /// </summary>
     public async Task<DominatorTreeAnswer> QueryDominatorTreeAsync(
         SnapshotHandle handle,
         IReadOnlyList<string> expanded,
         DominatorGroupingDto grouping,
         ulong focusAddress,
+        int maxChildren,
         IProgress<JobProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -397,7 +399,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         {
             latest = await UseAsync(
                 handle,
-                (service, id, innerCt) => service.QueryDominatorTreeAsync(new DominatorTreeRequest(id, keys, grouping, focusAddress), progress, innerCt),
+                (service, id, innerCt) => service.QueryDominatorTreeAsync(new DominatorTreeRequest(id, keys, grouping, focusAddress, maxChildren), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }

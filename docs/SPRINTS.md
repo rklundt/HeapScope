@@ -2040,9 +2040,9 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
    its type's instances and its retention paths. Grid pieces from 2.3.7 M13 and M14: `VisibleColumnGroups`, a generic
    cell row, a note text control and a type grid toolbar. Tests: headless views bind cleanly; view model tests for
    expand, group, focus and the links.
-8. [ ] CLI: `retainers <dump>` (biggest retainers, `--group`, `--depth`, `--top`, `--format table|json|csv`) and
+8. [x] CLI: `retainers <dump>` (biggest retainers, `--group`, `--depth`, `--top`, `--format table|json|csv`) and
    `retained-by <dump> <type>` (exact set retention). Tests: CLI integration on the fixture dump.
-9. [ ] Acceptance and smoke: an integration test proves every LeakyConsole leak in the known answers is reachable from
+9. [x] Acceptance and smoke: an integration test proves every LeakyConsole leak in the known answers is reachable from
    the biggest retainers in three clicks or fewer (open the row, expand, see the growing collection or its items); the
    smoke drill opens the Retainers tab, expands and focuses, checked against the budget. Typed fake rows in the view
    model tests (2.3.7 M15 rest).

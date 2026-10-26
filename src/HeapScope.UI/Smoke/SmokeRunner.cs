@@ -267,6 +267,13 @@ internal sealed class SmokeRunner(IServiceProvider services)
                 Combine();
             }
 
+            if (completed)
+            {
+                completed = await RunSmokeRetainersAsync(snapshots, watchdog, logger);
+                await Task.Delay(500);
+                Combine();
+            }
+
             if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
             {
                 completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
@@ -471,6 +478,61 @@ internal sealed class SmokeRunner(IServiceProvider services)
             watchdog.MaxOperationBound.TotalMilliseconds);
         snapshots.Tab = SnapshotTabs.Snapshot;
         return finished;
+    }
+
+    /// <summary>
+    /// Shows the Retainers tab (sprint 2.4): the biggest retainers and their icicle (the first time computes or opens the
+    /// dominators in the worker; logged, not checked), then the checked part in the warm tab: expand the first row and focus
+    /// on it, as a user would. Returns whether the tree showed rows each time.
+    /// </summary>
+    private static async Task<bool> RunSmokeRetainersAsync(SnapshotsViewModel snapshots, DispatcherWatchdog watchdog, ILogger logger)
+    {
+        var retainers = snapshots.Retainers;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        snapshots.Tab = SnapshotTabs.Retainers;
+        await retainers.QueryTask;
+        await retainers.IcicleTask;
+        await TouchRowsAsync(retainers.Rows);
+        await IdleAsync();
+        var shown = retainers.Rows.Count > 0 && retainers.Rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke retainers: {Shown} ({Status}) in {Seconds:N1} s, {Rows:N0} rows, {Bars:N0} icicle bars, first {First}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
+            shown,
+            retainers.Status ?? retainers.IcicleStatus ?? "ok",
+            stopwatch.Elapsed.TotalSeconds,
+            retainers.Rows.Count,
+            retainers.IcicleSegments.Count,
+            shown ? retainers.Rows.GetRow(0).Name : "none",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperationBound.TotalMilliseconds);
+        if (!shown)
+        {
+            return false;
+        }
+
+        watchdog.Reset();
+        var first = retainers.Rows.GetRow(0);
+        retainers.ToggleCommand.Execute(first);
+        await retainers.QueryTask;
+        await TouchRowsAsync(retainers.Rows);
+        var expanded = retainers.Rows.Count;
+        retainers.FocusCommand.Execute(retainers.Rows.GetRow(0));
+        await retainers.QueryTask;
+        await retainers.IcicleTask;
+        await TouchRowsAsync(retainers.Rows);
+        await IdleAsync();
+        var focused = retainers.HasFocus && retainers.Rows.Count > 0 && retainers.Rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke retainers drill: expanded to {Expanded:N0} rows, focused {Focused} ({Totals}); maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
+            expanded,
+            focused,
+            retainers.Totals,
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperationBound.TotalMilliseconds);
+        retainers.ShowTopCommand.Execute(null);
+        await retainers.QueryTask;
+        snapshots.Tab = SnapshotTabs.Snapshot;
+        return focused;
     }
 
     /// <summary>
