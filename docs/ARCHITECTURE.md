@@ -62,7 +62,9 @@ Capture and sessions (sprint 1.1):
   the worker included) are never listed or captured, matched by path, not name. A detail that cannot be read stays
   empty. `WindowsElevationProbe` reads token elevation for targets and for HeapScope itself (one rule): a token that
   cannot be opened for query (elevated, or another user's, such as services running as SYSTEM) or that reports
-  elevation means only an elevated HeapScope can dump it.
+  elevation means only an elevated HeapScope can dump it. Capture is Windows only (ADR-025): off Windows,
+  `CapturePlatform.EnsureSupported` refuses discovery and capture with a message naming `dotnet-dump`, and
+  `CapturePlatform.ElevationProbe()` gives `UnixElevationProbe` (`Environment.IsPrivilegedProcess`) [2.3.5].
 - `DumpCapturer`: checks elevation and free space before asking the runtime for a full dump (`DumpType.Full`: module
   images are in the dump, so it never depends on finding the exact module files). The estimate is measured, not
   guessed: the target's committed readable pages from a `VirtualQueryEx` walk plus 16 MB of streams; when the walk is
@@ -130,6 +132,10 @@ tests/
                                References Loaders.ClrMd and Storage to test them in process.
 perf/
   HeapScope.Benchmarks         Console benchmarks against the budgets (synthetic 50M-object graph etc.).
+spikes/
+  AvaloniaGrid                 Sprint 2.3.5's Avalonia prototype (ADR-025); outside the solution, not shipped,
+                               removed by the port sprint.
+.github/workflows/ci.yml       CI on GitHub's runners: Windows, Linux, macOS (sprint 2.3.5).
 fixtures/
   Leaks                        Shared leak implementations and semantic fixtures (namespace Fixtures.Leaks).
   LeakyApi                     ASP.NET Core API with switchable, scalable leaks.
@@ -159,7 +165,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   table are told apart by name and module [1.8]. `Loading/`: the loader contract both loaders share (`ISnapshotLoader`
   with its `Version`, `LoadResult`, `LoadProgress`, `LoadTimings`, `LoadDiagnostics`) and `SnapshotFileSignature` (a
   file's first bytes tell a minidump, `MDMP`, from a gcdump, a FastSerialization stream whose first object is a
-  `GCHeapDump`) [1.8]. `Synthetic/`: `SyntheticGraphs` and `SyntheticGraphBuilder`, which also makes arrays and strings
+  `GCHeapDump`) [1.8]; a Linux or macOS core file (ELF `ET_CORE`, Mach-O `MH_CORE`) is a full dump too, and
+  `IsMinidump` tells the two apart [2.3.5]. `RecordedPath` (a path recorded in a snapshot, split on both separators
+  whatever system reads it) [2.3.5]. `Synthetic/`: `SyntheticGraphs` and `SyntheticGraphBuilder`, which also makes arrays and strings
   [1.6]. `Graph/ReverseReferences` (the incoming references CSR, built by counting and filling, or from an index file's
   columns) and `HeapGraph.Attach` (an optional index is disposed with the graph, after the snapshot's last lease) [2.1];
   `DependentHandle` and `HeapGraph.DependentHandles` / `IsDependentHandleEdge` [2.2].
@@ -201,7 +209,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   without a type, segments whose memory is missing, files shorter than their minidump directory) [1.2, 1.8];
   `ClrMdObjectReader` (opens the dump on first use, serialized, disposed with the snapshot) and `ClrMdDump` (opening
   shared with the loader, runtime creation failures wrapped with a next step) [1.5]; `MinidumpHeader` [1.2, 1.8];
-  `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2].
+  `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2];
+  the DAC of the system HeapScope runs on, matched on Linux and macOS by `ImageIdentity` (ELF GNU build id, Mach-O
+  UUID) against the DAC itself or, when the dump archives it under the runtime's identity, against `libcoreclr` in the
+  same folder; ClrMD reads a core file's runtime version as 0.0 at times, and the runtime's folder name names it then
+  [2.3.5].
 - **Loaders.GcDump.** `GcDumpLoader`, `RootClass` (pseudo node names to root kinds), `TypeNames` (names normalized to
   the full dump loader's form), `ObservedReadStream` (progress and cancellation while the vendored reader reads) [1.8].
 - **ThirdParty.GcDump.** The vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the EventPipe heap
@@ -259,6 +271,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
 - **UI.Wpf.** `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>` (the query lifecycle shared by
   the grids: debounced filter, latest query wins, column-name sort, first page preloaded before the grid binds, release)
   and `TypeGridViewModel<TRow>` (grouping) over the generic `VirtualRowList<TRow>` (data virtualization) [1.4, 1.5];
+  the yield that lets a grid render between page loads is `TaskSchedulerExtensions.RenderYield`, set by the UI at
+  startup (WPF's dispatcher), so the view models carry no WPF dependency for the Avalonia port (ADR-025) [2.3.5];
   `TypeSummaryViewModel` (only the latest query owns the view: `Show`, a re-query or closing the snapshot cancel the
   running query and the pending filter, and the replaced row list stops its page requests) [1.3]; `CompareViewModel`
   (two pickers, the earlier capture as default baseline, swap) [1.4]; `InstancesViewModel`, `ObjectViewModel` (field tree
@@ -360,7 +374,9 @@ Rules:
 
 ### 4.2 Lifecycle
 1. Application's `WorkerHost` starts the worker with `--pipe <name> --parent-pid <pid>`. The pipe name is
-   `HeapScope.Worker.<guid>`; the pipe is created with `PipeOptions.CurrentUserOnly`.
+   `HeapScope.W.<24 random hex digits>` (sprint 2.3.5; off Windows a pipe is a Unix domain socket in the temp folder,
+   whose path macOS limits to 104 characters); the pipe is created with `PipeOptions.CurrentUserOnly`. The worker's
+   executable is `HeapScope.Worker.exe` on Windows and `HeapScope.Worker` elsewhere.
 2. The worker creates the pipe server and waits up to 30 s for the client; the client connects with a
    timeout and calls `GetInfoAsync` as a handshake, which also checks the protocol version.
 3. The worker exits when the pipe disconnects or when the parent process exits (it watches the parent's
@@ -1254,6 +1270,11 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
   the first 100 characters of each duplicated value in the UI and the CLI only; logs record counts and sizes.
 - Monitoring (sprint 1.7) reads the target's runtime counters (sizes, counts, rates), never its memory; the timeline
   file in the session folder holds those numbers and the snapshot file names.
+- Shared results (ADR-026, sprint 2.3.5; built by the shared analysis export): what a team shares is an exported
+  analysis, never a dump or an index cache. By default it holds type, field and module names, counts, sizes and paths;
+  string text and field values only when the person exporting opts in for that export, which the export then states on
+  its first line. Exports are written where the user asks and never uploaded.
+- CI (sprint 2.3.5) dumps only the LeakyConsole fixture on GitHub's runners and never uploads the dump.
 
 ## 13. Architecture Decision Records
 

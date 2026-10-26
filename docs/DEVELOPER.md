@@ -17,7 +17,7 @@ cd heapScope
 dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
-- Full gate (sprint 1.9, the local stand-in for CI until the repository has one): `./build/gate.ps1` builds Debug
+- Full gate (sprint 1.9; CI since 2.3.5 runs a subset, section 7): `./build/gate.ps1` builds Debug
   and Release (zero warnings), runs the full suite and appends a line to `artifacts/gate/history.csv` (git-ignored):
   time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run is named
   again. Run it before closing a sprint.
@@ -26,6 +26,9 @@ dotnet test --solution HeapScope.sln
   `tests/HeapScope.UI.Wpf.Tests/bin/Debug/net10.0-windows/HeapScope.UI.Wpf.Tests.exe -longRunning 30 -noAutoReporters`;
   it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
+- The Avalonia prototype (sprint 2.3.5, ADR-025; outside `HeapScope.sln`, not shipped, removed by the port sprint 2.3.6):
+  `dotnet run --project spikes/AvaloniaGrid -- <dump>` shows the types grid and a type's objects through the real worker;
+  `--measure` scrolls the grids, prints first-show and stall times and the row lists' enumeration count, and exits.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
@@ -301,7 +304,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.
-- Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`.
+- Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`
+  (`X.Y.Z` for an in-between sprint such as 2.3.5).
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.

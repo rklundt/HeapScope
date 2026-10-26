@@ -99,7 +99,10 @@ internal static class ClrMdDump
 
         try
         {
-            return path is not null ? clr.CreateRuntime(path) : clr.CreateRuntime();
+            // A DAC matched by build id is the exact one (stronger than a version); ClrMD's own version check is skipped
+            // then, since it reads a core file's runtime version as 0.0 at times (sprint 2.3.5, the Linux CI run).
+            return path is null ? clr.CreateRuntime()
+                : clr.CreateRuntime(path, ignoreMismatch: request.BuildId is { Length: > 0 } && clr.Version.Major == 0);
         }
         catch (Exception ex) when (ex is ClrDiagnosticsException or InvalidOperationException or IOException or BadImageFormatException or DllNotFoundException)
         {
