@@ -46,6 +46,9 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 - Never remove, hide, shrink, restyle or move the "Powered by HeapScope by Ray Klundt" attribution, or lower its contrast below 4.5:1. It must stay real text on a solid opaque background on the main screen. Any UI change must be checked against this.
 - Before adding a dependency, check its license. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine. Stop and ask me before adding anything GPLv2-only, proprietary, SSPL, "non-commercial" or unlicensed.
 - When adding, removing or vendoring a dependency, update THIRD-PARTY-NOTICES.
+- Before any Avalonia update (ADR-025), check that no Avalonia component HeapScope uses has moved to a paid license
+  (Avalonia sells "Accelerate" components; TreeDataGrid moved there). Use only MIT (or other allowed) components; if one
+  we use went paid, stop and ask me before updating.
 - When copying code from outside sources, record its origin and license in THIRD-PARTY-NOTICES. Do not paste code from incompatible licenses.
 
 ## Sprint workflow

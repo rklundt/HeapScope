@@ -49,6 +49,7 @@ public sealed partial class ProcessDiscovery(IElevationProbe? elevation = null) 
 
     public IReadOnlyList<DotNetProcess> List(CancellationToken cancellationToken = default)
     {
+        CapturePlatform.EnsureSupported();
         var result = new List<DotNetProcess>();
         foreach (var processId in DiagnosticsClient.GetPublishedProcesses())
         {
@@ -67,7 +68,13 @@ public sealed partial class ProcessDiscovery(IElevationProbe? elevation = null) 
         return result;
     }
 
-    public DotNetProcess? Find(int processId) =>
+    public DotNetProcess? Find(int processId)
+    {
+        CapturePlatform.EnsureSupported();
+        return FindOnThisSystem(processId);
+    }
+
+    private DotNetProcess? FindOnThisSystem(int processId) =>
         !IsOwn(processId) && DiagnosticsClient.GetPublishedProcesses().Contains(processId) ? Describe(processId) : null;
 
     /// <summary>

@@ -289,9 +289,15 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   protected by a ruleset: changes arrive only by PR (no approvals required, since there is one maintainer); direct
   pushes, force pushes and deletion are blocked.
 - Each sprint works on `sprint/X.Y`, branched from an up-to-date `develop` by `/start-sprint`.
-- Commits happen only through `/close-sprint`, one per sprint, message `Sprint X.Y: <title>` plus a short body. Work
-  outside a sprint that the owner asks for (a fix, docs, a chore) uses its own short branch (`fix/...`, `chore/...`)
-  off `develop` and the same PR flow.
+- Commits happen only through `/close-sprint`, one per sprint, message `Sprint X.Y: <title>` plus a short body. Since
+  sprint 2.3.5, work-in-progress commits may be pushed to `sprint/X.Y` to run CI on its draft PR; the squash merge still
+  leaves one commit per sprint on `develop`. Work outside a sprint that the owner asks for (a fix, docs, a chore) uses
+  its own short branch (`fix/...`, `chore/...`) off `develop` and the same PR flow.
+- CI (`.github/workflows/ci.yml`, sprint 2.3.5) runs on every PR into `develop` or `main` and every push to them, on
+  GitHub's hosted runners: Windows builds the solution and runs the fast tests; Linux builds the engine, the worker and
+  the CLI, runs the engine's tests, dumps the LeakyConsole fixture with `dotnet-dump` and analyzes it with the CLI;
+  macOS does the same, informational (an arm64 runner; ADR-025). It does not replace the local gate, which also runs the
+  integration tests. Fixture dumps are never uploaded.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.
