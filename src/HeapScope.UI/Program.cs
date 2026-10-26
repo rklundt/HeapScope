@@ -67,10 +67,27 @@ internal static class Program
             : builder.UsePlatformDetect();
     }
 
-    private static void LogFatalStart(string[] args, Exception exception)
+    /// <summary>
+    /// Writes a start failure to the file log when HeapScope's own logging does not exist yet: before the host, or when
+    /// building it failed (sprint 2.3.7 review M18, H4). Reads the log folder from <c>--Logging:File:Directory dir</c> or
+    /// <c>--Logging:File:Directory=dir</c>.
+    /// </summary>
+    internal static void LogFatalStart(string[] args, Exception exception)
     {
-        var directoryAt = Array.FindIndex(args, a => string.Equals(a, "--" + Application.Logging.FileLogging.DirectoryKey, StringComparison.OrdinalIgnoreCase));
-        var directory = directoryAt >= 0 && directoryAt + 1 < args.Length ? args[directoryAt + 1] : null;
+        var key = "--" + Application.Logging.FileLogging.DirectoryKey;
+        string? directory = null;
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], key, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                directory = args[i + 1];
+            }
+            else if (args[i].StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))
+            {
+                directory = args[i][(key.Length + 1)..];
+            }
+        }
+
         using var provider = new Application.Logging.FileLoggerProvider(directory, app: "ui");
         Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(provider.CreateLogger("HeapScope.UI.Program"), exception, "HeapScope could not start; arguments {Arguments}", string.Join(' ', args));
     }

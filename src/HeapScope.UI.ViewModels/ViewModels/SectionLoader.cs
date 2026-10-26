@@ -46,6 +46,8 @@ internal static class SectionLoader
         CancellationToken cancellationToken,
         Func<T, Task>? discard = null)
     {
+        // As a grid query, under an activity whose trace id the worker's lines carry (sprint 2.3.7 review M1).
+        using var activity = new System.Diagnostics.Activity("HeapScope.Query").SetTag("section", section).Start();
         var finished = false;
         var progress = new Progress<JobProgress>(p =>
         {

@@ -130,7 +130,16 @@ public sealed partial class App : Avalonia.Application
         {
             // Every exception of this fire-and-forget start is handled here. A smoke run is unattended: no dialog, it fails
             // with its exit code and the log says why (sprint 1.5 review).
-            _host?.Services.GetService<ILoggerFactory>()?.CreateLogger<App>().LogError(ex, "Start failed");
+            if (_host is null)
+            {
+                // Building the host failed (a bad option, a configuration error): no logger exists yet (review H4).
+                Program.LogFatalStart(_args, ex);
+            }
+            else
+            {
+                _host.Services.GetService<ILoggerFactory>()?.CreateLogger<App>().LogError(ex, "Start failed");
+            }
+
             if (_args.Any(a => a.StartsWith("--smoke", StringComparison.OrdinalIgnoreCase)))
             {
                 _desktop?.Shutdown(SmokeRunner.SmokeJobFailed);

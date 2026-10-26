@@ -1311,7 +1311,10 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
     used; a symbol-server download is a warning. Kept in the cache metadata, so a reopen still says it.
   - Each answered query: `WorkerErrors.GuardAsync` logs the operation, the request and the result (`Provenance`), with
     page reads and probes at Debug. Inspections add their version, thresholds (`IInspection.Parameters`) and basis (what
-    was scanned or skipped). Compare logs how its pair was chosen; result set re-runs are logged.
+    was scanned or skipped). Retention paths log each root shown (its kind and description) and each key path (root,
+    type steps, objects, bytes), with stopped-early, truncated and the root path fallback. Compare logs how its pair was
+    chosen; result set re-runs are logged. Grid queries and panel loads run under an activity too, so their worker lines
+    carry their trace id.
   - Monitoring logs each run's rules and, when a rule fires, the metric and its source, the threshold after steps, the
     baseline and the rearm mode (`RuleDecision`); the CLI logs its growth gate's decision.
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,

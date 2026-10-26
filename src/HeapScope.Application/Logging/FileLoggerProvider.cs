@@ -190,8 +190,9 @@ public sealed class FileLoggerProvider : ILoggerProvider, ISupportExternalScope
             RemoveOldFiles(now);
         }
 
-        // A file left by an earlier process with the same id (ids are reused) is appended to, after a new header.
-        var stream = PrivateFiles.Open(GetPath(date, _part), FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read | FileShare.Delete);
+        // A file left by an earlier process with the same id (ids are reused) is appended to, after a new header. Shared
+        // for writing: the UI's last-chance start logger may open this process's file while the host's provider has it.
+        var stream = PrivateFiles.Open(GetPath(date, _part), FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
         stream.Seek(0, SeekOrigin.End);
         _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
         _writerDate = date;

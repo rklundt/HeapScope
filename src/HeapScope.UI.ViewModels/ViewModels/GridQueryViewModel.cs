@@ -196,6 +196,8 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
 
     private async Task QueryAsync(CancellationToken cancellationToken)
     {
+        // Its trace id reaches the worker with each request, so the worker's answer lines join this grid's (review M1).
+        using var activity = new System.Diagnostics.Activity("HeapScope.Query").SetTag("grid", GetType().Name).Start();
         Status = BusyText;
         try
         {

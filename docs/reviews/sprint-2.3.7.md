@@ -9,7 +9,7 @@ sends nothing anywhere (ARCHITECTURE 12).
 Moderates follow the lead engineer's recommendation (product owner: "Go with your reco for moderate recommendations"),
 marked "decided autonomously".
 
-Totals after dedupe: 4 High, 20 Moderate, 26 Low (some Lows merged into Moderates). A finding raised by more than one reviewer is merged and keeps the
+Totals after dedupe: 4 High, 20 Moderate, 27 Low (some Lows merged into Moderates). A finding raised by more than one reviewer is merged and keeps the
 highest severity.
 
 The reviewers confirmed:
@@ -46,6 +46,26 @@ The reviewers confirmed:
   architecture and runtime; `ProductInfo.Version` dropped the commit; `JobTracker` (open, capture, inspections) logged no
   start or end; worker start failures and the errors the user saw (status lines, CLI `Error:`) were not logged; the CLI
   did not log its command or exit code. Fix: task 4.
+
+### Confirmations
+
+- H1, H2: CONFIRMED by solution-architect at 5000558 (per-process files with header, offsets, scopes, roll, cleanup and
+  level; the identity line with every listed field, the load timings, the cache metadata, the session's open, close,
+  reopen and refusal lines; trace ids on both ends). Its Lows, fixed: the per-process file is opened for shared writing,
+  so the UI's last-chance start logger can write to it; a full dump's cache from before 2.3.7 says "not recorded"
+  instead of "no DAC".
+- H1 to H4: CONFIRMED by support at 5000558, with two gaps, both fixed: (H3) the retention paths answer now logs each
+  root shown (its kind and HeapScope's description) and each key path (root, type steps, objects, bytes), with
+  stopped-early, truncated and whether the root path fallback ran (`Provenance.Describe` for roots and key paths;
+  test `A_retention_path_names_its_root_and_steps`); (H4) a failure while building the UI host is written by the same
+  fallback logger as `Main` (2.3.6 L13 for non-smoke starts). Its other notes, fixed: grid queries and panel loads run
+  under an activity too, so their worker lines carry their trace id; a cache from before 2.3.7 says "not recorded" for
+  its diagnostics; the fallback reads `--Logging:File:Directory=dir` too. Left as Low: the 14-day cleanup can remove
+  another process's file idle for 14 days (L27).
+- A gate run showed `SessionLibraryTests.Concurrent_records_and_touches_never_lose_a_snapshot` failing under load
+  again (seen since 2.3.5). Found by the lead engineer: forty writers each hold the session lock through a flush to
+  disk, so on a busy machine the wait passed the lock's 10 second deadline and an update was refused, not lost to a
+  race. The deadline is now 30 seconds (session writes are rare).
 
 ## Moderate (decided autonomously)
 
@@ -130,4 +150,5 @@ From support:
 - L22 Watchdog warnings are not rate limited and say "UI thread CPU 0 ms" off Windows.
 - L23 to L25 merged (file level into M17, worker prefix and offsets into M1, coded errors into M2).
 - L26 `ResultSetHandle` re-runs were invisible (raised to M20).
+- L27 The 14-day cleanup goes by last write time and can remove the open file of another process idle that long (support, confirmation).
 

@@ -27,6 +27,7 @@ using HeapScope.Analysis;
 using HeapScope.Analysis.Retention;
 using HeapScope.Contracts;
 using HeapScope.Core;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
@@ -58,19 +59,36 @@ internal sealed partial class WorkerService
                 ?? throw SnapshotNotLoaded(request.SnapshotId);
             snapshot.TryGetService<IObjectReader>(out var reader);
             progress?.Report(new JobProgress("Finding retention paths", 0, null));
-            return await Task.Run(
+            var fallback = false;
+            var result = await Task.Run(
                 () =>
                 {
                     var tree = RetentionSearch.Find(snapshot.Graph, reverse.References, index, request.MaxRoots, cancellationToken: cancellationToken, paths: rootPaths);
                     if (!tree.IsReachable && rootPaths.IsReachable(index))
                     {
                         tree = RetentionSearch.FromRootPath(snapshot.Graph, rootPaths, index);
+                        fallback = true;
                     }
 
                     var noReader = reader is null ? ContractMapping.ExplainMissing(SnapshotCapabilities.FieldValues, snapshot.Info.Kind) : null;
                     return RetentionMapping.ObjectPaths(snapshot.Graph, tree, reader, noReader, IsComplete(snapshot), info, cancellationToken, snapshot.Info.Kind);
                 },
                 cancellationToken).ConfigureAwait(false);
+
+            // Which roots hold the object, as shown (sprint 2.3.7 review H3): a disputed "held by a static field" is
+            // answered from the log, not by running the query again.
+            logger.LogInformation(
+                "Retention paths of 0x{Address:x} in snapshot {Id}: reachable {Reachable}, {Visited} objects visited, stopped early {StoppedEarly}, truncated {Truncated}, root path fallback {Fallback}; roots {Roots}; key paths {KeyPaths}",
+                request.Address,
+                request.SnapshotId,
+                result.Reachable,
+                result.Visited,
+                result.StoppedEarly,
+                result.Truncated,
+                fallback,
+                string.Join("; ", result.Nodes.Where(n => n.Root is not null).Select(n => string.Create(CultureInfo.InvariantCulture, $"{Provenance.Describe(n.Root!)} at depth {n.Depth}"))),
+                string.Join("; ", result.KeyPaths.Select(Provenance.Describe)));
+            return result;
         });
 
     public Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
@@ -103,7 +121,7 @@ internal sealed partial class WorkerService
             var treeSeconds = stopwatch.Elapsed.TotalSeconds;
             progress?.Report(new JobProgress("Grouping objects by retention path", 0, null));
             var set = await Task.Run(() => KeyPaths.ForTypes(graph, tree, types, request.MaxPaths, cancellationToken), cancellationToken).ConfigureAwait(false);
-            return new TypePathsResult(
+            var typePaths = new TypePathsResult(
                 [.. set.Paths.Select(p => RetentionMapping.KeyPath(graph, p))],
                 matched,
                 set.Objects,
@@ -115,5 +133,17 @@ internal sealed partial class WorkerService
                 IsComplete(snapshot),
                 treeSeconds,
                 RetentionMapping.UnreachableNote(snapshot.Info.Kind));
+
+            // The key paths as shown, with their roots (sprint 2.3.7 review H3).
+            logger.LogInformation(
+                "Retention paths of type {Type} ({Module}) in snapshot {Id}: {Objects} objects, {Unreachable} unreachable, {Other} further paths; key paths {KeyPaths}",
+                request.TypeName,
+                request.Module ?? "no module",
+                request.SnapshotId,
+                typePaths.Objects,
+                typePaths.Unreachable,
+                typePaths.OtherPaths,
+                string.Join("; ", typePaths.Paths.Select(Provenance.Describe)));
+            return typePaths;
         });
 }

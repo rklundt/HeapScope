@@ -306,6 +306,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         var info = snapshot.Info;
         var source = fromCache ? "index cache" : request.Rebuild ? "dump, rebuild requested" : "dump";
+
+        // A full dump's cache written before 2.3.7 has no diagnostics or DAC: its zeros are not facts (2.3.7 review, H2 confirmation).
+        var recorded = info.Kind != SnapshotKind.FullDump || metadata.Dac is not null;
+        string Recorded(long value) => recorded ? value.ToString(CultureInfo.InvariantCulture) : "not recorded";
         logger.LogInformation(
             "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); notes: {Notes}",
             descriptor.SnapshotId,
@@ -335,10 +339,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             snapshot.Graph.DroppedReferenceCount,
             snapshot.Graph.DroppedRootCount,
             metadata.UnreadableObjects,
-            metadata.IncompleteSegments,
-            metadata.StaticFieldRoots,
-            metadata.Dac?.Path ?? (metadata.Dac is null ? "(none)" : "symbol server"),
-            metadata.Dac?.Rule ?? "not recorded",
+            Recorded(metadata.IncompleteSegments),
+            Recorded(metadata.StaticFieldRoots),
+            metadata.Dac?.Path ?? (metadata.Dac is not null ? "symbol server" : info.Kind == SnapshotKind.FullDump ? "not recorded (index cache from before 2.3.7)" : "none (a gcdump needs none)"),
+            metadata.Dac?.Rule ?? "-",
             descriptor.Notes.Count == 0 ? "none" : string.Join(" | ", descriptor.Notes));
     }
 

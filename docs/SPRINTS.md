@@ -27,7 +27,7 @@ everything else.
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
 | 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
 | 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
-| 2.3.7 | Port peer review | In Progress | | |
+| 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1956,7 +1956,20 @@ every Moderate decided; a test or a logged run shows each fixed provenance gap; 
    (ADR-026), which needs the same record.
 3. Correlation uses W3C trace ids through StreamJsonRpc's activity tracing, so the protocol does not change.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary**: 4 High, 20 Moderate, 27 Low (docs/reviews/sprint-2.3.7.md; three perspectives: solution-architect,
+senior-dev, support and system analyst). The Highs were all logging: processes overwrote each other's log lines, a
+snapshot's identity was never logged, no result was ever logged, and there was no trail of versions, jobs or shown
+errors. All four fixed and confirmed by the reviewers that raised them (two gaps from the confirmations fixed too:
+retention path roots in the log, and host build failures). Moderates, decided autonomously: 14 fixed (trace ids from the
+UI or CLI to the worker, refusals logged without stacks, the DAC choice with every candidate's outcome, monitoring rule
+decisions and the CLI growth gate, rule versions and parameters, a log content policy, instance filter drops, the smoke
+runner's steps and tested verdicts, a worker exception base and shared release and section helpers, one view model
+wiring, support docs and the About page, early UI failures and Avalonia's warnings, worker exit codes, job and re-run
+lines), 6 deferred to 2.4 (navigation targets, the dominator tree's worker pieces, exactness on the wire, column groups,
+shared view controls, typed fake rows). Also found: the session lock's 10 second deadline caused the long-standing
+SessionLibrary gate flake (now 30 s). Protocol 11. Measured (Release, Small dump smoke): longest UI operation at most 63
+to 64 ms, lag 101 to 115 ms, UI 227 to 233 MB, about 80 log lines per smoke run. Gate: 1,025 tests, 0 failed, 0
+warnings; CI green on all jobs.
 
 ---
 

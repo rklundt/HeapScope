@@ -70,6 +70,22 @@ public sealed class ProvenanceLogTests
     }
 
     [Fact]
+    public void A_retention_path_names_its_root_and_steps()
+    {
+        // Sprint 2.3.7 review H3, scenario c: "held by a static field" must be answerable from the log.
+        var path = new KeyPathDto(
+            new PathRootDto(RootKindDto.StaticField, false, "static field App.Cache.s_items"),
+            [new PathStepDto("System.Collections.Generic.Dictionary<System.String, App.Order>", true)],
+            "App.Order",
+            2000,
+            96000,
+            0x1000);
+
+        Provenance.Describe(path).ShouldBe("[StaticField: static field App.Cache.s_items] System.Collections.Generic.Dictionary<System.String, App.Order> > App.Order (2000 objects, 96000 bytes)");
+        Provenance.Describe(new PathRootDto(RootKindDto.Other, true, "frozen string literal")).ShouldBe("frozen object: frozen string literal");
+    }
+
+    [Fact]
     public async Task An_expected_refusal_is_information_without_a_stack()
     {
         var logger = new RecordingLogger();

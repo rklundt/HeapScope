@@ -27,6 +27,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using HeapScope.Contracts;
 
 namespace HeapScope.Worker.Rpc;
 
@@ -47,6 +48,18 @@ internal static class Provenance
     };
 
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> s_properties = new();
+
+    /// <summary>
+    /// Where a retention path starts, for the log (sprint 2.3.7 review H3, the "held by a static field" case): the root's
+    /// kind and HeapScope's description of it, built from metadata names (a static field's name, a thread), never values.
+    /// </summary>
+    public static string Describe(PathRootDto root) =>
+        string.Create(CultureInfo.InvariantCulture, $"{(root.Frozen ? "frozen object" : root.Kind.ToString())}: {root.Description}");
+
+    /// <summary>A key path for the log: its root, its type steps, the objects it explains and their bytes.</summary>
+    public static string Describe(KeyPathDto path) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"[{Describe(path.Root)}] {string.Join(" > ", path.Steps.Select(s => s.TypeName))}{(path.Steps.Count > 0 ? " > " : string.Empty)}{path.TargetType} ({path.Objects} objects, {path.Bytes} bytes)");
 
     /// <summary>The value for the log, at most two levels of nested records deep.</summary>
     public static string Describe(object? value)
