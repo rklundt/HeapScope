@@ -195,7 +195,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `PathRoots` (where paths start, root priorities, roots in plain language), `RetentionSearch` (one object's paths),
   `RootPathTree` and `KeyPaths` (a type's key retention paths) [2.2]; `DominatorTree` (semi-NCA and retained sizes into
   spans the caller gives), `Dominators` (the kept columns, managed or from a sidecar) and `GroupRetention` (a group's
-  retained lower bound), with `TypeGroups.GroupOfType` numbering the groups of a grouping [2.3].
+  retained lower bound), with `TypeGroups.GroupOfType` numbering the groups of a grouping [2.3]; the dominator tree's
+  children (`DominatorTree.BuildChildren`, kept with the dominators), `DominatorTreeRows` (the tree flattened for a paged
+  grid, with `DominatorRow`, `DominatorTreeView` and `DominatorGrouping`), `IcicleLayout` and `SetRetention` (what a set
+  retains together, exactly) [2.4].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
   built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
@@ -237,7 +240,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   restart compares (review M10) [2.1]. `RetentionDtos.cs`: `RootKindDto`, `PathRootDto`, `RetentionNodeDto`,
   `PathStepDto`, `KeyPathDto`, the object and type paths requests and results [2.2]. `RetainedDtos.cs`:
   `DominatorIndexInfo`, `RetainedRequest`, `RetainedResult`; the `Retained` columns and `IncludeRetained` flags of type
-  summaries and instances [2.3].
+  summaries and instances [2.3]. `DominatorDtos.cs`: the tree request and result, `DominatorTreeColumns`,
+  `DominatorTreeKeys` (the row keys clients link with), the icicle request and segments, the set retention request,
+  result and `RetainedBySetColumns`; `ResultColumn.Bound` with `ValueBound` and `ValueBoundTexts` [2.4].
 - **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`: `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]; `WorkerService` in partial files
   by area: the worker's own calls and result pages (`WorkerService.cs`), snapshots, summaries and diffs, objects, and
   inspections [1.9]; `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources:
@@ -264,7 +269,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   the group retention per grouping), `DominatorIndexBuilder` (the dominators opened from their sidecar or computed into
   it, with the fallbacks) and `MemoryReservations` (the worker-wide memory check of the large derived computations,
   with `Refusal`'s next steps) and `WorkerService.Retained.cs`; `TypeSummarySource` and `InstancesSource` add a retained column when
-  asked [2.3].
+  asked [2.3]. `WorkerService.Dominators.cs` (the tree and the icicle) with `DominatorTreeSource`, and
+  `WorkerService.SetRetention.cs` with `RetainedBySetSource` [2.4].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -296,7 +302,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   instances view's Why alive (`TypePathsViewModel`) in `RetentionViewModels.cs` [2.2]; the Retained sizes switch on the
   types and instances grids (off by default, carried from the types grid into a type's objects) and the object's
   retained size with its immediate dominator as a link in the Retention tab [2.3]; `InspectionsViewModel` (tiles,
-  fragmentation bars, `InspectionRowItem`s) [1.6]; `LiveViewModel` and `SnapshotCard` [1.7].
+  fragmentation bars, rows as `CellRowItem`s, the generic row of any result set since 2.4) [1.6]; `LiveViewModel` and
+  `SnapshotCard` [1.7]; `Navigation/` (`NavigationTarget`, `INavigator`, `INavigationSubject`, the tab enums: every link
+  of the app is a target the Snapshots page routes) and `RetainersViewModel` (the dominator tree grid with
+  `DominatorRowItem`, the icicle with `IcicleGeometry`, and `RetainedBySetViewModel`), `ColumnGroups` [2.4].
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -313,7 +322,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   the same keys) and `Styles.axaml`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9, 2.3.6].
 - **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
-  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2], `--retained` on `summary`, `instances` and `object` with `StderrProgress` [2.3]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
+  `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2], `--retained` on `summary`, `instances` and `object` with `StderrProgress` [2.3],
+  `RetainersCommand` (`retainers`, `retained-by`) [2.4]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
   writer, rows keyed by column name with typed numbers) [1.9].
 - **perf/HeapScope.Benchmarks.** The budget benchmarks, the developer tool `trace-report` [1.5] and `phase2-indices`,
   the Phase 2 index prototype (section 6.4) [1.9]; `reverse-index`, the reverse references index of a real index cache
@@ -505,6 +515,15 @@ Rules:
   Version 11 (sprint 2.3.7) added `FilterNote` at the end of `InstancesResult` (what a value filter could not test:
   unreadable strings, regular expression timeouts); both ends set StreamJsonRpc's `ActivityTracingStrategy`, so each
   request carries the client's W3C trace context and the worker's log lines carry its trace id.
+  Version 12 (sprint 2.4) added `QueryDominatorTreeAsync` (`DominatorTreeRequest`: expanded row keys, grouping, focus
+  address, children per node; `DominatorTreeResult`: the rows as a result set in `DominatorTreeColumns`, the focus key and
+  its ancestors, the focus's and the reachable heap's bytes, the top-level count, whether the rows were cut, and
+  `DominatorIndexInfo`), `QueryIcicleAsync` (`IcicleRequest`: focus, levels, minimum share; `IcicleResult`: segments with
+  level, offset, width, key, type and address) and `QueryRetainedBySetAsync` (`RetainedBySetRequest`: type name and
+  module; `RetainedBySetResult`: the retained types as a result set, the set's objects and bytes, what it retains
+  exactly, the group's lower bound for comparison, the reachable heap's bytes and the seconds taken), and
+  `ResultColumn.Bound` (`ValueBound.Exact` or `LowerBound`; the type summary's retained column is a lower bound, every
+  other retained column exact), whose texts are in `ValueBoundTexts` so the CLI and the UI say it the same way.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -843,8 +862,9 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
   1.45 s and the worker's peak commit after it was 2,644 MB; naming referrer fields then opens the dump reader, whose
   ClrMD cache is capped at 512 MB. Through the Debug worker on Medium (`referrers --type`): 2.6 s for the first query
   (build and sidecar write), 0.18 s on the next run from the sidecar. Not measured on a 16 GB machine.
-- **Dominators** (built in sprint 2.3, `Analysis/Retention`, ADR-024): the immediate dominator (4 bytes) and the retained
-  size (8 bytes) per object, computed with semi-NCA (chosen in 1.9, measurements below) over the CSR and the reverse
+- **Dominators** (built in sprint 2.3, `Analysis/Retention`, ADR-024): the immediate dominator (4 bytes), the retained
+  size (8 bytes) and, since sprint 2.4 (ADR-027), the dominator tree's children (a CSR: 4 bytes of start and 4 of child per
+  object, each node's children sorted by retained size, largest first), 20 bytes kept per object, computed with semi-NCA (chosen in 1.9, measurements below) over the CSR and the reverse
   index from a virtual root joined to exactly `PathRoots.Sources`, so paths and dominators agree on what is alive by
   itself. An object no root reaches has `DominatorTree.Unreachable` and retains 0; an object only the roots dominate has
   `DominatorTree.VirtualRoot`.
@@ -874,9 +894,26 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
     retained sizes of objects that share them. For a gcdump the note gives their count and bytes (`DominatorIndex.
     UnreachableBytes`). Treating those survivors as sources is a Backlog item, to be done with gcdumps at scale.
   - A group's retained size (`GroupRetention`, decision 6) is a lower bound: the retained sizes of its objects that no
-    other object of the group dominates, found in one stackless walk of the dominator tree (12 bytes per object while it
-    runs) counting each group's objects on the current path; computed once per grouping and kept with the snapshot.
-    Objects held only by several of a group's objects together are not counted (the exact retention of a set is 2.4's).
+    other object of the group dominates, found in one stackless walk of the dominator tree (4 bytes per object while it
+    runs, a cursor per vertex; it built the tree's children itself, 12 bytes per object, until 2.4 kept them) counting
+    each group's objects on the current path; computed once per grouping and kept with the snapshot. Objects held only
+    by several of a group's objects together are not counted; the exact retention of a set counts them (below).
+  - The retention explorer (sprint 2.4, ADR-027). `DominatorTreeRows` flattens the tree for a paged grid: the virtual
+    root's children (the biggest retainers) or a focus object and its children, each expanded row's children in
+    retained order below it, as objects or grouped by type (with its module) or namespace. Siblings retain disjoint
+    sets, so a group's retained bytes are the exact sum of its members'. A list shows 100 children and a "more" row that
+    sums the rest; expanding the "more" row shows the next 100. Row keys survive re-runs and a worker restart: an
+    object's is its address (`o:<hex>`), a group's and a "more" row's extend their list's key (`DominatorTreeKeys`). An
+    answer holds at most 50,000 rows and says when it was cut. The tree is re-queried on every expansion: the worker
+    keeps nothing per view, the grid pages it like any result set (8, the 2.3.6 review), and the keys carry the state.
+    `IcicleLayout` lays out the same tree as an icicle: the focus (or the whole reachable heap) as the top bar, each
+    node's children side by side in retained order, as wide as their retained bytes, 6 levels by default, leaving out
+    bars under 0.1 percent of the top with their subtrees (at most 20,000 bars). `SetRetention` answers "objects
+    retained by this set" for a type: one reachability pass from `PathRoots.Sources` over the forward CSR that never
+    enters the set (a bit per object and a stack, about 5 bytes per object while it runs); whatever the dominators reach
+    and the pass does not is retained, the set's own reachable members included, counted by type. The worker returns
+    the group's lower bound beside it, so the gap is visible. Measured in the UI smoke run on the Small dump (Release):
+    the tree, the icicle, an expansion and a focus each answer in well under 0.1 s once the dominators exist.
   - Measured after the review fixes (`dominators`, Release, 32 GB machine; mapped runs the worker's path with an index
     cache, computing into sidecars; in memory runs its path without one, managed outputs; the graph, the reverse index
     and the dominators are held together): Medium (57.5M objects) reverse index 0.7 s and dominators 3.2 s in memory
@@ -1128,7 +1165,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   `TextBlock.Text` unless the cell has a match (the first access to `Inlines` forces a synchronous layout pass). The
   object view's field and retention trees are Avalonia `TreeView`s, which are not virtualized; they stay small because
   the worker caps them (100 array elements per level, field text 1,000 characters, 2,000 retention nodes). A tree of
-  unbounded size (the 2.4 dominator tree) must be a flattened, paged grid instead (sprint 2.3.6 review). `VirtualRowList` keeps at most 50 pages (10,000 rows) and drops the pages
+  unbounded size (the 2.4 dominator tree) is a flattened, paged grid instead (sprint 2.3.6 review): the Retainers tab's
+  grid indents its rows and expands them in place with a click on the arrow, Enter, Right and Left (`GridBehaviors`
+  `ExpandCommand` and `CollapseCommand`), and the worker flattens the tree again on each expansion. `VirtualRowList` keeps at most 50 pages (10,000 rows) and drops the pages
   farthest from the last one asked for.
 - **Pages and views are built once (sprint 1.5)**: the shell builds each page on first show and keeps it, so switching
   pages neither rebuilds grids (about 100 ms on the Snapshots page) nor loses scroll and expanded state; the Snapshots
@@ -1313,7 +1352,9 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
     page reads and probes at Debug. Inspections add their version, thresholds (`IInspection.Parameters`) and basis (what
     was scanned or skipped). Retention paths log each root shown (its kind and description) and each key path (root,
     type steps, objects, bytes), with stopped-early, truncated and the root path fallback. Compare logs how its pair was
-    chosen; result set re-runs are logged. Grid queries and panel loads run under an activity too, so their worker lines
+    chosen; result set re-runs are logged. The dominator tree logs its focus, row count, total and first ten rows as
+    shown (kind, type, address, retained); the icicle its widest bars; set retention the type, the set, what it retains,
+    the lower bound and the first ten retained types (sprint 2.4). Grid queries and panel loads run under an activity too, so their worker lines
     carry their trace id.
   - Monitoring logs each run's rules and, when a rule fires, the metric and its source, the threshold after steps, the
     baseline and the rearm mode (`RuleDecision`); the CLI logs its growth gate's decision.
@@ -1757,6 +1798,20 @@ sprint 0.1.
   - The Backlog's "HTML report export" and 2.7's CSV export are forms of it: one export model, rendered as HTML, JSON
     or CSV. Opening a shared JSON export in HeapScope (without the dump) is part of the same item.
   - A hosted or web view for teams is not planned; the export file is shared by the team's own means.
+
+### ADR-027 Dominator children kept; the tree served flattened (added in sprint 2.4)
+- Context: 2.4's retention explorer walks the dominator tree from the top (the biggest retainers) and below any object.
+  2.3 kept only the immediate dominators and retained sizes; `GroupRetention` rebuilt the children (12 bytes per object)
+  on every run, and the 2.3.7 review (M9) asked for one kept form. A tree view of millions of nodes cannot be a UI tree
+  (8; the 2.3.6 review).
+- Decision: the dominators keep the tree's children as a CSR sorted by retained size (largest first, ties by index),
+  computed with them and stored in their sidecar as two more sections (`DominatorChildStarts`, `DominatorChildren`);
+  `DominatorTree.AlgorithmVersion` 2, so older sidecars are rebuilt once. Kept bytes go from 12 to 20 per object (Medium,
+  57.5M objects: about 460 MB more, mapped when the snapshot is). The worker serves the tree flattened and paged
+  (`QueryDominatorTreeAsync`): the client sends the keys it expanded and gets rows in display order; it keeps no tree.
+- Consequences: biggest retainers, expansion, focus and the icicle read children directly, with no per-query sort;
+  `GroupRetention` works in 4 bytes per object. Each expansion is a new query (fast, since children are sorted and
+  stored) whose keys survive a worker restart. A future streaming or lazily expanded tree can use the same CSR.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

@@ -96,6 +96,13 @@ dotnet test --solution HeapScope.sln
   type are always one line ("and N more of this type") and a very long path shows "(N objects not shown)" in its middle.
   An unknown type or an address with no object exits 1, `--max` out of range exits 64; a snapshot whose index cache
   predates format version 2 is rebuilt once on open.
+  `retainers <snapshot> [--address <hex>] [--group none|type|namespace] [--depth 0-5] [--top 1-1000] [--format
+  table|csv|json]` (sprint 2.4) prints the biggest retainers, the top of the dominator tree (each row's retained bytes are
+  exact: siblings never share), with `--depth` levels expanded below each of the `--top` biggest rows; with `--address`,
+  the tree below that object and its dominators from the top. `retained-by <snapshot> <type> [--module <file>] [--top N
+  | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
+  with the summary's lower bound beside it. Both compute the snapshot's dominators on first use and save them next to
+  the index cache; an unknown type exits 1, a bad option 64.
   `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]` runs the simple inspections (sprint 1.6):
   without a name, every inspection with its time, finding and note (one line each); with a name
   (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
@@ -128,7 +135,8 @@ dotnet test --solution HeapScope.sln
   also drills down (types, instances, object, the object's incoming references and retention paths, the type's
   referrers and key paths; sprints 2.1 and 2.2),
   shows the Inspections tab ("Smoke inspections": every inspection's
-  finding and time) and logs the open phase on its own line ("Smoke open phase"); add
+  finding and time), the Retainers tab ("Smoke retainers": its cold first show logged, a warm expand and focus checked,
+  sprint 2.4) and logs the open phase on its own line ("Smoke open phase"); add
   `--smoke-trace <file.nettrace>` to record a CPU trace of the UI during the run. The log records
   "First window rendered N ms after process start" for every run, and `--smoke-open` logs the largest types it showed
   ("Smoke open types"), which CI checks against the known answers. Every smoke run also works with `--headless`.

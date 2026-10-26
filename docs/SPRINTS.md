@@ -2046,7 +2046,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
    the biggest retainers in three clicks or fewer (open the row, expand, see the growing collection or its items); the
    smoke drill opens the Retainers tab, expands and focuses, checked against the budget. Typed fake rows in the view
    model tests (2.3.7 M15 rest).
-10. [ ] Docs: ARCHITECTURE (6.4, 4.4 protocol 12, the retention explorer, ADR-027), DEVELOPER (CLI commands), README,
+10. [x] Docs: ARCHITECTURE (6.4, 4.4 protocol 12, the retention explorer, ADR-027), DEVELOPER (CLI commands), README,
     CLAUDE.md, SPRINTS.
 
 **Decisions** (decided autonomously from the recommended defaults)
@@ -2064,6 +2064,18 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 7. Exactness travels as a column attribute (`ResultColumn.Bound`), not per row.
 8. Protocol 12.
 9. The Retainers view gets its own tab on the snapshot, next to Types, Compare and Inspections.
+10. During the build (decided autonomously): set retention takes a type (name and module); a namespace or assembly
+    scope is a Backlog item. "Show in dominator tree" from a type row opens the tree grouped by type with the type's
+    top-level group open; from an object it focuses on the object, its dominators as a trail. The links are in a
+    right-click menu on the types, Compare and inspection grids and in buttons on the instances and object views.
+11. The tree is re-queried on every expansion (the worker keeps no view state; the keys are the state), and the client
+    reads its rows by column name.
+12. 2.3.7 M13 and M14: column groups are named by the view model (`VisibleColumnGroups`), one row type serves every
+    result set grid (`CellRowItem`), and status and note lines are one `NoteText` control (21 copies replaced). The type
+    grid toolbar was not extracted: the Retainers tab has no type filter, so no third copy appeared (Backlog).
+13. 2.3.7 M15 rest: the new fakes are typed (`FakeTreeNode`, the set's rows); the older positional fake rows stay
+    (Backlog).
+14. The README has no command list (it points to `--help`), so it needed no change.
 
 **Review summary**: to be filled by /wrap-sprint.
 
@@ -2245,6 +2257,13 @@ switches.
   packages (a zipped folder from CI today; .deb, .rpm or Flatpak to decide), smaller builds (the app and the worker each carry the
   runtime: about 356 MB for win-x64 with ReadyToRun).
 - .NET Framework target support.
+
+- Set retention of a namespace or an assembly (from 2.4): "objects retained by this set" takes one type; a scope
+  of several types is the same pass with more types marked.
+- Extract the type grid toolbar (2.3.7 M14 rest, from 2.4): group by, filter and totals are repeated on the types
+  grid and the Compare tab; extract it when a third grid needs it.
+- Typed fake rows for the older fakes (2.3.7 M15 rest, from 2.4): the type, instance and reference fakes still take
+  positional rows; the 2.4 fakes are typed.
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first
