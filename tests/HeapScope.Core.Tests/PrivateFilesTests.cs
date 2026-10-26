@@ -62,5 +62,16 @@ public sealed class PrivateFilesTests : IDisposable
         File.ReadAllText(path).ShouldBe("first second");
     }
 
+    [Fact]
+    public void Space_reserved_up_front_fails_at_open_when_the_disk_cannot_hold_it()
+    {
+        // Sprint 2.3.6 review: a mapped write past the free space kills the process on Linux and macOS; reserving first
+        // turns a full disk into an IOException the caller handles.
+        var path = Path.Combine(_folder, "huge.tmp");
+
+        Should.Throw<IOException>(() => PrivateFiles.Open(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, preallocationSize: 1L << 50));
+        File.Exists(path).ShouldBeFalse("a failed reservation leaves no file");
+    }
+
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 }

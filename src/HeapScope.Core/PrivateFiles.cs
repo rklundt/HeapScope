@@ -65,10 +65,15 @@ public static class PrivateFiles
         return new DirectoryInfo(path);
     }
 
-    /// <summary>Opens <paramref name="path"/> like the <see cref="FileStream"/> constructor; a file it creates is owner-only off Windows.</summary>
-    public static FileStream Open(string path, System.IO.FileMode mode, FileAccess access, FileShare share, int bufferSize = 4096, FileOptions options = FileOptions.None)
+    /// <summary>
+    /// Opens <paramref name="path"/> like the <see cref="FileStream"/> constructor; a file it creates is owner-only off
+    /// Windows. <paramref name="preallocationSize"/> reserves disk space for a new file up front, so a full disk fails here
+    /// with an <see cref="IOException"/> rather than later (a mapped write to a sparse file on Linux and macOS would
+    /// kill the process with SIGBUS; sprint 2.3.6 review).
+    /// </summary>
+    public static FileStream Open(string path, System.IO.FileMode mode, FileAccess access, FileShare share, int bufferSize = 4096, FileOptions options = FileOptions.None, long preallocationSize = 0)
     {
-        var settings = new FileStreamOptions { Mode = mode, Access = access, Share = share, BufferSize = bufferSize, Options = options };
+        var settings = new FileStreamOptions { Mode = mode, Access = access, Share = share, BufferSize = bufferSize, Options = options, PreallocationSize = preallocationSize };
         if (!OperatingSystem.IsWindows() && mode is System.IO.FileMode.CreateNew or System.IO.FileMode.Create or System.IO.FileMode.OpenOrCreate)
         {
             settings.UnixCreateMode = FileMode;

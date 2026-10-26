@@ -122,10 +122,9 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Shows the objects of a type in <paramref name="snapshot"/>, all of them or those in a scope (sprint 1.6).</summary>
     public InstancesViewModel OpenInstances(SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope = InstanceScope.All, ulong sameValueAs = 0)
     {
-        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, _loggers?.CreateLogger<InstancesViewModel>())
+        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, Types.UiDispatcher, _loggers?.CreateLogger<InstancesViewModel>())
         {
             ShowRetained = Types.ShowRetained,
-            UiDispatcher = Types.UiDispatcher,
         };
         instances.OpenRowCommand = OpenInstanceRowCommand;
         instances.ReferencedByCommand = OpenReferencedByCommand;
@@ -148,10 +147,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Shows who references the objects of a type in <paramref name="snapshot"/> (sprint 2.1).</summary>
     public TypeReferrersViewModel OpenTypeReferrers(SnapshotHandle snapshot, string typeName, string? module)
     {
-        var referrers = new TypeReferrersViewModel(_session, snapshot, typeName, module, _loggers?.CreateLogger<TypeReferrersViewModel>())
-        {
-            UiDispatcher = Types.UiDispatcher,
-        };
+        var referrers = new TypeReferrersViewModel(_session, snapshot, typeName, module, Types.UiDispatcher, _loggers?.CreateLogger<TypeReferrersViewModel>());
         referrers.OpenRowCommand = OpenTypeReferrerRowCommand;
         Push(referrers);
         referrers.Start();

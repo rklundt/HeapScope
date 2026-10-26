@@ -234,13 +234,23 @@ public sealed partial class App : Avalonia.Application
         finally
         {
             _host = null;
-            if (host is IAsyncDisposable asyncDisposable)
+            var logger = host.Services.GetService<ILogger<App>>();
+            try
             {
-                await asyncDisposable.DisposeAsync();
+                if (host is IAsyncDisposable asyncDisposable)
+                {
+                    await asyncDisposable.DisposeAsync();
+                }
+                else
+                {
+                    host.Dispose();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                host.Dispose();
+                // A failing dispose must not keep the process alive without a window (sprint 2.3.6 review); the file
+                // logger may already be gone, so the message can be lost.
+                logger?.LogError(ex, "Host dispose failed");
             }
 
             _window?.Close();

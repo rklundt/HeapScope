@@ -141,10 +141,10 @@ public static class IncomingReferences
     {
         var groupOf = new int[graph.Types.Count];
         var firstType = new List<int>();
-        var groups = new Dictionary<(string Name, string Module), int>();
+        var groups = new Dictionary<(string Name, string Module), int>(TypeKeyComparer.Type);
         for (var t = 0; t < groupOf.Length; t++)
         {
-            var key = (graph.Types.GetName(t), TypeGroups.ModuleKey(graph.Types.GetModule(t)).ToUpperInvariant());
+            var key = (graph.Types.GetName(t), TypeGroups.ModuleKey(graph.Types.GetModule(t)));
             if (!groups.TryGetValue(key, out var group))
             {
                 group = firstType.Count;

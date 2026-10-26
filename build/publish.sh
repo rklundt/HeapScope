@@ -26,10 +26,16 @@
 # into one folder, each with the self-contained worker in its worker/ subfolder (build/Worker.Deploy.targets).
 # Usage: publish.sh <rid> <output folder>, for example: publish.sh linux-x64 out/HeapScope-linux-x64.
 # Runtime identifiers: win-x64, linux-x64, osx-arm64, osx-x64. macOS builds are not signed or notarized (Backlog).
+# Every executable and the assemblies they share are ReadyToRun (the app and the CLI share one folder, so both must be).
 set -euo pipefail
+[ $# -eq 2 ] || { echo "Usage: publish.sh <win-x64|linux-x64|osx-arm64|osx-x64> <output folder>" >&2; exit 64; }
 rid="$1"
 out="$2"
+case "$rid" in
+  win-x64|linux-x64|osx-arm64|osx-x64) ;;
+  *) echo "Unsupported runtime identifier: $rid" >&2; exit 64 ;;
+esac
 for project in src/HeapScope.UI src/HeapScope.Cli; do
-  dotnet publish "$project" -c Release -r "$rid" --self-contained -o "$out"
+  dotnet publish "$project" -c Release -r "$rid" --self-contained -p:PublishReadyToRun=true -o "$out"
 done
 echo "Published HeapScope for $rid to $out"

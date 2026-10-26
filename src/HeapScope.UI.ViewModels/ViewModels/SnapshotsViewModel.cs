@@ -117,9 +117,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
         _session.SnapshotsChanged += OnSnapshotsChanged;
-        Types = new TypeSummaryViewModel(session, loggers?.CreateLogger<TypeSummaryViewModel>()) { UiDispatcher = dispatcher };
+        Types = new TypeSummaryViewModel(session, dispatcher, loggers?.CreateLogger<TypeSummaryViewModel>());
         Navigator = new NavigatorViewModel(session, Types, loggers);
-        Compare = new CompareViewModel(session, Snapshots, loggers?.CreateLogger<CompareViewModel>()) { UiDispatcher = dispatcher };
+        Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>());
         Compare.OpenRowCommand = OpenCompareRowCommand;
         Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>()) { Open = OpenInspectionTarget };
     }

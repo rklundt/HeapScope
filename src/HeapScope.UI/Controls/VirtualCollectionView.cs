@@ -75,8 +75,10 @@ public sealed class VirtualCollectionView<TRow>(IList rows) : IDataGridCollectio
 
     public CultureInfo Culture { get; set; } = CultureInfo.CurrentCulture;
 
-    public IEnumerable SourceCollection => rows;
+    // This view, not the row list, so a consumer that walks the source is counted too (sprint 2.3.6 review).
+    public IEnumerable SourceCollection => this;
 
+    // The grid reads Filter only when CanFilter is true.
     public Func<object, bool> Filter { get => null!; set { } }
 
     public bool CanFilter => false;
@@ -90,12 +92,14 @@ public sealed class VirtualCollectionView<TRow>(IList rows) : IDataGridCollectio
 
     public bool IsGrouping => false;
 
+    // The grid reads Groups only when IsGrouping is true.
     public IAvaloniaReadOnlyList<object> Groups => null!;
 
     public int GroupingDepth => 0;
 
     public bool IsEmpty => rows.Count == 0;
 
+    // Null before the first or after the last row, as the grid expects (the interface is not annotated for it).
     public object CurrentItem => (_position >= 0 && _position < rows.Count ? rows[_position] : null)!;
 
     public int CurrentPosition => _position;

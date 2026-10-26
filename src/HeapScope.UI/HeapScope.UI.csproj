@@ -22,6 +22,11 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" />
     <!-- Runs the app without a display (smoke runs in CI, the UI tests). -->
     <PackageReference Include="Avalonia.Headless" />
+    <!--
+      Avalonia.Headless depends on the Inter typeface (SIL OFL 1.1, not on the allowed license list, DEVELOPER.md 4): none
+      of its files ship. Headless runs draw with Skia and the system's fonts (sprint 2.3.6 review).
+    -->
+    <PackageReference Include="Avalonia.Fonts.Inter" ExcludeAssets="all" PrivateAssets="all" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>

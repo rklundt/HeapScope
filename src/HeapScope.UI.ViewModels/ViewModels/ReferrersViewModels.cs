@@ -25,6 +25,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
@@ -175,8 +176,8 @@ public sealed partial class TypeReferrersViewModel : GridQueryViewModel<TypeRefe
 {
     private readonly SnapshotSession _session;
 
-    public TypeReferrersViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, ILogger? logger = null)
-        : base(TypeReferrerColumns.References, logger)
+    public TypeReferrersViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null)
+        : base(TypeReferrerColumns.References, dispatcher, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));

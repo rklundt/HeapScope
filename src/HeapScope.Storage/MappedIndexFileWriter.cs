@@ -199,7 +199,9 @@ public sealed unsafe class MappedIndexFileWriter : IDisposable
 
         // The file ends at the last section's end (an empty last section's offset included), as a streamed file does.
         Length = position;
-        _stream = PrivateFiles.Open(_temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1);
+        // The space is reserved before mapping: a mapped write past the free space would kill the worker (SIGBUS) on Linux
+        // and macOS, where setting the length alone leaves a sparse file (sprint 2.3.6 review).
+        _stream = PrivateFiles.Open(_temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1, preallocationSize: Length);
         _stream.SetLength(Length);
         _file = MemoryMappedFile.CreateFromFile(_stream, mapName: null, Length, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: true);
         _view = _file.CreateViewAccessor(0, Length, MemoryMappedFileAccess.ReadWrite);

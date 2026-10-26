@@ -28,16 +28,6 @@ using Avalonia.Layout;
 
 namespace HeapScope.UI.Views;
 
-/// <summary>The buttons of a <see cref="MessageWindow"/>.</summary>
-public enum MessageButtons
-{
-    /// <summary>One OK button (information, errors).</summary>
-    Ok,
-
-    /// <summary>Yes and No (a question).</summary>
-    YesNo,
-}
-
 /// <summary>
 /// A small modal message or question window (sprint 2.3.6: Avalonia has no message box). Modal to its owner when there
 /// is one; the UI thread keeps running while it is open.
@@ -73,10 +63,14 @@ public sealed class MessageWindow : Window
         DockPanel.SetDock(row, Dock.Bottom);
     }
 
+    /// <summary>Raised when a message window is about to show (tests answer it, sprint 2.3.6 review).</summary>
+    internal static event Action<MessageWindow>? Showing;
+
     /// <summary>Shows the window and returns true for Yes or OK, false for No or when it is closed.</summary>
     public static async Task<bool> ShowAsync(Window? owner, string title, string message, MessageButtons buttons)
     {
         var window = new MessageWindow(title, message, buttons);
+        Showing?.Invoke(window);
         if (owner is { IsVisible: true })
         {
             return await window.ShowDialog<bool?>(owner) == true;

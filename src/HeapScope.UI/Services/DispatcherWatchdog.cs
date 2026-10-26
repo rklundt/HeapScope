@@ -29,42 +29,60 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.Services;
 
 /// <summary>
-/// Measures UI responsiveness (ARCHITECTURE.md 8, budget: no UI thread block over 100 ms). A background timer posts two
-/// probes every <see cref="ProbeInterval"/>: one at input priority, whose delay is how long input would have waited
-/// (<see cref="MaxLag"/>), and one at the highest priority, which waits only for the operation already running, so its
-/// delay bounds the longest single operation (<see cref="MaxOperation"/>; Avalonia's dispatcher has no operation hooks,
-/// sprint 2.3.6). Lags over the budget are logged; the maxima are kept for the smoke runs.
+/// Measures UI responsiveness (ARCHITECTURE.md 8, budget: no UI thread block over 100 ms). A background thread posts two
+/// probes every probe interval: one at input priority, whose delay is how long input would have waited
+/// (<see cref="MaxLag"/>), and one at the highest priority, which waits only for the operation already running. Avalonia's
+/// dispatcher has no operation hooks (sprint 2.3.6), so operations are not timed exactly: that wait is the part of an
+/// operation left when a probe was posted (<see cref="MaxOperation"/>, a lower bound). The operation started after the
+/// previous highest-priority probe ran (that probe ran first), so it lasted at most from that run to this probe's run
+/// (<see cref="MaxOperationBound"/>, an upper bound, sprint 2.3.6 review). Lags over the budget are logged; the maxima are
+/// kept for the smoke runs.
 /// </summary>
 public sealed class DispatcherWatchdog : IDisposable
 {
     public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(100);
     public static readonly TimeSpan ProbeInterval = TimeSpan.FromMilliseconds(25);
 
+    /// <summary>The probe interval of smoke runs: a shorter interval tightens <see cref="MaxOperationBound"/>.</summary>
+    public static readonly TimeSpan SmokeProbeInterval = TimeSpan.FromMilliseconds(10);
+
     private readonly Dispatcher _dispatcher;
     private readonly ILogger<DispatcherWatchdog> _logger;
-    private readonly Timer _timer;
+    private readonly TimeSpan _interval;
+    private readonly ManualResetEventSlim _stopped = new();
+    private readonly Thread _thread;
     private long _maxLagTicks;
     private long _maxOperationTicks;
+    private long _maxOperationBoundTicks;
+    private long _lastOperationProbeRun;
     private long _resetTimestamp;
     private int _lagProbePending;
     private int _operationProbePending;
+    private int _disposed;
 
     // The UI thread's CPU time at the previous lag probe (100 ns units, Windows only). A lag with little UI thread CPU time
     // means the thread was waiting or not scheduled (CPU contention), not working.
     private long _uiCpuAtLastProbe;
 
-    public DispatcherWatchdog(Dispatcher dispatcher, ILogger<DispatcherWatchdog> logger)
+    public DispatcherWatchdog(Dispatcher dispatcher, ILogger<DispatcherWatchdog> logger, TimeSpan? probeInterval = null)
     {
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _timer = new Timer(_ => Probe(), null, ProbeInterval, ProbeInterval);
+        _interval = probeInterval ?? ProbeInterval;
+
+        // A thread of its own rather than a timer: a busy thread pool must not delay the probes (it widens the bound).
+        _thread = new Thread(Run) { IsBackground = true, Name = "HeapScope dispatcher watchdog", Priority = ThreadPriority.AboveNormal };
+        _thread.Start();
     }
 
     /// <summary>The longest input-priority wait observed since start or <see cref="Reset"/>.</summary>
     public TimeSpan MaxLag => TimeSpan.FromSeconds((double)Interlocked.Read(ref _maxLagTicks) / Stopwatch.Frequency);
 
-    /// <summary>The longest highest-priority wait, an upper bound of the longest single UI operation (the budget's subject).</summary>
+    /// <summary>The longest highest-priority wait: a lower bound of the longest single UI operation (the budget's subject).</summary>
     public TimeSpan MaxOperation => TimeSpan.FromSeconds((double)Interlocked.Read(ref _maxOperationTicks) / Stopwatch.Frequency);
+
+    /// <summary>An upper bound of the longest single UI operation: the longest time from one highest-priority probe's run to the next one's.</summary>
+    public TimeSpan MaxOperationBound => TimeSpan.FromSeconds((double)Interlocked.Read(ref _maxOperationBoundTicks) / Stopwatch.Frequency);
 
     /// <summary>Clears the maxima; probes posted before the reset do not count toward the new maximum.</summary>
     public void Reset()
@@ -72,9 +90,27 @@ public sealed class DispatcherWatchdog : IDisposable
         Interlocked.Exchange(ref _resetTimestamp, Stopwatch.GetTimestamp());
         Interlocked.Exchange(ref _maxLagTicks, 0);
         Interlocked.Exchange(ref _maxOperationTicks, 0);
+        Interlocked.Exchange(ref _maxOperationBoundTicks, 0);
     }
 
-    public void Dispose() => _timer.Dispose();
+    // Disposed when the app stops and again with the host's services, so a second call does nothing.
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        {
+            _stopped.Set();
+            _thread.Join();
+            _stopped.Dispose();
+        }
+    }
+
+    private void Run()
+    {
+        while (!_stopped.Wait(_interval))
+        {
+            Probe();
+        }
+    }
 
     private void Probe()
     {
@@ -85,11 +121,14 @@ public sealed class DispatcherWatchdog : IDisposable
             _dispatcher.Post(
                 () =>
                 {
+                    var ran = Stopwatch.GetTimestamp();
+                    var previousRun = Interlocked.Exchange(ref _lastOperationProbeRun, ran);
                     Interlocked.Exchange(ref _operationProbePending, 0);
-                    var wait = Stopwatch.GetTimestamp() - posted;
+                    var wait = ran - posted;
                     if (posted >= Interlocked.Read(ref _resetTimestamp))
                     {
                         RecordMax(ref _maxOperationTicks, wait);
+                        RecordMax(ref _maxOperationBoundTicks, previousRun == 0 ? wait : ran - previousRun);
                     }
 
                     if (wait > Budget.TotalSeconds * Stopwatch.Frequency)

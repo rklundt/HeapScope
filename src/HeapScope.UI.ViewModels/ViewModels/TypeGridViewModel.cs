@@ -23,6 +23,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
@@ -34,8 +35,8 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     [ObservableProperty]
     private TypeGrouping _groupBy = TypeGrouping.Type;
 
-    protected TypeGridViewModel(string sortColumn, ILogger? logger)
-        : base(sortColumn, logger)
+    protected TypeGridViewModel(string sortColumn, IUiDispatcher dispatcher, ILogger? logger)
+        : base(sortColumn, dispatcher, logger)
     {
     }
 

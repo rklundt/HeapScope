@@ -26,6 +26,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
@@ -108,14 +109,14 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     private bool _started;
     private bool _retainedOffQuietly;
 
-    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, ILogger? logger = null)
-        : this(session, snapshot, typeName, module, InstanceScope.All, 0, logger)
+    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null)
+        : this(session, snapshot, typeName, module, InstanceScope.All, 0, dispatcher, logger)
     {
     }
 
     /// <summary>The objects of a type within a scope (sprint 1.6: what an inspection row opens).</summary>
-    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, ILogger? logger = null)
-        : base(InstanceColumns.Bytes, logger)
+    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, IUiDispatcher dispatcher, ILogger? logger = null)
+        : base(InstanceColumns.Bytes, dispatcher, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));

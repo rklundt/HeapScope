@@ -25,6 +25,7 @@ using System.IO;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 using HeapScope.UI.ViewModels;
 
 namespace HeapScope.UI.ViewModels.Tests;
@@ -40,7 +41,7 @@ public sealed class TypeSummaryViewModelTests : IDisposable
     {
         Directory.CreateDirectory(_folder);
         _session = new SnapshotSession(_worker, new JobTracker(TimeProvider.System));
-        _types = new TypeSummaryViewModel(_session);
+        _types = new TypeSummaryViewModel(_session, ImmediateUiDispatcher.Instance);
         for (var i = 0; i < 450; i++)
         {
             _worker.Service.Rows.Add([$"App.Type{i:D3}", (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), ((i + 1) * 10).ToString(System.Globalization.CultureInfo.InvariantCulture)]);

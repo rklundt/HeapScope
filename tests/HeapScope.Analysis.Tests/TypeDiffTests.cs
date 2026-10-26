@@ -122,6 +122,25 @@ public sealed class TypeDiffTests
     }
 
     [Fact]
+    public void A_module_recorded_in_another_case_is_the_same_module()
+    {
+        // Sprint 2.3.6 review: the summary groups module file names in any case, so the diff must too, or every type of
+        // an assembly launched as MyApp.dll and later as myapp.dll would show as gone and new.
+        var before = new SyntheticGraphBuilder();
+        before.Object("App.Order", 40, module: @"C:\app\MyApp.dll", methodTable: 0x10);
+        var after = new SyntheticGraphBuilder();
+        after.Object("App.Order", 40, module: @"C:\app\myapp.dll", methodTable: 0x10);
+        after.Object("App.Order", 40, module: @"C:\app\myapp.dll", methodTable: 0x10);
+
+        var row = Diff(before, after, GroupKey.Type).ShouldHaveSingleItem();
+        row.Name.ShouldBe("App.Order");
+        row.CountDelta.ShouldBe(1);
+
+        var assembly = Diff(before, after, GroupKey.Assembly).ShouldHaveSingleItem();
+        (assembly.BaselineCount, assembly.CurrentCount).ShouldBe((1, 2));
+    }
+
+    [Fact]
     public void An_empty_side_makes_every_row_new_or_gone()
     {
         var full = new SyntheticGraphBuilder();

@@ -66,17 +66,18 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     [NotifyPropertyChangedFor(nameof(SortState))]
     private bool _descending = true;
 
-    protected GridQueryViewModel(string sortColumn, ILogger? logger)
+    protected GridQueryViewModel(string sortColumn, IUiDispatcher dispatcher, ILogger? logger)
     {
         _sortColumn = sortColumn ?? throw new ArgumentNullException(nameof(sortColumn));
+        UiDispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         Logger = logger ?? NullLogger.Instance;
     }
 
     /// <summary>
-    /// The UI dispatcher, set by whoever creates the grid: a query yields to it before binding its rows (sprint 2.3.6;
-    /// the immediate one, as in tests, continues at once).
+    /// The UI dispatcher: a query yields to it before binding its rows (sprint 2.3.6; the immediate one, as in tests,
+    /// continues at once). Required, so no grid can lose the yield by being created without it (sprint 2.3.6 review).
     /// </summary>
-    public IUiDispatcher UiDispatcher { get; set; } = ImmediateUiDispatcher.Instance;
+    public IUiDispatcher UiDispatcher { get; }
 
     /// <summary>The query in progress, if any (tests and smoke runs await it).</summary>
     public Task QueryTask { get; private set; } = Task.CompletedTask;

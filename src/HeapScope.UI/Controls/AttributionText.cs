@@ -38,9 +38,12 @@ public sealed class AttributionText : SelectableTextBlock
     public static readonly Avalonia.StyledProperty<Uri?> LinkUriProperty =
         Avalonia.AvaloniaProperty.Register<AttributionText, Uri?>(nameof(LinkUri));
 
+    private static readonly Cursor s_hand = new(StandardCursorType.Hand);
+
     public AttributionText()
     {
         Focusable = true;
+        Launch = uri => TopLevel.GetTopLevel(this) is { } top ? top.Launcher.LaunchUriAsync(uri) : Task.CompletedTask;
     }
 
     /// <summary>Where the link run leads.</summary>
@@ -49,6 +52,9 @@ public sealed class AttributionText : SelectableTextBlock
         get => GetValue(LinkUriProperty);
         set => SetValue(LinkUriProperty, value);
     }
+
+    /// <summary>Opens a link: the window's launcher (the default browser); tests set their own (sprint 2.3.6 review).</summary>
+    internal Func<Uri, Task> Launch { get; set; }
 
     protected override Type StyleKeyOverride => typeof(SelectableTextBlock);
 
@@ -79,7 +85,7 @@ public sealed class AttributionText : SelectableTextBlock
     {
         ArgumentNullException.ThrowIfNull(e);
         base.OnPointerMoved(e);
-        Cursor = IsOverLink(e) ? new Cursor(StandardCursorType.Hand) : Cursor.Default;
+        Cursor = IsOverLink(e) ? s_hand : Cursor.Default;
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -116,15 +122,28 @@ public sealed class AttributionText : SelectableTextBlock
 
         var point = e.GetPosition(this);
         var hit = TextLayout.HitTestPoint(new Avalonia.Point(point.X - Padding.Left, point.Y - Padding.Top));
-        var index = hit.TextPosition;
+
+        // The character under the pointer, not the caret position (which moves to the next character past a character's
+        // middle, sprint 2.3.6 review).
+        var index = hit.CharacterHit.FirstCharacterIndex;
         return hit.IsInside && index >= link.Start && index < link.Start + link.Length;
     }
 
-    private void Open()
+    private async void Open()
     {
-        if (Link() is { } link && TopLevel.GetTopLevel(this) is { } top)
+        if (Link() is not { } link)
         {
-            _ = top.Launcher.LaunchUriAsync(link.Uri);
+            return;
+        }
+
+        try
+        {
+            await Launch(link.Uri);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+        {
+            // No browser could be started: the address stays selectable in the text, so nothing else is needed.
+            Avalonia.Logging.Logger.TryGet(Avalonia.Logging.LogEventLevel.Warning, "HeapScope")?.Log(this, "The link could not be opened: {Message}", ex.Message);
         }
     }
 }

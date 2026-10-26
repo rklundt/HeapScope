@@ -226,7 +226,6 @@ public static class TypeGroups
         return rows;
     }
 
-    /// <summary>The module part of a type key (ADR-018): the file name, or empty when the type has no module.</summary>
     /// <summary>
     /// The types named <paramref name="typeName"/> in the module whose file name is <paramref name="module"/> (null or
     /// empty for types without one): a type of the summary and diff rows (ADR-018) can be several method tables. Sets
@@ -250,6 +249,7 @@ public static class TypeGroups
         return matches;
     }
 
+    /// <summary>The module part of a type key (ADR-018): the file name, or empty when the type has no module.</summary>
     public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : RecordedPath.FileName(module);
 
     private static string ModuleFileName(string? module) =>

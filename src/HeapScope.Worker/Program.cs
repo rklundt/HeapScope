@@ -85,14 +85,19 @@ if (!optionsValid || options is null)
     return UsageError;
 }
 
+// The GC's own view of its settings (sprint 2.3.6 review): whether dynamic adaptation (DATAS) is on next to the heap count
+// the client sets (ARCHITECTURE.md 9).
+var gc = GC.GetConfigurationVariables();
 logger.LogInformation(
-    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, server GC {ServerGc}, test hooks {TestHooks}",
+    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, server GC {ServerGc}, GC heaps {GcHeaps}, GC dynamic adaptation {Datas}, test hooks {TestHooks}",
     ProductInfo.Name,
     ProductInfo.Version,
     Environment.ProcessId,
     options.Pipe,
     options.ParentPid,
     GCSettings.IsServerGC,
+    gc.GetValueOrDefault("HeapCount"),
+    gc.GetValueOrDefault("GCDynamicAdaptationMode"),
     options.EnableTestHooks);
 
 if (options.AllowMicrosoftSymbolServer)

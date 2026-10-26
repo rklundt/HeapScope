@@ -28,6 +28,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
@@ -128,8 +129,8 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     private SnapshotItemViewModel? _current;
 
 
-    public CompareViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, ILogger<CompareViewModel>? logger = null)
-        : base(TypeDiffColumns.BytesDelta, logger)
+    public CompareViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, IUiDispatcher dispatcher, ILogger<CompareViewModel>? logger = null)
+        : base(TypeDiffColumns.BytesDelta, dispatcher, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));

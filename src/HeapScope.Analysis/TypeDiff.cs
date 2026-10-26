@@ -89,7 +89,7 @@ public static class TypeDiff
         ArgumentNullException.ThrowIfNull(currentGraph);
         ArgumentNullException.ThrowIfNull(current);
 
-        var rows = new Dictionary<(string Name, string Module), Totals>();
+        var rows = new Dictionary<(string Name, string Module), Totals>(groupBy == GroupKey.Assembly ? TypeKeyComparer.Assembly : TypeKeyComparer.Type);
         Collect(baselineGraph, baseline, groupBy, baselineNames, rows, isBaseline: true);
         Collect(currentGraph, current, groupBy, currentNames, rows, isBaseline: false);
 

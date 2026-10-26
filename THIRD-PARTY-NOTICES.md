@@ -26,7 +26,7 @@ under the MIT License, whose text is below.
 
 | Package | Version | Copyright |
 |---|---|---|
-| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol, Avalonia.Fonts.Inter) | 12.1.4 | The AvaloniaUI Project (Avalonia.Fonts.Inter embeds the Inter typeface, under the SIL Open Font License 1.1) |
+| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol, Avalonia.Fonts.Inter) | 12.1.4 | The AvaloniaUI Project (Avalonia.Fonts.Inter, a dependency of Avalonia.Headless, embeds the Inter typeface under the SIL Open Font License 1.1; it is used by the tests only and kept out of the app's build output) |
 | Avalonia.Controls.DataGrid | 12.1.2 | The AvaloniaUI Project |
 | Azure.Core (via ClrMD) | 1.53.0 | Microsoft Corporation |
 | Azure.Identity (via ClrMD) | 1.21.0 | Microsoft Corporation |

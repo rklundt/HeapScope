@@ -21,6 +21,8 @@
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.4" />
     <PackageVersion Include="Avalonia.Headless" Version="12.1.4" />
     <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
+    <!-- Brought by Avalonia.Headless; its assets are excluded (the Inter typeface is OFL-1.1, not on the allowed list). -->
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.4" />
   </ItemGroup>
   <ItemGroup Label="Diagnostics">
     <PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="4.2.751201" />

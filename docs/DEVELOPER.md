@@ -3,7 +3,9 @@
 Status: living document, updated by every sprint.
 
 ## 1. Prerequisites
-- Windows 11 x64 (Windows 10 x64 also supported).
+- Windows 11 x64 (Windows 10 x64 also supported) for everything. Since sprint 2.3.6 the engine, the worker, the CLI and
+  the Avalonia app also build and run on Linux (x64) and macOS (Apple silicon or Intel); capture, the integration tests
+  and `build/gate.ps1` stay Windows only.
 - .NET 10 SDK (10.0.100 or later). `global.json` pins the feature band and rolls forward to the latest patch.
 - An IDE supporting .NET 10: Visual Studio 2026, JetBrains Rider 2025.3+, or VS Code with C# Dev Kit.
 - RAM: 16 GB is the baseline (Medium snapshots open in mapped mode when memory is tight); 32 GB lets Medium
@@ -26,7 +28,12 @@ dotnet test --solution HeapScope.sln
   `tests/HeapScope.UI.Tests/bin/Debug/net10.0/HeapScope.UI.Tests.exe -longRunning 30 -noAutoReporters`;
   it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
 - Run the UI: `dotnet run --project src/HeapScope.UI` (Avalonia, sprint 2.3.6; Windows, Linux and macOS). Add
-  `--headless` to run it without a display (Avalonia's headless platform; the CI smoke runs use it).
+  `--headless` to run it without a display (Avalonia's headless platform; the CI smoke runs use it). Builds are AnyCPU,
+  so a build from source runs as the machine's architecture: on an arm64 machine (Apple silicon, Windows on Arm) it
+  opens arm64 dumps only and refuses an x64 dump with "open it with the x64 build" (the DAC must match the worker).
+- Sample dumps of a runtime that is no longer installed (an SDK update removes the old runtime): pass the DAC folder of
+  the cached runtime pack, for example
+  `--Symbols:DacFolder %USERPROFILE%\.nuget\packages\microsoft.netcore.app.runtime.win-x64\10.0.13\runtimes\win-x64\native`.
 - UI tests: `HeapScope.UI.Tests` builds the views on the headless platform (one app for the assembly, `UiSession`);
   a view test fails on any binding error Avalonia logs. Bindings are compiled (`x:DataType` on every view), so most
   binding mistakes fail the build instead.
@@ -238,7 +245,9 @@ of debuggable code) and exit when the process given as parent exits.
   help, version and console startup print it. UI changes are checked against it; a test checks its text, link,
   colors and contrast.
 - **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
-  anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. Update
+  anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. A package
+  that only arrives as a dependency counts too: `Avalonia.Fonts.Inter` (the Inter typeface, SIL Open Font License) comes
+  with `Avalonia.Headless` and is kept out of the app's output (`ExcludeAssets="all"`), so it reaches only the tests. Update
   `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
 
 ## 5. Testing strategy
@@ -304,12 +313,20 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   sprint 2.3.5, work-in-progress commits may be pushed to `sprint/X.Y` to run CI on its draft PR; the squash merge still
   leaves one commit per sprint on `develop`. Work outside a sprint that the owner asks for (a fix, docs, a chore) uses
   its own short branch (`fix/...`, `chore/...`) off `develop` and the same PR flow.
-- CI (`.github/workflows/ci.yml`, sprint 2.3.5) runs on every PR into `develop` or `main` and every push to them, on
-  GitHub's hosted runners: Windows builds the solution and runs the fast tests; Linux builds the engine, the worker and
-  the CLI, runs the engine's tests, dumps the LeakyConsole fixture with `dotnet-dump` (pinned) and checks the CLI's
-  JSON against the known answers with `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named
-  runtime version); macOS does the same, informational (an arm64 runner; ADR-025). It does not replace the local gate, which also runs the
-  integration tests. Fixture dumps are never uploaded.
+- CI (`.github/workflows/ci.yml`, sprints 2.3.5 and 2.3.6) runs on every PR into `develop` or `main`, every push to
+  them and on demand, on GitHub's hosted runners:
+  - Windows builds the solution, runs the fast tests, captures the LeakyConsole fixture with the CLI and checks the
+    known answers (`build/check-known-answers.sh`).
+  - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests (the view model and headless UI
+    tests included), dumps the fixture with `dotnet-dump` (pinned), checks the CLI's JSON against the known answers with
+    `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named runtime version) and opens the dump in
+    the app without a display (`--headless --smoke-open`). macOS does the same, informational (an arm64 runner;
+    ADR-025).
+  - After both pass, a package job publishes the self-contained builds per runtime identifier (`build/publish.sh`),
+    packs each as a tarball (which keeps the executables' modes), unpacks it and runs it as a user would (the CLI's
+    version, a worker ping, the worker's Server GC setting, a headless synthetic smoke; `osx-x64` is built but cannot
+    run on the arm64 runner) and, on pushes and manual runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
+  It does not replace the local gate, which also runs the integration tests. Fixture dumps are never uploaded.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.

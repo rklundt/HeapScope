@@ -36,7 +36,7 @@ flowchart LR
     subgraph HeapScope
         UI[Desktop app, Avalonia<br/>HeapScope.UI]
         CLI[CLI<br/>HeapScope.Cli]
-        W[Analysis worker<br/>HeapScope.Worker, x64]
+        W[Analysis worker<br/>HeapScope.Worker, 64-bit]
     end
     Target[(Target .NET process<br/>e.g. ASP.NET Core API)]
     Dumps[(Snapshot files<br/>.dmp / .gcdump)]
@@ -115,7 +115,7 @@ src/
   HeapScope.Loaders.GcDump     gcdump -> compact graph (sprint 1.8).
   HeapScope.ThirdParty.GcDump  Vendored MIT gcdump reader and writer from dotnet/diagnostics (PerfView code), sprint 1.8.
   HeapScope.Contracts          IPC DTOs and service interfaces shared by UI, worker and CLI.
-  HeapScope.Worker             Out-of-process analysis host (x64).
+  HeapScope.Worker             Out-of-process analysis host (64-bit).
   HeapScope.Application        Use cases: worker client and lifecycle, job tracking, sessions, capture
                                orchestration. UI-agnostic.
   HeapScope.UI.ViewModels      View models and the services they use, without a UI toolkit (sprint 2.3.6).
@@ -387,8 +387,8 @@ Rules:
 ## 4. Process model and IPC
 
 ### 4.1 Processes
-- **UI process** (Avalonia; x64, arm64 on Apple silicon): shell, view models, Application services, capture.
-- **CLI process** (x64): same Application services, console output.
+- **UI process** (Avalonia; AnyCPU, so 64-bit on x64 and arm64): shell, view models, Application services, capture.
+- **CLI process** (AnyCPU, 64-bit): same Application services, console output.
 - **Worker process** (64-bit, the machine's architecture; `HeapScope.Worker`): one per UI or CLI instance. Holds every loaded snapshot
   of the session (a diff needs both snapshots in one address space). Uses Server GC, non-concurrent
   (section 9), and runs at below-normal process priority so its ordinary threads yield to the UI and the profiled
@@ -1087,20 +1087,26 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   100 ms.
 - **Responsiveness measurement**: `DispatcherWatchdog` posts an input-priority probe every 25 ms and logs any
   delay over 100 ms (with UI-process GC pause time). Since the Avalonia port (sprint 2.3.6) a second probe at the
-  highest priority waits only for the operation already running, which bounds the longest single operation (Avalonia's
-  dispatcher has no operation hooks; the WPF app timed each operation and its priority). Since sprint 1.3 each lag warning also gives the
+  highest priority waits only for the operation already running (Avalonia's dispatcher has no operation hooks; the WPF
+  app timed each operation and its priority). Its wait is a lower bound of the longest single operation. An operation
+  starts after the previous highest-priority probe ran, so the time from that run to the next probe's run is an upper
+  bound; smoke runs check the upper bound, probing every 10 ms from a thread of their own (sprint 2.3.6 review). Since sprint 1.3 each lag warning also gives the
   UI thread's own CPU time in the lag (Windows; the WPF app also gave the operations and time per priority that ran
   meanwhile): a lag with little UI thread CPU means the thread was waiting or not scheduled, not working. `HeapScope.exe --smoke-synthetic <n>` runs
   a warm-up job, then an n-object synthetic job, and exits 0 when no single dispatcher operation exceeded 100 ms
   and the probe lag stayed under the smoke gate
-  (2x budget), 3 when it did not, 4 when the job failed. Measured in sprint 0.3, steady state during a 5M job:
+  (2x budget), 3 when it did not, 4 when the job failed, 5 when the first window took over 30 s, 6 when a grid walked a
+  whole row list (every smoke run logs the UI's private and managed memory and the count of such walks, sprint 2.3.6
+  review). Measured in sprint 0.3, steady state during a 5M job:
   2 to 16 ms (Debug) and 43 ms (Release, cold); intermittently 105 to 130 ms in Debug at job completion while the
   full integration suite runs (backlog item). One-time cold costs are not covered by the budget yet: first window
   render about 1 s, first job row about 130 to 190 ms, first showing of the Compare tab with rows 97 to 238 ms (1.4)
   (backlog: UI cold start). `--smoke-compare <dump>` (with `--smoke-open`) logs that first show and checks a warm
-  re-query of the comparison. Sprint 2.3.6 (Avalonia, Release build, Small dump, this machine): checked lag 55 to
-  67 ms and longest operation 44 to 46 ms (WPF: 90 to 127 and 44 to 68), the Snapshots page's cold first show 64 to
-  82 ms; the first window 2.2 s after process start warm (WPF the same), 8 to 15 s for the first launch after a build
+  re-query of the comparison. Sprint 2.3.6 (Avalonia, Release build, this machine): Small dump checked lag 102 to
+  105 ms and longest operation at most 64 ms (the upper bound; the lower bound was 44 to 46 ms; WPF, timed exactly:
+  lag 90 to 127, operation 44 to 68), Medium lag 71 ms and operation at most 69 ms; cold first shows (not checked) at
+  most 94 to 109 ms; UI process 219 to 229 MB private (50 to 92 MB managed) after the Small or Medium smoke, with no
+  whole-list grid walk (the prototype: 197 MB); the first window 2.2 s after process start warm (WPF the same), 8 to 15 s for the first launch after a build
   while its files are scanned. Every smoke run logs the first-window time and fails above 30 s (a start that hangs).
 - **Hybrid CPUs (ADR-019, sprint 1.5)**: on a CPU with performance and efficiency cores, Windows runs the threads of a
   window that is not in the foreground on efficiency cores (EcoQoS). The UI thread then did the same layout 2.5 to 5
@@ -1112,12 +1118,16 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   pending render runs as its own operation. The types grid shows bytes per generation only on request (a
   "Generations" checkbox, off by default; the six columns were half the layout time). Highlighting a filter match sets
   `TextBlock.Text` unless the cell has a match (the first access to `Inlines` forces a synchronous layout pass). The
-  object view's field tree is virtualized. `VirtualRowList` keeps at most 50 pages (10,000 rows) and drops the pages
+  object view's field and retention trees are Avalonia `TreeView`s, which are not virtualized; they stay small because
+  the worker caps them (100 array elements per level, field text 1,000 characters, 2,000 retention nodes). A tree of
+  unbounded size (the 2.4 dominator tree) must be a flattened, paged grid instead (sprint 2.3.6 review). `VirtualRowList` keeps at most 50 pages (10,000 rows) and drops the pages
   farthest from the last one asked for.
 - **Pages and views are built once (sprint 1.5)**: the shell builds each page on first show and keeps it, so switching
   pages neither rebuilds grids (about 100 ms on the Snapshots page) nor loses scroll and expanded state; the Snapshots
-  page keeps its snapshot panel laid out (hidden) without a snapshot, so templates are applied when the page is built.
-  The navigator's types, instances and object views are built with the window; navigating swaps their data.
+  page keeps its snapshot panel built without a snapshot. In the WPF app a hidden panel was laid out, so templates were
+  applied when the page was built; Avalonia neither measures nor templates a control with `IsVisible` false, so a hidden
+  panel's templates are applied on its first show (sprint 2.3.6). The navigator's types, instances and object views are
+  built with the window; navigating swaps their data.
 - **Smoke runs measure phases**: `--smoke-open` warms up with a synthetic job and the Snapshots page shown once (logged
   as a cold cost), then checks the open phase (logged on its own line), a drill-down (largest type's instances, the
   largest object, its references; the first show is logged as a cold cost, a re-sort and a second object are checked)
@@ -1150,8 +1160,11 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 ## 9. Worker memory and GC settings
 - Server GC, non-concurrent (`ServerGarbageCollector=true`, `ConcurrentGarbageCollection=false`):
   throughput matters more than pause times in the worker, and background GC adds memory overhead. DATAS
-  (dynamic adaptation, on by default for Server GC since .NET 9) stays enabled so the worker does not reserve
-  a large heap per core on a 16 GB laptop.
+  (dynamic adaptation, on by default for Server GC since .NET 9) is off in the worker: the GC turns it off when a heap
+  count is set, which the client always does (next item). Sprint 2.3.6 review: this section said DATAS stayed on; the
+  worker now logs the GC's own settings at start (`GC heaps 12, GC dynamic adaptation 0` on a 24-core machine). The
+  fixed count is kept, since it is what keeps the UI responsive during blocking collections (measured in sprint 1.3);
+  an idle worker still returns its memory through the compacting collection after each large job (below).
 - GC heaps capped at half the logical processors (sprint 1.3): the client starts the worker with
   `DOTNET_GCHeapCount` (`Worker:GcHeapCount` overrides it; a value already in the environment wins). With one heap per
   core, the worker's blocking collections occupied every core and starved the UI thread: on the Medium smoke open

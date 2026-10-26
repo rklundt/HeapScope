@@ -129,6 +129,8 @@ jobs:
 
   package:
     name: Package ${{ matrix.rid }}
+    # Builds of a red commit are never uploaded.
+    needs: [windows, unix]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -137,12 +139,17 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
+            runs: true
           - os: ubuntu-latest
             rid: linux-x64
+            runs: true
           - os: macos-latest
             rid: osx-arm64
+            runs: true
+          # Built on the arm64 runner, which cannot run it.
           - os: macos-latest
             rid: osx-x64
+            runs: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -150,12 +157,30 @@ jobs:
           global-json-file: global.json
       - name: Publish the app and the CLI, self-contained, with the worker
         shell: bash
-        run: bash build/publish.sh ${{ matrix.rid }} "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}"
+        run: |
+          bash build/publish.sh ${{ matrix.rid }} "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}"
+          # A tarball keeps the executables' modes, which an artifact upload of the folder drops (sprint 2.3.6 review H1).
+          tar -czf "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz" -C "$RUNNER_TEMP" "HeapScope-${{ matrix.rid }}"
+          du -sh "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}" "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz"
+      - name: Run the build as a user would get it
+        # Unpacked from the tarball: the CLI, its worker (started through the pipe) and the app without a display.
+        if: ${{ matrix.runs }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          tar -xzf "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          dir="$RUNNER_TEMP/unpacked/HeapScope-${{ matrix.rid }}"
+          ext=""; [ "${{ matrix.rid }}" = "win-x64" ] && ext=".exe"
+          "$dir/heapscope-cli$ext" --version
+          "$dir/heapscope-cli$ext" worker ping
+          grep -q '"System.GC.Server": true' "$dir/worker/HeapScope.Worker.runtimeconfig.json"
+          "$dir/HeapScope$ext" --headless --smoke-synthetic 200000 --Logging:File:Directory "$RUNNER_TEMP/pkg-log" || { cat "$RUNNER_TEMP"/pkg-log/*.log; exit 1; }
+          grep -h "Smoke run:" "$RUNNER_TEMP"/pkg-log/*.log
       - name: Upload
         # Build output only; on pushes to develop or main and manual runs (sprint 2.3.6, decision 7).
         if: ${{ github.event_name != 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: HeapScope-${{ matrix.rid }}
-          path: ${{ runner.temp }}/HeapScope-${{ matrix.rid }}
+          path: ${{ runner.temp }}/HeapScope-${{ matrix.rid }}.tar.gz
           retention-days: 14

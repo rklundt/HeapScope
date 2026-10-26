@@ -89,7 +89,8 @@ internal static class UiHost
         builder.Services.AddSingleton(options);
 
         builder.Services.AddSingleton<IUiDispatcher>(new AvaloniaUiDispatcher(dispatcher));
-        builder.Services.AddSingleton(sp => new DispatcherWatchdog(dispatcher, sp.GetRequiredService<ILogger<DispatcherWatchdog>>()));
+        builder.Services.AddSingleton(sp => new DispatcherWatchdog(
+            dispatcher, sp.GetRequiredService<ILogger<DispatcherWatchdog>>(), options.IsSmokeRun ? DispatcherWatchdog.SmokeProbeInterval : null));
         builder.Services.AddSingleton<IUserInteraction>(sp => options.IsSmokeRun
             ? new AutomaticUserInteraction()
             : new AvaloniaUserInteraction(() => sp.GetService<MainWindow>()));

@@ -1779,7 +1779,8 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
    no `AvaloniaStats` task; a repository test checks the override exists.
 2. [x] `HeapScope.UI.ViewModels` (net10.0): the view models, `IUiDispatcher` (with `YieldToRenderAsync`, replacing the
    static `RenderYield`), `IUserInteraction` made asynchronous (Avalonia's dialogs are), the immediate and automatic
-   implementations; `ICaptureService.Availability` (supported, or the reason) used by the Processes and Live view models.
+   implementations; `ICaptureService.UnavailableReason` (null when capture works, else the reason) used by the Processes
+   and Live view models.
    `HeapScope.UI.Wpf.Tests` becomes `HeapScope.UI.ViewModels.Tests` (net10.0, runs on Linux and macOS). The WPF app uses
    the library until it is retired. ARCHITECTURE 3.1 and `LayerRules` get the new rows. Tests: the moved view model
    tests; capture availability; the architecture test.
@@ -1810,8 +1811,8 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
    permissions (sessions, logs, index caches, sidecars, partial dumps). Tests: run on Linux and macOS in CI (skipped on
    Windows).
 9. [x] Builds per system (added item 1): `dotnet publish` self-contained per runtime identifier with the worker and the
-   CLI; `PlatformTarget` follows the runtime identifier (arm64 on `osx-arm64`); a CI job builds the four and uploads
-   them as artifacts. Tests: the CI job; the Windows build passes the smoke gate.
+   CLI; builds are AnyCPU and a published build takes its runtime identifier's architecture (decision 10); a CI job
+   builds the four, runs the three it can and uploads them as artifacts. Tests: the CI job; the Windows build passes the smoke gate.
 10. [x] CI: Linux and macOS build the UI and run the UI tests; Linux runs the headless smoke on the LeakyConsole core
     dump; Windows captures LeakyConsole with the CLI and checks the known answers (added item 6).
 11. [x] Review cleanups (added item 7): L2, L11, L13, L14, L16 of the 2.3.5 review, each with its test where one applies.
@@ -1844,6 +1845,12 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
 11. Headless smoke runs (CI) check that every step works and log the UI lags without gating them: on a two-core runner
     drawing in software the lag measures the machine, not HeapScope (decided autonomously; the Windows smoke gate is
     unchanged).
+12. Avalonia's dispatcher has no operation hooks, so the longest UI operation is bounded, not timed: smoke runs probe
+    every 10 ms and check an upper bound (the highest-priority probe's wait plus the longest gap between probe ticks)
+    against the 100 ms budget (sprint 2.3.6 review, decided autonomously).
+13. `Avalonia.Fonts.Inter` (a dependency of the headless package, its font under the SIL Open Font License) is kept out
+    of the app's build output: the app uses the system font and the headless runs need no font of their own (decided
+    autonomously).
 
 
 **Review summary**: to be filled by /wrap-sprint.
@@ -1860,7 +1867,9 @@ summary, diff, inspection and retention views.
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst, same data); click highlights a path, double-click zooms; a biggest retainers tile.
 
 From 2.3.5 (ADR-025): built in Avalonia after the port (2.3.6). The tree is built on the free controls (a flattened,
-data-virtualized row list with indentation in the DataGrid, or a TreeView), not the paid TreeDataGrid.
+data-virtualized row list with indentation in the DataGrid), not the paid TreeDataGrid. Avalonia's `TreeView` is not
+virtualized and stays for small, capped trees only (2.3.6 review). A grid whose column set or row count changes on a
+re-query gets an adapter keyed by an interface rather than by row type (2.3.6 review).
 
 From 2.3 (decisions 6 and 7): the exact retention of a set ("open objects retained by this set": a reachability pass from
 the roots that skips the set, since a group's retained column is only a lower bound), the biggest retainers tile and the

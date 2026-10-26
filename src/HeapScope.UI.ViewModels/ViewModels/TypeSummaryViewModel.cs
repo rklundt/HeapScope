@@ -27,6 +27,7 @@ using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using HeapScope.UI.Services;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
@@ -224,8 +225,8 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     private bool _retainedOffQuietly;
 
-    public TypeSummaryViewModel(SnapshotSession session, ILogger<TypeSummaryViewModel>? logger = null)
-        : base(TypeSummaryColumns.Bytes, logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
+    public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ILogger<TypeSummaryViewModel>? logger = null)
+        : base(TypeSummaryColumns.Bytes, dispatcher, logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
 
     /// <summary>The snapshot shown, if any.</summary>
     public SnapshotHandle? Snapshot => _snapshot;
