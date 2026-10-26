@@ -133,7 +133,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             return null;
         }
 
-        var task = entry.Derived.GetOrStartAggregation(lifetime => Task.Run(
+        using var waiter = entry.Derived.JoinAggregation(lifetime => Task.Run(
             () =>
             {
                 using var lease = entry.Snapshot.AcquireLease();
@@ -145,7 +145,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             lifetime));
         try
         {
-            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ObjectDisposedException || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {

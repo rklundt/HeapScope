@@ -45,7 +45,7 @@ internal sealed partial class SnapshotStore
         }
 
         using var subscription = entry.Derived.RootPathProgress.Subscribe(progress);
-        var task = entry.Derived.GetOrStartRootPaths(lifetime => Task.Run(
+        using var waiter = entry.Derived.JoinRootPaths(lifetime => Task.Run(
             () =>
             {
                 using var lease = entry.Snapshot.AcquireLease();
@@ -83,7 +83,7 @@ internal sealed partial class SnapshotStore
             lifetime));
         try
         {
-            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ObjectDisposedException || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {

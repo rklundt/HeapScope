@@ -1635,8 +1635,10 @@ Twelve Moderates were fixed, decided autonomously:
 - worker tests through `DominatorIndexBuilder` (M9), crash-safety tests of the mapped writer (M10), refusal advice that
   fits the snapshot (M11), and an oracle that treats frozen objects as alive, checked on three items per fixture (M12).
 
-Deferred to the Backlog: stopping a computation nobody waits for (M13), the 16 GB measurement (M14), and gcdump
-survivors as extra sources (M6's second half).
+Deferred at the close: stopping a computation nobody waits for (M13), the 16 GB measurement (M14), and gcdump
+survivors as extra sources (M6's second half). After the close, at the product owner's request: M13 fixed, M14 measured
+under a working set cap (a real 16 GB machine stays in the Backlog), M6's second half kept in the Backlog with a revisit
+trigger and the note now giving the bytes affected (review file, "After the close").
 
 Measured after the review (32 GB machine): Medium reverse index and dominators 3.9 s in memory (peak 3,289 MB) and 5.6 s
 mapped (peak 699 MB); DenseHeap 4.6 s (3,875 MB) and 7.0 s (661 MB). Every rooted fixture item's retained size equals an
@@ -1773,14 +1775,15 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
-- Stop a derived computation nobody waits for (from the 2.3 review M13): canceling the last waiter of the dominators,
-  the root path tree or the reverse index only detaches it today; count the waiters per slot and cancel the
-  computation when the last one leaves (and on close), so an accidental retained column on a large heap can be undone.
-- Measure the mapped dominators on a 16 GB machine, or under a constrained working set (from the 2.3 review M14 and
-  the 1.9 decision): the computation writes randomly into file-backed pages, which may page there.
-- gcdump survivors without a recorded root as extra dominator sources (from the 2.3 review M6): today they retain
-  nothing and a note says retained sizes may be overstated; marking them "root not recorded" sources would attribute
-  what they hold to them.
+- gcdump survivors without a recorded root as path and dominator sources (from the 2.3 review M6; agreed with the
+  product owner on 2026-10-25 to defer the fix). Today they retain nothing, and the note beside retained sizes gives their
+  count and bytes. The fix marks them "root not recorded" sources in `PathRoots.Sources` (so paths and dominators keep
+  agreeing, ADR-024), bumps `PathRoots.SemanticsVersion` so saved dominators are rebuilt, and needs a product decision on
+  how such roots are shown in paths. **Revisit when:** the "gcdumps at scale" item below is scheduled (do them together:
+  sampled gcdumps are where these survivors appear), or as soon as a real gcdump shows a note with more than a few MB.
+- Confirm the mapped dominators on a real 16 GB machine (from the 2.3 review M14; a capped run on 2026-10-25 showed no
+  thrashing, see ARCHITECTURE.md 6.4, but trimmed pages there came back as soft faults, not disk reads). **Revisit
+  when:** a 16 GB machine is available, or before ADR-004's 16 GB baseline is claimed for Phase 2 in a release.
 - Reconsider a live in-memory graph's memory mode when an optional index is computed (from 2.3 decision 4, the 1.9
   decision): today dominators that do not fit next to an in-memory graph are refused with a suggestion to reopen
   mapped; switching the open snapshot to mapped (graph and indices) would compute them without asking.
@@ -1788,7 +1791,8 @@ switches.
   once both snapshots have dominators.
 - gcdumps at scale (from 1.8, ADR-023 in 1.9): move gcdump capture into the worker (the capturing front end peaked at
   1,191 MB near the 10 million node cap), then raise the cap (a vendored change) after measuring a gcdump capture and
-  load of the Medium dump against the budgets (section 10).
+  load of the Medium dump against the budgets (section 10). Do the "gcdump survivors without a recorded root" item
+  above with it.
 - gcdump lost-events check (from 1.8): count the EventPipe session's lost events and fail or mark the capture.
 - gcdump loader memory (from 1.8 review): presize from `NodeIndexLimit`, add references by index rather than address,
   release the MemoryGraph before the build.
