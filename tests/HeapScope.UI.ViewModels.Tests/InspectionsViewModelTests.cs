@@ -53,7 +53,7 @@ public sealed class InspectionsViewModelTests : IDisposable
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
         _worker.Service.InspectionRuns.ShouldBeEmpty("nothing runs before the tab is shown");
 
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
 
         _worker.Service.InspectionRuns.ShouldBe(["duplicate-strings", "loh", "large-arrays", "fragmentation"], "unavailable inspections are not run");
@@ -71,8 +71,8 @@ public sealed class InspectionsViewModelTests : IDisposable
         await Inspections.Rows.WhenLoadedAsync();
         Inspections.Rows.GetRow(0).Display[1].ShouldBe(3.ToString("N0", System.Globalization.CultureInfo.CurrentCulture));
 
-        _snapshots.SelectedTab = 0;
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Snapshot;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
         _worker.Service.InspectionRuns.Count.ShouldBe(4, "a snapshot's inspections run once");
 
@@ -87,7 +87,7 @@ public sealed class InspectionsViewModelTests : IDisposable
     {
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
         _worker.Service.InspectionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         await WaitUntilAsync(() => Inspections.Tiles.Count == 5);
         Inspections.Selected = Inspections.Tiles[3];
         Inspections.Rows.Count.ShouldBe(0, "not run yet");
@@ -106,31 +106,31 @@ public sealed class InspectionsViewModelTests : IDisposable
     public async Task Placeholder_rows_have_a_blank_cell_for_every_column()
     {
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
 
-        Inspections.Rows.Cast<InspectionRowItem>().First().Display.Count.ShouldBe(8, "the view binds Display[i] before the page arrives");
+        Inspections.Rows.Cast<CellRowItem>().First().Display.Count.ShouldBe(8, "the view binds Display[i] before the page arrives");
     }
 
     [Fact]
     public async Task A_row_opens_its_objects_on_the_snapshot_tab_in_its_scope()
     {
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
 
         Inspections.Rows.GetRow(0);
         await Inspections.Rows.WhenLoadedAsync();
         Inspections.OpenRowCommand.Execute(Inspections.Rows.GetRow(0));
 
-        _snapshots.SelectedTab.ShouldBe(0);
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Snapshot);
         var instances = _snapshots.Navigator.Current.ShouldBeOfType<InstancesViewModel>();
         (instances.TypeName, instances.Scope, instances.SameValueAs).ShouldBe(("System.String", InstanceScope.SameValue, 0x10UL));
         await instances.QueryTask;
         var query = _worker.Service.InstanceQueries.ShouldHaveSingleItem();
         (query.Scope, query.SameValueAs, query.Module).ShouldBe((InstanceScope.SameValue, 0x10UL, "System.Private.CoreLib.dll"));
 
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         Inspections.Selected = Inspections.Tiles[1];
         Inspections.Rows.GetRow(0);
         await Inspections.Rows.WhenLoadedAsync();
@@ -139,11 +139,28 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_scoped_row_does_not_offer_its_whole_types_set_and_a_row_with_an_address_shows_its_object_in_the_tree()
+    {
+        // The 2.4 review: "Objects retained by this set" on a scoped row would answer for every object of the type.
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        await Inspections.RunTask;
+        var scoped = Inspections.Rows.GetRow(0);
+        await Inspections.Rows.WhenLoadedAsync();
+
+        Inspections.RetainedBySetCommand.CanExecute(scoped).ShouldBeFalse("a duplicate string row stands for some strings, not all");
+        Inspections.ShowInRetainersCommand.Execute(scoped);
+
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
+        _snapshots.Retainers.FocusAddress.ShouldBe(0x10UL, "the row names an object, so the tree shows it");
+    }
+
+    [Fact]
     public async Task Another_snapshot_cancels_the_run_and_starts_its_own()
     {
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
         _worker.Service.InspectionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _snapshots.SelectedTab = 2;
+        _snapshots.Tab = SnapshotTabs.Inspections;
         var first = Inspections.RunTask;
         var firstTiles = Inspections.Tiles.ToList();
 

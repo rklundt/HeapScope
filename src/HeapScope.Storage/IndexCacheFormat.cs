@@ -78,6 +78,12 @@ public enum IndexSection
 
     /// <summary>Dominators sidecar (sprint 2.3): each object's retained size in bytes.</summary>
     RetainedSizes = 22,
+
+    /// <summary>Dominators sidecar (sprint 2.4): the dominator tree's row offsets, one per object plus two (the virtual root's and the end).</summary>
+    DominatorChildStarts = 23,
+
+    /// <summary>Dominators sidecar (sprint 2.4): the dominator tree's children, each vertex's largest retained size first.</summary>
+    DominatorChildren = 24,
 }
 
 /// <summary>
@@ -130,6 +136,8 @@ public sealed record IndexFileLayout(string Name, IReadOnlyDictionary<IndexSecti
     {
         [IndexSection.ImmediateDominators] = sizeof(int),
         [IndexSection.RetainedSizes] = sizeof(ulong),
+        [IndexSection.DominatorChildStarts] = sizeof(int),
+        [IndexSection.DominatorChildren] = sizeof(int),
     }, semanticsVersion);
 }
 

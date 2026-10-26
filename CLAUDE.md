@@ -75,6 +75,8 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
   [--module] [--filter] [--sort] [--retained] [--format]`, `object <dump> <address> [--references N] [--retained] [--format text|json]`,
   `referrers <snapshot> --address <hex> | --type <name> [--module] [--sort] [--format]`,
   `paths <snapshot> --address <hex> | --type <name> [--module] [--max N] [--expand] [--format text|json]`,
+  `retainers <snapshot> [--address <hex>] [--group none|type|namespace] [--depth N] [--top N] [--format]`,
+  `retained-by <snapshot> <type> [--module] [--top|--all] [--format]`,
   `inspect <dump> [<name>] [--top|--all] [--format]`, `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
   [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]

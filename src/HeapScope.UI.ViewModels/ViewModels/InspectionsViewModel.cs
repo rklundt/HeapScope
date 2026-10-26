@@ -33,70 +33,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.UI.ViewModels;
 
-/// <summary>
-/// One row of an inspection's grid (sprint 1.6). Inspections have different columns, so a row keeps its cells: raw (for
-/// what the row opens) and formatted for display (numbers grouped in the current culture).
-/// </summary>
-public sealed class InspectionRowItem(int index, IReadOnlyList<string> blank) : ObservableObject, IIndexedRow
-{
-    private static readonly IReadOnlyList<string> s_empty = [];
-
-    private IReadOnlyList<ResultColumn> _columns = [];
-
-    public int Index { get; } = index;
-
-    public IReadOnlyList<string?> Raw { get; private set; } = s_empty;
-
-    /// <summary>
-    /// Display text per column, in the result set's column order (the view binds <c>Display[i]</c>); blank cells until the
-    /// row's page arrives, so no binding fails on a placeholder.
-    /// </summary>
-    public IReadOnlyList<string> Display { get; private set; } = blank;
-
-    public bool IsLoaded { get; private set; }
-
-    /// <summary>A raw cell by column name, or null.</summary>
-    public string? this[string column]
-    {
-        get
-        {
-            for (var i = 0; i < _columns.Count; i++)
-            {
-                if (_columns[i].Name == column)
-                {
-                    return i < Raw.Count ? Raw[i] : null;
-                }
-            }
-
-            return null;
-        }
-    }
-
-    public static VirtualRowList<InspectionRowItem> CreateList(ResultSetHandle? rows, ResultSetInfo info, Action<Exception>? onError = null, ILogger? logger = null)
-    {
-        ArgumentNullException.ThrowIfNull(info);
-        var blank = Enumerable.Repeat(string.Empty, info.Columns.Count).ToArray();
-        return new VirtualRowList<InspectionRowItem>(rows, info.TotalCount, i => new InspectionRowItem(i, blank), (row, cells) => row.Fill(cells, info.Columns), onError, logger);
-    }
-
-    private void Fill(IReadOnlyList<string?> cells, IReadOnlyList<ResultColumn> columns)
-    {
-        _columns = columns;
-        Raw = [.. cells];
-        Display = [.. columns.Select((c, i) => FormatCell(c.Kind, i < cells.Count ? cells[i] : null))];
-        IsLoaded = true;
-        OnPropertyChanged(string.Empty);
-    }
-
-    private static string FormatCell(ResultColumnKind kind, string? text) =>
-        text is null ? string.Empty
-        : kind is ResultColumnKind.Integer or ResultColumnKind.Bytes && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
-            ? number.ToString("N0", CultureInfo.CurrentCulture)
-        : kind == ResultColumnKind.Percent && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var percent)
-            ? percent.ToString("N2", CultureInfo.CurrentCulture) + " %"
-        : text;
-}
-
 /// <summary>One inspection on the overview: its finding, cause, fix and first rows, or why it cannot run.</summary>
 public sealed partial class InspectionTileViewModel(InspectionInfo info) : ObservableObject
 {
@@ -162,7 +98,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
     private InspectionTileViewModel? _selected;
 
     [ObservableProperty]
-    private VirtualRowList<InspectionRowItem> _rows = Empty();
+    private VirtualRowList<CellRowItem> _rows = Empty();
 
     /// <summary>The selected inspection's visible columns, with their index in the rows' cells.</summary>
     [ObservableProperty]
@@ -174,8 +110,9 @@ public sealed partial class InspectionsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isActive;
 
-    public InspectionsViewModel(SnapshotSession session, ILogger? logger = null)
+    public InspectionsViewModel(SnapshotSession session, ILogger? logger = null, INavigator? navigator = null)
     {
+        _navigator = navigator;
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _logger = logger ?? NullLogger.Instance;
     }
@@ -191,8 +128,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
     /// <summary>The run in progress (tests and smoke runs await it).</summary>
     public Task RunTask { get; private set; } = Task.CompletedTask;
 
-    /// <summary>Opens a row's objects; set by the Snapshots page.</summary>
-    public Action<SnapshotHandle, InspectionTarget>? Open { get; set; }
+    // Where a row leads: the Snapshots page, which picks the tab (2.3.7 review M8).
+    private readonly INavigator? _navigator;
 
     /// <summary>Shows <paramref name="snapshot"/>'s inspections (null clears); they run when the tab is active.</summary>
     public void Show(SnapshotHandle? snapshot)
@@ -233,7 +170,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
         {
             var columns = run.Rows.Info.Columns;
             Columns = [.. columns.Select((c, i) => (c, i)).Where(c => !InspectionColumns.IsHidden(c.c.Name))];
-            Rows = InspectionRowItem.CreateList(run.Rows, run.Rows.Info, ex => Status = ex.Message, _logger);
+            Rows = CellRowItem.CreateList(run.Rows, run.Rows.Info, ex => Status = ex.Message, _logger);
         }
         else
         {
@@ -243,18 +180,50 @@ public sealed partial class InspectionsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void OpenRow(InspectionRowItem? row)
+    private void OpenRow(CellRowItem? row)
     {
         if (row is not { IsLoaded: true } || Snapshot is not { } snapshot || TargetOf(row) is not { } target)
         {
             return;
         }
 
-        Open?.Invoke(snapshot, target);
+        // The objects of its type in its scope, or its object, on the Snapshot tab.
+        _navigator?.Navigate(target.TypeName is { } typeName
+            ? NavigationTarget.Instances(snapshot, typeName, target.Module, target.Scope, target.Address)
+            : NavigationTarget.Object(snapshot, target.Address));
     }
 
+    /// <summary>A row's object (when it names one), or its type's group, in the dominator tree (sprint 2.4).</summary>
+    [RelayCommand]
+    private void ShowInRetainers(CellRowItem? row)
+    {
+        if (row is { IsLoaded: true } && Snapshot is { } snapshot && TargetOf(row) is { } target)
+        {
+            _navigator?.Navigate(target.Address != 0
+                ? NavigationTarget.Retainers(snapshot, address: target.Address)
+                : NavigationTarget.Retainers(snapshot, typeName: target.TypeName, module: target.Module));
+        }
+    }
+
+    /// <summary>
+    /// What a row's objects retain together (sprint 2.4). Only for a row that stands for every object of its type: a
+    /// scoped row (some of a type's objects, such as the empty collections) would get the whole type's answer, so it is
+    /// off until sets narrower than a type exist (the 2.4 review; Backlog).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(IsWholeType))]
+    private void RetainedBySet(CellRowItem? row)
+    {
+        if (IsWholeType(row) && Snapshot is { } snapshot && TargetOf(row!) is { TypeName: { } typeName } target)
+        {
+            _navigator?.Navigate(NavigationTarget.RetainedBySet(snapshot, typeName, target.Module));
+        }
+    }
+
+    private static bool IsWholeType(CellRowItem? row) =>
+        row is { IsLoaded: true } && TargetOf(row) is { TypeName: not null, Scope: InstanceScope.All, Address: 0 };
+
     /// <summary>What a row opens: its hidden type, module and scope, or its address alone (ADR-020).</summary>
-    public static InspectionTarget? TargetOf(InspectionRowItem row)
+    public static InspectionTarget? TargetOf(CellRowItem row)
     {
         ArgumentNullException.ThrowIfNull(row);
         var address = row[InspectionColumns.Address] is { } text ? Cells.Address(text) : 0;
@@ -396,6 +365,6 @@ public sealed partial class InspectionsViewModel : ObservableObject
 
     private void Release(InspectionRun? run) => run?.Rows.ReleaseInBackground(_logger);
 
-    private static VirtualRowList<InspectionRowItem> Empty() =>
-        InspectionRowItem.CreateList(null, new ResultSetInfo(Guid.Empty, 0, []));
+    private static VirtualRowList<CellRowItem> Empty() =>
+        CellRowItem.CreateList(null, new ResultSetInfo(Guid.Empty, 0, []));
 }

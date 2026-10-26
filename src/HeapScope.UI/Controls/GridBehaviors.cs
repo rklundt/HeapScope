@@ -43,8 +43,10 @@ namespace HeapScope.UI.Controls;
 /// <item><c>SortCommand</c> and <c>SortState</c>: a header click asks the view model (the worker sorts, since the grid
 /// holds only the rows on screen); the header arrow follows the view model's state ("Bytes|desc").</item>
 /// <item><c>OpenCommand</c>: double-click on a row, or Enter, opens it (dotMemory's one drill-down action).</item>
-/// <item><c>ShowRetained</c> and <c>ShowGenerations</c>: show the columns tagged <c>Retained</c> or
-/// <c>Generations</c> (columns are outside the visual tree, so they cannot bind themselves).</item>
+/// <item><c>VisibleColumnGroups</c>: a column tagged with a group name (<see cref="ColumnGroups"/>) is shown when the
+/// group is in the list (columns are outside the visual tree, so they cannot bind themselves; 2.3.7 review M13).</item>
+/// <item><c>ExpandCommand</c> and <c>CollapseCommand</c>: the Right and Left keys on the selected row (the dominator
+/// tree, sprint 2.4); <c>ScrollToSelection</c> keeps the selected row in view when the view model selects one.</item>
 /// <item><c>ResultColumns</c>: columns built from a result set's column list (inspections, sprint 1.6).</item>
 /// </list>
 /// </summary>
@@ -62,21 +64,23 @@ public static class GridBehaviors
     public static readonly AttachedProperty<ICommand?> OpenCommandProperty =
         AvaloniaProperty.RegisterAttached<DataGrid, ICommand?>("OpenCommand", typeof(GridBehaviors));
 
-    public static readonly AttachedProperty<bool> ShowRetainedProperty =
-        AvaloniaProperty.RegisterAttached<DataGrid, bool>("ShowRetained", typeof(GridBehaviors));
+    public static readonly AttachedProperty<IReadOnlyList<string>?> VisibleColumnGroupsProperty =
+        AvaloniaProperty.RegisterAttached<DataGrid, IReadOnlyList<string>?>("VisibleColumnGroups", typeof(GridBehaviors));
 
-    public static readonly AttachedProperty<bool> ShowGenerationsProperty =
-        AvaloniaProperty.RegisterAttached<DataGrid, bool>("ShowGenerations", typeof(GridBehaviors));
+    public static readonly AttachedProperty<ICommand?> ExpandCommandProperty =
+        AvaloniaProperty.RegisterAttached<DataGrid, ICommand?>("ExpandCommand", typeof(GridBehaviors));
+
+    public static readonly AttachedProperty<ICommand?> CollapseCommandProperty =
+        AvaloniaProperty.RegisterAttached<DataGrid, ICommand?>("CollapseCommand", typeof(GridBehaviors));
+
+    public static readonly AttachedProperty<bool> ScrollToSelectionProperty =
+        AvaloniaProperty.RegisterAttached<DataGrid, bool>("ScrollToSelection", typeof(GridBehaviors));
 
     public static readonly AttachedProperty<IReadOnlyList<(ResultColumn Column, int Index)>?> ResultColumnsProperty =
         AvaloniaProperty.RegisterAttached<DataGrid, IReadOnlyList<(ResultColumn Column, int Index)>?>("ResultColumns", typeof(GridBehaviors));
 
     private static readonly AttachedProperty<bool> s_columnsWatched =
         AvaloniaProperty.RegisterAttached<DataGrid, bool>("ColumnsWatched", typeof(GridBehaviors));
-
-    public const string RetainedTag = "Retained";
-
-    public const string GenerationsTag = "Generations";
 
     static GridBehaviors()
     {
@@ -97,15 +101,24 @@ public static class GridBehaviors
         OpenCommandProperty.Changed.AddClassHandler<DataGrid>((grid, e) =>
         {
             grid.DoubleTapped -= OnDoubleTapped;
-            grid.RemoveHandler(InputElement.KeyDownEvent, OnKeyDown);
             if (e.NewValue is not null)
             {
                 grid.DoubleTapped += OnDoubleTapped;
-                grid.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+            }
+
+            WatchKeys(grid);
+        });
+        ExpandCommandProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchKeys(grid));
+        CollapseCommandProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchKeys(grid));
+        VisibleColumnGroupsProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchColumns(grid));
+        ScrollToSelectionProperty.Changed.AddClassHandler<DataGrid>((grid, e) =>
+        {
+            grid.SelectionChanged -= OnSelectionChanged;
+            if (e.NewValue is true)
+            {
+                grid.SelectionChanged += OnSelectionChanged;
             }
         });
-        ShowRetainedProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchColumns(grid));
-        ShowGenerationsProperty.Changed.AddClassHandler<DataGrid>((grid, _) => WatchColumns(grid));
         ResultColumnsProperty.Changed.AddClassHandler<DataGrid>((grid, e) => BuildColumns(grid, e.NewValue as IReadOnlyList<(ResultColumn Column, int Index)>));
     }
 
@@ -125,13 +138,21 @@ public static class GridBehaviors
 
     public static void SetOpenCommand(DataGrid grid, ICommand? value) => grid?.SetValue(OpenCommandProperty, value);
 
-    public static bool GetShowRetained(DataGrid grid) => grid?.GetValue(ShowRetainedProperty) ?? false;
+    public static IReadOnlyList<string>? GetVisibleColumnGroups(DataGrid grid) => grid?.GetValue(VisibleColumnGroupsProperty);
 
-    public static void SetShowRetained(DataGrid grid, bool value) => grid?.SetValue(ShowRetainedProperty, value);
+    public static void SetVisibleColumnGroups(DataGrid grid, IReadOnlyList<string>? value) => grid?.SetValue(VisibleColumnGroupsProperty, value);
 
-    public static bool GetShowGenerations(DataGrid grid) => grid?.GetValue(ShowGenerationsProperty) ?? false;
+    public static ICommand? GetExpandCommand(DataGrid grid) => grid?.GetValue(ExpandCommandProperty);
 
-    public static void SetShowGenerations(DataGrid grid, bool value) => grid?.SetValue(ShowGenerationsProperty, value);
+    public static void SetExpandCommand(DataGrid grid, ICommand? value) => grid?.SetValue(ExpandCommandProperty, value);
+
+    public static ICommand? GetCollapseCommand(DataGrid grid) => grid?.GetValue(CollapseCommandProperty);
+
+    public static void SetCollapseCommand(DataGrid grid, ICommand? value) => grid?.SetValue(CollapseCommandProperty, value);
+
+    public static bool GetScrollToSelection(DataGrid grid) => grid?.GetValue(ScrollToSelectionProperty) ?? false;
+
+    public static void SetScrollToSelection(DataGrid grid, bool value) => grid?.SetValue(ScrollToSelectionProperty, value);
 
     public static IReadOnlyList<(ResultColumn Column, int Index)>? GetResultColumns(DataGrid grid) => grid?.GetValue(ResultColumnsProperty);
 
@@ -141,8 +162,14 @@ public static class GridBehaviors
     public static void ApplyColumnGroups(DataGrid grid)
     {
         ArgumentNullException.ThrowIfNull(grid);
-        ShowColumns(grid, RetainedTag, GetShowRetained(grid));
-        ShowColumns(grid, GenerationsTag, GetShowGenerations(grid));
+        var shown = GetVisibleColumnGroups(grid) ?? [];
+        foreach (var column in grid.Columns)
+        {
+            if (column.Tag is string group)
+            {
+                column.IsVisible = shown.Contains(group);
+            }
+        }
     }
 
     // Markup sets the attached values before it adds the columns: apply the groups now and whenever the columns change.
@@ -184,32 +211,62 @@ public static class GridBehaviors
         }
     }
 
+    private static void WatchKeys(DataGrid grid)
+    {
+        grid.RemoveHandler(InputElement.KeyDownEvent, OnKeyDown);
+        if (GetOpenCommand(grid) is not null || GetExpandCommand(grid) is not null || GetCollapseCommand(grid) is not null)
+        {
+            grid.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+        }
+    }
+
     private static void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && sender is DataGrid { SelectedItem: { } item } grid)
+        if (sender is not DataGrid { SelectedItem: { } item } grid)
         {
-            Open(grid, item);
+            return;
+        }
+
+        var command = e.Key switch
+        {
+            Key.Enter => GetOpenCommand(grid),
+            Key.Right => GetExpandCommand(grid),
+            Key.Left => GetCollapseCommand(grid),
+            _ => null,
+        };
+        // Handled only when it did something, so an arrow on a leaf still moves as the grid would (the 2.4 review).
+        if (command is not null && Run(command, item))
+        {
             e.Handled = true;
+        }
+    }
+
+    // The view model selects the row it kept the user's place on; bring it into view (the 2.4 review).
+    private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is DataGrid { SelectedItem: { } item } grid)
+        {
+            grid.ScrollIntoView(item, null);
         }
     }
 
     private static void Open(DataGrid grid, object item)
     {
-        if (GetOpenCommand(grid) is { } command && command.CanExecute(item))
+        if (GetOpenCommand(grid) is { } command)
         {
-            command.Execute(item);
+            Run(command, item);
         }
     }
 
-    private static void ShowColumns(DataGrid grid, string tag, bool shown)
+    private static bool Run(ICommand command, object item)
     {
-        foreach (var column in grid.Columns)
+        if (!command.CanExecute(item))
         {
-            if (column.Tag is string columnTag && columnTag == tag)
-            {
-                column.IsVisible = shown;
-            }
+            return false;
         }
+
+        command.Execute(item);
+        return true;
     }
 
     private static void BuildColumns(DataGrid grid, IReadOnlyList<(ResultColumn Column, int Index)>? columns)
@@ -222,7 +279,7 @@ public static class GridBehaviors
             {
                 Header = ColumnHeaders.Header(column.Name),
                 // The cells are a read-only list whose runtime type may have no public indexer: pick the cell in a converter.
-                Binding = new Binding(nameof(InspectionRowItem.Display)) { Converter = CellAt.Instance, ConverterParameter = index, Mode = BindingMode.OneWay },
+                Binding = new Binding(nameof(CellRowItem.Display)) { Converter = CellAt.Instance, ConverterParameter = index, Mode = BindingMode.OneWay },
                 Width = column.Kind == ResultColumnKind.Address ? new DataGridLength(150)
                     : numeric ? new DataGridLength(110)
                     : new DataGridLength(1, DataGridLengthUnitType.Star),

@@ -377,6 +377,65 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     }
 
     /// <summary>
+    /// The dominator tree's rows (sprint 2.4): the top level (the biggest retainers) or the tree below
+    /// <paramref name="focusAddress"/>, with the <paramref name="expanded"/> rows expanded. A re-run after a worker restart
+    /// keeps the expansion: the keys are addresses and group names. A node lists at most <paramref name="maxChildren"/>
+    /// children before a "more" row; the answer says at which row <paramref name="revealKey"/> landed.
+    /// </summary>
+    public async Task<DominatorTreeAnswer> QueryDominatorTreeAsync(
+        SnapshotHandle handle,
+        IReadOnlyList<string> expanded,
+        DominatorGroupingDto grouping,
+        ulong focusAddress,
+        int maxChildren,
+        string? revealKey,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(expanded);
+        string[] keys = [.. expanded];
+        DominatorTreeResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryDominatorTreeAsync(new DominatorTreeRequest(id, keys, grouping, focusAddress, maxChildren, revealKey), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new DominatorTreeAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>The icicle chart below <paramref name="focusAddress"/> (0 for the whole reachable heap). Sprint 2.4.</summary>
+    public Task<IcicleResult> QueryIcicleAsync(SnapshotHandle handle, ulong focusAddress, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.QueryIcicleAsync(new IcicleRequest(id, focusAddress), progress, ct), cancellationToken);
+
+    /// <summary>
+    /// What every object of a type retains together, exactly (sprint 2.4), by type; the totals next to the type summary's
+    /// lower bound.
+    /// </summary>
+    public async Task<RetainedBySetAnswer> QueryRetainedBySetAsync(SnapshotHandle handle, string typeName, string? module, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        RetainedBySetResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryRetainedBySetAsync(new RetainedBySetRequest(id, typeName, module), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Types;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new RetainedBySetAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>
     /// Why one object is alive (sprint 2.2): its shortest paths from up to <paramref name="maxRoots"/> roots. The first such
     /// query of a snapshot builds its reverse references index, or opens it from its sidecar.
     /// </summary>

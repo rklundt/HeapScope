@@ -183,3 +183,9 @@ public sealed record ReferrerList(ResultSetHandle Rows, ReferrersResult Result);
 
 /// <summary>The objects referencing a type's objects, by their type: pageable rows and the first run's totals (sprint 2.1).</summary>
 public sealed record TypeReferrerList(ResultSetHandle Rows, TypeReferrersResult Result);
+
+/// <summary>The dominator tree's rows and the answer of their first run (sprint 2.4).</summary>
+public sealed record DominatorTreeAnswer(ResultSetHandle Rows, DominatorTreeResult Result);
+
+/// <summary>What a set retains, by type, and the answer of the first run (sprint 2.4).</summary>
+public sealed record RetainedBySetAnswer(ResultSetHandle Rows, RetainedBySetResult Result);

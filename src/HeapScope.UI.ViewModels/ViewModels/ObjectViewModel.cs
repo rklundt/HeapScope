@@ -24,6 +24,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -33,7 +34,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace HeapScope.UI.ViewModels;
 
 /// <summary>A field (or array element) of the inspected object, with nested structs and listed elements as children.</summary>
-public sealed partial class FieldNode : ObservableObject
+public sealed partial class FieldNode : ObservableObject, IObjectLink
 {
     [ObservableProperty]
     private bool _isExpanded;
@@ -66,16 +67,20 @@ public sealed partial class FieldNode : ObservableObject
 
     /// <summary>Whether the value is another object that can be opened (a reference, a string, an array).</summary>
     public bool IsLink => Address != 0 && Kind is ObjectFieldKindDto.Reference or ObjectFieldKindDto.String or ObjectFieldKindDto.Array;
+
+    public ulong LinkAddress => IsLink ? Address : 0;
 }
 
 /// <summary>One outgoing reference of the inspected object, filled when its page arrives.</summary>
-public sealed class ReferenceRowItem(int index) : ObservableObject, IIndexedRow
+public sealed class ReferenceRowItem(int index) : ObservableObject, IIndexedRow, IObjectLink
 {
     public int Index { get; } = index;
 
     public string Field { get; private set; } = string.Empty;
 
     public ulong Address { get; private set; }
+
+    public ulong LinkAddress => IsLoaded ? Address : 0;
 
     public string AddressText { get; private set; } = string.Empty;
 
@@ -117,7 +122,7 @@ public sealed class ReferenceRowItem(int index) : ObservableObject, IIndexedRow
 /// it, loaded when the Incoming tab is first shown because the first such query of a snapshot builds its reverse index;
 /// references, referrers and field links open further objects through <see cref="OpenCommand"/>.
 /// </summary>
-public sealed partial class ObjectViewModel : ObservableObject
+public sealed partial class ObjectViewModel : ObservableObject, INavigationSubject
 {
     private readonly SnapshotSession _session;
     private readonly ILogger _logger;
@@ -195,12 +200,29 @@ public sealed partial class ObjectViewModel : ObservableObject
     private ObjectPathsResult? _paths;
     private bool _retentionStarted;
 
-    public ObjectViewModel(SnapshotSession session, SnapshotHandle snapshot, ulong address, ILogger? logger = null)
+    public ObjectViewModel(SnapshotSession session, SnapshotHandle snapshot, ulong address, ILogger? logger = null, INavigator? navigator = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         Address = address;
         _logger = logger ?? NullLogger.Instance;
+
+        // A reference, a referrer, a retention node, a key path, a field link or the dominator's address (2.3.7 review M8).
+        OpenCommand = new RelayCommand<object?>(link =>
+        {
+            var target = link switch
+            {
+                IObjectLink objectLink => objectLink.LinkAddress,
+                ulong dominator => dominator,
+                _ => 0UL,
+            };
+
+            if (target != 0)
+            {
+                navigator?.Navigate(NavigationTarget.Object(Snapshot, target));
+            }
+        });
+        ShowInRetainersCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.Retainers(Snapshot, address: Address)));
     }
 
     public SnapshotHandle Snapshot { get; }
@@ -210,8 +232,18 @@ public sealed partial class ObjectViewModel : ObservableObject
     /// <summary>The navigation title.</summary>
     public string Title { get; private set; } = string.Empty;
 
-    /// <summary>Opens a reference row or a field link as a new subject (set by the navigator).</summary>
-    public ICommand? OpenCommand { get; set; }
+    /// <summary>Opens a reference row or a field link as a new subject.</summary>
+    public ICommand OpenCommand { get; }
+
+    /// <summary>Shows this object in the dominator tree, on the Retainers tab (sprint 2.4).</summary>
+    public ICommand ShowInRetainersCommand { get; }
+
+    /// <summary>The references panel's tab (2.3.7 review M8; <see cref="ReferencesTab"/> is the view's index).</summary>
+    public ObjectReferenceTabs ReferencesView
+    {
+        get => (ObjectReferenceTabs)ReferencesTab;
+        set => ReferencesTab = (int)value;
+    }
 
     /// <summary>The load in progress (tests and smoke runs await it).</summary>
     public Task LoadTask { get; private set; } = Task.CompletedTask;

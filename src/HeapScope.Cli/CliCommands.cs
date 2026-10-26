@@ -106,6 +106,8 @@ internal static partial class CliCommands
         root.Subcommands.Add(BuildObjectCommand(services));
         root.Subcommands.Add(BuildReferrersCommand(services));
         root.Subcommands.Add(BuildPathsCommand(services));
+        root.Subcommands.Add(BuildRetainersCommand(services));
+        root.Subcommands.Add(BuildRetainedByCommand(services));
         root.Subcommands.Add(BuildInspectCommand(services));
         root.Subcommands.Add(BuildTraceCommand(services));
         root.Subcommands.Add(BuildMonitorCommand(services));
@@ -315,7 +317,8 @@ internal static partial class CliCommands
 
         if (result.Dominators is { } dominators)
         {
-            await output.WriteLineAsync(RetainedNote(dominators) + " Retained per row is a lower bound: what its objects keep alive that no other object of the row holds.").ConfigureAwait(false);
+            var bound = result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound;
+            await output.WriteLineAsync(RetainedNote(dominators) + (bound == ValueBound.LowerBound ? " Retained per row: " + ValueBoundTexts.LowerBound : string.Empty)).ConfigureAwait(false);
             await output.WriteLineAsync($"{"Objects",14} {"Bytes",16} {"%",7} {"Retained",16}  Name").ConfigureAwait(false);
             foreach (var row in rows)
             {
@@ -340,7 +343,7 @@ internal static partial class CliCommands
     /// <summary>One line on how the dominators were obtained and how much of the heap the roots reach.</summary>
     internal static string RetainedNote(DominatorIndexInfo dominators) => string.Create(
         CultureInfo.InvariantCulture,
-        $"Retained sizes: dominators {(dominators.FromSidecar ? "opened from their saved file" : "computed")} in {dominators.Seconds:N1} s, {dominators.ReachableObjects:N0} objects reachable from the roots.")
+        $"Retained sizes: dominators {ValueBoundTexts.DominatorsSource(dominators.FromSidecar)} in {dominators.Seconds:N1} s, {dominators.ReachableObjects:N0} objects reachable from the roots.")
         + (dominators.Note is { } note ? " " + note : string.Empty);
 
     private static async Task WriteSummaryJsonAsync(TextWriter output, TypeSummaryResult result, SnapshotKindDto kind, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
@@ -357,7 +360,8 @@ internal static partial class CliCommands
             result.UnfilteredRows,
             MatchingRows = result.Rows.TotalCount,
             HeapKinds = result.HeapKinds.Select(k => new { Kind = k.Kind.ToString(), k.Objects, k.Bytes }),
-            RetainedIsLowerBound = result.Dominators is not null ? true : (bool?)null,
+            // From the column itself (sprint 2.4, 2.3.7 review M7).
+            RetainedIsLowerBound = result.Dominators is null ? (bool?)null : result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound == ValueBound.LowerBound,
             result.Dominators,
             Rows = JsonRows(columns, rows),
         };

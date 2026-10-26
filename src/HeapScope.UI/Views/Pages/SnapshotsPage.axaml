@@ -58,6 +58,11 @@
       <TabItem Header="Inspections">
         <pages:InspectionsTab />
       </TabItem>
+      <!-- The dominator tree of the selected snapshot (sprint 2.4, ADR-027): the biggest retainers, the icicle and what a
+           type's objects retain together. -->
+      <TabItem Header="Retainers">
+        <pages:RetainersTab />
+      </TabItem>
     </TabControl>
   </DockPanel>
 </UserControl>

@@ -84,9 +84,18 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
 
     private const string What = "Computing retained sizes";
 
-    /// <summary>What computing needs before anything is allocated: the working arrays, and the outputs when managed.</summary>
-    public static long NeededBytes(int objectCount, bool managedOutputs) =>
-        ((long)DominatorTree.WorkingBytesPerObject * objectCount) + (managedOutputs ? (long)DominatorTree.KeptBytesPerObject * objectCount : 0);
+    /// <summary>
+    /// What computing needs at its peak: the working arrays, and with managed outputs the larger of two moments: the
+    /// working arrays beside the immediate dominators and retained sizes (12 bytes per object), or, once the working
+    /// arrays are collected, everything kept (the children added; sprint 2.4 review, DenseHeap in memory passed the budget
+    /// while the working arrays were still uncollected garbage).
+    /// </summary>
+    public static long NeededBytes(int objectCount, bool managedOutputs) => managedOutputs
+        ? Math.Max((long)(DominatorTree.WorkingBytesPerObject + ComputedBytesPerObject) * objectCount, (long)DominatorTree.KeptBytesPerObject * objectCount)
+        : (long)DominatorTree.WorkingBytesPerObject * objectCount;
+
+    /// <summary>The immediate dominator (4) and the retained size (8), allocated before the working arrays.</summary>
+    private const int ComputedBytesPerObject = 12;
 
     /// <summary>The mode for the kept columns: as the reverse index chooses (review M3 of 2.1), with the memory committed now.</summary>
     public static MemoryMode ChooseMode(int objectCount, DominatorTarget target, MemoryBudget budget, long committedBytes) =>
@@ -162,7 +171,14 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
                 var idom = GC.AllocateUninitializedArray<int>(graph.ObjectCount);
                 var retained = GC.AllocateUninitializedArray<ulong>(graph.ObjectCount);
                 var reachable = DominatorTree.Compute(graph, reverse, idom, retained, phases, cancellationToken);
-                var dominators = Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), owner: null);
+
+                // The working arrays are garbage now: collect them before the children are allocated (the 2.4 review).
+                MemoryReservations.Collect();
+                var starts = new int[graph.ObjectCount + 2];
+                var children = new int[graph.ObjectCount];
+                phases.Children();
+                DominatorTree.BuildChildren(idom, starts, children, cancellationToken);
+                var dominators = Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), Column<int>.FromArray(starts), Column<int>.FromArray(children), owner: null);
                 return new DominatorIndex(dominators, FromSidecar: false, MemoryMode.InMemory, Saved: false, reachable, 0).WithUnreachable(graph);
             }
             finally
@@ -180,15 +196,20 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
         {
             using var writer = MappedIndexFileWriter.Create(
                 sidecar,
-                [new(IndexSection.ImmediateDominators, sizeof(int), graph.ObjectCount), new(IndexSection.RetainedSizes, sizeof(ulong), graph.ObjectCount)],
+                [
+                    new(IndexSection.ImmediateDominators, sizeof(int), graph.ObjectCount),
+                    new(IndexSection.RetainedSizes, sizeof(ulong), graph.ObjectCount),
+                    new(IndexSection.DominatorChildStarts, sizeof(int), graph.ObjectCount + 2),
+                    new(IndexSection.DominatorChildren, sizeof(int), graph.ObjectCount),
+                ],
                 cancellationToken);
-            reachable = DominatorTree.Compute(
-                graph,
-                reverse,
-                writer.GetSection<int>(IndexSection.ImmediateDominators),
-                writer.GetSection<ulong>(IndexSection.RetainedSizes),
-                phases,
-                cancellationToken);
+            var idom = writer.GetSection<int>(IndexSection.ImmediateDominators);
+            var retained = writer.GetSection<ulong>(IndexSection.RetainedSizes);
+            reachable = DominatorTree.Compute(graph, reverse, idom, retained, phases, cancellationToken);
+
+            // The tree's children (sprint 2.4, ADR-027), in object index order (each query orders what it shows, `RetainedOrder`), so expanding a node is a slice read.
+            phases.Children();
+            DominatorTree.BuildChildren(idom, writer.GetSection<int>(IndexSection.DominatorChildStarts), writer.GetSection<int>(IndexSection.DominatorChildren), cancellationToken);
             phases.Saving();
             writer.Commit(target.Fingerprint, target.BaseIdentity, Layout.SemanticsVersion);
             return true;
@@ -217,9 +238,10 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
         var file = opened.File!;
         try
         {
-            if (file.TryGetSection<int>(IndexSection.ImmediateDominators, out var idom) && file.TryGetSection<ulong>(IndexSection.RetainedSizes, out var retained))
+            if (file.TryGetSection<int>(IndexSection.ImmediateDominators, out var idom) && file.TryGetSection<ulong>(IndexSection.RetainedSizes, out var retained)
+                && file.TryGetSection<int>(IndexSection.DominatorChildStarts, out var starts) && file.TryGetSection<int>(IndexSection.DominatorChildren, out var children))
             {
-                return Dominators.FromColumns(graph, idom, retained, file);
+                return Dominators.FromColumns(graph, idom, retained, starts, children, file);
             }
         }
         catch (ArgumentException ex)
@@ -249,6 +271,8 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
             },
             value.Done,
             value.Total));
+
+        public void Children() => target?.Report(new JobProgress("Ordering the dominator tree", 0, null));
 
         public void Saving() => target?.Report(new JobProgress("Saving retained sizes", 0, null));
     }

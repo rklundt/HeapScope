@@ -23,6 +23,7 @@
 
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -67,7 +68,7 @@ internal static class RetentionText
 }
 
 /// <summary>One key retention path in a list (an object's or a type's), with what opening it shows.</summary>
-public sealed class KeyPathItem(KeyPathDto path, bool showFramework)
+public sealed class KeyPathItem(KeyPathDto path, bool showFramework) : IObjectLink
 {
     public KeyPathDto Path { get; } = path;
 
@@ -81,13 +82,15 @@ public sealed class KeyPathItem(KeyPathDto path, bool showFramework)
 
     /// <summary>The example object a row opens.</summary>
     public ulong Address => Path.ExampleAddress;
+
+    public ulong LinkAddress => Address;
 }
 
 /// <summary>
 /// One object of an object's retention tree (sprint 2.2), shown as "how it holds the next one" plus its type; its children
 /// are the objects holding it, toward the roots. A folded run of framework objects is one item whose text counts them.
 /// </summary>
-public sealed partial class RetentionNodeItem : ObservableObject
+public sealed partial class RetentionNodeItem : ObservableObject, IObjectLink
 {
     [ObservableProperty]
     private bool _isExpanded = true;
@@ -117,6 +120,8 @@ public sealed partial class RetentionNodeItem : ObservableObject
     public string AddressText { get; }
 
     public ulong Address => Node.Address;
+
+    public ulong LinkAddress => Address;
 
     /// <summary>The root's description where a path starts.</summary>
     public string? Root => Node.Root?.Description;
@@ -161,7 +166,7 @@ public sealed partial class RetentionNodeItem : ObservableObject
 /// Why the objects of a type are alive (sprint 2.2, dotMemory's Key Retention Paths): one row per path from a root, the
 /// largest first; opening a row shows its example object. Opened from a type's instances.
 /// </summary>
-public sealed partial class TypePathsViewModel : ObservableObject
+public sealed partial class TypePathsViewModel : ObservableObject, INavigationSubject
 {
     private readonly SnapshotSession _session;
     private readonly ILogger _logger;
@@ -180,8 +185,15 @@ public sealed partial class TypePathsViewModel : ObservableObject
     [ObservableProperty]
     private bool _showFramework;
 
-    public TypePathsViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, ILogger? logger = null)
+    public TypePathsViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, ILogger? logger = null, INavigator? navigator = null)
     {
+        OpenRowCommand = new RelayCommand<KeyPathItem?>(row =>
+        {
+            if (row is { Address: not 0 })
+            {
+                navigator?.Navigate(NavigationTarget.Object(snapshot, row.Address));
+            }
+        });
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         TypeName = typeName ?? throw new ArgumentNullException(nameof(typeName));
@@ -199,7 +211,7 @@ public sealed partial class TypePathsViewModel : ObservableObject
     public string Title => "Why alive: " + (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]");
 
     /// <summary>Opens a row's example object (set by the navigator).</summary>
-    public System.Windows.Input.ICommand? OpenRowCommand { get; set; }
+    public System.Windows.Input.ICommand OpenRowCommand { get; }
 
     /// <summary>The load in progress (tests and smoke runs await it).</summary>
     public Task LoadTask { get; private set; } = Task.CompletedTask;

@@ -267,6 +267,13 @@ internal sealed class SmokeRunner(IServiceProvider services)
                 Combine();
             }
 
+            if (completed)
+            {
+                completed = await RunSmokeRetainersAsync(snapshots, watchdog, logger);
+                await Task.Delay(500);
+                Combine();
+            }
+
             if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
             {
                 completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
@@ -311,7 +318,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
     {
         var navigator = snapshots.Navigator;
         var type = snapshots.Types.Rows.GetRow(0);
-        navigator.OpenTypeRowCommand.Execute(type);
+        snapshots.Types.OpenRowCommand!.Execute(type);
         if (navigator.Current is not InstancesViewModel instances)
         {
             return Failed(logger, "the largest type's objects did not open");
@@ -325,7 +332,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
             return Failed(logger, "the largest type has no objects");
         }
 
-        navigator.OpenInstanceRowCommand.Execute(objects.GetRow(0));
+        instances.OpenRowCommand!.Execute(objects.GetRow(0));
         if (navigator.Current is not ObjectViewModel first)
         {
             return Failed(logger, "the first object did not open");
@@ -336,13 +343,13 @@ internal sealed class SmokeRunner(IServiceProvider services)
 
         // Sprint 2.1, cold: the object's referrers (the first query of a snapshot builds its reverse index in the worker
         // while the window stays responsive) and who references the type's objects, each view shown for the first time.
-        first.ReferencesTab = 1;
+        first.ReferencesView = ObjectReferenceTabs.Incoming;
         await first.IncomingTask;
         await first.IncomingRows.WhenLoadedAsync();
 
         // Sprint 2.2, cold: why the object is alive, and why the type's objects are. Sprint 2.3, cold: its retained size,
         // after the paths (the first such query computes the snapshot's dominators, or opens them from their sidecar).
-        first.ReferencesTab = 2;
+        first.ReferencesView = ObjectReferenceTabs.Retention;
         await first.RetentionTask;
         await first.RetainedTask;
         navigator.BackCommand.Execute(null);
@@ -394,7 +401,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
         var retainedShown = instances.RetainedColumnShown;
         objects = instances.Rows;
         await TouchRowsAsync(objects);
-        navigator.OpenInstanceRowCommand.Execute(objects.GetRow(objects.Count > 1 ? 1 : 0));
+        instances.OpenRowCommand!.Execute(objects.GetRow(objects.Count > 1 ? 1 : 0));
         if (navigator.Current is not ObjectViewModel second)
         {
             return Failed(logger, "the second object did not open");
@@ -402,10 +409,10 @@ internal sealed class SmokeRunner(IServiceProvider services)
 
         await second.LoadTask;
         await second.ReferenceRows.WhenLoadedAsync();
-        second.ReferencesTab = 1;
+        second.ReferencesView = ObjectReferenceTabs.Incoming;
         await second.IncomingTask;
         await second.IncomingRows.WhenLoadedAsync();
-        second.ReferencesTab = 2;
+        second.ReferencesView = ObjectReferenceTabs.Retention;
         await second.RetentionTask;
         await second.RetainedTask;
         // Each check by name, so a red run says which view did not show its data (sprint 2.3.7 review M11).
@@ -454,7 +461,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
     {
         watchdog.Reset();
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        snapshots.SelectedTab = 2;
+        snapshots.Tab = SnapshotTabs.Inspections;
         var inspections = snapshots.Inspections;
         await inspections.RunTask;
         var rows = inspections.Rows;
@@ -469,8 +476,63 @@ internal sealed class SmokeRunner(IServiceProvider services)
             inspections.Selected?.Title ?? "none",
             watchdog.MaxLag.TotalMilliseconds,
             watchdog.MaxOperationBound.TotalMilliseconds);
-        snapshots.SelectedTab = 0;
+        snapshots.Tab = SnapshotTabs.Snapshot;
         return finished;
+    }
+
+    /// <summary>
+    /// Shows the Retainers tab (sprint 2.4): the biggest retainers and their icicle (the first time computes or opens the
+    /// dominators in the worker; logged, not checked), then the checked part in the warm tab: expand the first row and focus
+    /// on it, as a user would. Returns whether the tree showed rows each time.
+    /// </summary>
+    private static async Task<bool> RunSmokeRetainersAsync(SnapshotsViewModel snapshots, DispatcherWatchdog watchdog, ILogger logger)
+    {
+        var retainers = snapshots.Retainers;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        snapshots.Tab = SnapshotTabs.Retainers;
+        await retainers.QueryTask;
+        await retainers.IcicleTask;
+        await TouchRowsAsync(retainers.Rows);
+        await IdleAsync();
+        var shown = retainers.Rows.Count > 0 && retainers.Rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke retainers: {Shown} ({Status}) in {Seconds:N1} s, {Rows:N0} rows, {Bars:N0} icicle bars, first {First}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
+            shown,
+            retainers.Status ?? retainers.IcicleStatus ?? "ok",
+            stopwatch.Elapsed.TotalSeconds,
+            retainers.Rows.Count,
+            retainers.IcicleSegments.Count,
+            shown ? retainers.Rows.GetRow(0).Name : "none",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperationBound.TotalMilliseconds);
+        if (!shown)
+        {
+            return false;
+        }
+
+        watchdog.Reset();
+        var first = retainers.Rows.GetRow(0);
+        retainers.ToggleCommand.Execute(first);
+        await retainers.QueryTask;
+        await TouchRowsAsync(retainers.Rows);
+        var expanded = retainers.Rows.Count;
+        retainers.FocusCommand.Execute(retainers.Rows.GetRow(0));
+        await retainers.QueryTask;
+        await retainers.IcicleTask;
+        await TouchRowsAsync(retainers.Rows);
+        await IdleAsync();
+        var focused = retainers.HasFocus && retainers.Rows.Count > 0 && retainers.Rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke retainers drill: expanded to {Expanded:N0} rows, focused {Focused} ({Totals}); maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
+            expanded,
+            focused,
+            retainers.Totals,
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperationBound.TotalMilliseconds);
+        retainers.ShowTopCommand.Execute(null);
+        await retainers.QueryTask;
+        snapshots.Tab = SnapshotTabs.Snapshot;
+        return focused;
     }
 
     /// <summary>
@@ -480,7 +542,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
     private static async Task<bool> RunSmokeCompareAsync(SnapshotsViewModel snapshots, string dump, DispatcherWatchdog watchdog, ILogger logger)
     {
         // Show the (empty) tab first and let it render, then open: the tab's first layout and the rows are logged apart.
-        snapshots.SelectedTab = 1;
+        snapshots.Tab = SnapshotTabs.Compare;
         await IdleAsync();
         logger.LogInformation("Smoke compare: tab shown");
         await snapshots.OpenPathAsync(dump);

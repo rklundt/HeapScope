@@ -1,0 +1,138 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- The Retainers tab (sprint 2.4, ADR-027): the biggest retainers as the top of the dominator tree, expanded in place;
+     a focus with its dominators as a trail; the icicle chart of the focus; and what a type's objects retain together. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:dto="using:HeapScope.Contracts"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             x:Class="HeapScope.UI.Views.Pages.RetainersTab"
+             x:DataType="vm:SnapshotsViewModel">
+  <UserControl.Styles>
+    <Style Selector="Button.toggle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="16" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Button.crumb">
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="Margin" Value="0,0,4,4" />
+    </Style>
+  </UserControl.Styles>
+  <DockPanel DataContext="{Binding Retainers}" x:DataType="vm:RetainersViewModel" Margin="0,8,0,0">
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+      <TextBlock Text="Retainers" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+      <TextBlock Text="Group children by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+      <ComboBox Width="130" ItemsSource="{x:Static vm:RetainersViewModel.Groupings}" SelectedItem="{Binding Grouping, Mode=TwoWay}" VerticalAlignment="Center" />
+      <Button Content="Biggest retainers" Margin="12,0,0,0" Command="{Binding ShowTopCommand}" IsVisible="{Binding HasFocus}"
+              ToolTip.Tip="Back to the top of the tree: the objects that alone keep the most alive" />
+      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    </WrapPanel>
+    <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Trail}" IsVisible="{Binding HasFocus}" Margin="0,0,8,2">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:TrailItem">
+          <Button Classes="crumb" Content="{Binding Text}" IsEnabled="{Binding IsLink}"
+                  Command="{Binding $parent[ItemsControl].((vm:RetainersViewModel)DataContext).FocusAncestorCommand}" CommandParameter="{Binding}"
+                  ToolTip.Tip="Show the tree below this dominator" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Note}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <ScrollViewer DockPanel.Dock="Top" MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,8,6">
+      <ctl:IcicleChart x:Name="Icicle" Segments="{Binding IcicleSegments}" Total="{Binding IcicleTotal}"
+                       SelectedSegment="{Binding SelectedSegment, Mode=TwoWay}" FocusCommand="{Binding FocusSegmentCommand}"
+                       ToolTip.Tip="Each bar is as wide as what it alone keeps alive. Click selects; double-click shows the tree below it." />
+    </ScrollViewer>
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IcicleStatus}" Margin="0,0,0,4" Classes="subtle" />
+
+    <!-- Objects retained by a set: what every object of a type keeps alive together, exactly. -->
+    <Border DockPanel.Dock="Bottom" DataContext="{Binding Set}" x:DataType="vm:RetainedBySetViewModel" IsVisible="{Binding IsShown}"
+            BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="0,6,0,0" Margin="0,6,8,0">
+      <DockPanel Height="240">
+        <DockPanel DockPanel.Dock="Top">
+          <Button DockPanel.Dock="Right" Content="Close" Command="{Binding HideCommand}" />
+          <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+            <Run Text="{x:Static vm:RetainedBySetViewModel.Title}" /><Run Text=": all " /><Run Text="{Binding TypeName}" />
+          </TextBlock>
+        </DockPanel>
+        <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,2,0,2" />
+        <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,2" />
+        <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" Margin="0,0,0,2" />
+        <DataGrid x:Name="SetGrid" CanUserSortColumns="False"
+                  ctl:GridBehaviors.ResultColumns="{Binding Columns}"
+                  ctl:GridBehaviors.Rows="{Binding Rows}"
+                  ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                  ToolTip.Tip="Double-click or Enter opens the type's objects on the Snapshot tab." />
+      </DockPanel>
+    </Border>
+
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,4">
+      <Button Content="Focus" Margin="0,0,6,0" Command="{Binding FocusCommand}" CommandParameter="{Binding SelectedRow}"
+              ToolTip.Tip="Show the tree below the selected object, with its dominators as a trail" />
+      <Button Content="Open object" Margin="0,0,6,0" Command="{Binding OpenObjectCommand}" CommandParameter="{Binding SelectedRow}" />
+      <Button Content="Instances" Margin="0,0,6,0" Command="{Binding OpenInstancesCommand}" CommandParameter="{Binding SelectedRow}"
+              ToolTip.Tip="All objects of the selected row's type" />
+      <Button Content="Why alive" Margin="0,0,6,0" Command="{Binding OpenPathsCommand}" CommandParameter="{Binding SelectedRow}"
+              ToolTip.Tip="The selected object's retention paths from the roots" />
+      <Button Content="{x:Static vm:RetainersViewModel.SetActionText}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding SelectedRow}"
+              ToolTip.Tip="What every object of the selected row's type keeps alive together, exactly" />
+    </WrapPanel>
+    <DataGrid x:Name="TreeGrid" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
+              ctl:GridBehaviors.Rows="{Binding Rows}"
+              ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+              ctl:GridBehaviors.ExpandCommand="{Binding ExpandCommand}" ctl:GridBehaviors.CollapseCommand="{Binding CollapseCommand}"
+              ToolTip.Tip="Enter or a double-click expands or collapses a row; Right expands, Left collapses.">
+      <DataGrid.Columns>
+        <DataGridTemplateColumn Header="Retainer" Width="*">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="vm:DominatorRowItem">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Width="{Binding Indent}" />
+                <Button Classes="toggle" Content="{Binding Glyph}" IsVisible="{Binding CanExpand}"
+                        Command="{Binding $parent[DataGrid].((vm:RetainersViewModel)DataContext).ToggleCommand}" CommandParameter="{Binding}" />
+                <Border Width="16" IsVisible="{Binding !CanExpand}" />
+                <TextBlock Text="{Binding Name}" Margin="2,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
+              </StackPanel>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn Header="Objects" x:DataType="vm:DominatorRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Retained" x:DataType="vm:DominatorRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number" />
+        <DataGridTextColumn Header="%" x:DataType="vm:DominatorRowItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Bytes" x:DataType="vm:DominatorRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="110" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Address" x:DataType="vm:DominatorRowItem" Binding="{Binding AddressText}" Width="150" CellStyleClasses="address" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

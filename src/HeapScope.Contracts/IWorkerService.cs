@@ -125,6 +125,27 @@ public interface IWorkerService
     /// </summary>
     Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The dominator tree as a flattened, paged list (sprint 2.4, ADR-027): its top level (the biggest retainers) or the
+    /// tree below a focus object, with the requested rows expanded and each node's children as objects or groups. Computes
+    /// or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A focus with no object, or one no root
+    /// reaches, fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The objects every object of a type retains together, exactly (sprint 2.4): one reachability pass from the roots that
+    /// skips the set. Computes or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A type that
+    /// matches nothing fails with <see cref="HeapScopeErrorCode.InvalidArgument"/> before anything is computed.
+    /// </summary>
+    Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The icicle chart below a focus object or the whole reachable heap (sprint 2.4). Fails like
+    /// <see cref="QueryDominatorTreeAsync"/> for a focus with no object or none a root reaches.
+    /// </summary>
+    Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 

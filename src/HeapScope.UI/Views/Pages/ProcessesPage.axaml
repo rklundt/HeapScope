@@ -24,6 +24,7 @@
 -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              x:Class="HeapScope.UI.Views.Pages.ProcessesPage"
              x:DataType="vm:ProcessesViewModel">
@@ -44,8 +45,7 @@
       <TextBlock TextWrapping="Wrap"
                  Text="Processes marked 'Needs administrator' run elevated or as another user. To capture them, run HeapScope as administrator." />
     </Border>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
     <DataGrid ItemsSource="{Binding Processes}" SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="True">
       <DataGrid.Columns>
         <DataGridTextColumn Header="PID" x:DataType="vm:ProcessRow" Binding="{Binding ProcessId}" Width="70" CellStyleClasses="number" />

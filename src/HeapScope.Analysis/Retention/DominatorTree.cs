@@ -66,8 +66,11 @@ public static class DominatorTree
     /// <summary>Immediate dominator of an object only the roots dominate (a root's own object, or one several roots hold).</summary>
     public const int VirtualRoot = -2;
 
-    /// <summary>The version of this computation's own rules; part of <see cref="SemanticsVersion"/>.</summary>
-    public const int AlgorithmVersion = 1;
+    /// <summary>
+    /// The version of this computation's own rules; part of <see cref="SemanticsVersion"/>. Version 2 (sprint 2.4, ADR-027):
+    /// the dominator tree's children are kept too (<see cref="BuildChildren"/>), so older sidecars are rebuilt once.
+    /// </summary>
+    public const int AlgorithmVersion = 2;
 
     /// <summary>
     /// The version of the rules the results depend on (decision 2): where paths start (<see cref="PathRoots.SemanticsVersion"/>)
@@ -75,8 +78,11 @@ public static class DominatorTree
     /// </summary>
     public const int SemanticsVersion = (PathRoots.SemanticsVersion << 16) | AlgorithmVersion;
 
-    /// <summary>Bytes per object kept: the immediate dominator (4) and the retained size (8).</summary>
-    public const int KeptBytesPerObject = 12;
+    /// <summary>
+    /// Bytes per object kept: the immediate dominator (4), the retained size (8), and the tree's children (sprint 2.4: a
+    /// row offset and a child per object, 4 each).
+    /// </summary>
+    public const int KeptBytesPerObject = 20;
 
     /// <summary>
     /// Bytes per object of managed working arrays while computing (vertex, parent and label by preorder number, plus a bit
@@ -88,6 +94,77 @@ public static class DominatorTree
 
     /// <summary>Items between cancellation checks and progress reports (DEVELOPER.md 4: at most 64K).</summary>
     private const int Chunk = 1 << 16;
+
+    /// <summary>
+    /// The dominator tree's children (sprint 2.4, ADR-027) as a CSR: vertex v's children are
+    /// <c>children[childStarts[v]..childStarts[v + 1]]</c>, where v is an object index or n (the virtual root, whose
+    /// children are the top-level dominators); each slice is in object index order. Queries order the rows they show by
+    /// retained size (<see cref="RetainedOrder"/>): sorting every slice here took 10 s on Medium and scattered the walk of
+    /// <see cref="GroupRetention"/> (the 2.4 review). <paramref name="childStarts"/> has n + 2 elements and
+    /// <paramref name="children"/> n (unreachable objects leave its tail unused). No working memory: the counts and the
+    /// cursors live in <paramref name="childStarts"/>.
+    /// </summary>
+    public static void BuildChildren(
+        ReadOnlySpan<int> immediateDominators,
+        Span<int> childStarts,
+        Span<int> children,
+        CancellationToken cancellationToken = default)
+    {
+        var n = immediateDominators.Length;
+        if (childStarts.Length != n + 2 || children.Length != n)
+        {
+            throw new ArgumentException("The children's columns do not match the dominators.");
+        }
+
+        // Counts at parent + 1; prefix sums make childStarts[v] the start of v; filling moves each start on to the next
+        // vertex's, so one shift by one puts them back. No cursor array: the counts and cursors live in childStarts.
+        childStarts.Clear();
+        for (var i = 0; i < n; i++)
+        {
+            if (Parent(immediateDominators[i], n) is var parent and >= 0)
+            {
+                childStarts[parent + 1]++;
+            }
+
+            if ((i & (Chunk - 1)) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+
+        for (var v = 1; v < childStarts.Length; v++)
+        {
+            childStarts[v] += childStarts[v - 1];
+        }
+
+        for (var i = 0; i < n; i++)
+        {
+            if (Parent(immediateDominators[i], n) is var parent and >= 0)
+            {
+                children[childStarts[parent]++] = i;
+            }
+
+            if ((i & (Chunk - 1)) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+
+        for (var v = n; v > 0; v--)
+        {
+            childStarts[v] = childStarts[v - 1];
+        }
+
+        childStarts[0] = 0;
+    }
+
+    /// <summary>The tree vertex of an object's dominator: an object index, n for the virtual root, -1 when unreachable.</summary>
+    public static int Parent(int immediateDominator, int objectCount) => immediateDominator switch
+    {
+        VirtualRoot => objectCount,
+        Unreachable => -1,
+        var d => d,
+    };
 
     /// <summary>
     /// Computes the immediate dominator (an object index, <see cref="VirtualRoot"/> or <see cref="Unreachable"/>) and the

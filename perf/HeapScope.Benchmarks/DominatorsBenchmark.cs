@@ -82,7 +82,7 @@ internal static class DominatorsBenchmark
                 var ((dominators, reachable), time, peak) = Phase(() => Compute(graph, reverse, mode, sidecar, fingerprint, layout));
                 using (dominators)
                 {
-                    Measurement.Line("Dominators and retained sizes", $"{time.TotalSeconds:N1} s, {reachable:N0} reachable, {Measurement.Mb(dominators.ColumnBytes)} kept, peak {Measurement.Mb(peak)}");
+                    Measurement.Line("Dominators and retained sizes", $"{time.TotalSeconds:N1} s (the tree's children {s_childrenTime.TotalSeconds:N1} s), {reachable:N0} reachable, {Measurement.Mb(dominators.ColumnBytes)} kept, peak {Measurement.Mb(peak)}");
                     var (groups, groupTime, groupPeak) = Phase(() =>
                     {
                         var byType = TypeGroups.GroupOfType(graph, GroupKey.Type, out var names);
@@ -90,6 +90,19 @@ internal static class DominatorsBenchmark
                     });
                     var largest = Enumerable.Range(0, groups.Length).MaxBy(t => groups[t]);
                     Measurement.Line("Retained by type (lower bounds)", $"{groupTime.TotalSeconds:N1} s, peak {Measurement.Mb(groupPeak)}; largest {graph.Types.GetName(largest)} {Measurement.Mb((long)groups[largest])}");
+
+                    // Exact set retention (sprint 2.4 review): the type entry with the most objects, and its lower bound,
+                    // as the worker's "objects retained by this set" computes them, with their memory measured.
+                    var aggregation = TypeAggregation.Compute(graph);
+                    var crowded = Enumerable.Range(0, graph.Types.Count).MaxBy(t => aggregation.Counts[t]);
+                    var set = new bool[graph.Types.Count];
+                    set[crowded] = true;
+                    var ((exact, bound), setTime, setPeak) = Phase(() =>
+                    {
+                        var result = SetRetention.Compute(graph, dominators, set);
+                        return (result, GroupRetention.Compute(graph, dominators, Array.ConvertAll(set, s => s ? 0 : -1), 1)[0]);
+                    });
+                    Measurement.Line("Set retention", $"{setTime.TotalSeconds:N1} s, peak {Measurement.Mb(setPeak)}; {graph.Types.GetName(crowded)}: {exact.SetObjects:N0} objects retain {Measurement.Mb((long)exact.RetainedBytes)} (lower bound {Measurement.Mb((long)bound)})");
                 }
 
                 if (mode == MemoryMode.Mapped)
@@ -156,6 +169,9 @@ internal static class DominatorsBenchmark
         return ReverseReferences.FromColumns(graph, starts, edges, file);
     }
 
+    // The children pass's share of the dominators phase (the 2.4 review).
+    private static TimeSpan s_childrenTime;
+
     private static (Dominators Dominators, int Reachable) Compute(HeapGraph graph, ReverseReferences reverse, MemoryMode mode, string sidecar, SnapshotFingerprint fingerprint, IndexFileLayout layout)
     {
         if (mode == MemoryMode.InMemory)
@@ -163,20 +179,42 @@ internal static class DominatorsBenchmark
             var idom = GC.AllocateUninitializedArray<int>(graph.ObjectCount);
             var retained = GC.AllocateUninitializedArray<ulong>(graph.ObjectCount);
             var count = DominatorTree.Compute(graph, reverse, idom, retained);
-            return (Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), null), count);
+
+            // As the worker does: the working arrays are collected before the children are allocated (the 2.4 review).
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
+            var starts = new int[graph.ObjectCount + 2];
+            var children = new int[graph.ObjectCount];
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            DominatorTree.BuildChildren(idom, starts, children);
+            s_childrenTime = timer.Elapsed;
+            return (Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), Column<int>.FromArray(starts), Column<int>.FromArray(children), null), count);
         }
 
         int reachable;
-        using (var writer = MappedIndexFileWriter.Create(sidecar, [new(IndexSection.ImmediateDominators, 4, graph.ObjectCount), new(IndexSection.RetainedSizes, 8, graph.ObjectCount)]))
+        using (var writer = MappedIndexFileWriter.Create(
+            sidecar,
+            [
+                new(IndexSection.ImmediateDominators, 4, graph.ObjectCount),
+                new(IndexSection.RetainedSizes, 8, graph.ObjectCount),
+                new(IndexSection.DominatorChildStarts, 4, graph.ObjectCount + 2),
+                new(IndexSection.DominatorChildren, 4, graph.ObjectCount),
+            ]))
         {
-            reachable = DominatorTree.Compute(graph, reverse, writer.GetSection<int>(IndexSection.ImmediateDominators), writer.GetSection<ulong>(IndexSection.RetainedSizes));
+            var idom = writer.GetSection<int>(IndexSection.ImmediateDominators);
+            var retained = writer.GetSection<ulong>(IndexSection.RetainedSizes);
+            reachable = DominatorTree.Compute(graph, reverse, idom, retained);
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            DominatorTree.BuildChildren(idom, writer.GetSection<int>(IndexSection.DominatorChildStarts), writer.GetSection<int>(IndexSection.DominatorChildren));
+            s_childrenTime = timer.Elapsed;
             writer.Commit(fingerprint, 0, layout.SemanticsVersion);
         }
 
         var file = IndexCacheFile.Open(sidecar, layout, 0, fingerprint, MemoryMode.Mapped).File!;
         file.TryGetSection<int>(IndexSection.ImmediateDominators, out var idoms);
         file.TryGetSection<ulong>(IndexSection.RetainedSizes, out var sizes);
-        return (Dominators.FromColumns(graph, idoms, sizes, file), reachable);
+        file.TryGetSection<int>(IndexSection.DominatorChildStarts, out var childStarts);
+        file.TryGetSection<int>(IndexSection.DominatorChildren, out var childList);
+        return (Dominators.FromColumns(graph, idoms, sizes, childStarts, childList, file), reachable);
     }
 
     private static (T Result, TimeSpan Time, long Peak) Phase<T>(Func<T> body)

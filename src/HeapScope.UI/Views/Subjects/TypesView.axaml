@@ -1,0 +1,120 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- The types grid of the selected snapshot (sprint 1.3): heap kinds, grouping, filter, retained and generation columns. Split from the Snapshot tab in sprint 2.4 (2.3.7 review M8). -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:dto="using:HeapScope.Contracts"
+             x:Class="HeapScope.UI.Views.Subjects.TypesView"
+             x:DataType="vm:TypeSummaryViewModel">
+  <DockPanel>
+    <!-- Heap kinds: one fixed color per kind, width by share of the bytes. -->
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,8,8">
+      <ItemsControl ItemsSource="{Binding HeapKinds}" Height="10">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <ctl:ProportionalPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:HeapKindShare">
+            <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip.Tip="{Binding Text}"
+                    Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <ItemsControl ItemsSource="{Binding HeapKinds}" Margin="0,4,0,0">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:HeapKindShare">
+            <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+              <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+              <TextBlock Text="{Binding Text}" FontSize="11" Classes="subtle" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+      <TextBlock Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+      <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+      <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
+      <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
+      <TextBox Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+               ToolTip.Tip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+      <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center"
+                IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
+                ToolTip.Tip="Show bytes per generation (Gen0, Gen1, Gen2, LOH, POH, frozen) for every row." />
+      <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+                IsChecked="{Binding ShowRetained, Mode=TwoWay}"
+                ToolTip.Tip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
+      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    </WrapPanel>
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+
+    <DataGrid x:Name="TypesGrid" CanUserSortColumns="True"
+              ctl:GridBehaviors.Rows="{Binding Rows}"
+              ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+              ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+              ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}"
+              ToolTip.Tip="Double-click or Enter opens a type's objects; right-click for what they retain.">
+      <DataGrid.ContextMenu>
+        <ContextMenu>
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" />
+          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" />
+        </ContextMenu>
+      </DataGrid.ContextMenu>
+      <DataGrid.Columns>
+        <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="vm:TypeRowItem">
+              <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"
+                         ctl:HighlightedText.Filter="{Binding $parent[DataGrid].((vm:TypeSummaryViewModel)DataContext).Filter}"
+                         ctl:HighlightedText.Text="{Binding Name}" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn Header="Objects" x:DataType="vm:TypeRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Objects" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Bytes" x:DataType="vm:TypeRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="130" SortMemberPath="Bytes" CellStyleClasses="number" />
+        <DataGridTextColumn Header="%" x:DataType="vm:TypeRowItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CanUserSort="False" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Retained" x:DataType="vm:TypeRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="130" SortMemberPath="Retained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+        <DataGridTextColumn Header="Gen0" x:DataType="vm:TypeRowItem" Binding="{Binding Gen0, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="Gen1" x:DataType="vm:TypeRowItem" Binding="{Binding Gen1, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="Gen2" x:DataType="vm:TypeRowItem" Binding="{Binding Gen2, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="LOH" x:DataType="vm:TypeRowItem" Binding="{Binding LargeObjectHeap, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="POH" x:DataType="vm:TypeRowItem" Binding="{Binding PinnedObjectHeap, StringFormat='{}{0:N0}'}" Width="90" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="Frozen" x:DataType="vm:TypeRowItem" Binding="{Binding Frozen, StringFormat='{}{0:N0}'}" Width="90" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

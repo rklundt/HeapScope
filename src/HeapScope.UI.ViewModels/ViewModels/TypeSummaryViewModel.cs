@@ -182,13 +182,14 @@ public sealed record HeapKindShare(HeapKindDto Kind, string Label, long Objects,
 /// The types grid of a snapshot (sprint 1.3, dotMemory's types view): grouping, type-to-filter (debounced) and sorting
 /// re-query the worker; rows are virtualized; generation columns show only when the snapshot has generations.
 /// </summary>
-public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem>
+public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem>, INavigationSubject
 {
     private readonly SnapshotSession _session;
     private SnapshotHandle? _snapshot;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GenerationColumnsShown))]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _hasGenerations = true;
 
     /// <summary>
@@ -197,6 +198,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GenerationColumnsShown))]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _showGenerations;
 
     /// <summary>Whether the per-generation columns are shown: asked for, and the snapshot has generations.</summary>
@@ -217,7 +219,11 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     /// <summary>Whether the shown rows carry retained bytes.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
     private bool _retainedColumnShown;
+
+    /// <summary>The optional column groups shown (2.3.7 review M13).</summary>
+    public IReadOnlyList<string> VisibleColumnGroups => ColumnGroups.Of((ColumnGroups.Retained, RetainedColumnShown), (ColumnGroups.Generations, GenerationColumnsShown));
 
     /// <summary>How the retained sizes were obtained and what a row's value means, or why they are not shown; null without them.</summary>
     [ObservableProperty]
@@ -225,14 +231,57 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     private bool _retainedOffQuietly;
 
-    public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ILogger<TypeSummaryViewModel>? logger = null)
-        : base(TypeSummaryColumns.Bytes, dispatcher, logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
+    public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ILogger<TypeSummaryViewModel>? logger = null, INavigator? navigator = null)
+        : base(TypeSummaryColumns.Bytes, dispatcher, logger)
+    {
+        _session = session ?? throw new ArgumentNullException(nameof(session));
+        OpenRowCommand = new RelayCommand<TypeRowItem?>(row => OpenRow(row, navigator));
+        ShowInRetainersCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.Retainers(s, typeName: r.TypeName, module: r.Module)));
+        RetainedBySetCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.RetainedBySet(s, r.TypeName!, r.Module)));
+    }
+
+    /// <summary>A type row's group in the dominator tree, on the Retainers tab (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand ShowInRetainersCommand { get; }
+
+    /// <summary>What a type row's objects retain together, on the Retainers tab (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand RetainedBySetCommand { get; }
 
     /// <summary>The snapshot shown, if any.</summary>
     public SnapshotHandle? Snapshot => _snapshot;
 
     /// <summary>The navigation title of the root subject.</summary>
     public string Title => "Types";
+
+    private void Link(TypeRowItem? row, INavigator? navigator, Func<SnapshotHandle, TypeRowItem, NavigationTarget> target)
+    {
+        if (row is { IsLoaded: true } && _snapshot is { } snapshot)
+        {
+            if (row.TypeName is null)
+            {
+                Status = "Group by type to follow a row's objects.";
+                return;
+            }
+
+            navigator?.Navigate(target(snapshot, row));
+        }
+    }
+
+    // A type row opens its objects (sprint 1.5); grouped rows have no single type.
+    private void OpenRow(TypeRowItem? row, INavigator? navigator)
+    {
+        if (row is not { IsLoaded: true } || _snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        if (row.TypeName is null)
+        {
+            Status = "Group by type to open a row's objects.";
+            return;
+        }
+
+        navigator?.Navigate(NavigationTarget.Instances(snapshot, row.TypeName, row.Module));
+    }
 
     protected override bool CanQuery => _snapshot is not null;
 
@@ -306,7 +355,11 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                     ? null
                     : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, snapshot.Descriptor.Kind);
                 RetainedColumnShown = result.Dominators is not null;
-                RetainedNote = result.Dominators is { } dominators ? RetainedText.Source(dominators) + " " + RetainedText.RowsAreLowerBounds : null;
+                // Whether the rows are lower bounds comes with the column (sprint 2.4, 2.3.7 review M7), not from here.
+                var retainedBound = result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound;
+                RetainedNote = result.Dominators is { } dominators
+                    ? RetainedText.Source(dominators) + (retainedBound == ValueBound.LowerBound ? " " + ValueBoundTexts.LowerBound : string.Empty)
+                    : null;
                 if (retainedFailure is not null)
                 {
                     TurnRetainedOffQuietly();

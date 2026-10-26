@@ -39,8 +39,10 @@ public static class WorkerProtocol
     /// and instances).
     /// Version 10 (sprint 2.3.6): the descriptor says when a capture time is only the file's time.
     /// Version 11 (sprint 2.3.7): an instances result says what its filter could not test; requests carry the client's
-    /// trace context (StreamJsonRpc activity tracing). ARCHITECTURE.md 4.4 has the details.
-    public const int Version = 11;
+    /// trace context (StreamJsonRpc activity tracing).
+    /// Version 12 (sprint 2.4): the dominator tree query, exact set retention, columns that say whether their values are
+    /// lower bounds. ARCHITECTURE.md 4.4 has the details.
+    public const int Version = 12;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;
