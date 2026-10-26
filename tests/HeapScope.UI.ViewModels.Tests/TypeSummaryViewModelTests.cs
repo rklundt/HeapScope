@@ -242,19 +242,6 @@ public sealed class TypeSummaryViewModelTests : IDisposable
         Should.Throw<InvalidOperationException>(() => TypeRowItem.CreateList(null, info with { Columns = [new("Name", ResultColumnKind.Text, true)] }));
     }
 
-    [Fact]
-    public void Both_themes_define_the_same_keys_and_a_color_for_every_heap_kind()
-    {
-        var light = Keys("Light.xaml");
-        var dark = Keys("Dark.xaml");
-
-        light.ShouldBe(dark);
-        foreach (var kind in Enum.GetValues<HeapKindDto>())
-        {
-            light.ShouldContain("HeapKind." + kind);
-        }
-    }
-
     public void Dispose()
     {
         try
@@ -264,14 +251,6 @@ public sealed class TypeSummaryViewModelTests : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
-    }
-
-    private static List<string> Keys(string file)
-    {
-        var path = Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI.Wpf", "Themes", file);
-        var document = System.Xml.Linq.XDocument.Load(path);
-        System.Xml.Linq.XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-        return [.. document.Root!.Elements().Select(e => (string?)e.Attribute(x + "Key")).OfType<string>().Order(StringComparer.Ordinal)];
     }
 
     private async Task ShowAsync() => await (await StartShowAsync()).QueryTask;

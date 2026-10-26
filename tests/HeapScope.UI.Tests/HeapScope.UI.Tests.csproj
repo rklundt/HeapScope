@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Avalonia app's tests (sprint 2.3.6): its markup, and its views on Avalonia's headless platform (no display). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeapScope.UI\HeapScope.UI.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The view model tests' fakes drive the views here too. -->
+    <Compile Include="..\HeapScope.UI.ViewModels.Tests\Fakes.cs" Link="Fakes\Fakes.cs" />
+    <Compile Include="..\HeapScope.UI.ViewModels.Tests\FakeCaptureService.cs" Link="Fakes\FakeCaptureService.cs" />
+  </ItemGroup>
+</Project>
