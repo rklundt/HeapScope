@@ -1772,48 +1772,50 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
 **Dependencies**: 2.3.5.
 
 **Task breakdown**
-1. [ ] Groundwork: Avalonia packages in `Directory.Packages.props` (Avalonia, Desktop, Themes.Fluent and DataGrid as in
+1. [x] Groundwork: Avalonia packages in `Directory.Packages.props` (Avalonia, Desktop, Themes.Fluent and DataGrid as in
    the prototype; Avalonia.Headless for tests and the headless smoke run), all MIT and checked by the update rule;
    Avalonia's build telemetry turned off for the repository (an empty `AvaloniaStats` target in
    `Directory.Build.targets`, and `AVALONIA_TELEMETRY_OPTOUT=1` in CI); THIRD-PARTY-NOTICES. Tests: the build log shows
    no `AvaloniaStats` task; a repository test checks the override exists.
-2. [ ] `HeapScope.UI.ViewModels` (net10.0): the view models, `IUiDispatcher` (with `YieldToRenderAsync`, replacing the
+2. [x] `HeapScope.UI.ViewModels` (net10.0): the view models, `IUiDispatcher` (with `YieldToRenderAsync`, replacing the
    static `RenderYield`), `IUserInteraction` made asynchronous (Avalonia's dialogs are), the immediate and automatic
    implementations; `ICaptureService.Availability` (supported, or the reason) used by the Processes and Live view models.
    `HeapScope.UI.Wpf.Tests` becomes `HeapScope.UI.ViewModels.Tests` (net10.0, runs on Linux and macOS). The WPF app uses
    the library until it is retired. ARCHITECTURE 3.1 and `LayerRules` get the new rows. Tests: the moved view model
    tests; capture availability; the architecture test.
-3. [ ] `HeapScope.UI` (Avalonia, `HeapScope` executable): `Program`, `App` (host start and bounded stop, last-chance
+3. [x] `HeapScope.UI` (Avalonia, `HeapScope` executable): `Program`, `App` (host start and bounded stop, last-chance
    handlers, power throttling on Windows per ADR-019), `UiHost`, the services (dispatcher, dialogs, lag watchdog), light
    and dark themes, and the shell window: navigation, worker crash banner, jobs, status bar, back and forward (mouse
    buttons, Alt+arrows) and the attribution strip with the same text, link, place, surface and contrast (ADR-022).
    Tests (`HeapScope.UI.Tests`, headless): the window builds with no binding errors; the attribution checks move to
    the Avalonia markup; both themes define the same keys.
-4. [ ] Grids: the `IDataGridCollectionView` pass-through (from the prototype) where enumeration and `CopyTo` never
-   create placeholder rows (they fail in Debug and log in Release), worker-side sorting with header arrows, open by
+4. [x] Grids: the `IDataGridCollectionView` pass-through (from the prototype) where enumeration and `CopyTo` never
+   create placeholder rows, worker-side sorting with header arrows, open by
    double-click or Enter, highlighted filter matches, columns from a result set's column list, column visibility from
-   the view model, the heap kinds bar. Tests (headless, 1.5 million rows): first show, scrolling, select all, copy and
-   keyboard moves enumerate nothing; a header click sends the column to the sort command.
-5. [ ] Pages: Home, Processes (capture availability and the `dotnet-dump` hint off Windows), Snapshots (the snapshot
+   the view model, the heap kinds bar. Whole-list walks are counted (`VirtualCollectionViews.Enumerations`) rather than
+   failed, so the tests can prove there are none without breaking the app if a grid path ever does one. Tests
+   (headless, 1.5 million rows): first show, scrolling, select all, copy and keyboard moves enumerate nothing; a header
+   click sends the column to the sort command.
+5. [x] Pages: Home, Processes (capture availability and the `dotnet-dump` hint off Windows), Snapshots (the snapshot
    tab with types, instances, object, referrers, paths and retained sizes; compare; inspections), Live (the timeline
    chart), Jobs, About. Tests: each page builds headless with fake view models and no binding errors; the WPF commands
    and views listed against their Avalonia equivalents in the review file.
-6. [ ] Smoke and gates: the smoke runs (`--smoke-synthetic`, `--smoke-open`, `--smoke-compare`, `--smoke-trace`,
+6. [x] Smoke and gates: the smoke runs (`--smoke-synthetic`, `--smoke-open`, `--smoke-compare`, `--smoke-trace`,
    `--smoke-live`) and the dispatcher lag checks on Avalonia; `--headless` runs them without a display; the first-window
    time is logged and gated; `build/gate.ps1` runs the Avalonia smoke. Measured on the Small dump against the WPF
    numbers (first show, scroll, the longest UI-thread block). Tests: the gate's smoke steps.
-7. [ ] Compare's baseline with file-time captures (added item 5). Tests: the compare view model picks the first opened
+7. [x] Compare's baseline with file-time captures (added item 5). Tests: the compare view model picks the first opened
    and says why.
-8. [ ] Owner-only files off Windows (added item 2): one helper creates HeapScope's folders and files with user-only
+8. [x] Owner-only files off Windows (added item 2): one helper creates HeapScope's folders and files with user-only
    permissions (sessions, logs, index caches, sidecars, partial dumps). Tests: run on Linux and macOS in CI (skipped on
    Windows).
-9. [ ] Builds per system (added item 1): `dotnet publish` self-contained per runtime identifier with the worker and the
+9. [x] Builds per system (added item 1): `dotnet publish` self-contained per runtime identifier with the worker and the
    CLI; `PlatformTarget` follows the runtime identifier (arm64 on `osx-arm64`); a CI job builds the four and uploads
    them as artifacts. Tests: the CI job; the Windows build passes the smoke gate.
-10. [ ] CI: Linux and macOS build the UI and run the UI tests; Linux runs the headless smoke on the LeakyConsole core
+10. [x] CI: Linux and macOS build the UI and run the UI tests; Linux runs the headless smoke on the LeakyConsole core
     dump; Windows captures LeakyConsole with the CLI and checks the known answers (added item 6).
-11. [ ] Review cleanups (added item 7): L2, L11, L13, L14, L16 of the 2.3.5 review, each with its test where one applies.
-12. [ ] Retire `HeapScope.UI.Wpf`, its tests and `spikes/AvaloniaGrid`; docs: ARCHITECTURE (3.1, code map, section 8
+11. [x] Review cleanups (added item 7): L2, L11, L13, L14, L16 of the 2.3.5 review, each with its test where one applies.
+12. [x] Retire `HeapScope.UI.Wpf`, its tests and `spikes/AvaloniaGrid`; docs: ARCHITECTURE (3.1, code map, section 8
     threading, ADR-019 and ADR-025 amended), DEVELOPER (run, smoke, publish), CLAUDE.md, THIRD-PARTY-NOTICES, SPRINTS.
 
 **Decisions** (decided autonomously from the recommended defaults unless marked otherwise)
@@ -1953,15 +1955,11 @@ switches.
 - Async state machine and Task leak detection.
 
 **Medium**
-- From the 2.3.5 review (decided autonomously, deferred):
-  - Compare's default baseline when a capture time is only the file's time (`SnapshotFacts.CaptureTimeFromFile`, Linux
-    and macOS cores): order by open order instead and say so, since a copy of a file changes its time. **Revisit
-    when:** Linux capture lands, or compare is used with core dumps.
+- From the 2.3.5 review (decided autonomously, deferred; the Compare baseline and the Windows CI dump step were done in
+  2.3.6):
   - Unix file semantics stated by tests: replacing or deleting a mapped index cache on Linux and macOS succeeds and
     the open graph keeps reading the old file; the Windows-only tests skip there today. Capture.Tests join the Linux CI
     job with the Linux capture item.
-  - A Windows CI step that loads a dump (capture LeakyConsole with the CLI, `summary`), so the Windows DAC path is
-    checked by CI too, not only by the local gate's integration tests.
 - gcdump survivors without a recorded root as path and dominator sources (from the 2.3 review M6; agreed with the
   product owner on 2026-10-25 to defer the fix). Today they retain nothing, and the note beside retained sizes gives their
   count and bytes. The fix marks them "root not recorded" sources in `PathRoots.Sources` (so paths and dominators keep
@@ -2043,8 +2041,10 @@ switches.
 - Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
   dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
   elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.
-- Linux and macOS packaging (from 2.3.5): self-contained builds per runtime identifier, macOS signing and
-  notarization, a native arm64 macOS build (CI builds it `AnyCPU` today).
+- Linux and macOS packaging (from 2.3.5; the self-contained builds per runtime identifier, arm64 for Apple silicon, came in
+  2.3.6): a macOS app bundle with signing and notarization (needs an Apple developer account, a paid one), Linux
+  packages (a zipped folder from CI today; .deb, .rpm or Flatpak to decide), smaller builds (the app and the worker each carry the
+  runtime: about 356 MB for win-x64 with ReadyToRun).
 - .NET Framework target support.
 
 **Low**

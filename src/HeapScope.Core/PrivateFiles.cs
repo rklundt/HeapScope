@@ -39,8 +39,31 @@ public static class PrivateFiles
     public const UnixFileMode FolderMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
     /// <summary>Creates <paramref name="path"/> and missing parents, owner-only off Windows; an existing folder is kept as it is.</summary>
-    public static DirectoryInfo CreateDirectory(string path) =>
-        OperatingSystem.IsWindows() ? Directory.CreateDirectory(path) : Directory.CreateDirectory(path, FolderMode);
+    public static DirectoryInfo CreateDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return Directory.CreateDirectory(path);
+        }
+
+        // .NET gives the mode to the last folder only; missing parents would get the umask's mode, so each is made here.
+        var missing = new Stack<string>();
+        for (var folder = Path.GetFullPath(path); !Directory.Exists(folder); folder = Path.GetDirectoryName(folder)!)
+        {
+            missing.Push(folder);
+            if (Path.GetDirectoryName(folder) is null)
+            {
+                break;
+            }
+        }
+
+        while (missing.TryPop(out var folder))
+        {
+            Directory.CreateDirectory(folder, FolderMode);
+        }
+
+        return new DirectoryInfo(path);
+    }
 
     /// <summary>Opens <paramref name="path"/> like the <see cref="FileStream"/> constructor; a file it creates is owner-only off Windows.</summary>
     public static FileStream Open(string path, System.IO.FileMode mode, FileAccess access, FileShare share, int bufferSize = 4096, FileOptions options = FileOptions.None)
