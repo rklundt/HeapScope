@@ -27,6 +27,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:dto="using:HeapScope.Contracts"
              x:Class="HeapScope.UI.Views.Pages.CompareTab"
              x:DataType="vm:SnapshotsViewModel">
   <DockPanel DataContext="{Binding Compare}" x:DataType="vm:CompareViewModel" Margin="0,8,0,0">
@@ -50,8 +51,7 @@
         </ComboBox.ItemTemplate>
       </ComboBox>
     </StackPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap"
-               IsVisible="{Binding Hint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap" />
     <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
       <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
@@ -60,13 +60,18 @@
                ToolTip.Tip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
     </WrapPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
-               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <DataGrid x:Name="CompareGrid" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ToolTip.Tip="Double-click or Enter opens the type's objects in the current snapshot.">
+              ToolTip.Tip="Double-click or Enter opens the type's objects in the current snapshot; right-click for what they retain there.">
+      <DataGrid.ContextMenu>
+        <ContextMenu>
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+        </ContextMenu>
+      </DataGrid.ContextMenu>
       <DataGrid.Columns>
         <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
           <DataGridTemplateColumn.CellTemplate>

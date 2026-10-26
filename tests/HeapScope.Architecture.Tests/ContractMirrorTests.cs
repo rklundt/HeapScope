@@ -101,4 +101,31 @@ public class ContractMirrorTests
             CapabilityDescriptions.ExplainMissing(feature, SnapshotKindDto.FullDump).ShouldNotContain("Capture a full dump", Case.Insensitive, feature.ToString());
         }
     }
+
+    [Fact]
+    public void The_dominator_trees_wire_vocabulary_mirrors_the_analysis()
+    {
+        // Sprint 2.4 (the 2.4 review): Contracts owns the tree's kinds, groupings, keys and limits; Analysis mirrors them.
+        Enum.GetValues<DominatorGroupingDto>().ToDictionary(v => v.ToString(), v => (int)v)
+            .ShouldBe(Enum.GetValues<HeapScope.Analysis.Retention.DominatorGrouping>().ToDictionary(v => v.ToString(), v => (int)v));
+        Enum.GetNames<HeapScope.Analysis.Retention.DominatorRowKind>().ShouldBe([DominatorRowKinds.Object, DominatorRowKinds.Group, DominatorRowKinds.More], ignoreOrder: true);
+
+        const ulong address = 0x1f2a3b40;
+        var listKey = HeapScope.Analysis.Retention.DominatorTreeRows.ObjectKey(address);
+        listKey.ShouldBe(DominatorTreeKeys.Object(address));
+        HeapScope.Analysis.Retention.DominatorTreeRows.RootKey.ShouldBe(DominatorTreeKeys.Root);
+        HeapScope.Analysis.Retention.DominatorTreeRows.GroupKey(listKey, HeapScope.Analysis.Retention.DominatorTreeRows.GroupName("App.Order", "App.dll"))
+            .ShouldBe(DominatorTreeKeys.TypeGroup(listKey, "App.Order", "App.dll"));
+        HeapScope.Analysis.Retention.DominatorTreeRows.GroupKey(listKey, HeapScope.Analysis.Retention.DominatorTreeRows.GroupName("App.Order", null))
+            .ShouldBe(DominatorTreeKeys.TypeGroup(listKey, "App.Order", null));
+        HeapScope.Analysis.Retention.DominatorTreeRows.GroupKey(listKey, HeapScope.Analysis.Retention.DominatorTreeRows.GroupName("App.Models", null))
+            .ShouldBe(DominatorTreeKeys.NamespaceGroup(listKey, "App.Models"));
+        HeapScope.Analysis.Retention.DominatorTreeRows.MoreKey(listKey, 200).ShouldBe(DominatorTreeKeys.More(listKey, 200));
+
+        (DominatorTreeLimits.MaxRows, DominatorTreeLimits.MaxDepth, DominatorTreeLimits.TrailHead, DominatorTreeLimits.TrailTail).ShouldBe((
+            HeapScope.Analysis.Retention.DominatorTreeRows.MaxRows,
+            HeapScope.Analysis.Retention.DominatorTreeRows.MaxDepth,
+            HeapScope.Analysis.Retention.DominatorTreeRows.TrailHead,
+            HeapScope.Analysis.Retention.DominatorTreeRows.TrailTail));
+    }
 }

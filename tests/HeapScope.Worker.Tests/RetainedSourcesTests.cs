@@ -69,6 +69,21 @@ public sealed class RetainedSourcesTests : IDisposable
     }
 
     [Fact]
+    public void What_a_set_retains_is_listed_by_type_largest_first_with_the_keys_that_open_instances()
+    {
+        var set = TypeGroups.MatchTypes(_graph, "App.Model.Order", "App.dll", out _);
+        var source = RetainedBySetSource.Create(_graph, TypeAggregation.Compute(_graph, cancellationToken: Ct), SetRetention.Compute(_graph, _dominators, set, cancellationToken: Ct));
+
+        source.Columns.Select(c => (c.Name, c.Bound)).ShouldAllBe(c => c.Bound == ValueBound.Exact);
+        Rows(source).Select(r => (r[0], r[1], r[2], r[3], r[4], r[5])).ShouldBe(
+        [
+            ("Lib.Buffer", "1", "1000", "83.33", "Lib.Buffer", "Lib.dll"),
+            ("App.Model.Order", "2", "200", "16.67", "App.Model.Order", "App.dll"),
+        ]);
+        source.Describe(1).ShouldBe(["Lib.Buffer 1 objects 1000 bytes"]);
+    }
+
+    [Fact]
     public void Namespaces_and_assemblies_get_their_own_lower_bounds()
     {
         var byNamespace = Rows(Summary(GroupKey.Namespace, new TypeSummaryRequest(Guid.Empty, TypeGrouping.Namespace))).ToDictionary(r => r[0]!, r => r[4]);

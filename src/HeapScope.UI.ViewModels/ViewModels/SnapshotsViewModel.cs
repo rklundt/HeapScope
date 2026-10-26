@@ -85,7 +85,7 @@ public sealed class SnapshotItemViewModel(SnapshotHandle handle)
 /// The Snapshots page: open a dump (sprint 1.2), see the open snapshots, and the selected one's overview tiles, heap
 /// kinds bar and types grid (sprint 1.3, dotMemory's types view).
 /// </summary>
-public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
+public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, IDisposable
 {
     private readonly SnapshotSession _session;
     private readonly WorkerOperations _operations;
@@ -101,7 +101,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isOpening;
 
-    /// <summary>The detail tab: 0 the selected snapshot, 1 the comparison, 2 the selected snapshot's inspections.</summary>
+    /// <summary>The detail tab's index, for the view's tab control; code uses <see cref="Tab"/>.</summary>
     [ObservableProperty]
     private int _selectedTab;
 
@@ -117,11 +117,42 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
         _session.SnapshotsChanged += OnSnapshotsChanged;
-        Types = new TypeSummaryViewModel(session, dispatcher, loggers?.CreateLogger<TypeSummaryViewModel>());
-        Navigator = new NavigatorViewModel(session, Types, loggers);
-        Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>());
-        Compare.OpenRowCommand = OpenCompareRowCommand;
-        Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>()) { Open = OpenInspectionTarget };
+        Types = new TypeSummaryViewModel(session, dispatcher, loggers?.CreateLogger<TypeSummaryViewModel>(), this);
+        Navigator = new NavigatorViewModel(session, Types, this, loggers);
+        Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>(), this);
+        Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>(), this);
+        Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this, loggers?.CreateLogger<RetainedBySetViewModel>());
+    }
+
+    /// <summary>The detail tab (2.3.7 review M8: named, not numbered).</summary>
+    public SnapshotTabs Tab
+    {
+        get => (SnapshotTabs)SelectedTab;
+        set => SelectedTab = (int)value;
+    }
+
+    /// <summary>
+    /// Follows a link from anywhere on the page (sprint 2.4, 2.3.7 review M8): selects the target's snapshot, picks the tab
+    /// and opens the subject.
+    /// </summary>
+    public void Navigate(NavigationTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (Selected?.Handle != target.Snapshot && Snapshots.FirstOrDefault(s => s.Handle == target.Snapshot) is { } item)
+        {
+            Selected = item;
+        }
+
+        if (target.Kind is NavigationKind.Retainers or NavigationKind.RetainedBySet)
+        {
+            // The target first, so showing the tab queries what it asks for rather than the biggest retainers.
+            Retainers.Navigate(target);
+            Tab = SnapshotTabs.Retainers;
+            return;
+        }
+
+        Tab = SnapshotTabs.Snapshot;
+        Navigator.Navigate(target);
     }
 
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; } = [];
@@ -137,6 +168,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
 
     /// <summary>The selected snapshot's inspections (sprint 1.6); they run when their tab is shown.</summary>
     public InspectionsViewModel Inspections { get; }
+
+    /// <summary>The selected snapshot's dominator tree, icicle and set retention (sprint 2.4); queried when the tab is shown.</summary>
+    public RetainersViewModel Retainers { get; }
 
     public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
 
@@ -213,50 +247,14 @@ public sealed partial class SnapshotsViewModel : ObservableObject, IDisposable
         Navigator.Reset();
         Types.Show(value?.Handle);
         Inspections.Show(value?.Handle);
+        Retainers.Show(value?.Handle);
     }
 
-    partial void OnSelectedTabChanged(int value) => Inspections.IsActive = value == 2;
-
-    /// <summary>Opens an inspection row on the Snapshot tab: the objects of its type in its scope, or its object.</summary>
-    private void OpenInspectionTarget(SnapshotHandle snapshot, InspectionTarget target)
+    partial void OnSelectedTabChanged(int value)
     {
-        SelectedTab = 0;
-        if (target.TypeName is { } typeName)
-        {
-            Navigator.OpenInstances(snapshot, typeName, target.Module, target.Scope, target.Address);
-        }
-        else
-        {
-            Navigator.OpenObject(snapshot, target.Address);
-        }
-    }
-
-    /// <summary>
-    /// Opens a compare row's type on the Snapshot tab: its objects in the current snapshot, or in the baseline for a type
-    /// the current snapshot no longer has (ADR-018; sprint 1.5 review).
-    /// </summary>
-    [RelayCommand]
-    private void OpenCompareRow(DiffRowItem? row)
-    {
-        if (row is not { IsLoaded: true } || Compare.Current is not { } current)
-        {
-            return;
-        }
-
-        if (row.TypeName is null)
-        {
-            // In Type grouping a row has no key only when one side merged several of its types under one name: a full
-            // dump's nested types compared with a gcdump, which records them without their declaring type (sprint 1.8).
-            Compare.Status = Compare.GroupBy == TypeGrouping.Type
-                ? "This row joins several types of the full dump under the one name the gcdump records, so it cannot open one type's objects. Find the type in the full dump's own summary."
-                : "Group by type to open a row's objects.";
-            return;
-        }
-
-        var target = row.CurrentObjects == 0 && Compare.Baseline is { } baseline ? baseline : current;
-        Selected = target;
-        SelectedTab = 0;
-        Navigator.OpenInstances(target.Handle, row.TypeName, row.Module);
+        OnPropertyChanged(nameof(Tab));
+        Inspections.IsActive = value == (int)SnapshotTabs.Inspections;
+        Retainers.IsActive = value == (int)SnapshotTabs.Retainers;
     }
 
     private void OnSnapshotsChanged(object? sender, EventArgs e) => _dispatcher.Post(Refresh);

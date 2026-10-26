@@ -66,8 +66,7 @@
         <Button Content="Start" Margin="16,0,0,0" Padding="16,3" Command="{Binding StartCommand}" VerticalAlignment="Center" />
         <Button Content="Stop" Margin="8,0,0,0" Padding="16,3" Command="{Binding StopCommand}" VerticalAlignment="Center" />
       </WrapPanel>
-      <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4"
-                 IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      <ctl:NoteText Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
       <DockPanel Margin="0,0,0,6">
         <Border DockPanel.Dock="Right" Background="{DynamicResource Brush.Growth}" CornerRadius="3" Padding="8,1"
                 IsVisible="{Binding HighGcPressure}"

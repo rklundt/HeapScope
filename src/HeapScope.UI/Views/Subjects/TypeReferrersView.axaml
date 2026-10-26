@@ -1,0 +1,50 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- Who references a type's objects (sprint 2.1). Split from the Snapshot tab in sprint 2.4 (2.3.7 review M8). -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             x:Class="HeapScope.UI.Views.Subjects.TypeReferrersView"
+             x:DataType="vm:TypeReferrersViewModel">
+  <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Margin="0,0,0,6" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
+    <DataGrid x:Name="TypeReferrersGrid" CanUserSortColumns="True"
+              ctl:GridBehaviors.Rows="{Binding Rows}"
+              ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+              ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+              ToolTip.Tip="Double-click or Enter opens the objects of the referencing type.">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Referencing type" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding TypeName}" Width="*" SortMemberPath="Type" />
+        <DataGridTextColumn Header="Module" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Module}" Width="180" SortMemberPath="Module" />
+        <DataGridTextColumn Header="Objects" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Objects" CellStyleClasses="number" />
+        <DataGridTextColumn Header="References" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="References" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Targets" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Targets, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Targets" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Bytes" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="Bytes" CellStyleClasses="number" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

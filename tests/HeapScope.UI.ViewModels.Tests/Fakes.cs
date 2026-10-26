@@ -224,7 +224,7 @@ internal sealed class FakeWorkerService : IWorkerService
         var id = Guid.NewGuid();
         _sets[id] = rows;
         ResultColumn[] columns = [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Percent", ResultColumnKind.Percent),
-            .. retained ? new ResultColumn[] { new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes) } : [],
+            .. retained ? new ResultColumn[] { new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound) } : [],
             .. byType ? new ResultColumn[] { new(TypeSummaryColumns.TypeName, ResultColumnKind.Text), new(TypeSummaryColumns.Module, ResultColumnKind.Text) } : []];
         var totalBytes = Rows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture));
         HeapKindTotal[] kinds = HasGenerations ? [new(HeapKindDto.Gen0, 10, totalBytes / 2), new(HeapKindDto.Gen2, 5, totalBytes / 2)] : [];
@@ -412,6 +412,136 @@ internal sealed class FakeWorkerService : IWorkerService
 
     /// <summary>How the fake's dominators were obtained.</summary>
     public DominatorIndexInfo Dominators { get; } = new(false, SnapshotMemoryMode.InMemory, 1.5, 1200, true, 100);
+
+    /// <summary>
+    /// The fake's dominator tree (sprint 2.4), typed rather than positional (2.3.7 review M15): the top level has an empty
+    /// parent key; a node's children show when its key is expanded.
+    /// </summary>
+    public List<FakeTreeNode> TreeNodes { get; } = [];
+
+    /// <summary>"Objects retained by this set" queries received (sprint 2.4).</summary>
+    public List<RetainedBySetRequest> SetQueries { get; } = [];
+
+    /// <summary>The retained types the fake answers a set query with: name, objects, bytes.</summary>
+    public List<(string Name, long Objects, long Bytes)> SetRows { get; } = [];
+
+    public Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        SetQueries.Add(request);
+        var total = SetRows.Sum(r => r.Bytes);
+        IReadOnlyList<string?>[] rows =
+        [
+            .. SetRows.Select(r => (IReadOnlyList<string?>)[
+                r.Name, r.Objects.ToString(System.Globalization.CultureInfo.InvariantCulture), r.Bytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                (total == 0 ? 0 : 100.0 * r.Bytes / total).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture), r.Name, "App.dll"]),
+        ];
+        var id = Guid.NewGuid();
+        _sets[id] = [.. rows];
+        var columns = new ResultColumn[]
+        {
+            new(RetainedBySetColumns.Name, ResultColumnKind.Text, IsKey: true), new(RetainedBySetColumns.Objects, ResultColumnKind.Integer),
+            new(RetainedBySetColumns.Retained, ResultColumnKind.Bytes), new(RetainedBySetColumns.Percent, ResultColumnKind.Percent),
+            new(RetainedBySetColumns.TypeName, ResultColumnKind.Text), new(RetainedBySetColumns.Module, ResultColumnKind.Text),
+        };
+        var set = SetRows.FirstOrDefault(r => r.Name == request.TypeName);
+        return Task.FromResult(new RetainedBySetResult(
+            new ResultSetInfo(id, rows.Length, columns), SetRows.Count == 0 ? 0 : 1, set.Objects, set.Bytes, SetRows.Sum(r => r.Objects), total, set.Bytes, 10 * total, 0.25, Dominators));
+    }
+
+    /// <summary>Icicle queries received (sprint 2.4).</summary>
+    public List<IcicleRequest> IcicleQueries { get; } = [];
+
+    /// <summary>
+    /// The fake's icicle: below the focus (or the top level), each <see cref="TreeNodes"/> child side by side, as wide as its
+    /// retained bytes, down to <see cref="IcicleRequest.Levels"/>.
+    /// </summary>
+    public Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        IcicleQueries.Add(request);
+        var focus = request.FocusAddress == 0 ? null : TreeNodes.First(n => n.Address == request.FocusAddress);
+        var total = focus?.Retained ?? TreeNodes.Where(n => n.ParentKey.Length == 0).Sum(n => n.Retained);
+        var segments = new List<IcicleSegmentDto> { new(0, 0, total, focus?.Key ?? string.Empty, focus?.Name ?? "All reachable objects", focus?.Address ?? 0) };
+        void Add(string parent, int level, long offset)
+        {
+            if (level > request.Levels)
+            {
+                return;
+            }
+
+            foreach (var node in TreeNodes.Where(n => n.ParentKey == parent))
+            {
+                segments.Add(new IcicleSegmentDto(level, offset, node.Retained, node.Key, node.Name, node.Address));
+                Add(node.Key, level + 1, offset);
+                offset += node.Retained;
+            }
+        }
+
+        Add(focus?.Key ?? string.Empty, 1, 0);
+        return Task.FromResult(new IcicleResult([.. segments.OrderBy(s => s.Level)], total, Dominators));
+    }
+
+    /// <summary>Dominator tree queries received.</summary>
+    public List<DominatorTreeRequest> TreeQueries { get; } = [];
+
+    public Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        TreeQueries.Add(request);
+        var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
+        var focus = request.FocusAddress == 0 ? null : TreeNodes.FirstOrDefault(n => n.Address == request.FocusAddress);
+        var total = TreeNodes.Where(n => n.ParentKey.Length == 0).Sum(n => n.Retained);
+        var rows = new List<IReadOnlyList<string?>>();
+        var keys = new List<string>();
+        int ChildCount(FakeTreeNode node) => TreeNodes.Count(n => n.ParentKey == node.Key);
+        void Add(FakeTreeNode node, int depth, bool open)
+        {
+            rows.Add(node.Cells(depth, open, ChildCount(node), total));
+            keys.Add(node.Key);
+        }
+
+        void Emit(string parent, int depth)
+        {
+            foreach (var node in TreeNodes.Where(n => n.ParentKey == parent))
+            {
+                var open = expanded.Contains(node.Key) && ChildCount(node) > 0;
+                Add(node, depth, open);
+                if (open)
+                {
+                    Emit(node.Key, depth + 1);
+                }
+            }
+        }
+
+        // The focus's dominators from the top: its parents by key.
+        var ancestors = new List<DominatorAncestorDto>();
+        if (focus is not null)
+        {
+            for (var parent = TreeNodes.FirstOrDefault(n => n.Key == focus.ParentKey); parent is not null; parent = TreeNodes.FirstOrDefault(n => n.Key == parent.ParentKey))
+            {
+                ancestors.Insert(0, new DominatorAncestorDto(parent.Key, parent.Name, parent.Address, parent.Retained));
+            }
+
+            Add(focus, 0, true);
+            Emit(focus.Key, 1);
+        }
+        else
+        {
+            Emit(string.Empty, 0);
+        }
+
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        return Task.FromResult(new DominatorTreeResult(
+            new ResultSetInfo(id, rows.Count, FakeTreeNode.Columns),
+            focus?.Key,
+            [.. ancestors.Take(DominatorTreeLimits.TrailHead), .. ancestors.Skip(DominatorTreeLimits.TrailHead).TakeLast(DominatorTreeLimits.TrailTail)],
+            focus?.Retained ?? total,
+            total,
+            TreeNodes.Count(n => n.ParentKey.Length == 0),
+            false,
+            Dominators,
+            ancestors.Count,
+            request.RevealKey is { } reveal ? keys.IndexOf(reveal) : -1));
+    }
 
     /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>
     public List<InspectionInfo> Inspections { get; } =

@@ -41,6 +41,10 @@
   <!-- Diff deltas (sprint 1.4): growth and shrinkage. -->
   <SolidColorBrush x:Key="Brush.Growth" Color="#FFFF7B72" />
   <SolidColorBrush x:Key="Brush.Shrink" Color="#FF3FB950" />
+  <!-- The icicle chart (sprint 2.4): alternate levels, and the path to the selected bar. -->
+  <SolidColorBrush x:Key="Icicle.Bar1" Color="#FF2C4A6B" />
+  <SolidColorBrush x:Key="Icicle.Bar2" Color="#FF35587F" />
+  <SolidColorBrush x:Key="Icicle.Path" Color="#FF7A5A1E" />
   <SolidColorBrush x:Key="HeapKind.Unknown" Color="#FF757575" />
   <SolidColorBrush x:Key="HeapKind.Gen0" Color="#FF66BB6A" />
   <SolidColorBrush x:Key="HeapKind.Gen1" Color="#FF42A5F5" />

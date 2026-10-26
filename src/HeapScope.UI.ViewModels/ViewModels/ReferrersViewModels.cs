@@ -23,6 +23,7 @@
 
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using HeapScope.UI.Services;
@@ -50,12 +51,8 @@ internal static class RetainedText
     /// <summary>How the dominators were obtained, in a line, with the worker's caveats (review M6).</summary>
     public static string Source(DominatorIndexInfo dominators) => string.Create(
         CultureInfo.CurrentCulture,
-        $"Retained sizes {(dominators.FromSidecar ? "read from the saved index" : "computed")} in {dominators.Seconds:N1} s; {dominators.ReachableObjects:N0} objects are reachable from the roots.")
+        $"Retained sizes {ValueBoundTexts.DominatorsSource(dominators.FromSidecar)} in {dominators.Seconds:N1} s; {dominators.ReachableObjects:N0} objects are reachable from the roots.")
         + (dominators.Note is { } note ? " " + note : string.Empty);
-
-    /// <summary>What a type, namespace or assembly row's retained bytes mean (decision 6).</summary>
-    public const string RowsAreLowerBounds =
-        "A row's retained bytes are at least what its objects keep alive: objects held only by several of them together are not counted.";
 
     /// <summary>Why retained sizes are not shown after a failed retained query (review M8), with the worker's reason.</summary>
     public static string NotShown(string reason) => "Retained sizes are not shown: " + reason;
@@ -65,13 +62,15 @@ internal static class RetainedText
 }
 
 /// <summary>One object referencing the inspected object (sprint 2.1), filled when its page arrives.</summary>
-public sealed class ReferrerRowItem(int index) : ObservableObject, IIndexedRow
+public sealed class ReferrerRowItem(int index) : ObservableObject, IIndexedRow, IObjectLink
 {
     public int Index { get; } = index;
 
     public string Field { get; private set; } = string.Empty;
 
     public ulong Address { get; private set; }
+
+    public ulong LinkAddress => IsLoaded ? Address : 0;
 
     public string AddressText { get; private set; } = string.Empty;
 
@@ -172,13 +171,20 @@ public sealed class TypeReferrerRowItem(int index) : ObservableObject, IIndexedR
 /// Who references the objects of a type (sprint 2.1, dotMemory's incoming references for a set): one row per referrer
 /// type, sortable by any column; opening a row shows that type's objects. Opened from a type's instances.
 /// </summary>
-public sealed partial class TypeReferrersViewModel : GridQueryViewModel<TypeReferrerRowItem>
+public sealed partial class TypeReferrersViewModel : GridQueryViewModel<TypeReferrerRowItem>, INavigationSubject
 {
     private readonly SnapshotSession _session;
 
-    public TypeReferrersViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null)
+    public TypeReferrersViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
         : base(TypeReferrerColumns.References, dispatcher, logger)
     {
+        OpenRowCommand = new RelayCommand<TypeReferrerRowItem?>(row =>
+        {
+            if (row is { IsLoaded: true })
+            {
+                navigator?.Navigate(NavigationTarget.Instances(snapshot, row.TypeName, row.Module));
+            }
+        });
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         TypeName = typeName ?? throw new ArgumentNullException(nameof(typeName));

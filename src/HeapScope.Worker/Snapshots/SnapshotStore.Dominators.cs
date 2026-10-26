@@ -67,6 +67,14 @@ internal sealed partial class SnapshotStore
     /// <see cref="TypeGroups.GroupOfType"/> numbers them; computed once per grouping from the dominators and kept with the
     /// snapshot. Returns null when the snapshot is not loaded or closes meanwhile.
     /// </summary>
+    /// <summary>
+    /// Reserves memory for a large computation on a snapshot's graph that has no slot of its own (sprint 2.4: set
+    /// retention, per request), against the same worker-wide budget; null when the snapshot is not open. Dispose it, then
+    /// <see cref="MemoryReservations.Collect"/>, when the computation ends.
+    /// </summary>
+    public IDisposable? Reserve(Guid snapshotId, long bytes, string what) =>
+        _snapshots.TryGetValue(snapshotId, out var entry) ? _reservations.Reserve(bytes, what, entry.Index.Mode, entry.Index.Identity != 0) : null;
+
     public async Task<ulong[]?> GetGroupRetentionAsync(Guid snapshotId, GroupKey grouping, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         if (!_snapshots.TryGetValue(snapshotId, out var entry))
@@ -106,7 +114,7 @@ internal sealed partial class SnapshotStore
                     }
                     finally
                     {
-                        // The dominator tree's children (12 bytes per object) are garbage now (review M3).
+                        // The working cursors (4 bytes per object) are garbage now (review M3).
                         MemoryReservations.Collect();
                     }
                 }

@@ -54,6 +54,33 @@ public sealed class NavigatorViewModelTests : IDisposable
     private NavigatorViewModel Navigator => _snapshots.Navigator;
 
     [Fact]
+    public async Task Every_navigation_target_lands_on_its_tab_and_subject()
+    {
+        // Sprint 2.4 (2.3.7 review M8): one way in for every link of the page.
+        await OpenAsync("app.dmp");
+        var snapshot = _snapshots.Selected!.Handle;
+        _snapshots.Tab = SnapshotTabs.Inspections;
+
+        _snapshots.Navigate(NavigationTarget.Instances(snapshot, "App.Order", "App.dll"));
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Snapshot);
+        Navigator.Current.ShouldBeOfType<InstancesViewModel>().TypeName.ShouldBe("App.Order");
+
+        _snapshots.Navigate(NavigationTarget.Object(snapshot, 0x1000));
+        Navigator.Current.ShouldBeOfType<ObjectViewModel>().Address.ShouldBe(0x1000UL);
+
+        _snapshots.Navigate(NavigationTarget.TypeReferrers(snapshot, "App.Order", "App.dll"));
+        Navigator.Current.ShouldBeOfType<TypeReferrersViewModel>();
+
+        _snapshots.Navigate(NavigationTarget.TypePaths(snapshot, "App.Order", "App.dll"));
+        Navigator.Current.ShouldBeOfType<TypePathsViewModel>();
+        Navigator.Trail.Select(s => s.Title).First().ShouldBe("Types");
+        Navigator.Trail.Count.ShouldBe(5);
+
+        _snapshots.Navigate(NavigationTarget.Retainers(snapshot));
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
+    }
+
+    [Fact]
     public async Task A_type_row_opens_its_objects_and_back_and_forward_move_through_the_history()
     {
         await OpenAsync("app.dmp");
@@ -153,11 +180,11 @@ public sealed class NavigatorViewModelTests : IDisposable
         await OpenAsync("first.dmp");
         await OpenAsync("second.dmp");
         await _snapshots.Compare.QueryTask;
-        _snapshots.SelectedTab = 1;
+        _snapshots.Tab = SnapshotTabs.Compare;
 
         _snapshots.Compare.OpenRowCommand!.Execute(await FirstRowAsync(_snapshots.Compare.Rows));
 
-        _snapshots.SelectedTab.ShouldBe(0);
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Snapshot);
         _snapshots.Selected.ShouldBeSameAs(_snapshots.Compare.Current);
         var instances = Navigator.Current.ShouldBeOfType<InstancesViewModel>();
         (instances.TypeName, instances.Module).ShouldBe(("App.Order", "App.dll"));
@@ -173,10 +200,10 @@ public sealed class NavigatorViewModelTests : IDisposable
         await obj.LoadTask;
 
         _worker.Service.ReferrerQueries.ShouldBeEmpty("nothing is indexed until the Incoming tab is shown");
-        obj.ReferencesTab = 1;
+        obj.ReferencesView = ObjectReferenceTabs.Incoming;
         await obj.IncomingTask;
-        obj.ReferencesTab = 0;
-        obj.ReferencesTab = 1;
+        obj.ReferencesView = ObjectReferenceTabs.Outgoing;
+        obj.ReferencesView = ObjectReferenceTabs.Incoming;
 
         _worker.Service.ReferrerQueries.ShouldHaveSingleItem().Address.ShouldBe(0x1000UL);
         obj.IncomingTotals.ShouldBe(string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{1:N0} objects, {2:N0} references"));
@@ -197,7 +224,7 @@ public sealed class NavigatorViewModelTests : IDisposable
         var obj = (ObjectViewModel)Navigator.Current;
         await obj.LoadTask;
 
-        obj.ReferencesTab = 1;
+        obj.ReferencesView = ObjectReferenceTabs.Incoming;
         await obj.IncomingTask;
         Navigator.BackCommand.Execute(null);
         instances.ReferencedByCommand!.Execute(null);
@@ -230,10 +257,10 @@ public sealed class NavigatorViewModelTests : IDisposable
         var obj = (ObjectViewModel)Navigator.Current;
         await obj.LoadTask;
 
-        obj.ReferencesTab = 2;
+        obj.ReferencesView = ObjectReferenceTabs.Retention;
         await obj.RetentionTask;
-        obj.ReferencesTab = 0;
-        obj.ReferencesTab = 2;
+        obj.ReferencesView = ObjectReferenceTabs.Outgoing;
+        obj.ReferencesView = ObjectReferenceTabs.Retention;
 
         _worker.Service.ObjectPathQueries.ShouldHaveSingleItem().Address.ShouldBe(0x1000UL);
         obj.RetentionStatus.ShouldBe(string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{1:N0} roots hold this object."));
@@ -319,7 +346,7 @@ public sealed class NavigatorViewModelTests : IDisposable
         var obj = (ObjectViewModel)Navigator.Current;
         await obj.LoadTask;
 
-        obj.ReferencesTab = 2;
+        obj.ReferencesView = ObjectReferenceTabs.Retention;
         await obj.RetainedTask;
 
         _worker.Service.RetainedQueries.ShouldHaveSingleItem().Address.ShouldBe(0x1000UL);
@@ -338,7 +365,7 @@ public sealed class NavigatorViewModelTests : IDisposable
         var obj = (ObjectViewModel)Navigator.Current;
         await obj.LoadTask;
 
-        obj.ReferencesTab = 2;
+        obj.ReferencesView = ObjectReferenceTabs.Retention;
         await obj.RetainedTask;
 
         obj.RetainedSummary.ShouldBe("Retains nothing. No root reaches it: it is garbage.");
@@ -355,7 +382,7 @@ public sealed class NavigatorViewModelTests : IDisposable
         await failing.LoadTask;
         _worker.Service.ObjectPathsFailure = new HeapScope.Application.Workers.WorkerOperationException(HeapScopeErrorCode.InsufficientMemory, "Not enough memory.", null);
 
-        failing.ReferencesTab = 2;
+        failing.ReferencesView = ObjectReferenceTabs.Retention;
         await failing.RetentionTask;
 
         failing.RetentionStatus.ShouldBe("Not enough memory.");
@@ -378,7 +405,7 @@ public sealed class NavigatorViewModelTests : IDisposable
         var obj = (ObjectViewModel)Navigator.Current;
         await obj.LoadTask;
 
-        obj.ReferencesTab = 2;
+        obj.ReferencesView = ObjectReferenceTabs.Retention;
         await obj.RetentionTask;
 
         var holders = obj.RetentionTree.ShouldHaveSingleItem().Children;

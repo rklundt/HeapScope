@@ -83,7 +83,7 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     public Task QueryTask { get; private set; } = Task.CompletedTask;
 
     /// <summary>Opens a row as a new subject (double-click or Enter); set by whoever hosts the grid.</summary>
-    public System.Windows.Input.ICommand? OpenRowCommand { get; set; }
+    public System.Windows.Input.ICommand? OpenRowCommand { get; protected set; }
 
     /// <summary>
     /// The sorted column's <c>SortMemberPath</c> and direction ("Bytes|desc"); the grid shows its header arrow from this,
@@ -135,6 +135,14 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
         Totals = null;
         Status = null;
         OnCleared();
+    }
+
+    /// <summary>
+    /// Runs once a query's rows are bound (sprint 2.4 review): what must refer to the new rows, such as selecting one,
+    /// happens here, not in the query's apply step, which runs while the old rows are still shown.
+    /// </summary>
+    protected virtual void OnRowsApplied()
+    {
     }
 
     /// <summary>Clears results specific to the grid (bars, explanations).</summary>
@@ -228,6 +236,7 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
             Rows.Cancel();
             Rows = rows;
             Status = query.Handle.Info.TotalCount == 0 ? EmptyText : null;
+            OnRowsApplied();
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
