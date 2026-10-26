@@ -1669,23 +1669,23 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 **Dependencies**: 2.3.
 
 **Task breakdown**
-1. [ ] Portability survey: every Windows-only call outside the UI (capture's process discovery, elevation and disk space
+1. [x] Portability survey: every Windows-only call outside the UI (capture's process discovery, elevation and disk space
    checks; the memory status calls, already guarded), the worker's path, the pipe (already current-user only on every
    system), the DAC locator's local-path rules on Linux and macOS. Written into the ADR.
-2. [ ] CI on GitHub's hosted runners (`.github/workflows/ci.yml`): Windows builds the solution and runs the fast tests;
+2. [x] CI on GitHub's hosted runners (`.github/workflows/ci.yml`): Windows builds the solution and runs the fast tests;
    Linux (ubuntu-latest) and macOS (macos-latest, informational: an arm64 runner) build the engine, the worker and the
    CLI, run the engine's unit tests, start LeakyConsole, take a core dump of it with `dotnet-dump` (installed on the
    runner only), and run `heapscope-cli summary`, `instances --retained` and `paths` on it. Tests: the workflow passes on
    the sprint PR (Linux required, macOS reported).
-3. [ ] Small portability fixes the CI run asks for (the worker's executable name off Windows, the DAC locator's path
+3. [x] Small portability fixes the CI run asks for (the worker's executable name off Windows, the DAC locator's path
    rules, capture refusing clearly where it is Windows-only). Tests: unit tests for each; the CI run.
-4. [ ] Avalonia prototype (`spikes/AvaloniaGrid`, outside `HeapScope.sln`, not shipped): one window that opens a dump
+4. [x] Avalonia prototype (`spikes/AvaloniaGrid`, outside `HeapScope.sln`, not shipped): one window that opens a dump
    through the real `SnapshotSession` and shows the types grid and a type's objects with the existing data-virtualized
    row lists, sorting and the filter, on MIT packages only. Measured on the Small dump: first show, scrolling 1.5 million
    rows, the longest UI-thread block. Licenses of every package checked.
-5. [ ] Decision: ADR-025 (UI platform: Avalonia, amends ADR-001; the rule for Avalonia updates) and ADR-026 (sharing: an
+5. [x] Decision: ADR-025 (UI platform: Avalonia, amends ADR-001; the rule for Avalonia updates) and ADR-026 (sharing: an
    exported analysis, analysis only by default); Phase 2 re-planned with a port sprint before 2.4.
-6. [ ] Docs: ARCHITECTURE (ADRs, 12 privacy for exports), DEVELOPER (CI, the prototype), CLAUDE.md (the Avalonia update
+6. [x] Docs: ARCHITECTURE (ADRs, 12 privacy for exports), DEVELOPER (CI, the prototype), CLAUDE.md (the Avalonia update
    rule), SPRINTS.
 
 **Decisions** (the product owner answered on 2026-10-25; the rest decided autonomously, marked so)

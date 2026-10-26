@@ -1570,7 +1570,9 @@ sprint 0.1.
   - Changes it needed: the worker's executable has no `.exe` off Windows (`WorkerHostOptions.WorkerExecutableName`);
     the DAC is `libmscordaccore.so` on Linux and `libmscordaccore.dylib` on macOS, matched to the dump by the ELF GNU
     build id or the Mach-O UUID (`ImageIdentity`; ClrMD's own ELF reader is internal), still local paths only
-    (ADR-017); module paths recorded on another system are split on both separators (`RecordedPath`); Linux and macOS
+    (ADR-017). A Linux dump can archive the DAC under `libcoreclr.so`'s build id, or list no DAC at all; the DAC is
+    then taken from the folder whose `libcoreclr.so` has the dumped runtime's build id; ClrMD read that runtime's version as 0.0, so its version check is skipped for a DAC
+    matched by build id, and the folder name gives the version shown; module paths recorded on another system are split on both separators (`RecordedPath`); Linux and macOS
     core files are recognized as full dumps (`SnapshotFileSignature.IsCoreFile`) and have no minidump header, so their
     capture time is the file's write time.
   - Already portable: the pipe (`PipeOptions.CurrentUserOnly` on every system), the worker's below-normal priority, the
@@ -1601,8 +1603,9 @@ sprint 0.1.
   - ADR-001's "no macOS or Linux UI" no longer holds; .NET 10 stays, and the worker, CLI and engine run everywhere.
   - ADR-019 (the UI process is never power-throttled) and the UI.Wpf-specific parts of DEVELOPER.md change with the
     port; the smoke and UI tests move to Avalonia's headless test platform.
-  - macOS was tested on an arm64 runner built `AnyCPU`: informational until macOS ships; packaging and signing for Linux
-    and macOS are backlog items.
+  - macOS was tested on an arm64 runner built `AnyCPU`: the CLI read a macOS core dump of LeakyConsole there (summary,
+    retained sizes, retention paths with the expected static field root). The job stays informational until macOS ships;
+    packaging and signing for Linux and macOS are backlog items.
   - Every 2.x UI feature after the port is built once, in Avalonia.
 
 ### ADR-026 Sharing results: an exported analysis, analysis only by default (added in sprint 2.3.5)
