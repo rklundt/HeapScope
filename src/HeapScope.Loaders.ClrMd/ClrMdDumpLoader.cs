@@ -44,19 +44,20 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
 
     private readonly ClrMdLoaderOptions _options = options ?? new ClrMdLoaderOptions();
 
-    /// <summary>Loads <paramref name="dumpPath"/>; the caller owns the returned graph.</summary>
-    /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
-    /// <exception cref="SnapshotFormatException">The file is not a readable .NET dump.</exception>
     /// <summary>
-    /// 2 since sprint 1.8: truncated dumps lose CompleteGraph and ExactCounts, finalizer registrations are a fact. Caches
-    /// written before (version 0) are rebuilt.
+    /// 2 since sprint 1.8: truncated dumps lose CompleteGraph and ExactCounts, finalizer registrations are a fact. 3 since
+    /// sprint 2.3.5: core files get their own truncation check and the runtime version ClrMD reads as 0.0 is named by the
+    /// runtime's folder. Caches written before are rebuilt.
     /// </summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     public SnapshotKind Kind => SnapshotKind.FullDump;
 
     public int Version => CurrentVersion;
 
+    /// <summary>Loads <paramref name="dumpPath"/>; the caller owns the returned graph.</summary>
+    /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
+    /// <exception cref="SnapshotFormatException">The file is not a readable .NET dump.</exception>
     public LoadResult Load(string dumpPath, IProgress<LoadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(dumpPath);
@@ -68,8 +69,8 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
 
         var stopwatch = Stopwatch.StartNew();
         progress?.Report(new LoadProgress("Opening dump", 0, null));
-        // A Linux or macOS core file (sprint 2.3.5) has no minidump header: its capture time is the file's write time, and
-        // the minidump's truncation checks do not apply.
+        // A Linux or macOS core file (sprint 2.3.5) has no minidump header: its capture time is the file's write time (a
+        // load note says so), and its truncation check reads its own headers (CoreFileHeader).
         var minidump = IsMinidump(fullPath);
         MinidumpHeader? header = minidump ? MinidumpHeader.Read(fullPath) : null;
         using var target = ClrMdDump.OpenDataTarget(fullPath, _options);
@@ -129,14 +130,15 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             fullPath,
             ProcessName(target),
             ProcessId(target),
-            clr.Version.ToString(),
+            DacLocator.RuntimeVersion(clr.Version, Path.GetDirectoryName(clr.ModuleInfo.FileName)),
             target.DataReader.PointerSize,
             header is { } h ? h.CapturedAtUtc : new DateTimeOffset(File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero),
             freeBytes,
-            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations);
+            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations
+                | (header is null ? SnapshotFacts.CaptureTimeFromFile : SnapshotFacts.None));
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
-        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump && MinidumpHeader.IsTruncated(fullPath))
+        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump ? MinidumpHeader.IsTruncated(fullPath) : CoreFileHeader.IsTruncated(fullPath))
             ? SnapshotCapabilities.FullDump & ~(SnapshotCapabilities.CompleteGraph | SnapshotCapabilities.ExactCounts)
             : SnapshotCapabilities.FullDump;
         return new LoadResult(

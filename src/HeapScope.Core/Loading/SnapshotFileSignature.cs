@@ -79,14 +79,15 @@ public static class SnapshotFileSignature
     public static bool IsMinidump(ReadOnlySpan<byte> start) => start.StartsWith(s_minidump);
 
     /// <summary>
-    /// True for a core file of a Linux process (ELF, type ET_CORE) or a macOS one (64-bit Mach-O, type MH_CORE), which
+    /// True for a core file of a Linux process (64-bit little-endian ELF, type ET_CORE) or a macOS one (64-bit Mach-O, type MH_CORE), which
     /// <c>dotnet-dump</c> and <c>createdump</c> write there (sprint 2.3.5).
     /// </summary>
     public static bool IsCoreFile(ReadOnlySpan<byte> start)
     {
         const ushort ElfCore = 4;
         const uint MachOCore = 4;
-        if (start.Length >= 18 && start[0] == 0x7F && start[1] == (byte)'E' && start[2] == (byte)'L' && start[3] == (byte)'F')
+        if (start.Length >= 18 && start[0] == 0x7F && start[1] == (byte)'E' && start[2] == (byte)'L' && start[3] == (byte)'F'
+            && start[4] == 2 && start[5] == 1)
         {
             return BinaryPrimitives.ReadUInt16LittleEndian(start[16..]) == ElfCore;
         }

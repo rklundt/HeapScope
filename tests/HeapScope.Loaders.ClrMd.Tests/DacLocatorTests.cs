@@ -158,6 +158,17 @@ public sealed class DacLocatorTests : IDisposable
         exception.RuntimeVersion.ShouldBe("8.0.11");
     }
 
+    [Fact]
+    public void Missing_component_message_leads_with_the_hint_and_never_names_an_unknown_version()
+    {
+        // Sprint 2.3.5 review: a dump of another system needs HeapScope there; ClrMD reads some versions as 0.0.
+        var exception = new RuntimeComponentMissingException("0.0", "libmscordaccore.so", [], "This dump comes from Linux.");
+
+        exception.Message.ShouldContain("whose version it does not record");
+        exception.Message.ShouldNotContain(".NET 0.0");
+        exception.Message.ShouldContain("This dump comes from Linux. Install that runtime");
+    }
+
     public void Dispose()
     {
         try

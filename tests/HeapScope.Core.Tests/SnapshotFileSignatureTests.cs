@@ -62,6 +62,18 @@ public sealed class SnapshotFileSignatureTests : IDisposable
     }
 
     [Fact]
+    public void A_32_bit_or_big_endian_elf_core_and_a_short_header_are_not_dumps()
+    {
+        var start = ElfStart(type: 4);
+        start[4] = 1;
+        SnapshotFileSignature.IsCoreFile(start).ShouldBeFalse("HeapScope reads 64-bit dumps");
+        start[4] = 2;
+        start[5] = 2;
+        SnapshotFileSignature.IsCoreFile(start).ShouldBeFalse("a big-endian core");
+        SnapshotFileSignature.IsCoreFile(ElfStart(type: 4)[..17]).ShouldBeFalse("too short to hold e_type");
+    }
+
+    [Fact]
     public void Only_a_minidump_is_a_minidump() =>
         SnapshotFileSignature.IsMinidump([.. "MDMP"u8, 0x93, 0xA7]).ShouldBeTrue();
 

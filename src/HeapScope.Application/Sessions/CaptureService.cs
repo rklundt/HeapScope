@@ -94,8 +94,15 @@ public sealed class CaptureService : ICaptureService
 
     public async Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken)
     {
-        var processes = await Task.Run(() => _discovery.List(cancellationToken), cancellationToken).ConfigureAwait(false);
-        return [.. processes.Select(ToEntry)];
+        try
+        {
+            var processes = await Task.Run(() => _discovery.List(cancellationToken), cancellationToken).ConfigureAwait(false);
+            return [.. processes.Select(ToEntry)];
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            throw Failure(CaptureFailure.NotSupportedOnThisSystem, ex.Message, ex);
+        }
     }
 
     /// <summary>
@@ -118,7 +125,18 @@ public sealed class CaptureService : ICaptureService
         {
             var stopwatch = Stopwatch.StartNew();
             progress.Report(new JobProgress("Finding process", 0, null));
-            var process = await Task.Run(() => _discovery.Find(processId), ct).ConfigureAwait(false)
+            DotNetProcess? found;
+            try
+            {
+                found = await Task.Run(() => _discovery.Find(processId), ct).ConfigureAwait(false);
+            }
+            catch (PlatformNotSupportedException ex)
+            {
+                // Sprint 2.3.5 review: the refusal off Windows is a capture failure like any other.
+                throw Failure(CaptureFailure.NotSupportedOnThisSystem, ex.Message, ex);
+            }
+
+            var process = found
                 ?? throw Failure(CaptureFailure.ProcessNotFound, string.Create(CultureInfo.InvariantCulture, $"No running .NET process with id {processId} was found (or it has no diagnostics port)."), null);
 
             string? path = null;
@@ -292,6 +310,7 @@ public sealed class CaptureService : ICaptureService
         TargetUnavailableException => Failure(CaptureFailure.TargetExited, ex.Message, ex),
         DumpFileExistsException => Failure(CaptureFailure.FileExists, ex.Message, ex),
         DumpWriteFailedException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
+        PlatformNotSupportedException => Failure(CaptureFailure.NotSupportedOnThisSystem, ex.Message, ex),
         IOException or UnauthorizedAccessException => Failure(CaptureFailure.WriteFailed, $"The dump could not be written: {ex.Message}", ex),
         ArgumentException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         OperationCanceledException => null,

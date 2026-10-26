@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Buffers.Binary;
+using System.Text;
 
 namespace HeapScope.Loaders.ClrMd;
 
@@ -41,6 +42,62 @@ public static class ImageIdentity
     private const int MaxProgramHeaders = 256;
     private const int MaxNoteBytes = 1 << 16;
     private const int MaxLoadCommands = 4096;
+
+    /// <summary>
+    /// The version string every CoreCLR native binary embeds after <c>@(#)Version </c> (for example
+    /// <c>10.0.1426.52326 @Commit: ...</c>), or null. Two binaries with the same string come from the same runtime build
+    /// (sprint 2.3.5 review M1: a DAC paired with its runtime library is checked this way outside installed runtimes).
+    /// </summary>
+    public static string? ReadVersionString(string path)
+    {
+        ReadOnlySpan<byte> marker = "@(#)Version "u8;
+        const int Chunk = 1 << 20;
+        const int MaxLength = 256;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan);
+            var buffer = new byte[Chunk + MaxLength + marker.Length];
+            var kept = 0;
+            while (true)
+            {
+                var read = stream.ReadAtLeast(buffer.AsSpan(kept, Chunk), Chunk, throwOnEndOfStream: false);
+                var filled = kept + read;
+                var span = buffer.AsSpan(0, filled);
+                var at = span.IndexOf(marker);
+                if (at >= 0)
+                {
+                    var rest = span[(at + marker.Length)..];
+                    var end = rest[..Math.Min(rest.Length, MaxLength)].IndexOf((byte)0);
+                    if (end >= 0)
+                    {
+                        return Encoding.ASCII.GetString(rest[..end]).Trim();
+                    }
+
+                    if (read < Chunk || rest.Length >= MaxLength)
+                    {
+                        return null;
+                    }
+
+                    // The string continues in the next chunk: keep it from the marker on.
+                    kept = filled - at;
+                    buffer.AsSpan(at, kept).CopyTo(buffer);
+                    continue;
+                }
+
+                if (read < Chunk)
+                {
+                    return null;
+                }
+
+                kept = marker.Length - 1;
+                buffer.AsSpan(filled - kept, kept).CopyTo(buffer);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>The image's build id (ELF) or UUID (Mach-O); null when the file is neither or has none.</summary>
     public static byte[]? Read(string path)

@@ -86,8 +86,8 @@ public sealed class ImageIdentityTests : IDisposable
         foreach (var (folder, id) in new[] { (other, s_id[..^1]), (exact, s_id) })
         {
             Directory.CreateDirectory(folder);
-            File.WriteAllBytes(Path.Combine(folder, "libcoreclr.so"), Elf(id));
-            File.WriteAllBytes(Path.Combine(folder, "libmscordaccore.so"), Elf([9, 9, 9, 9]));
+            File.WriteAllBytes(Path.Combine(folder, "libcoreclr.so"), [.. Elf(id), .. VersionMarker("10.0.1426.52326 @Commit: abc")]);
+            File.WriteAllBytes(Path.Combine(folder, "libmscordaccore.so"), [.. Elf([9, 9, 9, 9]), .. VersionMarker("10.0.1426.52326 @Commit: abc")]);
         }
 
         var request = new DacRequest("libmscordaccore.so", 0, 0, "10.0.14", null, s_id, BuildIdOfRuntime: "libcoreclr.so");
@@ -96,10 +96,40 @@ public sealed class ImageIdentityTests : IDisposable
             .ShouldBeNull("the DAC's own build id differs from the runtime's");
     }
 
+    [Fact]
+    public void A_dac_paired_with_its_runtime_outside_installed_runtimes_needs_the_same_version_string()
+    {
+        // Review M1: a folder filled by hand can hold the right runtime library next to another build's DAC.
+        var folder = Path.Combine(_folder, "dacs");
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "libcoreclr.so"), [.. Elf(s_id), .. VersionMarker("10.0.1426.52326 @Commit: abc")]);
+        File.WriteAllBytes(Path.Combine(folder, "libmscordaccore.so"), [.. Elf([9, 9, 9, 9]), .. VersionMarker("10.0.1326.50504 @Commit: def")]);
+        var request = new DacRequest("libmscordaccore.so", 0, 0, "10.0.14", null, s_id, BuildIdOfRuntime: "libcoreclr.so");
+
+        DacLocator.Find(request, [folder], out _).ShouldBeNull("the DAC comes from another build");
+        DacLocator.Find(request, [folder], out _, installedRoots: [_folder])
+            .ShouldBe(Path.Combine(folder, "libmscordaccore.so"), "an installed runtime folder ships the pair together");
+    }
+
+    [Fact]
+    public void The_embedded_version_string_is_read_across_chunks_and_missing_strings_give_null()
+    {
+        // The marker split by the first chunk's end, then the marker whole and the text split.
+        foreach (var before in new[] { (1 << 20) - 5, (1 << 20) - 16 })
+        {
+            ImageIdentity.ReadVersionString(Write($"split{before}.so", [.. new byte[before], .. VersionMarker("10.0.1426.52326 @Commit: abc")]))
+                .ShouldBe("10.0.1426.52326 @Commit: abc");
+        }
+
+        ImageIdentity.ReadVersionString(Write("none.so", Elf(s_id))).ShouldBeNull();
+        ImageIdentity.ReadVersionString(Write("unterminated.so", [.. "@(#)Version 10.0"u8])).ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("10.0.1326.50504", "/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.13", "10.0.1326.50504")]
     [InlineData("0.0", "/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.14", "10.0.14")]
     [InlineData("0.0", "/opt/app", "0.0")]
+    [InlineData("0.0", "/usr/share/dotnet/shared/Microsoft.NETCore.App/11.0.0-rc.2.26502.107", "11.0.0")]
     [InlineData("0.0", null, "0.0")]
     public void A_runtime_version_missing_from_a_core_file_is_named_by_its_folder(string read, string? directory, string expected) =>
         DacLocator.RuntimeVersion(Version.Parse(read), directory).ShouldBe(expected);
@@ -146,6 +176,9 @@ public sealed class ImageIdentityTests : IDisposable
         notes.CopyTo(image, noteOffset);
         return image;
     }
+
+    // The version string CoreCLR's native binaries embed, NUL terminated.
+    private static byte[] VersionMarker(string text) => [.. "@(#)Version "u8, .. System.Text.Encoding.ASCII.GetBytes(text), 0];
 
     private static byte[] Note(byte[] name, uint type, byte[] descriptor)
     {

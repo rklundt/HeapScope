@@ -37,9 +37,14 @@ internal sealed class LocalOnlyFileLocator : IFileLocator
     public static LocalOnlyFileLocator Instance { get; } = new();
 
     public string? FindPEImage(string fileName, int buildTimeStamp, int imageSize, bool checkProperties) =>
-        DacLocator.IsLocalFixedPath(fileName) && File.Exists(fileName) && DacLocator.Matches(fileName, buildTimeStamp, imageSize) ? fileName : null;
+        DacLocator.IsReadableImage(fileName) && DacLocator.Matches(fileName, buildTimeStamp, imageSize) ? fileName : null;
 
-    /// <summary>A Linux or macOS image at its recorded local path whose build id or UUID matches (sprint 2.3.5).</summary>
+    /// <summary>
+    /// A Linux or macOS image at its recorded local path whose own build id or UUID matches (sprint 2.3.5). An image
+    /// archived under another binary's identity (<see cref="SymbolProperties.Coreclr"/>) is not looked for here: the DAC is
+    /// found by <see cref="DacLocator"/>, which checks the pair.
+    /// </summary>
     public string? FindPEImage(string fileName, SymbolProperties archivedUnder, ImmutableArray<byte> buildIdOrUUID, OSPlatform originalPlatform, bool checkProperties) =>
-        !buildIdOrUUID.IsDefaultOrEmpty && DacLocator.IsLocalFixedPath(fileName) && File.Exists(fileName) && ImageIdentity.Matches(fileName, buildIdOrUUID.AsSpan()) ? fileName : null;
+        archivedUnder != SymbolProperties.Coreclr && !buildIdOrUUID.IsDefaultOrEmpty && DacLocator.IsReadableImage(fileName)
+            && ImageIdentity.Matches(fileName, buildIdOrUUID.AsSpan()) ? fileName : null;
 }
