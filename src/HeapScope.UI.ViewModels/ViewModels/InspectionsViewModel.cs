@@ -174,8 +174,9 @@ public sealed partial class InspectionsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isActive;
 
-    public InspectionsViewModel(SnapshotSession session, ILogger? logger = null)
+    public InspectionsViewModel(SnapshotSession session, ILogger? logger = null, INavigator? navigator = null)
     {
+        _navigator = navigator;
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _logger = logger ?? NullLogger.Instance;
     }
@@ -191,8 +192,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
     /// <summary>The run in progress (tests and smoke runs await it).</summary>
     public Task RunTask { get; private set; } = Task.CompletedTask;
 
-    /// <summary>Opens a row's objects; set by the Snapshots page.</summary>
-    public Action<SnapshotHandle, InspectionTarget>? Open { get; set; }
+    // Where a row leads: the Snapshots page, which picks the tab (2.3.7 review M8).
+    private readonly INavigator? _navigator;
 
     /// <summary>Shows <paramref name="snapshot"/>'s inspections (null clears); they run when the tab is active.</summary>
     public void Show(SnapshotHandle? snapshot)
@@ -250,7 +251,10 @@ public sealed partial class InspectionsViewModel : ObservableObject
             return;
         }
 
-        Open?.Invoke(snapshot, target);
+        // The objects of its type in its scope, or its object, on the Snapshot tab.
+        _navigator?.Navigate(target.TypeName is { } typeName
+            ? NavigationTarget.Instances(snapshot, typeName, target.Module, target.Scope, target.Address)
+            : NavigationTarget.Object(snapshot, target.Address));
     }
 
     /// <summary>What a row opens: its hidden type, module and scope, or its address alone (ADR-020).</summary>

@@ -28,7 +28,7 @@ everything else.
 | 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
 | 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
-| 2.4 | Retention explorer UI | Planned | | |
+| 2.4 | Retention explorer UI | In Progress | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
 | 2.7 | Navigation and polish | Planned | | |
@@ -2010,7 +2010,60 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 
 **Dependencies**: 2.2, 2.3, 2.3.6.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [x] Navigation first (2.3.7 M8): a `NavigationTarget` (snapshot, type key with scope, object, dominator node, diff
+   row) and one `Navigate(target)` on the Snapshots view model that picks the tab; `INavigationSubject` with a typed trail
+   (no `List<object>`, no reflection binding); `SnapshotTabs` and `ReferenceTabs` enums instead of numbers; the navigator
+   passed to grid view models by constructor; `SnapshotTab.axaml` split into a view per subject. Tests: the existing
+   navigator and view tests; a navigation target per kind lands on its tab and subject.
+2. [ ] Dominator children (2.3.7 M9, ADR-027): the dominator tree's children as a CSR sorted by retained size
+   (`DominatorTree.BuildChildren`), stored as two more sections of the dominators sidecar (semantics version 2, so older
+   sidecars rebuild once) and in memory without one; kept bytes 12 to 20 per object; ARCHITECTURE 6.4 updated. Tests:
+   children order and coverage on synthetic graphs; sidecar round trip; an old sidecar is refused.
+3. [ ] Dominator tree query (worker, protocol 12): a flattened, paged tree from the virtual root or a focus object,
+   expanded nodes by key, children as objects or grouped by type or namespace (siblings' retained sizes are disjoint, so
+   group sums are exact), at most 100 children per node plus a "more" row, rows with key, parent key, depth, kind, name,
+   module, address, objects, retained, shallow bytes, share of the heap and child count. Biggest retainers are the root
+   level. Tests: flattening, grouping sums, the "more" row, keys stable across re-runs.
+4. [ ] Exactness on the wire (2.3.7 M7): `ResultColumn.Bound` (exact or lower bound) set by the worker, with the
+   texts in Contracts; the CLI and the view models render from it. Tests: the type summary's retained column is a lower
+   bound, the instances' and the tree's exact.
+5. [ ] Exact retention of a set: "objects retained by this set" for a type (or a scope) by a reachability pass from the
+   roots that skips the set; totals (exact) next to the group's lower bound, and the retained objects by type as a grid.
+   Tests: synthetic graphs with shared and exclusive children; the known answers' leaks.
+6. [ ] Icicle chart query and control: the top levels below a focus with segments of at least 0.1 percent; click
+   selects and highlights the path in the tree, double-click focuses. Tests: layout widths and the threshold; the control
+   builds headless.
+7. [ ] Retainers view (UI): a Retainers tab with the biggest retainers, the dominator tree grid (indentation, expand and
+   collapse with a click, Enter, Right and Left keys), grouping and the icicle; cross-links: type rows, diff rows and
+   inspection rows open "show in dominator tree" and "objects retained by this set"; a tree node opens its object,
+   its type's instances and its retention paths. Grid pieces from 2.3.7 M13 and M14: `VisibleColumnGroups`, a generic
+   cell row, a note text control and a type grid toolbar. Tests: headless views bind cleanly; view model tests for
+   expand, group, focus and the links.
+8. [ ] CLI: `retainers <dump>` (biggest retainers, `--group`, `--depth`, `--top`, `--format table|json|csv`) and
+   `retained-by <dump> <type>` (exact set retention). Tests: CLI integration on the fixture dump.
+9. [ ] Acceptance and smoke: an integration test proves every LeakyConsole leak in the known answers is reachable from
+   the biggest retainers in three clicks or fewer (open the row, expand, see the growing collection or its items); the
+   smoke drill opens the Retainers tab, expands and focuses, checked against the budget. Typed fake rows in the view
+   model tests (2.3.7 M15 rest).
+10. [ ] Docs: ARCHITECTURE (6.4, 4.4 protocol 12, the retention explorer, ADR-027), DEVELOPER (CLI commands), README,
+    CLAUDE.md, SPRINTS.
+
+**Decisions** (decided autonomously from the recommended defaults)
+1. The children of the dominator tree are stored, not scanned per expand: a scan reads every object's dominator
+   (57.5 million on Medium) per click; stored children cost 8 bytes per object once and make an expand a slice read.
+   They live in the dominators sidecar (new sections, semantics version 2), so existing sidecars are rebuilt once.
+2. Tree rows are keyed by address (objects) and by parent key plus group name (groups), so a re-run after a worker
+   restart keeps the expansion; at most 100 children per node with a "more" row that expands by 100, and at most
+   50,000 rows per answer.
+3. Biggest retainers are the top-level dominators (the virtual root's children), by object or grouped by type; static
+   field values are top-level dominators, so each leak's collection appears there directly.
+4. Group rows sum their members' retained sizes exactly: siblings in the dominator tree retain disjoint sets.
+5. Exact set retention is computed per request (a reachability pass, one bit per object plus a stack), never stored.
+6. The icicle chart replaces the sunburst (research doc 7); it shows six levels below the focus by default.
+7. Exactness travels as a column attribute (`ResultColumn.Bound`), not per row.
+8. Protocol 12.
+9. The Retainers view gets its own tab on the snapshot, next to Types, Compare and Inspections.
 
 **Review summary**: to be filled by /wrap-sprint.
 

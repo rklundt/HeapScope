@@ -234,7 +234,7 @@ public sealed class CompareViewModelTests : IDisposable
         {
             Compare.Filter = name;
             await WaitUntilAsync(() => Compare.Rows.Count == 1 && Compare.Rows.GetRow(0) is { IsLoaded: true } row && row.Name == name);
-            _snapshots.OpenCompareRowCommand.Execute(Compare.Rows.GetRow(0));
+            Compare.OpenRowCommand!.Execute(Compare.Rows.GetRow(0));
         }
 
         _worker.Service.InstanceQueries.Select(q => (q.TypeName, q.SnapshotId)).ShouldBe(

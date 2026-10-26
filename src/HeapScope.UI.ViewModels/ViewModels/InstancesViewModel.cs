@@ -23,6 +23,7 @@
 
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -87,7 +88,7 @@ public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow
 /// The objects of a type (sprint 1.5, dotMemory's instances view): sortable by any column, filtered by address prefix
 /// (<c>0x...</c>), regular expression (<c>/.../</c>) or text in the value; opened from a type or compare row.
 /// </summary>
-public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowItem>
+public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowItem>, INavigationSubject
 {
     private readonly SnapshotSession _session;
 
@@ -109,13 +110,13 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     private bool _started;
     private bool _retainedOffQuietly;
 
-    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null)
-        : this(session, snapshot, typeName, module, InstanceScope.All, 0, dispatcher, logger)
+    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
+        : this(session, snapshot, typeName, module, InstanceScope.All, 0, dispatcher, logger, navigator)
     {
     }
 
     /// <summary>The objects of a type within a scope (sprint 1.6: what an inspection row opens).</summary>
-    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, IUiDispatcher dispatcher, ILogger? logger = null)
+    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
         : base(InstanceColumns.Bytes, dispatcher, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
@@ -124,6 +125,21 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
         Module = module;
         Scope = scope;
         SameValueAs = sameValueAs;
+
+        // The links of this subject (2.3.7 review M8: built here from the navigator, not set from outside).
+        OpenRowCommand = new RelayCommand<InstanceRowItem?>(row =>
+        {
+            if (row is { IsLoaded: true, Address: not 0 })
+            {
+                navigator?.Navigate(NavigationTarget.Object(Snapshot, row.Address));
+            }
+        });
+        ReferencedByCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.TypeReferrers(Snapshot, TypeName, Module)));
+
+        // Why alive and the retained set explain all objects of a type, so a scoped list (review L12: equal strings, LOH)
+        // does not offer them.
+        WhyAliveCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.TypePaths(Snapshot, TypeName, Module)), () => Scope == InstanceScope.All);
+        RetainedBySetCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.RetainedBySet(Snapshot, TypeName, Module)), () => Scope == InstanceScope.All);
     }
 
     public SnapshotHandle Snapshot { get; }
@@ -152,11 +168,14 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     protected override string EmptyText => string.IsNullOrWhiteSpace(Filter) ? "No objects of this type." : "No object matches the filter.";
 
-    /// <summary>Opens who references this type's objects (sprint 2.1); set by the navigator.</summary>
-    public System.Windows.Input.ICommand? ReferencedByCommand { get; set; }
+    /// <summary>Opens who references this type's objects (sprint 2.1).</summary>
+    public System.Windows.Input.ICommand ReferencedByCommand { get; }
 
-    /// <summary>Opens why this type's objects are alive (sprint 2.2); set by the navigator.</summary>
-    public System.Windows.Input.ICommand? WhyAliveCommand { get; set; }
+    /// <summary>Opens why this type's objects are alive (sprint 2.2).</summary>
+    public System.Windows.Input.ICommand WhyAliveCommand { get; }
+
+    /// <summary>Opens what this type's objects retain together, exactly (sprint 2.4).</summary>
+    public System.Windows.Input.ICommand RetainedBySetCommand { get; }
 
     /// <summary>Runs the first query (after the navigator wires the drill-down command).</summary>
     public void Start()

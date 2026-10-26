@@ -1,0 +1,68 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- A type's objects (sprint 1.5), with its referrers, why alive and what it retains. Split from the Snapshot tab in sprint 2.4 (2.3.7 review M8). -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             x:Class="HeapScope.UI.Views.Subjects.InstancesView"
+             x:DataType="vm:InstancesViewModel">
+  <DockPanel>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+      <Button DockPanel.Dock="Right" Content="Referenced by" Command="{Binding ReferencedByCommand}"
+              ToolTip.Tip="Which types' objects reference objects of this type" />
+      <Button DockPanel.Dock="Right" Content="Why alive" Margin="0,0,6,0" Command="{Binding WhyAliveCommand}"
+              ToolTip.Tip="The key retention paths: from which roots, through which objects, these objects are kept alive" />
+      <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+      <TextBox DockPanel.Dock="Left" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+               ToolTip.Tip="0x1f2a: address prefix. /pattern/: regular expression on the value. Anything else: text in the value (strings)." />
+      <CheckBox DockPanel.Dock="Left" Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+                IsChecked="{Binding ShowRetained, Mode=TwoWay}"
+                ToolTip.Tip="Show the bytes each object alone keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
+      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    </DockPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4"
+               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <TextBlock DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+               IsVisible="{Binding ValuesExplanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <TextBlock DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle"
+               IsVisible="{Binding RetainedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <DataGrid x:Name="InstancesGrid" CanUserSortColumns="True"
+              ctl:GridBehaviors.Rows="{Binding Rows}"
+              ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+              ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+              ctl:GridBehaviors.ShowRetained="{Binding RetainedColumnShown}"
+              ToolTip.Tip="Double-click or Enter opens an object.">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Address" x:DataType="vm:InstanceRowItem" Binding="{Binding AddressText}" Width="150" SortMemberPath="Address" CellStyleClasses="address" />
+        <DataGridTextColumn Header="Type" x:DataType="vm:InstanceRowItem" Binding="{Binding Type}" Width="*" SortMemberPath="Type" />
+        <DataGridTextColumn Header="Bytes" x:DataType="vm:InstanceRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="Bytes" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Retained" x:DataType="vm:InstanceRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="Retained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+        <DataGridTextColumn Header="Generation" x:DataType="vm:InstanceRowItem" Binding="{Binding Generation}" Width="120" SortMemberPath="Generation" />
+        <DataGridTextColumn Header="Value" x:DataType="vm:InstanceRowItem" Binding="{Binding Value}" Width="2*" SortMemberPath="Value" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

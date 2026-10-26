@@ -83,7 +83,7 @@ public abstract partial class GridQueryViewModel<TRow> : ObservableObject
     public Task QueryTask { get; private set; } = Task.CompletedTask;
 
     /// <summary>Opens a row as a new subject (double-click or Enter); set by whoever hosts the grid.</summary>
-    public System.Windows.Input.ICommand? OpenRowCommand { get; set; }
+    public System.Windows.Input.ICommand? OpenRowCommand { get; protected set; }
 
     /// <summary>
     /// The sorted column's <c>SortMemberPath</c> and direction ("Bytes|desc"); the grid shows its header arrow from this,

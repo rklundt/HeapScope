@@ -95,13 +95,13 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             Grid(window, "TypesGrid").IsEffectivelyVisible.ShouldBeTrue();
 
             var navigator = snapshots.Navigator;
-            navigator.OpenTypeRowCommand.Execute(snapshots.Types.Rows.GetRow(0));
+            snapshots.Types.OpenRowCommand!.Execute(snapshots.Types.Rows.GetRow(0));
             var instances = navigator.Current.ShouldBeOfType<InstancesViewModel>();
             await instances.QueryTask;
             await Settle(instances.Rows);
             Grid(window, "InstancesGrid").IsEffectivelyVisible.ShouldBeTrue();
 
-            navigator.OpenInstanceRowCommand.Execute(instances.Rows.GetRow(0));
+            instances.OpenRowCommand!.Execute(instances.Rows.GetRow(0));
             var obj = navigator.Current.ShouldBeOfType<ObjectViewModel>();
             await obj.LoadTask;
             await Settle(obj.ReferenceRows);

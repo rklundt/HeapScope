@@ -182,7 +182,7 @@ public sealed record HeapKindShare(HeapKindDto Kind, string Label, long Objects,
 /// The types grid of a snapshot (sprint 1.3, dotMemory's types view): grouping, type-to-filter (debounced) and sorting
 /// re-query the worker; rows are virtualized; generation columns show only when the snapshot has generations.
 /// </summary>
-public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem>
+public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem>, INavigationSubject
 {
     private readonly SnapshotSession _session;
     private SnapshotHandle? _snapshot;
@@ -225,14 +225,35 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     private bool _retainedOffQuietly;
 
-    public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ILogger<TypeSummaryViewModel>? logger = null)
-        : base(TypeSummaryColumns.Bytes, dispatcher, logger) => _session = session ?? throw new ArgumentNullException(nameof(session));
+    public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ILogger<TypeSummaryViewModel>? logger = null, INavigator? navigator = null)
+        : base(TypeSummaryColumns.Bytes, dispatcher, logger)
+    {
+        _session = session ?? throw new ArgumentNullException(nameof(session));
+        OpenRowCommand = new RelayCommand<TypeRowItem?>(row => OpenRow(row, navigator));
+    }
 
     /// <summary>The snapshot shown, if any.</summary>
     public SnapshotHandle? Snapshot => _snapshot;
 
     /// <summary>The navigation title of the root subject.</summary>
     public string Title => "Types";
+
+    // A type row opens its objects (sprint 1.5); grouped rows have no single type.
+    private void OpenRow(TypeRowItem? row, INavigator? navigator)
+    {
+        if (row is not { IsLoaded: true } || _snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        if (row.TypeName is null)
+        {
+            Status = "Group by type to open a row's objects.";
+            return;
+        }
+
+        navigator?.Navigate(NavigationTarget.Instances(snapshot, row.TypeName, row.Module));
+    }
 
     protected override bool CanQuery => _snapshot is not null;
 

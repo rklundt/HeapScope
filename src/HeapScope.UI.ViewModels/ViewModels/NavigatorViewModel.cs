@@ -30,11 +30,12 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.ViewModels;
 
 /// <summary>
-/// The Snapshot tab's subjects and history (sprint 1.5, dotMemory's drill-down): the types grid is the root; opening a
-/// type row shows its instances, opening an instance, a reference, a referrer or a field link shows that object; a type's
-/// instances open who references them (sprint 2.1), whose rows open the referrer type's instances. Back and Forward
-/// move through the history; opening something after going back drops the forward entries (their result sets are
-/// released). At most <see cref="MaxHistory"/> subjects are kept.
+/// The Snapshot tab's subjects and history (sprint 1.5, dotMemory's drill-down): the types grid is the root; links open
+/// instances, objects, a type's referrers (sprint 2.1) or its retention paths (sprint 2.2) as new subjects through
+/// <see cref="Navigate"/>. Back and Forward move through the history; opening something after going back drops the
+/// forward entries (their result sets are released). At most <see cref="MaxHistory"/> subjects are kept. Since sprint
+/// 2.4 (2.3.7 review M8) the history is typed (<see cref="INavigationSubject"/>) and the subjects follow their links
+/// through the <see cref="INavigator"/> they were built with.
 /// </summary>
 public sealed partial class NavigatorViewModel : ObservableObject
 {
@@ -42,21 +43,23 @@ public sealed partial class NavigatorViewModel : ObservableObject
     public const int MaxHistory = 30;
 
     private readonly SnapshotSession _session;
+    private readonly INavigator? _navigator;
     private readonly ILoggerFactory? _loggers;
-    private readonly List<object> _history = [];
+    private readonly List<INavigationSubject> _history = [];
     private int _position;
 
     [ObservableProperty]
-    private object _current;
+    private INavigationSubject _current;
 
-    public NavigatorViewModel(SnapshotSession session, TypeSummaryViewModel types, ILoggerFactory? loggers = null)
+    /// <param name="navigator">What the subjects' links go through: the Snapshots page, which picks the tab first.</param>
+    public NavigatorViewModel(SnapshotSession session, TypeSummaryViewModel types, INavigator? navigator = null, ILoggerFactory? loggers = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Types = types ?? throw new ArgumentNullException(nameof(types));
+        _navigator = navigator;
         _loggers = loggers;
         _history.Add(types);
         _current = types;
-        Types.OpenRowCommand = OpenTypeRowCommand;
     }
 
     /// <summary>The root subject: the types grid of the selected snapshot.</summary>
@@ -97,7 +100,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     private ObjectViewModel? _shownObject;
 
     /// <summary>The subjects from the root to the current one, for the breadcrumb.</summary>
-    public IReadOnlyList<object> Trail => _history.Take(_position + 1).ToList();
+    public IReadOnlyList<INavigationSubject> Trail => _history.Take(_position + 1).ToList();
 
     public bool CanGoBack => _position > 0;
 
@@ -108,7 +111,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     {
         foreach (var subject in _history.Skip(1))
         {
-            CloseSubject(subject);
+            subject.Close();
         }
 
         _history.RemoveRange(1, _history.Count - 1);
@@ -119,16 +122,27 @@ public sealed partial class NavigatorViewModel : ObservableObject
         Move(0);
     }
 
+    /// <summary>Opens a target of the Snapshot tab as a new subject; other targets are not this tab's and are ignored.</summary>
+    public INavigationSubject? Navigate(NavigationTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return target.Kind switch
+        {
+            NavigationKind.Object => OpenObject(target.Snapshot, target.Address),
+            NavigationKind.Instances when target.TypeName is { } typeName => OpenInstances(target.Snapshot, typeName, target.Module, target.Scope, target.SameValueAs),
+            NavigationKind.TypeReferrers when target.TypeName is { } typeName => OpenTypeReferrers(target.Snapshot, typeName, target.Module),
+            NavigationKind.TypePaths when target.TypeName is { } typeName => OpenTypePaths(target.Snapshot, typeName, target.Module),
+            _ => null,
+        };
+    }
+
     /// <summary>Shows the objects of a type in <paramref name="snapshot"/>, all of them or those in a scope (sprint 1.6).</summary>
     public InstancesViewModel OpenInstances(SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope = InstanceScope.All, ulong sameValueAs = 0)
     {
-        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, Types.UiDispatcher, _loggers?.CreateLogger<InstancesViewModel>())
+        var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, Types.UiDispatcher, _loggers?.CreateLogger<InstancesViewModel>(), _navigator)
         {
             ShowRetained = Types.ShowRetained,
         };
-        instances.OpenRowCommand = OpenInstanceRowCommand;
-        instances.ReferencedByCommand = OpenReferencedByCommand;
-        instances.WhyAliveCommand = OpenWhyAliveCommand;
         Push(instances);
         instances.Start();
         return instances;
@@ -137,8 +151,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Shows one object of <paramref name="snapshot"/>.</summary>
     public ObjectViewModel OpenObject(SnapshotHandle snapshot, ulong address)
     {
-        var obj = new ObjectViewModel(_session, snapshot, address, _loggers?.CreateLogger<ObjectViewModel>());
-        obj.OpenCommand = OpenObjectLinkCommand;
+        var obj = new ObjectViewModel(_session, snapshot, address, _loggers?.CreateLogger<ObjectViewModel>(), _navigator);
         Push(obj);
         obj.Start();
         return obj;
@@ -147,8 +160,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Shows who references the objects of a type in <paramref name="snapshot"/> (sprint 2.1).</summary>
     public TypeReferrersViewModel OpenTypeReferrers(SnapshotHandle snapshot, string typeName, string? module)
     {
-        var referrers = new TypeReferrersViewModel(_session, snapshot, typeName, module, Types.UiDispatcher, _loggers?.CreateLogger<TypeReferrersViewModel>());
-        referrers.OpenRowCommand = OpenTypeReferrerRowCommand;
+        var referrers = new TypeReferrersViewModel(_session, snapshot, typeName, module, Types.UiDispatcher, _loggers?.CreateLogger<TypeReferrersViewModel>(), _navigator);
         Push(referrers);
         referrers.Start();
         return referrers;
@@ -157,8 +169,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Shows why the objects of a type in <paramref name="snapshot"/> are alive (sprint 2.2).</summary>
     public TypePathsViewModel OpenTypePaths(SnapshotHandle snapshot, string typeName, string? module)
     {
-        var paths = new TypePathsViewModel(_session, snapshot, typeName, module, _loggers?.CreateLogger<TypePathsViewModel>());
-        paths.OpenRowCommand = OpenKeyPathCommand;
+        var paths = new TypePathsViewModel(_session, snapshot, typeName, module, _loggers?.CreateLogger<TypePathsViewModel>(), _navigator);
         Push(paths);
         paths.Start();
         return paths;
@@ -170,104 +181,19 @@ public sealed partial class NavigatorViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanGoForward))]
     private void Forward() => Move(_position + 1);
 
-    [RelayCommand]
-    private void OpenTypeRow(TypeRowItem? row)
-    {
-        if (row is not { IsLoaded: true } || Types.Snapshot is not { } snapshot)
-        {
-            return;
-        }
-
-        if (row.TypeName is null)
-        {
-            Types.Status = "Group by type to open a row's objects.";
-            return;
-        }
-
-        OpenInstances(snapshot, row.TypeName, row.Module);
-    }
-
-    [RelayCommand]
-    private void OpenInstanceRow(InstanceRowItem? row)
-    {
-        if (row is { IsLoaded: true, Address: not 0 } && Current is InstancesViewModel instances)
-        {
-            OpenObject(instances.Snapshot, row.Address);
-        }
-    }
-
-    [RelayCommand]
-    private void OpenReferencedBy()
-    {
-        if (Current is InstancesViewModel instances)
-        {
-            OpenTypeReferrers(instances.Snapshot, instances.TypeName, instances.Module);
-        }
-    }
-
-    /// <summary>Why alive explains all objects of a type, so a scoped list (review L12: equal strings, LOH) does not offer it.</summary>
-    private bool CanOpenWhyAlive() => Current is InstancesViewModel { Scope: InstanceScope.All };
-
-    [RelayCommand(CanExecute = nameof(CanOpenWhyAlive))]
-    private void OpenWhyAlive()
-    {
-        if (Current is InstancesViewModel instances)
-        {
-            OpenTypePaths(instances.Snapshot, instances.TypeName, instances.Module);
-        }
-    }
-
-    [RelayCommand]
-    private void OpenKeyPath(KeyPathItem? row)
-    {
-        if (row is { Address: not 0 } && Current is TypePathsViewModel paths)
-        {
-            OpenObject(paths.Snapshot, row.Address);
-        }
-    }
-
-    [RelayCommand]
-    private void OpenTypeReferrerRow(TypeReferrerRowItem? row)
-    {
-        if (row is { IsLoaded: true } && Current is TypeReferrersViewModel referrers)
-        {
-            OpenInstances(referrers.Snapshot, row.TypeName, row.Module);
-        }
-    }
-
-    [RelayCommand]
-    private void OpenObjectLink(object? link)
-    {
-        var address = link switch
-        {
-            ReferenceRowItem { IsLoaded: true } reference => reference.Address,
-            ReferrerRowItem { IsLoaded: true } referrer => referrer.Address,
-            RetentionNodeItem node => node.Address,
-            KeyPathItem path => path.Address,
-            FieldNode { IsLink: true } field => field.Address,
-            ulong dominator => dominator,
-            _ => 0UL,
-        };
-
-        if (address != 0 && Current is ObjectViewModel obj)
-        {
-            OpenObject(obj.Snapshot, address);
-        }
-    }
-
-    private void Push(object subject)
+    private void Push(INavigationSubject subject)
     {
         // Opening after going back replaces the forward history.
         foreach (var dropped in _history.Skip(_position + 1))
         {
-            CloseSubject(dropped);
+            dropped.Close();
         }
 
         _history.RemoveRange(_position + 1, _history.Count - _position - 1);
         _history.Add(subject);
         if (_history.Count > MaxHistory)
         {
-            CloseSubject(_history[1]);
+            _history[1].Close();
             _history.RemoveAt(1);
         }
 
@@ -304,25 +230,5 @@ public sealed partial class NavigatorViewModel : ObservableObject
         OnPropertyChanged(nameof(CanGoForward));
         BackCommand.NotifyCanExecuteChanged();
         ForwardCommand.NotifyCanExecuteChanged();
-        OpenWhyAliveCommand.NotifyCanExecuteChanged();
-    }
-
-    private static void CloseSubject(object subject)
-    {
-        switch (subject)
-        {
-            case InstancesViewModel instances:
-                instances.Close();
-                break;
-            case ObjectViewModel obj:
-                obj.Close();
-                break;
-            case TypeReferrersViewModel referrers:
-                referrers.Close();
-                break;
-            case TypePathsViewModel paths:
-                paths.Close();
-                break;
-        }
     }
 }

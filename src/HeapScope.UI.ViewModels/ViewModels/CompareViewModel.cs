@@ -129,9 +129,10 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     private SnapshotItemViewModel? _current;
 
 
-    public CompareViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, IUiDispatcher dispatcher, ILogger<CompareViewModel>? logger = null)
+    public CompareViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, IUiDispatcher dispatcher, ILogger<CompareViewModel>? logger = null, INavigator? navigator = null)
         : base(TypeDiffColumns.BytesDelta, dispatcher, logger)
     {
+        OpenRowCommand = new RelayCommand<DiffRowItem?>(row => OpenRow(row, navigator));
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         Snapshots.CollectionChanged += OnSnapshotsChanged;
@@ -199,6 +200,31 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     /// <summary>Swaps baseline and current.</summary>
     [RelayCommand]
     private void Swap() => SetPair(Current, Baseline, "swapped by the user");
+
+    /// <summary>
+    /// Opens a row's type on the Snapshot tab: its objects in the current snapshot, or in the baseline for a type the
+    /// current snapshot no longer has (ADR-018; sprint 1.5 review).
+    /// </summary>
+    private void OpenRow(DiffRowItem? row, INavigator? navigator)
+    {
+        if (row is not { IsLoaded: true } || Current is not { } current)
+        {
+            return;
+        }
+
+        if (row.TypeName is null)
+        {
+            // In Type grouping a row has no key only when one side merged several of its types under one name: a full
+            // dump's nested types compared with a gcdump, which records them without their declaring type (sprint 1.8).
+            Status = GroupBy == TypeGrouping.Type
+                ? "This row joins several types of the full dump under the one name the gcdump records, so it cannot open one type's objects. Find the type in the full dump's own summary."
+                : "Group by type to open a row's objects.";
+            return;
+        }
+
+        var side = row.CurrentObjects == 0 && Baseline is { } baseline ? baseline : current;
+        navigator?.Navigate(NavigationTarget.Instances(side.Handle, row.TypeName, row.Module));
+    }
 
     // How the pair was chosen, for the log line that backs up a disputed comparison (sprint 2.3.7 review H3).
     private void OnPairChanged(string reason = "picked by the user")
