@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The HeapScope desktop app on Avalonia, for Windows, Linux and macOS (sprint 2.3.6, ADR-025). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>HeapScope</AssemblyName>
+    <RootNamespace>HeapScope.UI</RootNamespace>
+    <!-- Bindings are compiled and checked at build time (x:DataType on every view). -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Precompiled when published for a runtime (dotnet publish -r <rid>); measured in sprint 1.2. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />
+    <ProjectReference Include="..\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+    <ProjectReference Include="..\HeapScope.UI.ViewModels\HeapScope.UI.ViewModels.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" />
+    <!-- Runs the app without a display (smoke runs in CI, the UI tests). -->
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.UI.Tests" />
+  </ItemGroup>
+  <Import Project="$(HeapScopeRoot)build\Worker.Deploy.targets" />
+</Project>

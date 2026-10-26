@@ -61,13 +61,19 @@ internal static class LayerRules
 
         // The view models without a UI toolkit (sprint 2.3.6, ADR-025): what the Avalonia app and its tests share.
         ["HeapScope.UI.ViewModels"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
+
+        // The Avalonia desktop app (sprint 2.3.6, ADR-025): MIT Avalonia packages only (the update rule in CLAUDE.md).
+        ["HeapScope.UI"] = new(
+            ["HeapScope.Application", "HeapScope.Contracts", "HeapScope.UI.ViewModels"],
+            ["Avalonia", "Avalonia.Desktop", "Avalonia.Themes.Fluent", "Avalonia.Controls.DataGrid", "Avalonia.Headless", "CommunityToolkit.Mvvm"]),
     };
 
     /// <summary>Assembly names that differ from project names.</summary>
     public static readonly IReadOnlyDictionary<string, string> AssemblyToProject = new Dictionary<string, string>
     {
         ["heapscope-cli"] = "HeapScope.Cli",
-        ["HeapScope"] = "HeapScope.UI.Wpf",
+        ["HeapScope"] = "HeapScope.UI",
+        ["HeapScope.Wpf"] = "HeapScope.UI.Wpf",
     };
 
     public static IReadOnlyCollection<string> KnownProjects => s_rules.Keys;

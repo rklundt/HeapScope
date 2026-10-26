@@ -15,6 +15,13 @@
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="System.CommandLine" Version="2.0.13" />
   </ItemGroup>
+  <ItemGroup Label="Avalonia UI (ADR-025: MIT only; before any update, check that nothing used went paid)">
+    <PackageVersion Include="Avalonia" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Headless" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
+  </ItemGroup>
   <ItemGroup Label="Diagnostics">
     <PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="4.2.751201" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />

@@ -61,7 +61,7 @@ public static class ThemeManager
             dictionaries.Remove(old);
         }
 
-        dictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/HeapScope;component/Themes/{theme}.xaml") });
+        dictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/HeapScope.Wpf;component/Themes/{theme}.xaml") });
     }
 
     private static bool WindowsUsesDarkApps()
