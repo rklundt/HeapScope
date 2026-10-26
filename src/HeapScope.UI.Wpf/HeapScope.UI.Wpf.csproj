@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />
     <ProjectReference Include="..\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+    <ProjectReference Include="..\HeapScope.UI.ViewModels\HeapScope.UI.ViewModels.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />

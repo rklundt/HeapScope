@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The UI's view models and the services they use, independent of any UI toolkit (sprint 2.3.6, ADR-025). -->
+  <ItemGroup>
+    <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />
+    <ProjectReference Include="..\HeapScope.Contracts\HeapScope.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.UI.ViewModels.Tests" />
+    <InternalsVisibleTo Include="HeapScope.UI" />
+    <InternalsVisibleTo Include="HeapScope.UI.Wpf" />
+  </ItemGroup>
+</Project>

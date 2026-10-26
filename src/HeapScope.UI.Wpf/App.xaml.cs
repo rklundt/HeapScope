@@ -26,7 +26,7 @@ using System.Windows;
 using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Services;
 using HeapScope.UI.Wpf.Smoke;
-using HeapScope.UI.Wpf.ViewModels;
+using HeapScope.UI.ViewModels;
 using HeapScope.UI.Wpf.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -54,11 +54,6 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
-        // Grid queries let a pending render run before binding their rows (sprint 1.5); only on the dispatcher.
-        TaskSchedulerExtensions.RenderYield = static () =>
-            SynchronizationContext.Current is System.Windows.Threading.DispatcherSynchronizationContext
-                ? System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.Background).Task
-                : Task.CompletedTask;
         try
         {
             _host = UiHost.Build(e.Args, Dispatcher);

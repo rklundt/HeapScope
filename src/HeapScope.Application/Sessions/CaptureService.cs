@@ -92,6 +92,8 @@ public sealed class CaptureService : ICaptureService
 
     public bool IsHeapScopeElevated => _elevation.IsCurrentProcessElevated;
 
+    public string? UnavailableReason => CapturePlatform.UnsupportedReason();
+
     public async Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken)
     {
         try

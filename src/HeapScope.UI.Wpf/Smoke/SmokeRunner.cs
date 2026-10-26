@@ -23,7 +23,7 @@
 using System.Windows.Threading;
 using HeapScope.Contracts;
 using HeapScope.UI.Wpf.Services;
-using HeapScope.UI.Wpf.ViewModels;
+using HeapScope.UI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

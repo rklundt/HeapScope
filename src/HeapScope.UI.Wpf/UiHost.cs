@@ -26,12 +26,13 @@ using HeapScope.Application;
 using HeapScope.Application.Logging;
 using HeapScope.Application.Workers;
 using HeapScope.UI.Wpf.Services;
-using HeapScope.UI.Wpf.ViewModels;
+using HeapScope.UI.ViewModels;
 using HeapScope.UI.Wpf.Views;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using HeapScope.UI.Services;
 
 namespace HeapScope.UI.Wpf;
 

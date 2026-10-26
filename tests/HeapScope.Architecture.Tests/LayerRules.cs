@@ -57,7 +57,10 @@ internal static class LayerRules
             ["HeapScope.Core", "HeapScope.Contracts", "HeapScope.Capture"],
             ["StreamJsonRpc"]),
         ["HeapScope.Cli"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["System.CommandLine"]),
-        ["HeapScope.UI.Wpf"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
+        ["HeapScope.UI.Wpf"] = new(["HeapScope.Application", "HeapScope.Contracts", "HeapScope.UI.ViewModels"], ["CommunityToolkit.Mvvm"]),
+
+        // The view models without a UI toolkit (sprint 2.3.6, ADR-025): what the Avalonia app and its tests share.
+        ["HeapScope.UI.ViewModels"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
     };
 
     /// <summary>Assembly names that differ from project names.</summary>

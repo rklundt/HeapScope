@@ -29,6 +29,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using HeapScope.Contracts;
+using HeapScope.UI.ViewModels;
 
 namespace HeapScope.UI.Wpf.Controls;
 
@@ -362,31 +363,6 @@ public static class GridColumns
 
     public static void SetNumberStyle(DependencyObject element, Style? value) => element.SetValue(NumberStyleProperty, value);
 
-    /// <summary>A column header from a column name: words split at capitals ("NullSlots" is "Null slots"), percent as "%".</summary>
-    public static string Header(string name)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-        if (name.EndsWith("Percent", StringComparison.Ordinal))
-        {
-            return Header(name[..^"Percent".Length]) + " %";
-        }
-
-        var text = new System.Text.StringBuilder(name.Length + 4);
-        for (var i = 0; i < name.Length; i++)
-        {
-            if (i > 0 && char.IsUpper(name[i]))
-            {
-                text.Append(' ').Append(char.ToLowerInvariant(name[i]));
-            }
-            else
-            {
-                text.Append(name[i]);
-            }
-        }
-
-        return text.ToString();
-    }
-
     private static void OnSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is not DataGrid grid)
@@ -406,7 +382,7 @@ public static class GridColumns
             var numeric = column.Kind is ResultColumnKind.Integer or ResultColumnKind.Bytes or ResultColumnKind.Percent or ResultColumnKind.SignedInteger;
             var text = new DataGridTextColumn
             {
-                Header = Header(column.Name),
+                Header = ColumnHeaders.Header(column.Name),
                 Binding = new Binding($"Display[{index.ToString(CultureInfo.InvariantCulture)}]"),
                 Width = numeric ? new DataGridLength(110) : new DataGridLength(1, DataGridLengthUnitType.Star),
                 CanUserSort = false,

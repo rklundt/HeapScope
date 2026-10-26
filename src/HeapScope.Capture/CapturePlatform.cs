@@ -53,11 +53,19 @@ public static class CapturePlatform
     /// <summary><see cref="EnsureSupported()"/> for a given system (tests).</summary>
     public static void EnsureSupported(bool isWindows)
     {
-        if (!isWindows)
+        if (UnsupportedReason(isWindows) is { } reason)
         {
-            throw new PlatformNotSupportedException(
-                "Capturing from HeapScope runs on Windows for now. On Linux or macOS, take a dump with "
-                + "'dotnet-dump collect --process-id <pid> --type Full' and open it with HeapScope.");
+            throw new PlatformNotSupportedException(reason);
         }
     }
+
+    /// <summary>Why capture is not available on this system, or null where it is (sprint 2.3.6: views say so first).</summary>
+    public static string? UnsupportedReason() => UnsupportedReason(OperatingSystem.IsWindows());
+
+    /// <summary><see cref="UnsupportedReason()"/> for a given system (tests).</summary>
+    public static string? UnsupportedReason(bool isWindows) =>
+        isWindows
+            ? null
+            : "Capturing from HeapScope runs on Windows for now. On Linux or macOS, take a dump with "
+                + "'dotnet-dump collect --process-id <pid> --type Full' and open it with HeapScope.";
 }

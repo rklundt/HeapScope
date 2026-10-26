@@ -24,7 +24,7 @@
 using System.Diagnostics;
 using System.Windows.Input;
 using System.Windows.Navigation;
-using HeapScope.UI.Wpf.ViewModels;
+using HeapScope.UI.ViewModels;
 
 namespace HeapScope.UI.Wpf.Views;
 
