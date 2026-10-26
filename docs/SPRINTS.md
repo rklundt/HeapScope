@@ -2028,7 +2028,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 4. [ ] Exactness on the wire (2.3.7 M7): `ResultColumn.Bound` (exact or lower bound) set by the worker, with the
    texts in Contracts; the CLI and the view models render from it. Tests: the type summary's retained column is a lower
    bound, the instances' and the tree's exact.
-5. [ ] Exact retention of a set: "objects retained by this set" for a type (or a scope) by a reachability pass from the
+5. [x] Exact retention of a set: "objects retained by this set" for a type (or a scope) by a reachability pass from the
    roots that skips the set; totals (exact) next to the group's lower bound, and the retained objects by type as a grid.
    Tests: synthetic graphs with shared and exclusive children; the known answers' leaks.
 6. [ ] Icicle chart query and control: the top levels below a focus with segments of at least 0.1 percent; click
