@@ -57,14 +57,21 @@ internal static class LayerRules
             ["HeapScope.Core", "HeapScope.Contracts", "HeapScope.Capture"],
             ["StreamJsonRpc"]),
         ["HeapScope.Cli"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["System.CommandLine"]),
-        ["HeapScope.UI.Wpf"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
+        // The view models without a UI toolkit (sprint 2.3.6, ADR-025): what the Avalonia app and its tests share.
+        ["HeapScope.UI.ViewModels"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
+
+        // The Avalonia desktop app (sprint 2.3.6, ADR-025): MIT Avalonia packages only (the update rule in CLAUDE.md).
+        // Avalonia.Fonts.Inter is referenced only to exclude its assets (an OFL font that comes with Avalonia.Headless).
+        ["HeapScope.UI"] = new(
+            ["HeapScope.Application", "HeapScope.Contracts", "HeapScope.UI.ViewModels"],
+            ["Avalonia", "Avalonia.Desktop", "Avalonia.Themes.Fluent", "Avalonia.Controls.DataGrid", "Avalonia.Headless", "Avalonia.Fonts.Inter", "CommunityToolkit.Mvvm"]),
     };
 
     /// <summary>Assembly names that differ from project names.</summary>
     public static readonly IReadOnlyDictionary<string, string> AssemblyToProject = new Dictionary<string, string>
     {
         ["heapscope-cli"] = "HeapScope.Cli",
-        ["HeapScope"] = "HeapScope.UI.Wpf",
+        ["HeapScope"] = "HeapScope.UI",
     };
 
     public static IReadOnlyCollection<string> KnownProjects => s_rules.Keys;

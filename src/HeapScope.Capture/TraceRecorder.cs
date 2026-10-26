@@ -24,6 +24,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using Microsoft.Diagnostics.NETCore.Client;
+using HeapScope.Core;
 
 namespace HeapScope.Capture;
 
@@ -100,7 +101,7 @@ public static class TraceRecorder
         {
             using (session)
             {
-                var file = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
+                var file = PrivateFiles.Open(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
                 await using (file.ConfigureAwait(false))
                 {
                     // The stream ends when the session stops (with the rundown that names methods) or the process exits.

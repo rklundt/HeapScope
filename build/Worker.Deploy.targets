@@ -24,9 +24,19 @@
           SkipUnchangedFiles="true" />
   </Target>
   <!-- A published UI or CLI carries the worker the same way (built output of the worker, same configuration). -->
-  <Target Name="HeapScopePublishWorker" AfterTargets="Publish" DependsOnTargets="HeapScopeDeployWorker">
+  <Target Name="HeapScopePublishWorker" AfterTargets="Publish" DependsOnTargets="HeapScopeDeployWorker" Condition="'$(RuntimeIdentifier)' == ''">
     <Copy SourceFiles="@(_HeapScopeWorkerFiles)"
           DestinationFiles="@(_HeapScopeWorkerFiles->'$(PublishDir)worker\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
+  </Target>
+  <!--
+    Published for a runtime identifier (self-contained builds per system, sprint 2.3.6): the worker is published for the
+    same identifier into the worker/ subfolder, self-contained like the app, since a framework-dependent worker would
+    need an installed .NET runtime.
+  -->
+  <Target Name="HeapScopePublishWorkerForRuntime" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
+    <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="Restore" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);PublishReadyToRun=$(PublishReadyToRun);HeapScopeRestore=true" />
+    <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishReadyToRun=$(PublishReadyToRun);PublishDir=$(PublishDir)worker" />
   </Target>
 </Project>

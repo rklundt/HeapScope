@@ -573,7 +573,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         foreach (var module in target.EnumerateModules())
         {
             // The first module of a process dump is the executable.
-            return Path.GetFileNameWithoutExtension(module.FileName);
+            return Path.GetFileNameWithoutExtension(RecordedPath.FileName(module.FileName ?? string.Empty));
         }
 
         return null;

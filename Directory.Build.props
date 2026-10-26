@@ -4,14 +4,17 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PlatformTarget>x64</PlatformTarget>
+    <!--
+      No PlatformTarget (AnyCPU, sprint 2.3.6, ADR-025): every process runs as the machine's own 64-bit architecture, x64
+      or arm64, and a published build takes its runtime identifier's. Until 2.3.5 everything was x64 (ADR-001).
+    -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <IsPackable>false</IsPackable>
-    <Version>2.3.5</Version>
+    <Version>2.3.6</Version>
     <Product>HeapScope</Product>
     <Company>HeapScope</Company>
     <Copyright>Copyright (C) 2026 Ray Klundt</Copyright>

@@ -78,7 +78,7 @@ public sealed class TypeSummarySourceTests : IDisposable
         namespaces.UnfilteredCount.ShouldBe(3);
 
         var assemblies = Create(new TypeSummaryRequest(Guid.Empty, TypeGrouping.Assembly));
-        Names(assemblies).ShouldBe([@"C:\app\App.dll", "(unknown assembly)"]);
+        Names(assemblies).ShouldBe(["App.dll", "(unknown assembly)"], "assemblies are named by file (2.3.5 review L2)");
         Row(assemblies, 0)[1].ShouldBe("4");
     }
 

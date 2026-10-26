@@ -56,7 +56,19 @@ public sealed class WorkerHostOptionsTests
         var first = WorkerHost.NewPipeName();
 
         first.ShouldStartWith("HeapScope.W.");
-        (MacTemp + "CoreFxPipe_" + first).Length.ShouldBeLessThanOrEqualTo(104);
+        (MacTemp + "CoreFxPipe_" + first).Length.ShouldBeLessThan(104, "104 bytes hold the path and its terminating NUL");
         WorkerHost.NewPipeName().ShouldNotBe(first);
+    }
+
+    [Fact]
+    public void An_attach_pipe_name_too_long_for_a_socket_path_is_refused_with_its_length()
+    {
+        // 2.3.5 review L16: --pipe names a worker to attach to; off Windows it must fit a socket path.
+        const string MacTemp = "/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/";
+        var tooLong = new string('w', 60);
+
+        WorkerHost.PipeNameProblem("HeapScope.W.short", isWindows: false, MacTemp).ShouldBeNull();
+        WorkerHost.PipeNameProblem(tooLong, isWindows: false, MacTemp).ShouldNotBeNull().ShouldContain("too long");
+        WorkerHost.PipeNameProblem(tooLong, isWindows: true, MacTemp).ShouldBeNull("Windows pipe names have no such limit");
     }
 }

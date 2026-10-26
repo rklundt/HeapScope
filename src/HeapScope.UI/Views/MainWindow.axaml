@@ -1,0 +1,105 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:HeapScope.UI.ViewModels"
+        xmlns:ctl="using:HeapScope.UI.Controls"
+        xmlns:pages="using:HeapScope.UI.Views.Pages"
+        x:Class="HeapScope.UI.Views.MainWindow"
+        x:DataType="vm:ShellViewModel"
+        Title="{Binding Title}"
+        Width="1200" Height="800"
+        WindowStartupLocation="CenterScreen">
+  <!-- One view per page, chosen by the page's view model type; Jobs rows use the JobViewModel template. -->
+  <Window.DataTemplates>
+    <DataTemplate DataType="vm:HomeViewModel"><pages:HomePage /></DataTemplate>
+    <DataTemplate DataType="vm:SnapshotsViewModel"><pages:SnapshotsPage /></DataTemplate>
+    <DataTemplate DataType="vm:ProcessesViewModel"><pages:ProcessesPage /></DataTemplate>
+    <DataTemplate DataType="vm:LiveViewModel"><pages:LivePage /></DataTemplate>
+    <DataTemplate DataType="vm:JobsPageViewModel"><pages:JobsPage /></DataTemplate>
+    <DataTemplate DataType="vm:AboutViewModel"><pages:AboutPage /></DataTemplate>
+    <DataTemplate DataType="vm:JobViewModel"><pages:JobRow /></DataTemplate>
+  </Window.DataTemplates>
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Error.Background}" BorderBrush="{DynamicResource Brush.Error.Border}" BorderThickness="0,0,0,1" Padding="12,6"
+            IsVisible="{Binding IsCrashBannerVisible}">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="Dismiss" Margin="8,0,0,0" Command="{Binding DismissCrashBannerCommand}" />
+        <Button DockPanel.Dock="Right" Content="Restart worker" Command="{Binding RestartWorkerCommand}" />
+        <TextBlock Text="{Binding CrashMessage}" VerticalAlignment="Center" TextWrapping="Wrap" />
+      </DockPanel>
+    </Border>
+    <!-- The Attribution Notice (ADDITIONAL-TERMS.md 1.2 and 1.3): always visible on the main screen, real selectable text in
+         the body font size, theme text on an opaque surface (contrast above 13:1 in both themes, checked by a test). Do not
+         remove, hide, shrink, restyle or move it. -->
+    <Border x:Name="Attribution" DockPanel.Dock="Bottom" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0">
+      <ctl:AttributionText Padding="8,2" Background="{DynamicResource Brush.Surface}" Foreground="{DynamicResource Brush.Text}" LinkUri="https://github.com/rklundt/HeapScope"
+                           AutomationProperties.Name="Powered by HeapScope by Ray Klundt" ToolTip.Tip="https://github.com/rklundt/HeapScope">
+        <Run Text="Powered by " /><Run Classes="link" Text="HeapScope" TextDecorations="Underline" Foreground="{DynamicResource Brush.Text}" /><Run Text=" by Ray Klundt" />
+      </ctl:AttributionText>
+    </Border>
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.Surface}" Padding="8,3">
+      <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" />
+    </Border>
+    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="12,6" MaxHeight="160">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Jobs" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding Jobs}" />
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+    <Border DockPanel.Dock="Left" Width="180" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0">
+      <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}" Padding="4,8" Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:NavigationItem">
+            <TextBlock Text="{Binding Title}" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Border>
+    <!-- Each page is built when first shown and then kept: switching pages is a visibility change, not a rebuild of
+         its grids, and keeps scroll positions and expanded state (sprint 1.5). -->
+    <ItemsControl ItemsSource="{Binding NavigationItems}" Margin="12,8,4,4">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <Grid />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:NavigationItem">
+          <ctl:LazyContentControl Page="{Binding Page}">
+            <ctl:LazyContentControl.IsShown>
+              <MultiBinding Converter="{x:Static ctl:SameConverter.Instance}">
+                <Binding />
+                <Binding Path="$parent[ItemsControl].((vm:ShellViewModel)DataContext).SelectedItem" />
+              </MultiBinding>
+            </ctl:LazyContentControl.IsShown>
+          </ctl:LazyContentControl>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </DockPanel>
+</Window>

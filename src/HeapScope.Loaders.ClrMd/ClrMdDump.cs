@@ -71,6 +71,14 @@ internal static class ClrMdDump
         // so a Linux dump is read on Linux and a Windows dump on Windows (cross-platform DACs are not searched).
         var platform = CurrentPlatform();
 
+        // A dump is read by a worker of its own system and architecture (ADR-025): say so before any DAC is looked for or
+        // loaded (sprint 2.3.6 review; a DAC of the wrong architecture would only fail to load with a vaguer message). A
+        // dump of another system can still be read with the symbol server's cross-platform DAC when that is allowed.
+        if (DacLocator.Mismatch(clr.DataTarget.DataReader.TargetPlatform, clr.DataTarget.DataReader.Architecture, platform, RuntimeInformation.ProcessArchitecture, options.AllowMicrosoftSymbolServer) is { } mismatch)
+        {
+            throw new RuntimeComponentMissingException(mismatch);
+        }
+
         // An entry with the DAC's own build id first, then one archived under the runtime's (sprint 2.3.5 review M1).
         var dac = clr.DebuggingLibraries
             .Where(d => d.Kind == DebugLibraryKind.Dac && d.Platform == platform)
@@ -98,7 +106,7 @@ internal static class ClrMdDump
         var path = DacLocator.Find(request, directories, out var searched, options.InstalledRuntimeRoots ?? DacLocator.DefaultRuntimeRoots());
         if (path is null && !options.AllowMicrosoftSymbolServer)
         {
-            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched, Hint(clr, platform, request));
+            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched, Hint(request));
         }
 
         try
@@ -119,31 +127,15 @@ internal static class ClrMdDump
     }
 
     /// <summary>
-    /// What to do when no DAC was found, beyond installing the runtime (sprint 2.3.5 review): a dump of another system or
-    /// architecture needs HeapScope on that system (the DAC runs in HeapScope's process), and a DAC archived under its
-    /// runtime library is only accepted together with that library.
+    /// What to do when no DAC was found, beyond installing the runtime (sprint 2.3.5 review): a DAC archived under its
+    /// runtime library is only accepted together with that library. (A dump of another system or architecture is refused
+    /// before the search, <see cref="DacLocator.Mismatch"/>.)
     /// </summary>
-    internal static string? Hint(ClrInfo clr, OSPlatform platform, DacRequest request)
-    {
-        var reader = clr.DataTarget.DataReader;
-        var host = RuntimeInformation.ProcessArchitecture;
-        if (reader.TargetPlatform != platform)
-        {
-            return $"This dump comes from {SystemName(reader.TargetPlatform)} and HeapScope runs on {SystemName(platform)}: open it with HeapScope or heapscope-cli on {SystemName(reader.TargetPlatform)}.";
-        }
-
-        if (reader.Architecture != host)
-        {
-            return $"This dump comes from an {reader.Architecture} process and HeapScope runs as {host}: open it with the {reader.Architecture} build of HeapScope.";
-        }
-
-        return request.BuildIdOfRuntime is { } runtime
+    internal static string? Hint(DacRequest request) =>
+        request.BuildIdOfRuntime is { } runtime
             ? $"Copy {request.FileName} together with {runtime} from the same runtime folder: the dump identifies the DAC by its runtime library."
             : null;
-    }
 
-    private static string SystemName(OSPlatform platform) =>
-        platform == OSPlatform.Windows ? "Windows" : platform == OSPlatform.OSX ? "macOS" : platform == OSPlatform.Linux ? "Linux" : platform.ToString();
 
     /// <summary>The platform HeapScope runs on, in ClrMD's terms.</summary>
     internal static OSPlatform CurrentPlatform() =>

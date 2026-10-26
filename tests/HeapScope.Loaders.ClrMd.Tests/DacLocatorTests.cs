@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 namespace HeapScope.Loaders.ClrMd.Tests;
 
@@ -48,7 +49,7 @@ public sealed class DacLocatorTests : IDisposable
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var request = Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13-custom");
-        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], DacFolder = @"C:\dacs" };
+        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], DacFolder = @"C:\dacs", OwnRuntimeDirectory = @"C:\HeapScope\worker\" };
 
         var candidates = DacLocator.CandidateDirectories(request, @"C:\dumps\app.dmp", options);
 
@@ -57,14 +58,15 @@ public sealed class DacLocatorTests : IDisposable
             @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13",
             @"C:\dumps",
             @"C:\dumps\dac\10.0.13",
-            @"C:\dacs"]);
+            @"C:\dacs",
+            @"C:\HeapScope\worker"]);
     }
 
     [Fact]
     public void The_dumped_runtime_folder_can_be_left_out()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
-        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], SearchDumpedRuntimeDirectory = false };
+        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], SearchDumpedRuntimeDirectory = false, OwnRuntimeDirectory = null };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\x"), @"C:\dumps\app.dmp", options)
             .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps", @"C:\dumps\dac\10.0.13"]);
@@ -79,7 +81,7 @@ public sealed class DacLocatorTests : IDisposable
     public void A_runtime_folder_recorded_in_the_dump_outside_the_installed_runtimes_is_never_searched(string recorded)
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
-        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"] };
+        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], OwnRuntimeDirectory = null };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: recorded), @"C:\dumps\app.dmp", options)
             .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps", @"C:\dumps\dac\10.0.13"]);
@@ -91,7 +93,7 @@ public sealed class DacLocatorTests : IDisposable
     public void Network_dump_and_user_folders_are_not_searched(string dumpPath)
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
-        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [], DacFolder = @"\\server\dacs" };
+        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [], DacFolder = @"\\server\dacs", OwnRuntimeDirectory = @"\\server\HeapScope" };
 
         DacLocator.CandidateDirectories(Request(), dumpPath, options).ShouldBeEmpty();
     }
@@ -144,6 +146,28 @@ public sealed class DacLocatorTests : IDisposable
 
         DacLocator.Find(Request() with { TimeStamp = 0, ImageSize = 0, RuntimeVersion = fileVersion }, [folder], out _).ShouldNotBeNull();
         DacLocator.Find(Request() with { TimeStamp = 0, ImageSize = 0, RuntimeVersion = "8.0.11.0" }, [folder], out _).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_framework_dependent_process_runs_on_an_installed_runtime_and_searches_no_folder_of_its_own()
+    {
+        // The test host runs on a shared runtime: its folder is an installed runtime, so there is no own runtime folder.
+        Path.GetFileName(DacLocator.RunningSharedFolder()).ShouldBe("shared", StringCompareShould.IgnoreCase);
+        new ClrMdLoaderOptions().OwnRuntimeDirectory.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("WINDOWS", Architecture.X64, "WINDOWS", Architecture.X64, false, null)]
+    [InlineData("LINUX", Architecture.Arm64, "LINUX", Architecture.Arm64, false, null)]
+    [InlineData("WINDOWS", Architecture.X64, "WINDOWS", Architecture.Arm64, true, "This dump comes from an X64 process and HeapScope runs as Arm64: open it with the X64 build of HeapScope.")]
+    [InlineData("LINUX", Architecture.X64, "WINDOWS", Architecture.X64, false, "This dump comes from Linux and HeapScope runs on Windows: open it with HeapScope or heapscope-cli on Linux.")]
+    [InlineData("LINUX", Architecture.X64, "WINDOWS", Architecture.X64, true, null)]
+    [InlineData("OSX", Architecture.Arm64, "LINUX", Architecture.Arm64, false, "This dump comes from macOS and HeapScope runs on Linux: open it with HeapScope or heapscope-cli on macOS.")]
+    public void A_dump_of_another_architecture_or_system_is_refused_with_what_to_do(string dumpSystem, Architecture dumpArchitecture, string system, Architecture host, bool symbolServer, string? expected)
+    {
+        // Sprint 2.3.6 review: checked before the DAC search, so a DAC of another architecture that is found never gets the
+        // generic "wrong runtime version" message. The architecture wins even with the symbol server: no DAC loads across it.
+        DacLocator.Mismatch(OSPlatform.Create(dumpSystem), dumpArchitecture, OSPlatform.Create(system), host, symbolServer).ShouldBe(expected);
     }
 
     [Fact]

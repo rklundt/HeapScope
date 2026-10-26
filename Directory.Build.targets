@@ -1,0 +1,8 @@
+<Project>
+  <!--
+    Avalonia's packages bring Avalonia.BuildServices, which sends anonymous build statistics to Avalonia during every
+    build. HeapScope sends nothing anywhere (ARCHITECTURE.md 12), its build included (sprint 2.3.6, decision 5): this
+    empty target replaces the one that would send them. CI also sets AVALONIA_TELEMETRY_OPTOUT=1.
+  -->
+  <Target Name="AvaloniaStats" />
+</Project>

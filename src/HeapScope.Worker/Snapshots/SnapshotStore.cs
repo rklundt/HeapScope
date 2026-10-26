@@ -474,7 +474,8 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             cachePath,
             elapsed.TotalSeconds,
             [.. notes],
-            identity);
+            identity,
+            info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile));
     }
 
     private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor, IndexState Index)

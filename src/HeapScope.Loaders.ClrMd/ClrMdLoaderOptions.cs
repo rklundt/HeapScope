@@ -52,4 +52,10 @@ public sealed record ClrMdLoaderOptions
     /// product; tests turn it off to simulate a dump from another machine.
     /// </summary>
     public bool SearchDumpedRuntimeDirectory { get; init; } = true;
+
+    /// <summary>
+    /// The folder of the runtime HeapScope carries when it runs self-contained (sprint 2.3.6), searched last; null when it
+    /// runs on a shared runtime, which is an installed runtime already. Tests pass their own.
+    /// </summary>
+    public string? OwnRuntimeDirectory { get; init; } = DacLocator.RunningSharedFolder() is null ? AppContext.BaseDirectory : null;
 }

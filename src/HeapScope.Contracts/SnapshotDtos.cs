@@ -60,6 +60,8 @@ public sealed record SnapshotProbe(string Path, long FileBytes, SnapshotCacheSta
 /// <summary>A loaded snapshot. <see cref="Notes"/> are plain-language data quality notes for the user.</summary>
 /// <param name="CacheIdentity">The identity of the index cache the snapshot was opened from or wrote (sprint 2.1, from the
 /// 1.2 review); 0 when none was written. Optional indices next to the cache record it.</param>
+/// <param name="CaptureTimeFromFile">True when <paramref name="CapturedAtUtc"/> is the file's write time, not a time the
+/// snapshot recorded (sprint 2.3.6: Linux and macOS core dumps record none), so a copy of the file can change it.</param>
 public sealed record SnapshotDescriptor(
     Guid SnapshotId,
     string Path,
@@ -79,4 +81,5 @@ public sealed record SnapshotDescriptor(
     string? CachePath,
     double OpenSeconds,
     IReadOnlyList<string> Notes,
-    ulong CacheIdentity = 0);
+    ulong CacheIdentity = 0,
+    bool CaptureTimeFromFile = false);

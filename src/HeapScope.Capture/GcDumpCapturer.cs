@@ -231,9 +231,9 @@ public sealed class GcDumpCapturer(IElevationProbe? elevation = null, IGcDumpWri
     /// </summary>
     public async Task CaptureAsync(DotNetProcess process, string path, IProgress<CaptureProgress>? progress, TimeSpan? timeout, CancellationToken cancellationToken)
     {
-        CapturePlatform.EnsureSupported();
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(path);
+        CapturePlatform.EnsureSupported();
         progress?.Report(new CaptureProgress("Checking"));
         if (process.Elevation == ElevationState.Elevated && !_elevation.IsCurrentProcessElevated)
         {

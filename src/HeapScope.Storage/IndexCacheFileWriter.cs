@@ -24,6 +24,7 @@
 using System.IO.Hashing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using HeapScope.Core;
 
 namespace HeapScope.Storage;
 
@@ -65,7 +66,7 @@ public sealed class IndexCacheFileWriter : IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         var (fullPath, temp) = PrepareTemporary(path);
-        var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 1 << 20);
+        var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 1 << 20);
         return new IndexCacheFileWriter(fullPath, temp, stream, progress, cancellationToken);
     }
 
@@ -163,7 +164,7 @@ public sealed class IndexCacheFileWriter : IDisposable
     {
         var fullPath = Path.GetFullPath(path);
         var directory = Path.GetDirectoryName(fullPath)!;
-        Directory.CreateDirectory(directory);
+        PrivateFiles.CreateDirectory(directory);
         DeleteStaleTemporaryFiles(directory, Path.GetFileName(fullPath));
         return (fullPath, Path.Combine(directory, $"{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp"));
     }

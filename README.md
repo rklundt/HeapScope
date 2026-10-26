@@ -2,13 +2,14 @@
 
 Powered by [HeapScope](https://github.com/rklundt/HeapScope) by Ray Klundt.
 
-HeapScope is a Windows desktop memory profiler for modern .NET applications (.NET 10, WPF, x64). It captures and
-opens memory snapshots, shows what is on the heap and what grew between two snapshots, and explains why objects are
-retained, through a WPF app or an equivalent command line (`heapscope-cli`). Snapshots never leave the machine.
+HeapScope is a desktop memory profiler for modern .NET applications (.NET 10) on Windows, Linux and macOS. It opens
+memory snapshots (and captures them on Windows), shows what is on the heap and what grew between two snapshots, and
+explains why objects are retained, through a desktop app or an equivalent command line (`heapscope-cli`). Snapshots
+never leave the machine.
 
 - Build: `dotnet build HeapScope.sln`
 - Test: `dotnet test --solution HeapScope.sln`
-- UI: `dotnet run --project src/HeapScope.UI.Wpf`
+- UI: `dotnet run --project src/HeapScope.UI`
 - CLI: `dotnet run --project src/HeapScope.Cli -- --help`
 
 Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
