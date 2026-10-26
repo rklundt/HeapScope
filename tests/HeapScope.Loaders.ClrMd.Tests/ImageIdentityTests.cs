@@ -78,6 +78,32 @@ public sealed class ImageIdentityTests : IDisposable
         ImageIdentity.FindBuildIdNote(build[..^4]).ShouldBeNull("the descriptor runs past the end");
     }
 
+    [Fact]
+    public void A_dac_archived_under_the_runtime_is_found_beside_the_runtime_with_that_build_id()
+    {
+        var other = Path.Combine(_folder, "10.0.13");
+        var exact = Path.Combine(_folder, "10.0.14");
+        foreach (var (folder, id) in new[] { (other, s_id[..^1]), (exact, s_id) })
+        {
+            Directory.CreateDirectory(folder);
+            File.WriteAllBytes(Path.Combine(folder, "libcoreclr.so"), Elf(id));
+            File.WriteAllBytes(Path.Combine(folder, "libmscordaccore.so"), Elf([9, 9, 9, 9]));
+        }
+
+        var request = new DacRequest("libmscordaccore.so", 0, 0, "10.0.14", null, s_id, BuildIdOfRuntime: "libcoreclr.so");
+        DacLocator.Find(request, [other, exact], out _).ShouldBe(Path.Combine(exact, "libmscordaccore.so"));
+        DacLocator.Find(request with { BuildIdOfRuntime = null }, [other, exact], out _)
+            .ShouldBeNull("the DAC's own build id differs from the runtime's");
+    }
+
+    [Theory]
+    [InlineData("10.0.1326.50504", "/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.13", "10.0.1326.50504")]
+    [InlineData("0.0", "/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.14", "10.0.14")]
+    [InlineData("0.0", "/opt/app", "0.0")]
+    [InlineData("0.0", null, "0.0")]
+    public void A_runtime_version_missing_from_a_core_file_is_named_by_its_folder(string read, string? directory, string expected) =>
+        DacLocator.RuntimeVersion(Version.Parse(read), directory).ShouldBe(expected);
+
     public void Dispose()
     {
         try

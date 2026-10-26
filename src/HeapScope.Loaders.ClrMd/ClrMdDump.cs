@@ -73,13 +73,23 @@ internal static class ClrMdDump
         var dac = clr.DebuggingLibraries.FirstOrDefault(d =>
             d.Kind == DebugLibraryKind.Dac && d.Platform == platform);
         var fileName = dac?.FileName is { Length: > 0 } name ? RecordedPath.FileName(name) : DefaultDacFileName(platform);
+        var runtimeDirectory = Path.GetDirectoryName(clr.ModuleInfo.FileName);
         var request = new DacRequest(
             fileName,
             dac?.IndexTimeStamp ?? 0,
             dac?.IndexFileSize ?? 0,
-            clr.Version.ToString(),
-            Path.GetDirectoryName(clr.ModuleInfo.FileName),
-            dac is { IndexBuildId.IsDefaultOrEmpty: false } ? [.. dac.IndexBuildId] : null);
+            DacLocator.RuntimeVersion(clr.Version, runtimeDirectory),
+            runtimeDirectory)
+        {
+            // A Linux or macOS DAC is archived under its own build id or under the runtime library's; when the dump lists
+            // none, the runtime library's own id still identifies the exact runtime the DAC ships with.
+            BuildId = dac is { IndexBuildId.IsDefaultOrEmpty: false } ? [.. dac.IndexBuildId]
+                : platform != OSPlatform.Windows && !clr.ModuleInfo.BuildId.IsDefaultOrEmpty ? [.. clr.ModuleInfo.BuildId]
+                : null,
+            BuildIdOfRuntime = platform == OSPlatform.Windows ? null
+                : dac is { IndexBuildId.IsDefaultOrEmpty: false } && dac.ArchivedUnder != SymbolProperties.Coreclr ? null
+                : RecordedPath.FileName(clr.ModuleInfo.FileName),
+        };
         var directories = DacLocator.CandidateDirectories(request, dumpPath, options);
         var path = DacLocator.Find(request, directories, out var searched);
         if (path is null && !options.AllowMicrosoftSymbolServer)

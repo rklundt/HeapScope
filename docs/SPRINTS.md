@@ -26,6 +26,7 @@ everything else.
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
 | 2.3.5 | Cross-platform and sharing decision | In Progress | | |
+| 2.3.6 | Avalonia port | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1710,6 +1711,37 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 
 ---
 
+## Sprint 2.3.6: Avalonia port
+
+**Goal**: the HeapScope UI runs on Avalonia on Windows, Linux and macOS, at parity with the WPF UI (ADR-025).
+
+**Scope**: from 2.3.5 (ADR-025):
+- Move the view models out of `HeapScope.UI.Wpf` into a platform-neutral UI library; a new `HeapScope.UI` (Avalonia,
+  Fluent theme, MIT packages only) hosts the views. Every current view: capture, sessions, the types summary, compare,
+  objects and inspection, inspections, monitoring, retention paths and retained sizes, the about box and attribution
+  strip (unchanged, ADR-022).
+- Grids keep the data-virtualized row lists through the `IDataGridCollectionView` pass-through proven in the prototype;
+  no paid Avalonia component (the update rule, ADR-025).
+- The render yield, power throttling (ADR-019, Windows only) and the UI smoke and lag gates move to the Avalonia app;
+  UI tests move to Avalonia's headless test platform.
+- CI: Linux and macOS also build the UI and run its headless tests.
+- Capture stays Windows only (the views say so off Windows and point to opening a dump taken with `dotnet-dump`).
+- Retire `HeapScope.UI.Wpf` and `spikes/AvaloniaGrid` once parity is reached; update THIRD-PARTY-NOTICES.
+
+**Acceptance criteria**: every WPF view and command has its Avalonia equivalent; the smoke gate (first show, scroll, the
+longest UI-thread block) meets the WPF numbers on the Small dump on Windows; the UI opens a Linux core dump of
+LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or otherwise allowed) packages.
+
+**Version**: 2.3.6.
+
+**Dependencies**: 2.3.5.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
 ## Sprint 2.4: Retention explorer UI
 
 **Goal**: explore what retains memory.
@@ -1717,7 +1749,10 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 **Scope**: drill-down dominator tree, biggest retainers, grouping by type and namespace, cross-links between
 summary, diff, inspection and retention views.
 
-From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst in WPF, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+
+From 2.3.5 (ADR-025): built in Avalonia after the port (2.3.6). The tree is built on the free controls (a flattened,
+data-virtualized row list with indentation in the DataGrid, or a TreeView), not the paid TreeDataGrid.
 
 From 2.3 (decisions 6 and 7): the exact retention of a set ("open objects retained by this set": a reachability pass from
 the roots that skips the set, since a group's retained column is only a lower bound), the biggest retainers tile and the
@@ -1725,7 +1760,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 
 **Acceptance criteria**: every LeakyApi leak is reachable from "biggest retainers" in three clicks or fewer.
 
-**Dependencies**: 2.2, 2.3.
+**Dependencies**: 2.2, 2.3, 2.3.6.
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -1787,6 +1822,9 @@ export of any grid.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): an analysis path sidebar (branch from any earlier step), analysis tabs, object marks across snapshots, the full filter syntax, keyboard shortcuts, CSV export.
 
+From 2.3.5 (ADR-026): CSV export is the first form of the shared analysis export, analysis only by default (no string
+text or field values unless the person exporting opts in for that export).
+
 **Acceptance criteria**: every grid exports to CSV; every view reachable by keyboard; history survives view
 switches.
 
@@ -1806,7 +1844,8 @@ switches.
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
-- Remote git, `develop`/`release` branches, CI pipeline, CI leak checks using the CLI.
+- CI leak checks using the CLI (the remote, `develop` and the CI pipeline exist since 2.3 and 2.3.5; CI already runs the
+  CLI on a fixture dump on Linux and macOS). Making CI a required check is the product owner's call (2.3.5 decision 8).
 - Trend analysis across more than two snapshots.
 - Finalizer queue and finalizable object analysis.
 - Async state machine and Task leak detection.
@@ -1888,7 +1927,13 @@ switches.
 - Large scale tier (8 GB+, 100M+ objects): 64-bit edge offsets, chunked disk-backed building.
 - Fragmentation and pinned object analysis.
 - String content search and object set queries.
-- HTML report export.
+- Shared analysis export (ADR-026, from 2.3.5; replaces "HTML report export"): one export model, analysis only by
+  default, written as HTML, JSON or CSV where the user asks; opening a JSON export in HeapScope without the dump.
+- Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
+  dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
+  elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.
+- Linux and macOS packaging (from 2.3.5): self-contained builds per runtime identifier, macOS signing and
+  notarization, a native arm64 macOS build (CI builds it `AnyCPU` today).
 - .NET Framework target support.
 
 **Low**

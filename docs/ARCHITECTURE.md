@@ -1265,6 +1265,8 @@ sprint 0.1.
 - Decision: .NET 10, WPF, Windows 10/11 x64 only.
 - Consequences: no macOS or Linux UI. Core libraries stay platform neutral where cheap, which keeps Linux
   dump analysis possible later.
+- Amended by ADR-025 (sprint 2.3.5): the UI moves to Avalonia on Windows, Linux and macOS; the engine, worker and CLI
+  already run on Linux.
 
 ### ADR-002 Target processes: modern .NET only
 - Context: the primary use case is ASP.NET Core; .NET Framework adds a second runtime model and attach path.
@@ -1535,6 +1537,67 @@ sprint 0.1.
   what is alive. The known answers check paths against their path shapes and retained sizes against an independent
   ClrMD walk that starts from the same sources (sprint 2.3: the first, middle and last item of every rooted fixture,
   and the frozen literal, equal it).
+
+### ADR-025 UI platform: Avalonia on Windows, Linux and macOS (added in sprint 2.3.5, amends ADR-001)
+- Context: the product owner wants to reach Linux developers (possibly macOS) and teams sharing results (2026-10-25).
+  Everything but the WPF UI already targets plain `net10.0`; the engine stays .NET because ClrMD has no equivalent
+  elsewhere. Two front-end routes were compared: Avalonia (the view models carry over; desktop on all three systems) and
+  a TypeScript web front end over the worker (a new UI stack, plus a way to serve it). The product owner chose Avalonia.
+- Portability survey (sprint 2.3.5, task 1):
+  - Engine, worker and CLI run on Linux: CI builds them on ubuntu-latest, runs the engine's tests, takes a core dump of
+    LeakyConsole with `dotnet-dump` and runs `summary`, `instances --retained` and `paths` on it.
+  - Changes it needed: the worker's executable has no `.exe` off Windows (`WorkerHostOptions.WorkerExecutableName`);
+    the DAC is `libmscordaccore.so` on Linux and `libmscordaccore.dylib` on macOS, matched to the dump by the ELF GNU
+    build id or the Mach-O UUID (`ImageIdentity`; ClrMD's own ELF reader is internal), still local paths only
+    (ADR-017); module paths recorded on another system are split on both separators (`RecordedPath`); Linux and macOS
+    core files are recognized as full dumps (`SnapshotFileSignature.IsCoreFile`) and have no minidump header, so their
+    capture time is the file's write time.
+  - Already portable: the pipe (`PipeOptions.CurrentUserOnly` on every system), the worker's below-normal priority, the
+    memory status calls (guarded by `OperatingSystem.IsWindows()`; off Windows they read the GC's view of the
+    machine's memory, `GC.GetGCMemoryInfo()`, which honors container limits).
+  - Windows only for now: capture (process discovery, dump writing, elevation). Off Windows it refuses with
+    `PlatformNotSupportedException` naming `dotnet-dump` (`CapturePlatform.EnsureSupported`); the elevation probe
+    reports `Environment.IsPrivilegedProcess`. Linux and macOS capture (createdump through the diagnostics client,
+    `/proc` for discovery) is a backlog item.
+  - Some tests depend on Windows file semantics (an open or mapped file cannot be deleted or replaced there; it can on
+    Linux and macOS) or Windows paths; they skip off Windows.
+- Prototype (`spikes/AvaloniaGrid`, outside the solution, Small dump): Avalonia 12.1.4 with the Fluent theme and the
+  free DataGrid 12.1.2, showing the types grid and a type's objects through the real `SnapshotSession` and the existing
+  view models (linked, not copied).
+  - The DataGrid copies its source into its own list and enumerates it to find the item type, which defeats
+    data-virtualized row lists. An `IDataGridCollectionView` that passes through to the row list, typed as
+    `IEnumerable<TRow>`, avoids both: zero enumerations, private memory 540 MB down to 197 MB.
+  - With it: scrolling stalls at most 36 ms; the first showing of a grid 108 to 162 ms (WPF's smoke run: 140 ms).
+  - Sorting and the filter work through the view models unchanged; the WPF-only part was the render yield, now
+    `TaskSchedulerExtensions.RenderYield`, set by the UI.
+- Decision: the UI moves to Avalonia (MIT), on Windows x64, Linux x64 and macOS (arm64 and x64), in a port sprint before
+  2.4 (product owner: "port before 2.4"). The WPF UI is retired when the port reaches parity; the view models move to a
+  platform-neutral UI library. Only MIT (or otherwise allowed) Avalonia components are used: TreeDataGrid moved to the
+  paid "Accelerate" line, so trees (2.4's dominator tree) are built on the free controls.
+- Update rule (product owner, 2026-10-25; CLAUDE.md): before any Avalonia update, check that no component HeapScope
+  uses moved to a paid license; if one did, stop and ask before updating.
+- Consequences:
+  - ADR-001's "no macOS or Linux UI" no longer holds; .NET 10 stays, and the worker, CLI and engine run everywhere.
+  - ADR-019 (the UI process is never power-throttled) and the UI.Wpf-specific parts of DEVELOPER.md change with the
+    port; the smoke and UI tests move to Avalonia's headless test platform.
+  - macOS was tested on an arm64 runner built `AnyCPU`: informational until macOS ships; packaging and signing for Linux
+    and macOS are backlog items.
+  - Every 2.x UI feature after the port is built once, in Avalonia.
+
+### ADR-026 Sharing results: an exported analysis, analysis only by default (added in sprint 2.3.5)
+- Context: teams want to share results (2026-10-25). A dump holds everything in the target's memory, secrets included
+  (12), so it is never the thing shared.
+- Decision: a shared result is an exported analysis, a file written where the user asks, never uploaded. By default it
+  holds analysis only: type, namespace and assembly summaries, diffs, retained sizes, retention paths and dominators
+  with type and field names, inspection results with counts and sizes, and the snapshot's metadata (runtime version,
+  capture time, the target's process name). String text and field values are left out unless the person exporting opts
+  in for that export, and the export then says so on its first line (product owner: "Analysis only").
+- Consequences:
+  - The export reads from the index cache and the sidecars, which already hold no values (12); opt-in values are read
+    from the dump at export time, like inspection.
+  - The Backlog's "HTML report export" and 2.7's CSV export are forms of it: one export model, rendered as HTML, JSON
+    or CSV. Opening a shared JSON export in HeapScope (without the dump) is part of the same item.
+  - A hosted or web view for teams is not planned; the export file is shared by the team's own means.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

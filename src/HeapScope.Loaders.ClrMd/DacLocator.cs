@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Reflection.PortableExecutable;
+using HeapScope.Core;
 
 namespace HeapScope.Loaders.ClrMd;
 
@@ -33,7 +34,11 @@ namespace HeapScope.Loaders.ClrMd;
 /// <param name="RuntimeDirectory">Folder of the runtime in the dumped process (a path on the machine that took the dump).</param>
 /// <param name="BuildId">The identity a Linux or macOS dump records for the DAC (ELF build id, Mach-O UUID; sprint
 /// 2.3.5); null for a Windows DAC, which is matched by <paramref name="TimeStamp"/> and <paramref name="ImageSize"/>.</param>
-public sealed record DacRequest(string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory, byte[]? BuildId = null);
+/// <param name="BuildIdOfRuntime">When set, <paramref name="BuildId"/> is the identity of this runtime library (for example
+/// <c>libcoreclr.so</c>), under which the DAC is archived, not the DAC's own: the DAC is accepted from a folder whose
+/// runtime library has that identity, the exact runtime it ships with.</param>
+public sealed record DacRequest(
+    string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory, byte[]? BuildId = null, string? BuildIdOfRuntime = null);
 
 /// <summary>
 /// Finds the DAC on this machine only (ADR-017): the dumped runtime's own folder when it exists here, the matching
@@ -42,6 +47,18 @@ public sealed record DacRequest(string FileName, int TimeStamp, int ImageSize, s
 /// </summary>
 public static class DacLocator
 {
+    /// <summary>
+    /// The dumped runtime's version. ClrMD reads 0.0 when a core file does not hold the runtime's version string; the
+    /// runtime's folder name (for example <c>10.0.14</c>) names it then (sprint 2.3.5).
+    /// </summary>
+    public static string RuntimeVersion(Version version, string? runtimeDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        return version.Major == 0 && version.Minor == 0 && Version.TryParse(RecordedPath.FileName(runtimeDirectory ?? ""), out var folder)
+            ? folder.ToString()
+            : version.ToString();
+    }
+
     /// <summary>The folders searched, in order, without duplicates.</summary>
     public static IReadOnlyList<string> CandidateDirectories(DacRequest request, string dumpPath, ClrMdLoaderOptions options)
     {
@@ -106,7 +123,7 @@ public static class DacLocator
             var candidate = Path.Combine(directory, request.FileName);
             looked.Add(candidate);
             var matches = request.BuildId is { Length: > 0 } buildId
-                ? ImageIdentity.Matches(candidate, buildId)
+                ? ImageIdentity.Matches(request.BuildIdOfRuntime is { } runtime ? Path.Combine(directory, runtime) : candidate, buildId)
                 : Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion);
             if (File.Exists(candidate) && matches)
             {
