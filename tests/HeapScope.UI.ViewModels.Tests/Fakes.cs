@@ -419,6 +419,35 @@ internal sealed class FakeWorkerService : IWorkerService
     /// </summary>
     public List<FakeTreeNode> TreeNodes { get; } = [];
 
+    /// <summary>"Objects retained by this set" queries received (sprint 2.4).</summary>
+    public List<RetainedBySetRequest> SetQueries { get; } = [];
+
+    /// <summary>The retained types the fake answers a set query with: name, objects, bytes.</summary>
+    public List<(string Name, long Objects, long Bytes)> SetRows { get; } = [];
+
+    public Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        SetQueries.Add(request);
+        var total = SetRows.Sum(r => r.Bytes);
+        IReadOnlyList<string?>[] rows =
+        [
+            .. SetRows.Select(r => (IReadOnlyList<string?>)[
+                r.Name, r.Objects.ToString(System.Globalization.CultureInfo.InvariantCulture), r.Bytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                (total == 0 ? 0 : 100.0 * r.Bytes / total).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture), r.Name, "App.dll"]),
+        ];
+        var id = Guid.NewGuid();
+        _sets[id] = [.. rows];
+        var columns = new ResultColumn[]
+        {
+            new(RetainedBySetColumns.Name, ResultColumnKind.Text, IsKey: true), new(RetainedBySetColumns.Objects, ResultColumnKind.Integer),
+            new(RetainedBySetColumns.Retained, ResultColumnKind.Bytes), new(RetainedBySetColumns.Percent, ResultColumnKind.Percent),
+            new(RetainedBySetColumns.TypeName, ResultColumnKind.Text), new(RetainedBySetColumns.Module, ResultColumnKind.Text),
+        };
+        var set = SetRows.FirstOrDefault(r => r.Name == request.TypeName);
+        return Task.FromResult(new RetainedBySetResult(
+            new ResultSetInfo(id, rows.Length, columns), SetRows.Count == 0 ? 0 : 1, set.Objects, set.Bytes, SetRows.Sum(r => r.Objects), total, set.Bytes, 10 * total, 0.25, Dominators));
+    }
+
     /// <summary>Dominator tree queries received.</summary>
     public List<DominatorTreeRequest> TreeQueries { get; } = [];
 

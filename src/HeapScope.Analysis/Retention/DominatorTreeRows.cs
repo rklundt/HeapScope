@@ -87,11 +87,7 @@ public static class DominatorTreeRows
             builder.Children(RootKey, dominators.Root, depth: 0);
         }
 
-        ulong total = 0;
-        foreach (var top in dominators.ChildrenOf(dominators.Root))
-        {
-            total += dominators.RetainedSize(top);
-        }
+        var total = dominators.ReachableBytes();
 
         var focusRetained = focus >= 0 ? dominators.RetainedSize(focus) : total;
         return new DominatorTreeView(builder.Rows, builder.Truncated, ancestors, focusRetained, total);

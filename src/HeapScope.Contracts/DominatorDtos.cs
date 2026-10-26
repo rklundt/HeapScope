@@ -109,3 +109,49 @@ public sealed record DominatorTreeResult(
     int TopLevel,
     bool Truncated,
     DominatorIndexInfo Dominators);
+
+/// <summary>Column names of an "objects retained by this set" result set (sprint 2.4): one row per retained type.</summary>
+public static class RetainedBySetColumns
+{
+    /// <summary>The type's display name (with its module when another type has the same name); the key.</summary>
+    public const string Name = "Name";
+
+    /// <summary>Retained objects of the type.</summary>
+    public const string Objects = "Objects";
+
+    /// <summary>Their bytes (exact).</summary>
+    public const string Retained = "Retained";
+
+    /// <summary>The bytes as a share of everything the set retains.</summary>
+    public const string Percent = "Percent";
+
+    /// <summary>The type's name, which opens its instances (hidden).</summary>
+    public const string TypeName = "TypeName";
+
+    /// <summary>The type's module file name, with <see cref="TypeName"/> (hidden).</summary>
+    public const string Module = "Module";
+}
+
+/// <summary>
+/// "Objects retained by this set" (sprint 2.4): what every object of a type (by name and module, as in
+/// <see cref="InstancesRequest"/>) keeps alive together, exactly.
+/// </summary>
+public sealed record RetainedBySetRequest(Guid SnapshotId, string TypeName, string? Module);
+
+/// <summary>
+/// The answer to <see cref="RetainedBySetRequest"/>: the retained objects by type, largest first (<see cref="RetainedBySetColumns"/>);
+/// how many type table entries matched; the set's reachable objects and bytes; the objects and bytes the set retains
+/// (exact, the set included); the type summary's lower bound for the same type, to compare; the reachable heap's bytes;
+/// the seconds the reachability pass took; and how the dominators were obtained.
+/// </summary>
+public sealed record RetainedBySetResult(
+    ResultSetInfo Types,
+    int MatchedTypes,
+    long SetObjects,
+    long SetBytes,
+    long RetainedObjects,
+    long RetainedBytes,
+    long LowerBoundBytes,
+    long TotalRetained,
+    double Seconds,
+    DominatorIndexInfo Dominators);

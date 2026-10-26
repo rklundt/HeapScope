@@ -110,6 +110,18 @@ public sealed class Dominators : IDisposable
         return starts[vertex + 1] - starts[vertex];
     }
 
+    /// <summary>The bytes of every object a root reaches: the retained sizes of the top-level dominators. Sprint 2.4.</summary>
+    public ulong ReachableBytes()
+    {
+        ulong total = 0;
+        foreach (var top in ChildrenOf(Root))
+        {
+            total += RetainedSize(top);
+        }
+
+        return total;
+    }
+
     /// <summary>The immediate dominator of <paramref name="objectIndex"/> (an object index, or a marker of <see cref="DominatorTree"/>).</summary>
     public int ImmediateDominator(int objectIndex) => ImmediateDominators[objectIndex];
 

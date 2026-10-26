@@ -407,6 +407,28 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     }
 
     /// <summary>
+    /// What every object of a type retains together, exactly (sprint 2.4), by type; the totals next to the type summary's
+    /// lower bound.
+    /// </summary>
+    public async Task<RetainedBySetAnswer> QueryRetainedBySetAsync(SnapshotHandle handle, string typeName, string? module, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        RetainedBySetResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryRetainedBySetAsync(new RetainedBySetRequest(id, typeName, module), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Types;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new RetainedBySetAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>
     /// Why one object is alive (sprint 2.2): its shortest paths from up to <paramref name="maxRoots"/> roots. The first such
     /// query of a snapshot builds its reverse references index, or opens it from its sidecar.
     /// </summary>

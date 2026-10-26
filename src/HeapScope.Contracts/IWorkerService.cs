@@ -133,6 +133,13 @@ public interface IWorkerService
     /// </summary>
     Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The objects every object of a type retains together, exactly (sprint 2.4): one reachability pass from the roots that
+    /// skips the set. Computes or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A type that
+    /// matches nothing answers with no rows.
+    /// </summary>
+    Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 
