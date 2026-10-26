@@ -32,6 +32,7 @@ everything else.
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
 | 2.7 | Navigation and polish | Planned | | |
+| 2.8 | Packaging and distribution | Planned | | |
 
 ---
 
@@ -2163,6 +2164,38 @@ text or field values unless the person exporting opts in for that export).
 switches.
 
 **Dependencies**: 2.4.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 2.8: Packaging and distribution
+
+**Goal**: people install and run HeapScope without building it.
+
+**Scope**: decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
+your proposal for a packaging sprint once you pick audiences and channels"). Options discussed after 2.4:
+- Windows: a self-contained single-file publish (the app and the worker, which is its own process), a
+  framework-dependent zip on a shared runtime, winget, MSIX, code signing.
+- Linux: a self-contained tar.gz with a `.sh` launcher; AppImage, deb or rpm.
+- macOS: an app bundle in a DMG, signed and notarized (needs an Apple developer account).
+- The CLI as a `dotnet tool`.
+- Release builds from CI on a tag, with checksums; releases to `main` stay the product owner's call (DEVELOPER.md 7).
+
+Constraints: every bundled component keeps an allowed license (MIT or allowed), with its notices shipped; the
+attribution strip and the license files ship unchanged (ADR-022); before any Avalonia update, check whether anything
+used has moved to a paid model. Signing certificates, store accounts and paid services need the product owner's OK.
+
+**Open questions for /start-sprint**: audiences (who installs it, on which systems); channels (GitHub Releases only,
+or also winget, a dotnet tool, package feeds); self-contained or shared runtime; signing on which systems; how updates
+reach users; whether CI becomes the release builder.
+
+**Acceptance criteria**: to be set at /start-sprint with the channels; at least a clean machine of each chosen
+system installs the package, runs the app, opens a fixture dump and runs the CLI, with no SDK installed.
+
+**Dependencies**: 2.3.6 (the Avalonia app, ADR-025). Can run before 2.5 if the product owner wants packages earlier.
 
 **Task breakdown**: to be filled by /start-sprint.
 
