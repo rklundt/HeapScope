@@ -48,7 +48,7 @@ internal sealed class TypeSummarySource : IResultSource
         new(TypeSummaryColumns.Percent, ResultColumnKind.Percent),
     ];
 
-    private static readonly ResultColumn[] s_retainedColumns = [new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes)];
+    private static readonly ResultColumn[] s_retainedColumns = [new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound)];
 
     private static readonly ResultColumn[] s_kindColumns = [.. KindColumns.Select(k => new ResultColumn(k.ToString(), ResultColumnKind.Bytes))];
 

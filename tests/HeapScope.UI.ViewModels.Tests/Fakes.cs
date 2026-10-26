@@ -224,7 +224,7 @@ internal sealed class FakeWorkerService : IWorkerService
         var id = Guid.NewGuid();
         _sets[id] = rows;
         ResultColumn[] columns = [new("Name", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Percent", ResultColumnKind.Percent),
-            .. retained ? new ResultColumn[] { new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes) } : [],
+            .. retained ? new ResultColumn[] { new(TypeSummaryColumns.Retained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound) } : [],
             .. byType ? new ResultColumn[] { new(TypeSummaryColumns.TypeName, ResultColumnKind.Text), new(TypeSummaryColumns.Module, ResultColumnKind.Text) } : []];
         var totalBytes = Rows.Sum(r => long.Parse(r[2]!, System.Globalization.CultureInfo.InvariantCulture));
         HeapKindTotal[] kinds = HasGenerations ? [new(HeapKindDto.Gen0, 10, totalBytes / 2), new(HeapKindDto.Gen2, 5, totalBytes / 2)] : [];
@@ -412,6 +412,68 @@ internal sealed class FakeWorkerService : IWorkerService
 
     /// <summary>How the fake's dominators were obtained.</summary>
     public DominatorIndexInfo Dominators { get; } = new(false, SnapshotMemoryMode.InMemory, 1.5, 1200, true, 100);
+
+    /// <summary>
+    /// The fake's dominator tree (sprint 2.4), typed rather than positional (2.3.7 review M15): the top level has an empty
+    /// parent key; a node's children show when its key is expanded.
+    /// </summary>
+    public List<FakeTreeNode> TreeNodes { get; } = [];
+
+    /// <summary>Dominator tree queries received.</summary>
+    public List<DominatorTreeRequest> TreeQueries { get; } = [];
+
+    public Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        TreeQueries.Add(request);
+        var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
+        var focus = request.FocusAddress == 0 ? null : TreeNodes.FirstOrDefault(n => n.Address == request.FocusAddress);
+        var rows = new List<IReadOnlyList<string?>>();
+        void Emit(string parent, int depth)
+        {
+            foreach (var node in TreeNodes.Where(n => n.ParentKey == parent))
+            {
+                var open = expanded.Contains(node.Key) && TreeNodes.Any(n => n.ParentKey == node.Key);
+                rows.Add(node.Cells(depth, open));
+                if (open)
+                {
+                    Emit(node.Key, depth + 1);
+                }
+            }
+        }
+
+        if (focus is not null)
+        {
+            rows.Add(focus.Cells(0, true));
+            Emit(focus.Key, 1);
+        }
+        else
+        {
+            Emit(string.Empty, 0);
+        }
+
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        var columns = new ResultColumn[]
+        {
+            new(DominatorTreeColumns.Key, ResultColumnKind.Text, IsKey: true), new(DominatorTreeColumns.ParentKey, ResultColumnKind.Text),
+            new(DominatorTreeColumns.Depth, ResultColumnKind.Integer), new(DominatorTreeColumns.Kind, ResultColumnKind.Text),
+            new(DominatorTreeColumns.Name, ResultColumnKind.Text), new(DominatorTreeColumns.Module, ResultColumnKind.Text),
+            new(DominatorTreeColumns.Address, ResultColumnKind.Address), new(DominatorTreeColumns.Objects, ResultColumnKind.Integer),
+            new(DominatorTreeColumns.Retained, ResultColumnKind.Bytes), new(DominatorTreeColumns.Bytes, ResultColumnKind.Bytes),
+            new(DominatorTreeColumns.Percent, ResultColumnKind.Percent), new(DominatorTreeColumns.Children, ResultColumnKind.Integer),
+            new(DominatorTreeColumns.Expanded, ResultColumnKind.Integer),
+        };
+        var total = TreeNodes.Where(n => n.ParentKey.Length == 0).Sum(n => n.Retained);
+        return Task.FromResult(new DominatorTreeResult(
+            new ResultSetInfo(id, rows.Count, columns),
+            focus?.Key,
+            [],
+            focus?.Retained ?? total,
+            total,
+            TreeNodes.Count(n => n.ParentKey.Length == 0),
+            false,
+            Dominators));
+    }
 
     /// <summary>Inspections offered for every snapshot (sprint 1.6).</summary>
     public List<InspectionInfo> Inspections { get; } =

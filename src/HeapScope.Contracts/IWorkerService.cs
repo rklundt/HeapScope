@@ -125,6 +125,14 @@ public interface IWorkerService
     /// </summary>
     Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The dominator tree as a flattened, paged list (sprint 2.4, ADR-027): its top level (the biggest retainers) or the
+    /// tree below a focus object, with the requested rows expanded and each node's children as objects or groups. Computes
+    /// or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A focus with no object, or one no root
+    /// reaches, fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 

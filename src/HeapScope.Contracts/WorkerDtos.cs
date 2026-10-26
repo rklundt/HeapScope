@@ -73,7 +73,31 @@ public enum ResultColumnKind
 }
 
 /// <summary>One column of a result set. <see cref="IsKey"/> marks the column that names a row (for example the type).</summary>
-public sealed record ResultColumn(string Name, ResultColumnKind Kind, bool IsKey = false);
+/// <param name="Bound">
+/// Whether the column's values are exact or lower bounds (sprint 2.4, 2.3.7 review M7): the retained bytes of a type,
+/// namespace or assembly row are a lower bound (ADR-024); an object's, a dominator tree row's and a set's exact.
+/// Front ends render from this one flag (<see cref="ValueBoundTexts"/>).
+/// </param>
+public sealed record ResultColumn(string Name, ResultColumnKind Kind, bool IsKey = false, ValueBound Bound = ValueBound.Exact);
+
+/// <summary>Whether a column's values are exact (sprint 2.4).</summary>
+public enum ValueBound
+{
+    Exact = 0,
+
+    /// <summary>The true value is at least this.</summary>
+    LowerBound = 1,
+}
+
+/// <summary>What a value bound means, said the same way by every front end (sprint 2.4, 2.3.7 review M7).</summary>
+public static class ValueBoundTexts
+{
+    /// <summary>The note for a column of lower bounds, such as a group's retained bytes.</summary>
+    public const string LowerBound = "At least this much: a group's retained bytes count only what its objects retain apart from each other; objects held by several of them together are not counted. \"Objects they retain\" computes the exact figure.";
+
+    /// <summary>The marker a table puts on a lower bound.</summary>
+    public const string Marker = "≥";
+}
 
 /// <summary>A result set held by the worker, fetched with <see cref="IWorkerService.GetRowsAsync"/>.</summary>
 public sealed record ResultSetInfo(Guid Id, int TotalCount, IReadOnlyList<ResultColumn> Columns);

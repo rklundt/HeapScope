@@ -327,7 +327,11 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                     ? null
                     : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, snapshot.Descriptor.Kind);
                 RetainedColumnShown = result.Dominators is not null;
-                RetainedNote = result.Dominators is { } dominators ? RetainedText.Source(dominators) + " " + RetainedText.RowsAreLowerBounds : null;
+                // Whether the rows are lower bounds comes with the column (sprint 2.4, 2.3.7 review M7), not from here.
+                var retainedBound = result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound;
+                RetainedNote = result.Dominators is { } dominators
+                    ? RetainedText.Source(dominators) + (retainedBound == ValueBound.LowerBound ? " " + ValueBoundTexts.LowerBound : string.Empty)
+                    : null;
                 if (retainedFailure is not null)
                 {
                     TurnRetainedOffQuietly();

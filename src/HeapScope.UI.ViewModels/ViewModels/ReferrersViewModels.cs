@@ -54,10 +54,6 @@ internal static class RetainedText
         $"Retained sizes {(dominators.FromSidecar ? "read from the saved index" : "computed")} in {dominators.Seconds:N1} s; {dominators.ReachableObjects:N0} objects are reachable from the roots.")
         + (dominators.Note is { } note ? " " + note : string.Empty);
 
-    /// <summary>What a type, namespace or assembly row's retained bytes mean (decision 6).</summary>
-    public const string RowsAreLowerBounds =
-        "A row's retained bytes are at least what its objects keep alive: objects held only by several of them together are not counted.";
-
     /// <summary>Why retained sizes are not shown after a failed retained query (review M8), with the worker's reason.</summary>
     public static string NotShown(string reason) => "Retained sizes are not shown: " + reason;
 
