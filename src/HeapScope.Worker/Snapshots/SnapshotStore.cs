@@ -44,7 +44,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
 {
     private readonly ConcurrentDictionary<Guid, Entry> _snapshots = new();
     private readonly SemaphoreSlim _loadGate = new(1, 1);
-    private readonly SnapshotKinds _kinds = new(options);
+    private readonly SnapshotKinds _kinds = new(options, choice => LogDac(logger, choice));
     private readonly ReverseIndexBuilder _reverseBuilder = new(logger);
 
     /// <summary>The memory reserved by large derived computations of every snapshot (sprint 2.3 review M2).</summary>
@@ -84,6 +84,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             {
                 if (!request.Rebuild)
                 {
+                    logger.LogInformation("Snapshot {Id} ({Path}) is already open; its descriptor is returned", open.Descriptor.SnapshotId, path);
                     return open.Descriptor;
                 }
 
@@ -266,14 +267,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             }
 
             throttled.Flush();
-            logger.LogInformation(
-                "Snapshot {Id} opened in {Seconds:N1} s ({Source}, {Mode}): {Objects} objects, {References} references",
-                descriptor.SnapshotId,
-                descriptor.OpenSeconds,
-                fromCache ? "index cache" : "dump",
-                mode,
-                descriptor.ObjectCount,
-                descriptor.ReferenceCount);
+            LogIdentity(descriptor, snapshot, metadata, fingerprint, request, fromCache, mode);
             return new Entry(snapshot, descriptor, new IndexState(writtenCache, identity, fingerprint, mode, forced));
         }
         finally
@@ -285,6 +279,71 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
                 GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
             }
         }
+    }
+
+    /// <summary>
+    /// The DAC each runtime was created with, by the loader and later by the field reader (sprint 2.3.7 review M3). A
+    /// download from the symbol server is a warning: it sent module identifiers to Microsoft (ADR-017).
+    /// </summary>
+    private static void LogDac(ILogger logger, DacChoice choice)
+    {
+        if (choice.Downloaded)
+        {
+            logger.LogWarning("DAC for {Dump} downloaded from Microsoft's symbol server (no local file matched): looked at {Candidates}", choice.DumpPath, string.Join("; ", choice.Candidates));
+        }
+        else
+        {
+            logger.LogInformation("DAC for {Dump}: {Dac}, accepted by {Rule}; looked at {Candidates}", choice.DumpPath, choice.Path, choice.Rule, string.Join("; ", choice.Candidates));
+        }
+    }
+
+    /// <summary>
+    /// One line that ties the worker's snapshot id to the file and everything a later result rests on (sprint 2.3.7 review
+    /// H2): every other line names the snapshot by its id. Paths, sizes, versions, flags and notes only, never dump
+    /// contents (ARCHITECTURE.md 11 and 12).
+    /// </summary>
+    private void LogIdentity(SnapshotDescriptor descriptor, ISnapshot snapshot, IndexCacheMetadata metadata, SnapshotFingerprint fingerprint, OpenSnapshotRequest request, bool fromCache, MemoryMode mode)
+    {
+        var info = snapshot.Info;
+        var source = fromCache ? "index cache" : request.Rebuild ? "dump, rebuild requested" : "dump";
+
+        // A full dump's cache written before 2.3.7 has no diagnostics or DAC: its zeros are not facts (2.3.7 review, H2 confirmation).
+        var recorded = info.Kind != SnapshotKind.FullDump || metadata.Dac is not null;
+        string Recorded(long value) => recorded ? value.ToString(CultureInfo.InvariantCulture) : "not recorded";
+        logger.LogInformation(
+            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); notes: {Notes}",
+            descriptor.SnapshotId,
+            descriptor.OpenSeconds,
+            descriptor.Path,
+            fingerprint.Length,
+            fingerprint.ContentHash,
+            new DateTime(fingerprint.LastWriteUtcTicks, DateTimeKind.Utc),
+            info.Kind,
+            snapshot.Capabilities,
+            info.Facts,
+            info.ProcessName,
+            info.ProcessId,
+            info.RuntimeVersion,
+            info.CapturedAtUtc,
+            info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile) ? " (the file's time)" : string.Empty,
+            source,
+            request.RequireCache ? ", reopened after a worker restart" : string.Empty,
+            mode,
+            descriptor.CachePath ?? "(none)",
+            descriptor.CacheIdentity,
+            metadata.WriterVersion,
+            metadata.LoaderVersion,
+            descriptor.ObjectCount,
+            descriptor.ReferenceCount,
+            descriptor.RootCount,
+            snapshot.Graph.DroppedReferenceCount,
+            snapshot.Graph.DroppedRootCount,
+            metadata.UnreadableObjects,
+            Recorded(metadata.IncompleteSegments),
+            Recorded(metadata.StaticFieldRoots),
+            metadata.Dac?.Path ?? (metadata.Dac is not null ? "symbol server" : info.Kind == SnapshotKind.FullDump ? "not recorded (index cache from before 2.3.7)" : "none (a gcdump needs none)"),
+            metadata.Dac?.Rule ?? "-",
+            descriptor.Notes.Count == 0 ? "none" : string.Join(" | ", descriptor.Notes));
     }
 
     /// <summary>
@@ -354,13 +413,31 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         var loader = _kinds.ForFile(path).CreateLoader();
         LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
         HeapGraph? graph = loaded.Graph;
+        var diagnostics = loaded.Diagnostics;
         var metadata = new IndexCacheMetadata(
             loaded.Info,
             loaded.Capabilities,
             IndexCacheMetadata.CurrentWriterVersion,
-            loaded.Diagnostics.DebuggableModules,
-            loaded.Diagnostics.UnreadableObjects,
-            loader.Version);
+            diagnostics.DebuggableModules,
+            diagnostics.UnreadableObjects,
+            loader.Version,
+            diagnostics.StaticFieldRoots,
+            diagnostics.IncompleteSegments,
+            diagnostics.Dac);
+        var timings = loaded.Timings;
+        logger.LogInformation(
+            "Loaded {Path} from the dump in {Seconds:N1} s: open {OpenSeconds:N1} s, objects {ObjectsSeconds:N1} s, references {ReferencesSeconds:N1} s, roots {RootsSeconds:N1} s, build {BuildSeconds:N1} s; unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}, debuggable modules {Debuggable}",
+            path,
+            (timings.Open + timings.Objects + timings.References + timings.Roots + timings.Build).TotalSeconds,
+            timings.Open.TotalSeconds,
+            timings.Objects.TotalSeconds,
+            timings.References.TotalSeconds,
+            timings.Roots.TotalSeconds,
+            timings.Build.TotalSeconds,
+            diagnostics.UnreadableObjects,
+            diagnostics.IncompleteSegments,
+            diagnostics.StaticFieldRoots,
+            diagnostics.DebuggableModules.Count);
 
         // Nothing else may reference the built graph, or the mapped transition below cannot free it.
         loaded = null;

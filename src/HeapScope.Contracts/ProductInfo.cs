@@ -43,9 +43,15 @@ public static class ProductInfo
     public const string AttributionWithUrl = Attribution + " (" + RepositoryUrl + ")";
 
     /// <summary>The informational version of the HeapScope build, without source revision metadata.</summary>
-    public static string Version { get; } = ReadVersion();
+    public static string Version { get; } = ReadVersion(withRevision: false);
 
-    private static string ReadVersion()
+    /// <summary>
+    /// The version with the build's source revision (<c>2.3.7+1a2b3c4...</c>) when the build recorded one: logs carry it,
+    /// so a local build and a CI build of the same version can be told apart (sprint 2.3.7).
+    /// </summary>
+    public static string InformationalVersion { get; } = ReadVersion(withRevision: true);
+
+    private static string ReadVersion(bool withRevision)
     {
         var informational = typeof(ProductInfo).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
@@ -55,6 +61,6 @@ public static class ProductInfo
         }
 
         var plus = informational.IndexOf('+', StringComparison.Ordinal);
-        return plus < 0 ? informational : informational[..plus];
+        return withRevision || plus < 0 ? informational : informational[..plus];
     }
 }

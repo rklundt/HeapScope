@@ -168,8 +168,14 @@ dotnet test --solution HeapScope.sln
   inherit "ignore Ctrl+C"), and `LoadGen --ctrl-c <pid>` sends Ctrl+C to that program's console.
 - A canceled capture waits for the runtime to finish writing and then deletes the dump: the CLI waits up to an hour
   after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`, `*.gcdump.partial`) is swept at the next start.
-- Logs: `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (UI and CLI, including forwarded worker lines);
-  override with `--Logging:File:Directory <dir>` (UI) or the `Logging__File__Directory` environment variable.
+- Logs (sprint 2.3.7, ARCHITECTURE 11): a file per process and day, `heapscope-yyyyMMdd-<ui|cli>-<pid>.log`, in
+  `%LOCALAPPDATA%\HeapScope\logs` (Linux `~/.local/share/HeapScope/logs`, macOS `~/Library/Application Support/HeapScope/logs`),
+  with forwarded worker lines (`w<pid> g<generation>`); override the folder with `--Logging:File:Directory <dir>` (UI)
+  or the `Logging__File__Directory` environment variable, the level with `Logging:File:MinimumLevel`. To follow one
+  action across the UI or CLI and the worker, search for its `TraceId`. To find why a result was shown: the worker's
+  "Snapshot ... opened" identity line, then the "... answered in" line of the query (and "Inspection ... basis" for an
+  inspection). Kept 14 days, 50 MB per file. New log lines carry names and numbers only (ARCHITECTURE 11's policy); a
+  request or result goes through `Provenance`, never formatted by hand.
 - Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
 - Tests that need gigabyte heaps or dumps (DenseHeap, the CLI Ctrl+C capture) run alone in `HeavyTestsCollection`, so
   they cannot slow other tests into timeouts; they also carry `Category=Slow`.

@@ -40,7 +40,7 @@ internal sealed partial class WorkerService
     private const int MaxInspectedText = 10_000;
 
     public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             var stopwatch = Stopwatch.StartNew();
@@ -67,7 +67,7 @@ internal sealed partial class WorkerService
                 var throttled = new ThrottledProgress<JobProgress>(progress);
                 var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators), cancellationToken).ConfigureAwait(false);
                 var rows = resultSets.Add(source, lease);
-                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds, info);
+                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds, info, source.Note);
             }
             catch (CapabilityNotSupportedException ex) when (ex.Missing != SnapshotCapabilities.None)
             {
@@ -85,7 +85,7 @@ internal sealed partial class WorkerService
         });
 
     public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             progress?.Report(new JobProgress("Reading the object", 0, null));
@@ -130,7 +130,7 @@ internal sealed partial class WorkerService
         });
 
     public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             progress?.Report(new JobProgress("Naming references", 0, null));

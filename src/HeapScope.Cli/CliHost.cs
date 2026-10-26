@@ -49,7 +49,14 @@ internal static class CliHost
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
         builder.Logging.AddFilter<Microsoft.Extensions.Logging.Console.ConsoleLoggerProvider>(level => level >= LogLevel.Warning);
-        builder.Logging.AddProvider(new FileLoggerProvider(builder.Configuration["Logging:File:Directory"]));
+        var fileLog = builder.Services.AddHeapScopeFileLog(builder.Configuration, "cli");
+        builder.Logging.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.TraceId);
+        if (fileLog.MinimumLevel < LogLevel.Information)
+        {
+            builder.Logging.SetMinimumLevel(fileLog.MinimumLevel);
+        }
+
+        builder.Services.PostConfigure<WorkerHostOptions>(o => o.WorkerLogLevel = fileLog.MinimumLevel);
 
         builder.Services.AddHeapScopeApplication();
         builder.Services.Configure<WorkerHostOptions>(builder.Configuration.GetSection(WorkerHostOptions.SectionName));

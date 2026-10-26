@@ -228,7 +228,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
                 }
 
                 ValuesExplanation = result.ValuesAvailable
-                    ? null
+                    ? result.FilterNote
                     : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.StringContents, Snapshot.Descriptor.Kind);
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,

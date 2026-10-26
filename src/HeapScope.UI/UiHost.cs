@@ -64,7 +64,14 @@ internal static class UiHost
 
         builder.Logging.ClearProviders();
         builder.Logging.AddDebug();
-        builder.Logging.AddProvider(new FileLoggerProvider(builder.Configuration["Logging:File:Directory"]));
+        var fileLog = builder.Services.AddHeapScopeFileLog(builder.Configuration, "ui");
+        builder.Logging.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.TraceId);
+        if (fileLog.MinimumLevel < LogLevel.Information)
+        {
+            builder.Logging.SetMinimumLevel(fileLog.MinimumLevel);
+        }
+
+        builder.Services.PostConfigure<WorkerHostOptions>(o => o.WorkerLogLevel = fileLog.MinimumLevel);
 
         // The live smoke run charts made-up samples: no process is monitored (sprint 1.7).
         var smokeLive = builder.Configuration["smoke-live"];
@@ -94,27 +101,7 @@ internal static class UiHost
         builder.Services.AddSingleton<IUserInteraction>(sp => options.IsSmokeRun
             ? new AutomaticUserInteraction()
             : new AvaloniaUserInteraction(() => sp.GetService<MainWindow>()));
-        builder.Services.AddSingleton<SnapshotsViewModel>(sp => new SnapshotsViewModel(
-            sp.GetRequiredService<HeapScope.Application.Snapshots.SnapshotSession>(),
-            sp.GetRequiredService<WorkerOperations>(),
-            sp.GetRequiredService<IUiDispatcher>(),
-            sp.GetRequiredService<IUserInteraction>(),
-            sp.GetRequiredService<ILoggerFactory>()));
-        builder.Services.AddSingleton<HomeViewModel>(sp => new HomeViewModel(
-            sp.GetRequiredService<WorkerOperations>(),
-            sp.GetRequiredService<SnapshotsViewModel>(),
-            sp.GetRequiredService<HeapScope.Application.Sessions.SessionLibrary>()));
-        builder.Services.AddSingleton<ProcessesViewModel>(sp => new ProcessesViewModel(
-            sp.GetRequiredService<HeapScope.Application.Sessions.ICaptureService>(),
-            sp.GetRequiredService<SnapshotsViewModel>(),
-            sp.GetRequiredService<IUserInteraction>()));
-        builder.Services.AddSingleton<AboutViewModel>();
-        builder.Services.AddSingleton<LiveViewModel>(sp => new LiveViewModel(
-            sp.GetRequiredService<HeapScope.Application.Monitoring.MonitorService>(),
-            sp.GetRequiredService<HeapScope.Application.Sessions.ICaptureService>(),
-            sp.GetRequiredService<IUiDispatcher>(),
-            sp.GetService<ILogger<LiveViewModel>>()));
-        builder.Services.AddSingleton<ShellViewModel>();
+        builder.Services.AddHeapScopeViewModels();
         builder.Services.AddSingleton<MainWindow>();
         return builder.Build();
     }

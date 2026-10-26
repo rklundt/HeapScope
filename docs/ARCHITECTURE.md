@@ -431,14 +431,19 @@ Rules:
   worker. The handshake is bounded by the connect timeout. In the worker, `WorkerErrors.GuardAsync` maps domain
   exceptions to codes in one place (`CapabilityNotSupported`, `InsufficientMemory`, `InvalidArgument`,
   `RuntimeComponentMissing`, `SnapshotFormat`, `SnapshotUnavailable` for I/O and access failures with a next step,
-  `SnapshotChanged`) and logs every failure with its stack trace in the worker (warnings for coded errors, errors for
-  unexpected ones), so the client's message stays plain and the log keeps the details. The UI
+  `SnapshotChanged`) and logs every outcome once with the operation and the request (section 11): an answer with what
+  was answered, an expected refusal (capability, invalid argument, changed file, unknown snapshot or result set, missing
+  DAC, memory) at Information without a stack, other coded failures as warnings with their stack, unexpected ones as
+  errors; errors the worker creates as codes are logged too (sprint 2.3.7). The client's message stays plain and the
+  log keeps the details. The front ends catch `WorkerException`, the base of the three worker exception types. The UI
   adds last-chance handlers (dispatcher, app domain, unobserved tasks) that log and show a plain message; the
   CLI command boundary prints a plain message and logs the stack trace.
 - Worker stderr is captured by the client and forwarded into the client's log (category `Worker`), so the
   last log lines before a crash are never lost. The worker writes single-line records
-  (`HH:mm:ss.fff level: Category[id] message`); the forwarder keeps the level and logs lines without one (for
-  example a stack trace) as warnings.
+  (`HH:mm:ss.fff level: Category[id] => scopes message`); the forwarder prefixes `w<pid> g<generation>`, keeps the level
+  and logs lines without one (for example a stack trace) as warnings. A worker that exits logs a last-chance line with
+  its peak working set; the client explains known exit codes in the banner and the log (137: killed, usually by the
+  Linux out-of-memory killer; an unhandled .NET exception; a stack overflow; sprint 2.3.7).
 - Transport failures (`ConnectionLostException`, broken pipe, disposed connection) become
   `WorkerCrashedException`; worker errors become `WorkerOperationException` with the `HeapScopeErrorCode`;
   startup failures (missing executable, no pipe within 30 s, exit during startup) become `WorkerStartException`.
@@ -497,6 +502,9 @@ Rules:
   fit the worker's budget fail with `InsufficientMemory`.
   Version 10 (sprint 2.3.6) added `CaptureTimeFromFile` at the end of `SnapshotDescriptor`: the capture time is the
   file's write time (Linux and macOS core dumps record none), so Compare does not order snapshots by it.
+  Version 11 (sprint 2.3.7) added `FilterNote` at the end of `InstancesResult` (what a value filter could not test:
+  unreadable strings, regular expression timeouts); both ends set StreamJsonRpc's `ActivityTracingStrategy`, so each
+  request carries the client's W3C trace context and the worker's log lines carry its trace id.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1274,10 +1282,47 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
 3,600 samples (an hour, the window sliding) stayed at 29 ms.
 
 ## 11. Error handling and logging
-- Microsoft.Extensions.Logging everywhere. UI and CLI log to a daily file
-  `%LOCALAPPDATA%\HeapScope\logs\heapscope-yyyyMMdd.log` (`FileLoggerProvider` in Application; directory
-  overridable with `Logging:File:Directory`), the UI also to debug output and the CLI to stderr from Warning up;
-  the worker logs single-line records to stderr, which the client forwards into its own log.
+- Microsoft.Extensions.Logging everywhere. The UI and the CLI each write a file per process and day,
+  `heapscope-yyyyMMdd-<ui|cli>-<pid>.log` (`FileLoggerProvider` in Application, sprint 2.3.7), in
+  `%LOCALAPPDATA%\HeapScope\logs` on Windows, `~/.local/share/HeapScope/logs` on Linux and
+  `~/Library/Application Support/HeapScope/logs` on macOS (`Logging:File:Directory` overrides it). A file per process
+  means two HeapScope processes never write over each other's lines (sprint 2.3.7 review H1). Each file starts with a
+  header: the build with its source revision, the system, architecture, runtime, self-contained or not, the process and
+  the log folder. Lines carry an ISO 8601 time with offset and the active scopes. A file rolls at 50 MB
+  (`-2`, `-3`...); files older than 14 days are removed when a process opens its first file. `Logging:File:MinimumLevel`
+  (Information by default) raises the detail for one run, and is passed to the worker (`--log-level`). The UI also logs
+  to debug output, Avalonia's warnings (area, template and source type only) and failures before its host exists; the
+  CLI also writes Warning and up to stderr. The worker logs single-line records to stderr, which the client forwards
+  into its own log.
+- **Correlation (sprint 2.3.7)**: every job (`JobTracker`: open, capture, inspections) and every CLI command runs under
+  an `Activity`; its trace id is a scope of every line it causes, in the front end and, through StreamJsonRpc's activity
+  tracing (W3C trace context in each request), in the worker. Job start and end lines carry the job id, title, time and
+  outcome; the CLI logs its command line (paths and numbers as given, other values by their length) and exit code.
+- **Provenance of results (sprint 2.3.7, review H2 to H4)**: the log backs up any result a user contests.
+  - Each process's start: versions, system, architecture, runtime, options; the worker adds the protocol, its path, the
+    GC settings and a versions line (loaders, index cache format, retention semantics, ClrMD, each inspection's version).
+  - Each snapshot open: one identity line that ties the worker's snapshot id to the file: path, size, fingerprint,
+    kind, capabilities, facts, process, runtime, capture time and its source, from the cache or the dump (or a reopen),
+    memory mode, cache path and identity, writer and loader versions, counts, dropped references and roots, unreadable
+    objects, incomplete segments, static roots, the DAC and why it was trusted, and the notes shown. A load from the dump
+    also logs its phase times. The client logs its handle with the worker id on open, reopen and a changed-file refusal.
+  - Each DAC choice (`DacChoice`): the file, the rule that accepted it (time stamp and size, file version, own build
+    id, runtime build id with the installed-folder or version-string pairing), every file looked at with why it was not
+    used; a symbol-server download is a warning. Kept in the cache metadata, so a reopen still says it.
+  - Each answered query: `WorkerErrors.GuardAsync` logs the operation, the request and the result (`Provenance`), with
+    page reads and probes at Debug. Inspections add their version, thresholds (`IInspection.Parameters`) and basis (what
+    was scanned or skipped). Retention paths log each root shown (its kind and description) and each key path (root,
+    type steps, objects, bytes), with stopped-early, truncated and the root path fallback. Compare logs how its pair was
+    chosen; result set re-runs are logged. Grid queries and panel loads run under an activity too, so their worker lines
+    carry their trace id.
+  - Monitoring logs each run's rules and, when a rule fires, the metric and its source, the threshold after steps, the
+    baseline and the rearm mode (`RuleDecision`); the CLI logs its growth gate's decision.
+- **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
+  sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
+  and never the user's filter text (logged by its length): `Provenance` writes any other text by its length only, and
+  error messages that would echo a filter leave it out. Logs are local evidence for support; they are not meant to be
+  published, since paths name the user and the machine. A result meant to be shared goes through the shared analysis
+  export (ADR-026), which strips names by default.
 - Exceptions are caught at boundaries only: worker RPC methods, view model commands, CLI command handlers.
   Inner code throws specific exceptions (`CapabilityNotSupportedException`, `SnapshotFormatException`,
   `ElevationRequiredException`, `WorkerCrashedException`) and does not swallow them.

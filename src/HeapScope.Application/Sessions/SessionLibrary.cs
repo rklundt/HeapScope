@@ -368,11 +368,15 @@ public sealed class SessionLibrary
         }
     }
 
-    /// <summary>Opens <c>session.lock</c> exclusively, retrying for up to 10 seconds while another run holds it.</summary>
+    /// <summary>
+    /// Opens <c>session.lock</c> exclusively, retrying for up to 30 seconds while another run holds it. Each holder flushes
+    /// the document to disk, which takes long on a busy machine; 10 seconds was too short for many waiters (a gate flake in
+    /// sprints 2.3.5 to 2.3.7 lost an update to the deadline, not to a race).
+    /// </summary>
     private static FileStream AcquireLock(string folder)
     {
         var path = Path.Combine(folder, LockName);
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
         while (true)
         {
             try

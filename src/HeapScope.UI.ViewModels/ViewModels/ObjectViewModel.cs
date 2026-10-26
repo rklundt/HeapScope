@@ -238,14 +238,8 @@ public sealed partial class ObjectViewModel : ObservableObject
         _lifetime.Cancel();
         ReferenceRows.Cancel();
         IncomingRows.Cancel();
-        foreach (var set in new[] { _references, _incoming })
-        {
-            _ = set?.ReleaseAsync(CancellationToken.None).ContinueWith(
-                t => _logger.LogDebug(t.Exception, "Releasing an object's references failed"),
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted,
-                TaskScheduler.Default);
-        }
+        _references?.ReleaseInBackground(_logger);
+        _incoming?.ReleaseInBackground(_logger);
     }
 
     partial void OnReferencesTabChanged(int value)
@@ -265,64 +259,41 @@ public sealed partial class ObjectViewModel : ObservableObject
 
     partial void OnShowFrameworkStepsChanged(bool value) => ShowPaths();
 
-    private async Task LoadRetentionAsync(CancellationToken cancellationToken)
+    private Task LoadRetentionAsync(CancellationToken cancellationToken)
     {
         RetentionStatus = "Finding the shortest paths from roots (the first query of a snapshot indexes its incoming references)...";
-        var finished = false;
-        var progress = new Progress<JobProgress>(p =>
-        {
-            if (!finished && !cancellationToken.IsCancellationRequested)
+        return SectionLoader.RunAsync(
+            "Finding an object's retention paths",
+            (progress, ct) => _session.QueryObjectPathsAsync(Snapshot, Address, 10, progress, ct),
+            paths =>
             {
-                RetentionStatus = ReferrersText.Progress(p);
-            }
-        });
-        try
-        {
-            var paths = await _session.QueryObjectPathsAsync(Snapshot, Address, 10, progress, cancellationToken);
-            finished = true;
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
+                _paths = paths;
+                ShowPaths();
+                var notes = new List<string>();
+                notes.Add(paths.Reachable
+                    ? string.Create(CultureInfo.CurrentCulture, $"{paths.RootNodeIds.Count:N0} roots hold this object{(paths.StoppedEarly ? "; the search stopped at its limit, so more may" : string.Empty)}.")
+                    : paths.UnreachableNote);
+                if (paths.Truncated)
+                {
+                    notes.Add("Only the closest roots are shown: the others' paths would make the tree too large.");
+                }
 
-            _paths = paths;
-            ShowPaths();
-            var notes = new List<string>();
-            notes.Add(paths.Reachable
-                ? string.Create(CultureInfo.CurrentCulture, $"{paths.RootNodeIds.Count:N0} roots hold this object{(paths.StoppedEarly ? "; the search stopped at its limit, so more may" : string.Empty)}.")
-                : paths.UnreachableNote);
-            if (paths.Truncated)
-            {
-                notes.Add("Only the closest roots are shown: the others' paths would make the tree too large.");
-            }
+                if (!paths.CompleteGraph)
+                {
+                    notes.Add("This snapshot is incomplete, so some paths may be missing.");
+                }
 
-            if (!paths.CompleteGraph)
-            {
-                notes.Add("This snapshot is incomplete, so some paths may be missing.");
-            }
+                if (paths.FieldsNote is { } why)
+                {
+                    notes.Add(why);
+                }
 
-            if (paths.FieldsNote is { } why)
-            {
-                notes.Add(why);
-            }
-
-            RetentionStatus = string.Join(" ", notes);
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // Left the history while loading.
-        }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
-        {
-            finished = true;
-            RetentionStatus = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            finished = true;
-            _logger.LogError(ex, "Finding an object's retention paths failed");
-            RetentionStatus = "The retention paths could not be found. Details are in the log.";
-        }
+                RetentionStatus = string.Join(" ", notes);
+            },
+            status => RetentionStatus = status,
+            "The retention paths could not be found. Details are in the log.",
+            _logger,
+            cancellationToken);
     }
 
     /// <summary>Loads the retained size once the paths are shown (both use the reverse references index).</summary>
@@ -336,49 +307,26 @@ public sealed partial class ObjectViewModel : ObservableObject
     /// The object's retained size and immediate dominator (sprint 2.3), after its paths: the first query of a snapshot
     /// computes its dominators, so their phases show meanwhile.
     /// </summary>
-    private async Task LoadRetainedAsync(CancellationToken cancellationToken)
+    private Task LoadRetainedAsync(CancellationToken cancellationToken)
     {
         RetainedSummary = "Computing retained sizes...";
-        var finished = false;
-        var progress = new Progress<JobProgress>(p =>
-        {
-            if (!finished && !cancellationToken.IsCancellationRequested)
+        return SectionLoader.RunAsync(
+            "Reading an object's retained size",
+            (progress, ct) => _session.QueryRetainedAsync(Snapshot, Address, progress, ct),
+            retained =>
             {
-                RetainedSummary = ReferrersText.Progress(p);
-            }
-        });
-        try
-        {
-            var retained = await _session.QueryRetainedAsync(Snapshot, Address, progress, cancellationToken);
-            finished = true;
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            DominatorAddress = retained.DominatorAddress;
-            DominatorText = retained.DominatorAddress == 0 ? null : string.Create(CultureInfo.InvariantCulture, $"0x{retained.DominatorAddress:x} {retained.DominatorType}");
-            RetainedSummary = !retained.Reachable
-                ? "Retains nothing. " + retained.UnreachableNote
-                : string.Create(CultureInfo.CurrentCulture, $"Retains {retained.RetainedBytes:N0} bytes ({Format.Bytes(retained.RetainedBytes)}), what it alone keeps alive. ")
-                    + (retained.Index.Note is { } note ? note + " " : string.Empty)
-                    + (retained.DominatedByRoots ? "Only the roots dominate it: a root holds it, or several reach it on separate paths." : "Dominated by:");
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // Left the history while loading.
-        }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
-        {
-            finished = true;
-            RetainedSummary = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            finished = true;
-            _logger.LogError(ex, "Reading an object's retained size failed");
-            RetainedSummary = "The retained size could not be computed. Details are in the log.";
-        }
+                DominatorAddress = retained.DominatorAddress;
+                DominatorText = retained.DominatorAddress == 0 ? null : string.Create(CultureInfo.InvariantCulture, $"0x{retained.DominatorAddress:x} {retained.DominatorType}");
+                RetainedSummary = !retained.Reachable
+                    ? "Retains nothing. " + retained.UnreachableNote
+                    : string.Create(CultureInfo.CurrentCulture, $"Retains {retained.RetainedBytes:N0} bytes ({Format.Bytes(retained.RetainedBytes)}), what it alone keeps alive. ")
+                        + (retained.Index.Note is { } note ? note + " " : string.Empty)
+                        + (retained.DominatedByRoots ? "Only the roots dominate it: a root holds it, or several reach it on separate paths." : "Dominated by:");
+            },
+            status => RetainedSummary = status,
+            "The retained size could not be computed. Details are in the log.",
+            _logger,
+            cancellationToken);
     }
 
     private void ShowPaths()
@@ -392,51 +340,27 @@ public sealed partial class ObjectViewModel : ObservableObject
         RetentionTree = [RetentionNodeItem.BuildTree(_paths.Nodes, ShowFrameworkSteps)];
     }
 
-    private async Task LoadIncomingAsync(CancellationToken cancellationToken)
+    // The first query builds the snapshot's index in the worker: its phases replace the busy text (review M7).
+    private Task LoadIncomingAsync(CancellationToken cancellationToken)
     {
         IncomingStatus = "Finding referrers (the first query of a snapshot indexes its incoming references)...";
-        var finished = false;
-
-        // The first query builds the snapshot's index in the worker: its phases replace the busy text (review M7).
-        var progress = new Progress<JobProgress>(p =>
-        {
-            if (!finished && !cancellationToken.IsCancellationRequested)
+        return SectionLoader.RunAsync(
+            "Finding an object's referrers",
+            (progress, ct) => _session.QueryReferrersAsync(Snapshot, Address, progress, ct),
+            list =>
             {
-                IncomingStatus = ReferrersText.Progress(p);
-            }
-        });
-        try
-        {
-            var list = await _session.QueryReferrersAsync(Snapshot, Address, progress, cancellationToken);
-            finished = true;
-            if (cancellationToken.IsCancellationRequested)
-            {
-                await list.Rows.ReleaseAsync(CancellationToken.None);
-                return;
-            }
-
-            _incoming = list.Rows;
-            var result = list.Result;
-            IncomingRows = ReferrerRowItem.CreateList(list.Rows, result.Rows, ex => IncomingStatus = ex.Message, _logger);
-            IncomingTotals = string.Create(CultureInfo.CurrentCulture, $"{result.Rows.TotalCount:N0} objects, {result.ReferenceCount:N0} references")
-                + ReferrersText.Incomplete(result.CompleteGraph);
-            IncomingStatus = result.Rows.TotalCount == 0 ? "No object references this one." + ReferrersText.Incomplete(result.CompleteGraph) : result.FieldsNote;
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // Left the history while loading.
-        }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
-        {
-            finished = true;
-            IncomingStatus = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            finished = true;
-            _logger.LogError(ex, "Finding an object's referrers failed");
-            IncomingStatus = "The referrers could not be read. Details are in the log.";
-        }
+                _incoming = list.Rows;
+                var result = list.Result;
+                IncomingRows = ReferrerRowItem.CreateList(list.Rows, result.Rows, ex => IncomingStatus = ex.Message, _logger);
+                IncomingTotals = string.Create(CultureInfo.CurrentCulture, $"{result.Rows.TotalCount:N0} objects, {result.ReferenceCount:N0} references")
+                    + ReferrersText.Incomplete(result.CompleteGraph);
+                IncomingStatus = result.Rows.TotalCount == 0 ? "No object references this one." + ReferrersText.Incomplete(result.CompleteGraph) : result.FieldsNote;
+            },
+            status => IncomingStatus = status,
+            "The referrers could not be read. Details are in the log.",
+            _logger,
+            cancellationToken,
+            list => list.Rows.ReleaseAsync(CancellationToken.None));
     }
 
     private async Task LoadAsync(CancellationToken cancellationToken)
@@ -470,7 +394,7 @@ public sealed partial class ObjectViewModel : ObservableObject
         {
             // Left the history while loading.
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException or OperationCanceledException)
+        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             Status = ex.Message;
         }

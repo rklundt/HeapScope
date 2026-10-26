@@ -25,6 +25,7 @@ using System.Diagnostics;
 using HeapScope.Analysis.Inspections;
 using HeapScope.Contracts;
 using HeapScope.Core;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
@@ -37,11 +38,18 @@ internal sealed partial class WorkerService
             var (snapshot, lease) = Lease(snapshotId);
             using var _ = lease;
             IReadOnlyList<InspectionInfo> list = [.. InspectionCatalog.All.Select(i => new InspectionInfo(i.Name, i.Title, i.Cause, i.Fix, InspectionAvailability.Explain(i, snapshot.Capabilities, snapshot.Info)))];
+
+            // Why an inspection was not offered (sprint 2.3.7 review M2): decided from capabilities and facts.
+            foreach (var unavailable in list.Where(i => i.Unavailable is not null))
+            {
+                logger.LogInformation("Inspection {Inspection} unavailable for snapshot {Id}: {Reason}", unavailable.Name, snapshotId, unavailable.Unavailable);
+            }
+
             return Task.FromResult(list);
         });
 
     public Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             var inspection = InspectionCatalog.Find(request.Name)
@@ -67,6 +75,20 @@ internal sealed partial class WorkerService
                     cancellationToken);
                 var result = await Task.Run(() => inspection.Run(context), cancellationToken).ConfigureAwait(false);
                 throttled.Flush();
+
+                // The rule and what the answer rests on (sprint 2.3.7 review H3, M5); the guard logs the totals too.
+                logger.LogInformation(
+                    "Inspection {Inspection} v{Version} ({Parameters}) on snapshot {Id}: {Count} findings, {Bytes} bytes, {Wasted} wasted, {Rows} rows; basis: {Basis}; note: {Note}",
+                    inspection.Name,
+                    inspection.Version,
+                    inspection.Parameters.Length == 0 ? "no thresholds" : inspection.Parameters,
+                    request.SnapshotId,
+                    result.Count,
+                    result.Bytes,
+                    result.WastedBytes?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a",
+                    result.Rows.Count,
+                    result.Basis ?? "not recorded",
+                    result.Note ?? "none");
                 var rows = resultSets.Add(new InspectionSource(result.Rows), lease);
                 return new InspectionResultDto(inspection.Name, result.Count, result.Bytes, result.WastedBytes, result.Note, rows, stopwatch.Elapsed.TotalSeconds);
             }

@@ -33,7 +33,7 @@ namespace HeapScope.Worker.Rpc;
 internal sealed partial class WorkerService
 {
     public Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
 

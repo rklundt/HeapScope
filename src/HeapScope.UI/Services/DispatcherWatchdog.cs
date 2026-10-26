@@ -52,9 +52,7 @@ public sealed class DispatcherWatchdog : IDisposable
     private readonly ManualResetEventSlim _stopped = new();
     private readonly Thread _thread;
     private long _maxLagTicks;
-    private long _maxOperationTicks;
-    private long _maxOperationBoundTicks;
-    private long _lastOperationProbeRun;
+    private readonly OperationBound _operations = new();
     private long _resetTimestamp;
     private int _lagProbePending;
     private int _operationProbePending;
@@ -79,18 +77,18 @@ public sealed class DispatcherWatchdog : IDisposable
     public TimeSpan MaxLag => TimeSpan.FromSeconds((double)Interlocked.Read(ref _maxLagTicks) / Stopwatch.Frequency);
 
     /// <summary>The longest highest-priority wait: a lower bound of the longest single UI operation (the budget's subject).</summary>
-    public TimeSpan MaxOperation => TimeSpan.FromSeconds((double)Interlocked.Read(ref _maxOperationTicks) / Stopwatch.Frequency);
+    public TimeSpan MaxOperation => TimeSpan.FromSeconds((double)_operations.MaxWait / Stopwatch.Frequency);
 
     /// <summary>An upper bound of the longest single UI operation: the longest time from one highest-priority probe's run to the next one's.</summary>
-    public TimeSpan MaxOperationBound => TimeSpan.FromSeconds((double)Interlocked.Read(ref _maxOperationBoundTicks) / Stopwatch.Frequency);
+    public TimeSpan MaxOperationBound => TimeSpan.FromSeconds((double)_operations.MaxBound / Stopwatch.Frequency);
 
     /// <summary>Clears the maxima; probes posted before the reset do not count toward the new maximum.</summary>
     public void Reset()
     {
-        Interlocked.Exchange(ref _resetTimestamp, Stopwatch.GetTimestamp());
+        var now = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref _resetTimestamp, now);
         Interlocked.Exchange(ref _maxLagTicks, 0);
-        Interlocked.Exchange(ref _maxOperationTicks, 0);
-        Interlocked.Exchange(ref _maxOperationBoundTicks, 0);
+        _operations.Reset(now);
     }
 
     // Disposed when the app stops and again with the host's services, so a second call does nothing.
@@ -121,15 +119,8 @@ public sealed class DispatcherWatchdog : IDisposable
             _dispatcher.Post(
                 () =>
                 {
-                    var ran = Stopwatch.GetTimestamp();
-                    var previousRun = Interlocked.Exchange(ref _lastOperationProbeRun, ran);
+                    var wait = _operations.OnProbeRan(posted, Stopwatch.GetTimestamp());
                     Interlocked.Exchange(ref _operationProbePending, 0);
-                    var wait = ran - posted;
-                    if (posted >= Interlocked.Read(ref _resetTimestamp))
-                    {
-                        RecordMax(ref _maxOperationTicks, wait);
-                        RecordMax(ref _maxOperationBoundTicks, previousRun == 0 ? wait : ran - previousRun);
-                    }
 
                     if (wait > Budget.TotalSeconds * Stopwatch.Frequency)
                     {

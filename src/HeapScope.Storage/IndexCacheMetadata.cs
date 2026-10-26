@@ -38,13 +38,19 @@ namespace HeapScope.Storage;
 /// The <see cref="Core.Loading.ISnapshotLoader.Version"/> of the loader that built the graph (sprint 1.8 review M7): a
 /// cache from an older version of the loader's semantics is rebuilt. Optional in the JSON; older caches read 0.
 /// </param>
+/// <param name="StaticFieldRoots">Static field roots the loader found (sprint 2.3.7: kept so a reopen from the cache can still say it).</param>
+/// <param name="IncompleteSegments">Heap segments the loader could not walk completely: why a snapshot is not complete (sprint 2.3.7).</param>
+/// <param name="Dac">The data access component that read the dump and why (full dumps, sprint 2.3.7).</param>
 public sealed record IndexCacheMetadata(
     SnapshotInfo Info,
     SnapshotCapabilities Capabilities,
     string WriterVersion,
     IReadOnlyList<string>? DebuggableModules = null,
     long UnreadableObjects = 0,
-    int LoaderVersion = 0)
+    int LoaderVersion = 0,
+    int StaticFieldRoots = 0,
+    int IncompleteSegments = 0,
+    Core.Loading.DacChoice? Dac = null)
 {
     /// <summary>Informational version of this Storage assembly, without source revision.</summary>
     public static string CurrentWriterVersion { get; } = ReadVersion();

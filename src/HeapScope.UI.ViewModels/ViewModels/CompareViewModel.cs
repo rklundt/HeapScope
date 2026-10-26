@@ -198,12 +198,27 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
 
     /// <summary>Swaps baseline and current.</summary>
     [RelayCommand]
-    private void Swap() => SetPair(Current, Baseline);
+    private void Swap() => SetPair(Current, Baseline, "swapped by the user");
 
-
-    private void OnPairChanged()
+    // How the pair was chosen, for the log line that backs up a disputed comparison (sprint 2.3.7 review H3).
+    private void OnPairChanged(string reason = "picked by the user")
     {
         OnPropertyChanged(nameof(Hint));
+        if (Baseline is { } baseline && Current is { } current)
+        {
+            Logger.LogInformation(
+                "Compare pair {Reason}: baseline {BaselinePath} (worker snapshot {BaselineId}, captured {BaselineCaptured:O}{BaselineFileTime}), current {CurrentPath} (worker snapshot {CurrentId}, captured {CurrentCaptured:O}{CurrentFileTime})",
+                reason,
+                baseline.Handle.Path,
+                baseline.Handle.Descriptor.SnapshotId,
+                baseline.Handle.Descriptor.CapturedAtUtc,
+                baseline.Handle.Descriptor.CaptureTimeFromFile ? ", the file's time" : string.Empty,
+                current.Handle.Path,
+                current.Handle.Descriptor.SnapshotId,
+                current.Handle.Descriptor.CapturedAtUtc,
+                current.Handle.Descriptor.CaptureTimeFromFile ? ", the file's time" : string.Empty);
+        }
+
         if (CanQuery)
         {
             Requery();
@@ -249,26 +264,28 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
         if (Baseline is null && Current is null)
         {
             // The two most recent captures, the earlier one as the baseline.
-            SetPair(ordered[^2], ordered[^1]);
+            SetPair(ordered[^2], ordered[^1], Automatic);
         }
         else if (Baseline is null)
         {
             // The latest capture before the current one, else the earliest other snapshot.
             var others = ordered.Where(s => s != Current).ToList();
             var position = ordered.IndexOf(Current!);
-            SetPair(others.LastOrDefault(s => ordered.IndexOf(s) < position) ?? others[0], Current);
+            SetPair(others.LastOrDefault(s => ordered.IndexOf(s) < position) ?? others[0], Current, Automatic);
         }
         else
         {
             // The first capture after the baseline, else the latest other snapshot.
             var others = ordered.Where(s => s != Baseline).ToList();
             var position = ordered.IndexOf(Baseline);
-            SetPair(Baseline, others.FirstOrDefault(s => ordered.IndexOf(s) > position) ?? others[^1]);
+            SetPair(Baseline, others.FirstOrDefault(s => ordered.IndexOf(s) > position) ?? others[^1], Automatic);
         }
     }
 
+    private string Automatic => ByOpenOrder ? "chosen automatically by open order (a capture time is only a file's time)" : "chosen automatically by capture time";
+
     /// <summary>Sets both pickers and queries once.</summary>
-    private void SetPair(SnapshotItemViewModel? baseline, SnapshotItemViewModel? current)
+    private void SetPair(SnapshotItemViewModel? baseline, SnapshotItemViewModel? current, string reason)
     {
         _settingPair = true;
         try
@@ -281,7 +298,7 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
             _settingPair = false;
         }
 
-        OnPairChanged();
+        OnPairChanged(reason);
     }
 
     private static string SignedCount(long value) => value.ToString("+#,0;-#,0;0", CultureInfo.CurrentCulture);

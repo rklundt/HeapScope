@@ -35,6 +35,9 @@ public interface IUserInteraction
 
     /// <summary>Asks a yes or no question; true for yes.</summary>
     Task<bool> ConfirmAsync(string title, string message);
+
+    /// <summary>Puts text on the clipboard (the About page's details for support, sprint 2.3.7); nothing where there is none.</summary>
+    Task CopyTextAsync(string text) => Task.CompletedTask;
 }
 
 /// <summary>Answers every question with yes and picks no file; used by smoke runs, which must never block.</summary>

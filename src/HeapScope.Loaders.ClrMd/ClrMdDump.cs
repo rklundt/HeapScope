@@ -23,6 +23,7 @@
 
 using System.Runtime.InteropServices;
 using HeapScope.Core;
+using HeapScope.Core.Loading;
 using Microsoft.Diagnostics.Runtime;
 
 namespace HeapScope.Loaders.ClrMd;
@@ -65,8 +66,14 @@ internal static class ClrMdDump
     /// </summary>
     /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
     /// <exception cref="SnapshotFormatException">The runtime could not be opened with the DAC found.</exception>
-    public static ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath, ClrMdLoaderOptions options)
+    public static ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath, ClrMdLoaderOptions options) =>
+        CreateRuntime(clr, dumpPath, options, out _);
+
+    /// <summary>As <see cref="CreateRuntime(ClrInfo, string, ClrMdLoaderOptions)"/>, and says which DAC was used and why (sprint 2.3.7).</summary>
+    public static ClrRuntime CreateRuntime(ClrInfo clr, string dumpPath, ClrMdLoaderOptions options, out DacChoice choice)
     {
+        ArgumentNullException.ThrowIfNull(clr);
+        ArgumentNullException.ThrowIfNull(options);
         // The DAC that runs on this system (sprint 2.3.5): a dump is read with the DAC of the platform HeapScope runs on,
         // so a Linux dump is read on Linux and a Windows dump on Windows (cross-platform DACs are not searched).
         var platform = CurrentPlatform();
@@ -103,19 +110,24 @@ internal static class ClrMdDump
                 : RecordedPath.FileName(clr.ModuleInfo.FileName),
         };
         var directories = DacLocator.CandidateDirectories(request, dumpPath, options);
-        var path = DacLocator.Find(request, directories, out var searched, options.InstalledRuntimeRoots ?? DacLocator.DefaultRuntimeRoots());
+        var path = DacLocator.Find(request, directories, out var candidates, out var rule, options.InstalledRuntimeRoots ?? DacLocator.DefaultRuntimeRoots());
+        var looked = candidates.Select(c => c.ToString()).ToArray();
         if (path is null && !options.AllowMicrosoftSymbolServer)
         {
-            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, searched, Hint(request));
+            throw new RuntimeComponentMissingException(request.RuntimeVersion, fileName, looked, Hint(request));
         }
+
+        choice = new DacChoice(dumpPath, path, rule ?? "downloaded from Microsoft's symbol server", looked);
 
         try
         {
             // A DAC matched by build id is the exact build (its own id, or its runtime's with the pair checked), which is
             // stronger than ClrMD's version check; that check is skipped then, since ClrMD reads a core file's runtime
             // version as 0.0 at times (sprint 2.3.5, the Linux CI run).
-            return path is null ? clr.CreateRuntime()
+            var runtime = path is null ? clr.CreateRuntime()
                 : clr.CreateRuntime(path, ignoreMismatch: request.BuildId is { Length: > 0 });
+            options.DacChosen?.Invoke(choice);
+            return runtime;
         }
         catch (Exception ex) when (ex is ClrDiagnosticsException or InvalidOperationException or IOException or BadImageFormatException or DllNotFoundException)
         {

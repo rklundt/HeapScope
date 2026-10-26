@@ -46,6 +46,33 @@ public class JobTrackerTests
     }
 
     [Fact]
+    public async Task Every_job_logs_its_start_and_outcome_under_its_own_trace()
+    {
+        // Sprint 2.3.7 review H4, M1: opening, capturing and inspections leave a trail, and each job's trace id is the one
+        // its worker requests carry.
+        var logger = new RecordingLogger<JobTracker>();
+        var tracker = new JobTracker(TimeProvider.System, logger);
+        string? traceInside = null;
+
+        var done = tracker.Start("Open app.dmp", (_, _) =>
+        {
+            traceInside = System.Diagnostics.Activity.Current?.TraceId.ToString();
+            return Task.FromResult(1);
+        });
+        await done.Completion;
+        var refused = tracker.Start("Run duplicate-strings", (_, _) => Task.FromException<int>(new Workers.WorkerOperationException(HeapScopeErrorCode.CapabilityNotSupported, "This snapshot does not support: string contents.", null)));
+        await refused.Completion;
+
+        traceInside.ShouldNotBeNull();
+        System.Diagnostics.Activity.Current.ShouldBeNull("the job's activity does not leak to the caller");
+        logger.Lines.ShouldContain($"Job {done.Id} started: Open app.dmp");
+        logger.Lines.ShouldContain(l => l.StartsWith($"Job {done.Id} completed in ", StringComparison.Ordinal) && l.EndsWith(": Open app.dmp", StringComparison.Ordinal));
+        logger.Entries.ShouldContain(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information
+            && e.Line.Contains($"Job {refused.Id} failed", StringComparison.Ordinal)
+            && e.Line.Contains("(CapabilityNotSupported): Run duplicate-strings: This snapshot does not support: string contents.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Progress_updates_the_job_and_raises_changed()
     {
         var changes = 0;
