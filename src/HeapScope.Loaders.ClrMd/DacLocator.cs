@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using HeapScope.Core;
 
 namespace HeapScope.Loaders.ClrMd;
@@ -115,6 +116,14 @@ public static class DacLocator
             Add(Path.Combine(dumpFolder, "dac", request.RuntimeVersion));
         }
         Add(options.DacFolder);
+
+        // A self-contained HeapScope carries its own runtime's DAC (sprint 2.3.6): a candidate like any folder that is not
+        // an installed runtime, so a DAC paired with its runtime library still needs the matching version string.
+        if (options.OwnRuntimeDirectory is { } own)
+        {
+            Add(Path.TrimEndingDirectorySeparator(own));
+        }
+
         return result;
     }
 
@@ -284,8 +293,7 @@ public static class DacLocator
                 Environment.GetEnvironmentVariable("DOTNET_ROOT"), "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/lib64/dotnet",
                 "/usr/local/share/dotnet", "/opt/dotnet", home.Length > 0 ? Path.Combine(home, ".dotnet") : null,
             ];
-        foreach (var dotnet in candidates.Append(
-            Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(typeof(object).Assembly.Location)))))
+        foreach (var dotnet in candidates.Append(RunningSharedFolder()))
         {
             if (string.IsNullOrEmpty(dotnet) || !Path.IsPathFullyQualified(dotnet))
             {
@@ -304,4 +312,40 @@ public static class DacLocator
 
         return roots;
     }
+
+    /// <summary>
+    /// The shared runtime folder (<c>.../shared</c>) of the runtime this process runs on, or null when it runs
+    /// self-contained (sprint 2.3.6 review: three folders up from a self-contained worker is an arbitrary user folder, which
+    /// must not count as an installed runtime).
+    /// </summary>
+    public static string? RunningSharedFolder()
+    {
+        var version = Path.GetDirectoryName(typeof(object).Assembly.Location);
+        var app = Path.GetDirectoryName(version);
+        var shared = Path.GetDirectoryName(app);
+        return string.Equals(Path.GetFileName(app), "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Path.GetFileName(shared), "shared", StringComparison.OrdinalIgnoreCase)
+            ? shared
+            : null;
+    }
+
+    /// <summary>
+    /// Why a dump of <paramref name="dumpPlatform"/> and <paramref name="dumpArchitecture"/> cannot be read by this process,
+    /// or null: the DAC runs inside the worker, so it must match the worker's architecture; another system's dump needs a
+    /// cross-platform DAC, which only the symbol server provides.
+    /// </summary>
+    public static string? Mismatch(OSPlatform dumpPlatform, Architecture dumpArchitecture, OSPlatform platform, Architecture host, bool symbolServerAllowed)
+    {
+        if (dumpArchitecture != host)
+        {
+            return $"This dump comes from an {dumpArchitecture} process and HeapScope runs as {host}: open it with the {dumpArchitecture} build of HeapScope.";
+        }
+
+        return dumpPlatform != platform && !symbolServerAllowed
+            ? $"This dump comes from {SystemName(dumpPlatform)} and HeapScope runs on {SystemName(platform)}: open it with HeapScope or heapscope-cli on {SystemName(dumpPlatform)}."
+            : null;
+    }
+
+    private static string SystemName(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "Windows" : platform == OSPlatform.OSX ? "macOS" : platform == OSPlatform.Linux ? "Linux" : platform.ToString();
 }

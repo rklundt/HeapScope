@@ -29,7 +29,7 @@ public class TextRulesTests
     private const char EmDash = (char)0x2014;
 
     private static readonly string[] s_extensions =
-        [".cs", ".md", ".xaml", ".csproj", ".props", ".targets", ".json", ".ps1", ".editorconfig", ".gitignore"];
+        [".cs", ".md", ".xaml", ".axaml", ".csproj", ".props", ".targets", ".json", ".ps1", ".yml", ".editorconfig", ".gitignore"];
 
     [Fact]
     public void No_em_or_en_dashes_in_repository_text()
@@ -65,7 +65,7 @@ public class TextRulesTests
         {
             var relative = Path.GetRelativePath(RepoPaths.Root, file);
             if (IsIgnored(relative) || relative.Split(Path.DirectorySeparatorChar).Any(p => p.Contains("ThirdParty", StringComparison.Ordinal))
-                || Path.GetExtension(file) is not (".cs" or ".xaml" or ".ps1"))
+                || Path.GetExtension(file) is not (".cs" or ".xaml" or ".axaml" or ".ps1"))
             {
                 continue;
             }

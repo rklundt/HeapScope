@@ -54,6 +54,23 @@ public sealed class SessionLibraryTests : IDisposable
     }
 
     [Fact]
+    public void Session_folders_and_documents_are_the_users_alone_off_windows()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Windows keeps the user profile's ACL.");
+        var library = new SessionLibrary(_root, _time);
+
+        var folder = library.Current.Folder;
+        library.AddToCurrent(Snapshot(Path.Combine(folder, "app.dmp"), label: null));
+
+        if (!OperatingSystem.IsWindows())
+        {
+            File.GetUnixFileMode(_root).ShouldBe(HeapScope.Core.PrivateFiles.FolderMode);
+            File.GetUnixFileMode(folder).ShouldBe(HeapScope.Core.PrivateFiles.FolderMode);
+            File.GetUnixFileMode(Path.Combine(folder, SessionLibrary.DocumentName)).ShouldBe(HeapScope.Core.PrivateFiles.FileMode);
+        }
+    }
+
+    [Fact]
     public void Old_half_written_dumps_and_gcdumps_are_swept_and_fresh_ones_kept()
     {
         var library = new SessionLibrary(_root, _time);

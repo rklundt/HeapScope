@@ -85,7 +85,7 @@ dotnet_naming_style.underscore_camel.capitalization = camel_case
 # Test method names use underscores for readability.
 dotnet_diagnostic.CA1707.severity = none
 
-# ConfigureAwait(false) is required in library code (DEVELOPER.md 4). It is not enforced in the WPF app
+# ConfigureAwait(false) is required in library code (DEVELOPER.md 4). It is not enforced in the UI and its view models
 # (continuations must return to the dispatcher), the CLI entry point, tests and benchmarks.
 [src/{HeapScope.Core,HeapScope.Analysis,HeapScope.Storage,HeapScope.Capture,HeapScope.Loaders.ClrMd,HeapScope.Loaders.GcDump,HeapScope.Contracts,HeapScope.Application,HeapScope.Worker}/**.cs]
 dotnet_diagnostic.CA2007.severity = warning

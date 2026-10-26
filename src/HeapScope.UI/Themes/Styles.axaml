@@ -1,0 +1,108 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- HeapScope's styles over the Fluent theme (sprint 2.3.6): the theme colors on standard controls, number cells, tiles. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{DynamicResource Brush.Window}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <Style Selector="DataGrid">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+    <Setter Property="RowBackground" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="GridLinesVisibility" Value="None" />
+    <Setter Property="HeadersVisibility" Value="Column" />
+    <Setter Property="IsReadOnly" Value="True" />
+    <Setter Property="SelectionMode" Value="Single" />
+    <Setter Property="CanUserReorderColumns" Value="False" />
+    <Setter Property="RowHeight" Value="22" />
+  </Style>
+  <Style Selector="DataGridRow:nth-child(2n)">
+    <Setter Property="Background" Value="{DynamicResource Brush.AltRow}" />
+  </Style>
+  <Style Selector="DataGridColumnHeader">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+    <Setter Property="Padding" Value="6,3" />
+    <Setter Property="MinHeight" Value="26" />
+  </Style>
+  <Style Selector="DataGridCell">
+    <Setter Property="MinHeight" Value="22" />
+    <Setter Property="Padding" Value="4,0" />
+  </Style>
+  <!-- Numbers are right aligned (DataGridColumn.CellStyleClasses="number"). -->
+  <Style Selector="DataGridCell.number">
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+  </Style>
+  <Style Selector="DataGridCell.address">
+    <Setter Property="FontFamily" Value="Consolas, Menlo, DejaVu Sans Mono, monospace" />
+  </Style>
+
+  <Style Selector="TextBlock.subtle">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+  </Style>
+  <Style Selector="TextBlock.number">
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="Margin" Value="4,0" />
+  </Style>
+
+  <Style Selector="Border.tile">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="12,8" />
+    <Setter Property="Margin" Value="0,0,8,8" />
+    <Setter Property="MinWidth" Value="130" />
+  </Style>
+  <Style Selector="Border.note">
+    <Setter Property="Background" Value="{DynamicResource Brush.Note.Background}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Note.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="Margin" Value="0,0,8,8" />
+  </Style>
+  <Style Selector="Border.info">
+    <Setter Property="Background" Value="{DynamicResource Brush.Info.Background}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Info.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="Margin" Value="0,0,8,8" />
+  </Style>
+
+  <Style Selector="Button">
+    <Setter Property="Padding" Value="10,3" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+</Styles>

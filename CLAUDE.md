@@ -1,11 +1,11 @@
 # HeapScope
 
-HeapScope is a desktop memory profiler for modern .NET applications (.NET 10, WPF on Windows x64 today, Avalonia
-on Windows, Linux and macOS from sprint 2.3.6, ADR-025; the engine, worker and CLI already run on Linux), replacing
+HeapScope is a desktop memory profiler for modern .NET applications (.NET 10, an Avalonia app on Windows, Linux and
+macOS since sprint 2.3.6, ADR-025; capture is Windows only for now), replacing
 the core of JetBrains dotMemory. Primary use case: find what is growing and why it is retained in an ASP.NET
 Core API run locally under replayed traffic. Snapshots (full dumps and gcdumps) are loaded by an
-out-of-process x64 worker into a compact struct-of-arrays object graph, cached on disk, and explored through a
-WPF app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when available.
+out-of-process worker into a compact struct-of-arrays object graph, cached on disk, and explored through the
+desktop app or an equivalent CLI. Baseline machine: 16 GB RAM; use more when available.
 
 ## Current context (read first after a compact)
 `CURRENT-CONTEXT.md` at the repo root (git-ignored) holds the working state: the active sprint, what is done and not,
@@ -24,7 +24,8 @@ resets it for the next sprint.
 
 ## Non-negotiable rules
 - Layering (ARCHITECTURE.md 3.1): Core references nothing; Analysis, Storage, Loaders, Capture reference only
-  Core; UI.Wpf references only Application and Contracts. The architecture test enforces it.
+  Core; UI.ViewModels references only Application and Contracts (no UI toolkit), and UI only those and
+  UI.ViewModels. The architecture test enforces it.
 - No code without an active sprint (status In Progress in SPRINTS.md).
 - Zero warnings; warnings are errors.
 - No em dashes or en dashes in any docs, code or UI text. Use a hyphen or a comma.
@@ -65,7 +66,8 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 - All tests: `dotnet test --solution HeapScope.sln`
 - Full gate: `./build/gate.ps1` (Debug and Release builds, all tests, history in `artifacts/gate/history.csv`)
 - Fast tests: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`
-- UI: `dotnet run --project src/HeapScope.UI.Wpf`
+- UI: `dotnet run --project src/HeapScope.UI` (`--headless` runs it without a display)
+- Builds per system: `bash build/publish.sh <win-x64|linux-x64|osx-arm64|osx-x64> <folder>`
 - CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `list`, `capture --pid <id> [--kind full|gcdump]`, `open <dump>`,
   `summary <dump> [--group] [--filter] [--sort] [--retained] [--format table|csv|json]`, `diff <baseline> <current>
   [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
@@ -76,7 +78,9 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
   [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]
   [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
-- UI smoke runs: `HeapScope.exe --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]
-  [--smoke-trace <file>]` (exit 0 ok, 3 lag, 4 failed). Measure untraced; traces are for finding where time goes.
+- UI smoke runs: `HeapScope --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]
+  [--smoke-trace <file>]`, with `--headless` where there is no display (exit 0 ok, 3 lag, 4 failed, 5 first window
+  over 30 s, 6 a grid walked a whole row list). Measure untraced; traces are for finding where time goes. Sample dumps
+  of a runtime no longer installed need `--Symbols:DacFolder` (DEVELOPER.md 2).
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>` (`graph-build`, `dump-stats`,
   `stack-roots`, `index-cache`, `load-dump`, `phase2-indices`, `reverse-index --cache <hsidx>`, `retention --cache <hsidx>`, `dominators --cache <hsidx> [--mode mapped]`, `trace-report --trace <file>`)

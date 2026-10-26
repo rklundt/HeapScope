@@ -26,6 +26,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HeapScope.Contracts;
+using HeapScope.Core;
 
 namespace HeapScope.Application.Sessions;
 
@@ -183,14 +184,14 @@ public sealed class SessionLibrary
         var stamp = now.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var baseName = string.IsNullOrWhiteSpace(name) ? stamp : $"{stamp}-{Sanitize(name)}";
         var document = new SessionDocument(SessionDocument.CurrentFormatVersion, string.IsNullOrWhiteSpace(name) ? stamp : name.Trim(), now, now, []);
-        Directory.CreateDirectory(Root);
+        PrivateFiles.CreateDirectory(Root);
         for (var n = 1; ; n++)
         {
             var folder = Path.Combine(Root, n == 1 ? baseName : $"{baseName}-{n}");
-            Directory.CreateDirectory(folder);
+            PrivateFiles.CreateDirectory(folder);
             try
             {
-                using (var stream = new FileStream(Path.Combine(folder, DocumentName), FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var stream = PrivateFiles.Open(Path.Combine(folder, DocumentName), FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
                     JsonSerializer.Serialize(stream, document, s_json);
                     stream.Flush(flushToDisk: true);
@@ -389,7 +390,7 @@ public sealed class SessionLibrary
     {
         var path = Path.Combine(session.Folder, DocumentName);
         var temp = $"{path}.{Guid.NewGuid():N}.tmp";
-        using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             JsonSerializer.Serialize(stream, session.Document, s_json);
             stream.Flush(flushToDisk: true);

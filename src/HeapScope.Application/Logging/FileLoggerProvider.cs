@@ -24,6 +24,7 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using HeapScope.Core;
 
 namespace HeapScope.Application.Logging;
 
@@ -94,8 +95,9 @@ public sealed class FileLoggerProvider : ILoggerProvider
                 if (_writer is null || date != _writerDate)
                 {
                     _writer?.Dispose();
-                    System.IO.Directory.CreateDirectory(_directory);
-                    var stream = new FileStream(GetPath(date), FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                    PrivateFiles.CreateDirectory(_directory);
+                    var stream = PrivateFiles.Open(GetPath(date), FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                    stream.Seek(0, SeekOrigin.End);
                     _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
                     _writerDate = date;
                 }

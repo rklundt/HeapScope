@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Core;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Analysis;
@@ -61,10 +62,10 @@ public static class TypeGroups
         if (retainedByGroup is not null)
         {
             GroupOfType(graph, groupBy, out var names);
-            groupIds = names.Select((name, id) => (name, id)).ToDictionary(g => g.name, g => g.id, StringComparer.Ordinal);
+            groupIds = names.Select((name, id) => (name, id)).ToDictionary(g => g.name, g => g.id, Comparer(groupBy));
         }
 
-        var rows = new Dictionary<string, (long Count, ulong Bytes, ulong[] Kinds)>(StringComparer.Ordinal);
+        var rows = new Dictionary<string, (long Count, ulong Bytes, ulong[] Kinds)>(Comparer(groupBy));
         for (var t = 0; t < aggregation.TypeCount; t++)
         {
             if (aggregation.Counts[t] == 0)
@@ -111,7 +112,7 @@ public static class TypeGroups
             return groups;
         }
 
-        var ids = new Dictionary<string, int>(StringComparer.Ordinal);
+        var ids = new Dictionary<string, int>(Comparer(groupBy));
         for (var t = 0; t < count; t++)
         {
             var key = KeyOf(graph, t, groupBy);
@@ -132,11 +133,15 @@ public static class TypeGroups
         return groups;
     }
 
+    // Assemblies are keyed as the "open instances" link matches them: the file name, in any case (2.3.5 review L2).
+    private static StringComparer Comparer(GroupKey groupBy) =>
+        groupBy == GroupKey.Assembly ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
     /// <summary>The name of a type's row in a namespace or assembly grouping.</summary>
     private static string KeyOf(HeapGraph graph, int typeIndex, GroupKey groupBy) => groupBy switch
     {
         GroupKey.Namespace => NamespaceOf(graph.Types.GetName(typeIndex)),
-        _ => graph.Types.GetModule(typeIndex) is { Length: > 0 } module ? module : "(unknown assembly)",
+        _ => ModuleKey(graph.Types.GetModule(typeIndex)) is { Length: > 0 } module ? module : "(unknown assembly)",
     };
 
     /// <summary>
@@ -221,7 +226,6 @@ public static class TypeGroups
         return rows;
     }
 
-    /// <summary>The module part of a type key (ADR-018): the file name, or empty when the type has no module.</summary>
     /// <summary>
     /// The types named <paramref name="typeName"/> in the module whose file name is <paramref name="module"/> (null or
     /// empty for types without one): a type of the summary and diff rows (ADR-018) can be several method tables. Sets
@@ -245,8 +249,9 @@ public static class TypeGroups
         return matches;
     }
 
-    public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : HeapScope.Core.RecordedPath.FileName(module);
+    /// <summary>The module part of a type key (ADR-018): the file name, or empty when the type has no module.</summary>
+    public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : RecordedPath.FileName(module);
 
     private static string ModuleFileName(string? module) =>
-        string.IsNullOrEmpty(module) ? "unknown module" : HeapScope.Core.RecordedPath.FileName(module);
+        string.IsNullOrEmpty(module) ? "unknown module" : RecordedPath.FileName(module);
 }

@@ -85,6 +85,12 @@ public interface ICaptureService
     /// <summary>True when this HeapScope process runs as administrator and can capture elevated processes.</summary>
     bool IsHeapScopeElevated { get; }
 
+    /// <summary>
+    /// Why listing and capturing processes is not available on this system, or null where it is (sprint 2.3.6): front ends
+    /// say so instead of offering commands that fail.
+    /// </summary>
+    string? UnavailableReason { get; }
+
     /// <summary>The .NET processes HeapScope can see, read off the calling thread.</summary>
     Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken);
 

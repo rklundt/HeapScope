@@ -136,7 +136,25 @@ public sealed class TypeAggregationTests
             ["App.Order", "Plugin.Cache [Fork.dll]", "Plugin.Cache [Plugin.dll] #1", "Plugin.Cache [Plugin.dll] #2"]);
         rows["Plugin.Cache [Plugin.dll] #1"].Count.ShouldBe(2);
         rows["Plugin.Cache [Plugin.dll] #2"].Count.ShouldBe(1);
-        TypeGroups.Build(graph, aggregation, GroupKey.Assembly).ToDictionary(r => r.Name)[@"C:\app\Plugin.dll"].Count.ShouldBe(3);
+        TypeGroups.Build(graph, aggregation, GroupKey.Assembly).ToDictionary(r => r.Name)["Plugin.dll"].Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public void Assembly_rows_are_keyed_by_file_name_as_the_open_instances_link_matches_them()
+    {
+        // 2.3.5 review L2: one key for a row and for its link; paths recorded on another system or in another case merge.
+        var builder = new SyntheticGraphBuilder();
+        builder.Object("App.Order", 10, module: @"C:\app\App.dll", methodTable: 0x1000);
+        builder.Object("App.Customer", 10, module: "/opt/app/app.DLL", methodTable: 0x2000);
+        using var graph = builder.Build();
+        var aggregation = TypeAggregation.Compute(graph, cancellationToken: TestContext.Current.CancellationToken);
+
+        var row = TypeGroups.Build(graph, aggregation, GroupKey.Assembly).ShouldHaveSingleItem();
+
+        row.Name.ShouldBe("App.dll");
+        row.Count.ShouldBe(2);
+        TypeGroups.MatchTypes(graph, "App.Customer", row.Name, out var matched).Count(m => m).ShouldBe(1);
+        matched.ShouldBe(1);
     }
 
     [Theory]

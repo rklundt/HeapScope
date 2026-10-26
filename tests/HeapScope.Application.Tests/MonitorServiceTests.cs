@@ -235,6 +235,8 @@ public sealed class MonitorServiceTests : IDisposable
 
         public SessionLibrary Library { get; } = new(root);
 
+        public string? UnavailableReason => null;
+
         public bool IsHeapScopeElevated => false;
 
         public CaptureFailedException? Failure { get; set; }

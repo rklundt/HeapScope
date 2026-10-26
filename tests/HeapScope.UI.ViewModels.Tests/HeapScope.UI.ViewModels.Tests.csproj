@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- View model tests (sprint 2.3.6: no UI toolkit, so they also run on Linux and macOS). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeapScope.UI.ViewModels\HeapScope.UI.ViewModels.csproj" />
+  </ItemGroup>
+</Project>
