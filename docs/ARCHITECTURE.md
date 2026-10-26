@@ -389,7 +389,7 @@ Rules:
 ### 4.1 Processes
 - **UI process** (Avalonia; x64, arm64 on Apple silicon): shell, view models, Application services, capture.
 - **CLI process** (x64): same Application services, console output.
-- **Worker process** (x64, `HeapScope.Worker.exe`): one per UI or CLI instance. Holds every loaded snapshot
+- **Worker process** (64-bit, the machine's architecture; `HeapScope.Worker`): one per UI or CLI instance. Holds every loaded snapshot
   of the session (a diff needs both snapshots in one address space). Uses Server GC, non-concurrent
   (section 9), and runs at below-normal process priority so its ordinary threads yield to the UI and the profiled
   application. This does not cover Server GC threads, which the runtime creates at highest thread priority (they
@@ -1322,7 +1322,8 @@ sprint 0.1.
 - Consequences: no macOS or Linux UI. Core libraries stay platform neutral where cheap, which keeps Linux
   dump analysis possible later.
 - Amended by ADR-025 (sprint 2.3.5): the UI moves to Avalonia on Windows, Linux and macOS; the engine, worker and CLI
-  already run on Linux.
+  already run on Linux. Since sprint 2.3.6 the assemblies are AnyCPU, so x64 and arm64 machines run them natively; WPF
+  is retired.
 
 ### ADR-002 Target processes: modern .NET only
 - Context: the primary use case is ASP.NET Core; .NET Framework adds a second runtime model and attach path.
@@ -1670,8 +1671,11 @@ sprint 0.1.
   headless platform and fail on any binding error. The checked smoke numbers equal or beat WPF's (section 8); Linux CI
   opens a core dump of the fixture in the app without a display. Builds per system: `build/publish.sh <rid>` (the app and
   the CLI, self-contained, each with a self-contained worker), produced by CI for `win-x64`, `linux-x64`, `osx-arm64` and
-  `osx-x64`. Avalonia's build telemetry is off for the repository (`Directory.Build.targets`, CI's
-  `AVALONIA_TELEMETRY_OPTOUT`), since HeapScope sends nothing anywhere (12).
+  `osx-x64`. Assemblies are AnyCPU (until 2.3.5 x64, ADR-001): each process runs as its machine's 64-bit architecture.
+  Headless smoke runs in CI check that every step works and log the UI lags without gating them (a two-core runner
+  drawing in software measures the machine); the Windows smoke gate is unchanged. Avalonia's build telemetry is off for
+  the repository (`Directory.Build.targets`, CI's `AVALONIA_TELEMETRY_OPTOUT`), since HeapScope sends nothing anywhere
+  (12).
 
 ### ADR-026 Sharing results: an exported analysis, analysis only by default (added in sprint 2.3.5)
 - Context: teams want to share results (2026-10-25). A dump holds everything in the target's memory, secrets included

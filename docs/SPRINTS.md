@@ -1838,6 +1838,12 @@ LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or
    (first planned at 2 s; revised with the measurement, decided autonomously).
 9. Owner-only permissions apply to files HeapScope creates; a dump written by the runtime (Linux capture, later) and a
    `--out` folder the user chose keep their own permissions.
+10. Builds are AnyCPU instead of x64 (found by CI: the x64 test assemblies could not load on the arm64 macOS runner, and
+    an osx-arm64 publish mixed arm64 and x64 assemblies): each process runs as its machine's 64-bit architecture, and a
+    published build takes its runtime identifier's (decided autonomously; ADR-001 and ADR-025 amended).
+11. Headless smoke runs (CI) check that every step works and log the UI lags without gating them: on a two-core runner
+    drawing in software the lag measures the machine, not HeapScope (decided autonomously; the Windows smoke gate is
+    unchanged).
 
 
 **Review summary**: to be filled by /wrap-sprint.
