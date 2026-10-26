@@ -25,7 +25,8 @@ everything else.
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
-| 2.3.5 | Cross-platform and sharing decision | Planned | | |
+| 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
+| 2.3.6 | Avalonia port | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |
 | 2.6 | Smart leak detectors | Planned | | |
@@ -1667,6 +1668,96 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 
 **Dependencies**: 2.3.
 
+**Task breakdown**
+1. [x] Portability survey: every Windows-only call outside the UI (capture's process discovery, elevation and disk space
+   checks; the memory status calls, already guarded), the worker's path, the pipe (already current-user only on every
+   system), the DAC locator's local-path rules on Linux and macOS. Written into the ADR.
+2. [x] CI on GitHub's hosted runners (`.github/workflows/ci.yml`): Windows builds the solution and runs the fast tests;
+   Linux (ubuntu-latest) and macOS (macos-latest, informational: an arm64 runner) build the engine, the worker and the
+   CLI, run the engine's unit tests, start LeakyConsole, take a core dump of it with `dotnet-dump` (installed on the
+   runner only), and run `heapscope-cli summary`, `instances --retained` and `paths` on it. Tests: the workflow passes on
+   the sprint PR (Linux required, macOS reported).
+3. [x] Small portability fixes the CI run asks for (the worker's executable name off Windows, the DAC locator's path
+   rules, capture refusing clearly where it is Windows-only). Tests: unit tests for each; the CI run.
+4. [x] Avalonia prototype (`spikes/AvaloniaGrid`, outside `HeapScope.sln`, not shipped): one window that opens a dump
+   through the real `SnapshotSession` and shows the types grid and a type's objects with the existing data-virtualized
+   row lists, sorting and the filter, on MIT packages only. Measured on the Small dump: first show, scrolling 1.5 million
+   rows, the longest UI-thread block. Licenses of every package checked.
+5. [x] Decision: ADR-025 (UI platform: Avalonia, amends ADR-001; the rule for Avalonia updates) and ADR-026 (sharing: an
+   exported analysis, analysis only by default); Phase 2 re-planned with a port sprint before 2.4.
+6. [x] Docs: ARCHITECTURE (ADRs, 12 privacy for exports), DEVELOPER (CI, the prototype), CLAUDE.md (the Avalonia update
+   rule), SPRINTS.
+
+**Decisions** (the product owner answered on 2026-10-25; the rest decided autonomously, marked so)
+1. The Linux and macOS check runs on GitHub's hosted runners ("github"), not on this machine: no WSL or Docker here.
+   It also starts the CI the Backlog asked for.
+2. Avalonia packages may be downloaded for a throwaway prototype (MIT, about 50 MB). The web route is not prototyped:
+   the product owner chose Avalonia after the comparison ("avalonia", "port before 2.4").
+3. Port to Avalonia before 2.4, if the prototype performs and every package used is MIT; otherwise the product owner
+   decides again with the prototype's results.
+4. Before any Avalonia update, check that nothing HeapScope uses moved to a paid license (Avalonia sells "Accelerate"
+   components; TreeDataGrid moved there). Only MIT components are used (product owner, 2026-10-25).
+5. A shared result is an exported analysis, analysis only by default: type summaries, diffs, retained sizes, retention
+   paths with type and field names; never string text or field values unless the person exporting opts in for that
+   export (product owner: "Analysis only").
+6. The prototype lives in `spikes/` outside the solution and is deleted after the port sprint replaces it (decided
+   autonomously).
+7. macOS runs on an arm64 runner while HeapScope targets x64 (ADR-001): its job is informational (continue on error) and
+   its findings go into the ADR (decided autonomously).
+8. CI is not yet a required check on the protected branches; making it one is the product owner's call once it is
+   stable (decided autonomously).
+
+**Review summary** (`docs/reviews/sprint-2.3.5.md`): 2 High, 13 Moderate, 20 Low after dedupe.
+- High, both fixed and confirmed: the local path rule (ADR-017) did nothing on Linux and macOS, now `UnixLocalPath`
+  (the mount holding the path, links resolved, types read from `/proc/self/mountinfo`); Linux and macOS cores had no
+  truncation check, now `CoreFileHeader`.
+- Moderate, fixed (decided autonomously): a DAC paired through `libcoreclr` is checked by its version string outside
+  installed runtimes; the runtime version is named from the runtime's folder when ClrMD reads 0.0; CI asserts the known
+  answers with `jq`; a core's capture time is marked as the file's time; the missing DAC message says where to open a
+  dump of another system or architecture; Unix runtime roots; ADR-026 amended; capture refused off Windows is
+  `CaptureFailure.NotSupportedOnThisSystem`; section 1, ADR-007, ADR-012 and CLAUDE.md updated; 2.3.6 to 2.6 re-planned.
+- Deferred: the grid adapter's enumeration (2.3.6 scope), Compare's baseline with file-time captures, Unix file
+  semantics tests and Capture.Tests on Linux, a Windows CI dump step (Backlog).
+- Measured: CI on GitHub's runners reads a `dotnet-dump` core of LeakyConsole on Linux (required) and macOS arm64
+  (informational) with the known answers: 2,000 objects per leak type, 64,000 bytes and 148 retained per cache entry,
+  the path from `StaticCacheLeak.s_cache`, a complete graph, .NET 10.0.14. The Avalonia prototype on the Small dump:
+  zero row list enumerations, 197 MB private (540 MB before the adapter), scroll stalls at most 36 ms, first show
+  108 to 162 ms (WPF 140 ms). Local gate before the review: 932 tests, 0 failed, 0 warnings.
+
+---
+
+## Sprint 2.3.6: Avalonia port
+
+**Goal**: the HeapScope UI runs on Avalonia on Windows, Linux and macOS, at parity with the WPF UI (ADR-025).
+
+**Scope**: from 2.3.5 (ADR-025):
+- Move the view models out of `HeapScope.UI.Wpf` into a platform-neutral UI library; a new `HeapScope.UI` (Avalonia,
+  Fluent theme, MIT packages only) hosts the views. Every current view: capture, sessions, the types summary, compare,
+  objects and inspection, inspections, monitoring, retention paths and retained sizes, the about box and attribution
+  strip (unchanged, ADR-022).
+- Grids keep the data-virtualized row lists through the `IDataGridCollectionView` pass-through proven in the prototype;
+  no paid Avalonia component (the update rule, ADR-025).
+- The render yield, power throttling (ADR-019, Windows only) and the UI smoke and lag gates move to the Avalonia app;
+  UI tests move to Avalonia's headless test platform.
+- CI: Linux and macOS also build the UI and run its headless tests.
+- Layering: the view model library and the Avalonia UI project get their rows in ARCHITECTURE 3.1 and `LayerRules` (the
+  architecture test refuses unknown projects).
+- From the 2.3.5 review: the grid adapter's enumeration and `CopyTo` pass through to the row list, which makes a
+  placeholder row per index; select all, copy and keyboard paths that enumerate must go through indices or the worker,
+  and a probe test (as `RowListProbe` does) proves no grid path enumerates 1.5 million rows. The render yield moves
+  into `IUiDispatcher` (Wpf, Avalonia, Immediate) instead of the static `TaskSchedulerExtensions.RenderYield`. Front
+  ends ask `ICaptureService` whether capture is available (with the reason) before showing capture views.
+- Capture stays Windows only (the views say so off Windows and point to opening a dump taken with `dotnet-dump`).
+- Retire `HeapScope.UI.Wpf` and `spikes/AvaloniaGrid` once parity is reached; update THIRD-PARTY-NOTICES.
+
+**Acceptance criteria**: every WPF view and command has its Avalonia equivalent; the smoke gate (first show, scroll, the
+longest UI-thread block) meets the WPF numbers on the Small dump on Windows; the UI opens a Linux core dump of
+LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or otherwise allowed) packages.
+
+**Version**: 2.3.6.
+
+**Dependencies**: 2.3.5.
+
 **Task breakdown**: to be filled by /start-sprint.
 
 **Review summary**: to be filled by /wrap-sprint.
@@ -1680,7 +1771,10 @@ engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the 
 **Scope**: drill-down dominator tree, biggest retainers, grouping by type and namespace, cross-links between
 summary, diff, inspection and retention views.
 
-From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst in WPF, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+
+From 2.3.5 (ADR-025): built in Avalonia after the port (2.3.6). The tree is built on the free controls (a flattened,
+data-virtualized row list with indentation in the DataGrid, or a TreeView), not the paid TreeDataGrid.
 
 From 2.3 (decisions 6 and 7): the exact retention of a set ("open objects retained by this set": a reachability pass from
 the roots that skips the set, since a group's retained column is only a lower bound), the biggest retainers tile and the
@@ -1688,7 +1782,7 @@ dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupR
 
 **Acceptance criteria**: every LeakyApi leak is reachable from "biggest retainers" in three clicks or fewer.
 
-**Dependencies**: 2.2, 2.3.
+**Dependencies**: 2.2, 2.3, 2.3.6.
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -1711,7 +1805,9 @@ diff the "new since the baseline" view that dumps alone cannot (ADR-018).
 
 **Acceptance criteria**: LeakyApi's leaking allocation site appears in the top call stacks under LoadGen.
 
-**Dependencies**: 1.7.
+**Dependencies**: 1.7, 2.3.6 (the UI is built in Avalonia, ADR-025). Platform scope: EventPipe allocation sampling works on
+Linux and macOS too, but the trace recorder attaches through capture's process discovery, Windows only until the Linux
+capture item; the sprint says which systems it covers.
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -1733,7 +1829,7 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): one card per de
 **Acceptance criteria**: every LeakyApi leak is detected with its known answer; no detector fires on a clean
 LeakyApi run.
 
-**Dependencies**: 2.2, 1.4.
+**Dependencies**: 2.2, 1.4, 2.3.6 (the detector cards are built in Avalonia, ADR-025).
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -1749,6 +1845,9 @@ LeakyApi run.
 export of any grid.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): an analysis path sidebar (branch from any earlier step), analysis tabs, object marks across snapshots, the full filter syntax, keyboard shortcuts, CSV export.
+
+From 2.3.5 (ADR-026): CSV export is the first form of the shared analysis export, analysis only by default (no string
+text or field values unless the person exporting opts in for that export).
 
 **Acceptance criteria**: every grid exports to CSV; every view reachable by keyboard; history survives view
 switches.
@@ -1769,12 +1868,22 @@ switches.
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
-- Remote git, `develop`/`release` branches, CI pipeline, CI leak checks using the CLI.
+- CI leak checks using the CLI (the remote, `develop` and the CI pipeline exist since 2.3 and 2.3.5; CI already runs the
+  CLI on a fixture dump on Linux and macOS). Making CI a required check is the product owner's call (2.3.5 decision 8).
 - Trend analysis across more than two snapshots.
 - Finalizer queue and finalizable object analysis.
 - Async state machine and Task leak detection.
 
 **Medium**
+- From the 2.3.5 review (decided autonomously, deferred):
+  - Compare's default baseline when a capture time is only the file's time (`SnapshotFacts.CaptureTimeFromFile`, Linux
+    and macOS cores): order by open order instead and say so, since a copy of a file changes its time. **Revisit
+    when:** Linux capture lands, or compare is used with core dumps.
+  - Unix file semantics stated by tests: replacing or deleting a mapped index cache on Linux and macOS succeeds and
+    the open graph keeps reading the old file; the Windows-only tests skip there today. Capture.Tests join the Linux CI
+    job with the Linux capture item.
+  - A Windows CI step that loads a dump (capture LeakyConsole with the CLI, `summary`), so the Windows DAC path is
+    checked by CI too, not only by the local gate's integration tests.
 - gcdump survivors without a recorded root as path and dominator sources (from the 2.3 review M6; agreed with the
   product owner on 2026-10-25 to defer the fix). Today they retain nothing, and the note beside retained sizes gives their
   count and bytes. The fix marks them "root not recorded" sources in `PathRoots.Sources` (so paths and dominators keep
@@ -1851,7 +1960,13 @@ switches.
 - Large scale tier (8 GB+, 100M+ objects): 64-bit edge offsets, chunked disk-backed building.
 - Fragmentation and pinned object analysis.
 - String content search and object set queries.
-- HTML report export.
+- Shared analysis export (ADR-026, from 2.3.5; replaces "HTML report export"): one export model, analysis only by
+  default, written as HTML, JSON or CSV where the user asks; opening a JSON export in HeapScope without the dump.
+- Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
+  dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
+  elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.
+- Linux and macOS packaging (from 2.3.5): self-contained builds per runtime identifier, macOS signing and
+  notarization, a native arm64 macOS build (CI builds it `AnyCPU` today).
 - .NET Framework target support.
 
 **Low**
@@ -1859,5 +1974,6 @@ switches.
   job row 130 to 190 ms once per run; first showing of the Compare tab with rows 97 to 238 ms (1.4). Template preloading and deferring startup work remain options (from 0.3).
 - WPF and WinForms specific leak inspections.
 - Unmanaged/native memory overview.
-- Linux dump analysis.
+- Reading a dump on another system or architecture than the one that took it (cross-system DACs), and a Linux arm64
+  worker (from the 2.3.5 review; ADR-025: a dump is read by a worker of its own system and architecture).
 - Attach to processes in containers.

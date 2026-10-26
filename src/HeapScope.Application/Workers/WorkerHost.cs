@@ -24,6 +24,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Pipes;
+using System.Security.Cryptography;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -272,7 +273,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
                 throw new WorkerStartException($"The analysis worker was not found at {path}. Rebuild HeapScope or set Worker:WorkerPath.");
             }
 
-            pipeName = WorkerProtocol.PipeNamePrefix + Guid.NewGuid().ToString("N");
+            pipeName = NewPipeName();
             process = StartProcess(path, pipeName);
         }
 
@@ -316,6 +317,9 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>A new worker pipe name: the prefix and 24 random hex digits (96 bits), short enough for macOS's socket paths.</summary>
+    public static string NewPipeName() => WorkerProtocol.PipeNamePrefix + RandomNumberGenerator.GetHexString(24, lowercase: true);
 
     /// <summary>Connects to the pipe within the connect timeout, failing fast when the worker exits during startup.</summary>
     private async Task ConnectAsync(NamedPipeClientStream pipe, Process? process, CancellationToken timeout, CancellationToken caller)

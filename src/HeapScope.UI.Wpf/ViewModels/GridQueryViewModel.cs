@@ -260,10 +260,12 @@ internal static class TaskSchedulerExtensions
         SynchronizationContext.Current is null ? TaskScheduler.Default : TaskScheduler.FromCurrentSynchronizationContext();
 
     /// <summary>
-    /// On the dispatcher, continues after pending render and input work (background priority); elsewhere (tests) at once.
+    /// How the UI continues after pending render and input work, set by the app at start (the WPF app yields at the
+    /// dispatcher's background priority); unset (tests), a query continues at once. Kept out of the view models so they
+    /// carry no UI framework type (sprint 2.3.5, ahead of the Avalonia port).
     /// </summary>
-    public static Task YieldToRenderAsync() =>
-        SynchronizationContext.Current is System.Windows.Threading.DispatcherSynchronizationContext
-            ? System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(static () => { }, System.Windows.Threading.DispatcherPriority.Background).Task
-            : Task.CompletedTask;
+    public static Func<Task>? RenderYield { get; set; }
+
+    /// <summary>Continues after pending render and input work when the app says how (<see cref="RenderYield"/>).</summary>
+    public static Task YieldToRenderAsync() => RenderYield?.Invoke() ?? Task.CompletedTask;
 }

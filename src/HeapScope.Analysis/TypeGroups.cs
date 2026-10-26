@@ -245,8 +245,8 @@ public static class TypeGroups
         return matches;
     }
 
-    public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : Path.GetFileName(module);
+    public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : HeapScope.Core.RecordedPath.FileName(module);
 
     private static string ModuleFileName(string? module) =>
-        string.IsNullOrEmpty(module) ? "unknown module" : Path.GetFileName(module);
+        string.IsNullOrEmpty(module) ? "unknown module" : HeapScope.Core.RecordedPath.FileName(module);
 }

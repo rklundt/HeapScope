@@ -43,8 +43,9 @@ public sealed class RuntimeComponentMissingException : Exception
     {
     }
 
-    public RuntimeComponentMissingException(string runtimeVersion, string fileName, IReadOnlyList<string> searched)
-        : base(BuildMessage(runtimeVersion, fileName, searched))
+    /// <param name="hint">What to do first when installing the runtime would not help (sprint 2.3.5), or null.</param>
+    public RuntimeComponentMissingException(string runtimeVersion, string fileName, IReadOnlyList<string> searched, string? hint = null)
+        : base(BuildMessage(runtimeVersion, fileName, searched, hint))
     {
         RuntimeVersion = runtimeVersion;
         FileName = fileName;
@@ -57,9 +58,15 @@ public sealed class RuntimeComponentMissingException : Exception
 
     public IReadOnlyList<string> Searched { get; } = [];
 
-    private static string BuildMessage(string runtimeVersion, string fileName, IReadOnlyList<string> searched) =>
-        $"This dump was taken from .NET {runtimeVersion}, and the matching {fileName} was not found on this machine. " +
-        $"Install the .NET {runtimeVersion} runtime, or copy {fileName} from that runtime's folder next to the dump or into a folder given with --dac-folder (CLI) or the Symbols:DacFolder setting. " +
-        "Downloading it from Microsoft's symbol server is off by default; it can be turned on with --allow-symbol-server (CLI) or the Symbols:AllowMicrosoftSymbolServer setting. " +
-        $"Searched: {(searched.Count == 0 ? "nothing" : string.Join("; ", searched))}.";
+    private static string BuildMessage(string runtimeVersion, string fileName, IReadOnlyList<string> searched, string? hint)
+    {
+        // ClrMD reads some core files' runtime version as 0.0 (sprint 2.3.5); such a version is not named.
+        var known = !runtimeVersion.StartsWith("0.0", StringComparison.Ordinal);
+        var runtime = known ? $".NET {runtimeVersion}" : "a .NET runtime whose version it does not record";
+        return $"This dump was taken from {runtime}, and the matching {fileName} was not found on this machine. " +
+            (hint is null ? "" : hint + " ") +
+            $"Install {(known ? $"the .NET {runtimeVersion} runtime" : "that runtime")}, or copy {fileName} from that runtime's folder next to the dump or into a folder given with --dac-folder (CLI) or the Symbols:DacFolder setting. " +
+            "Downloading it from Microsoft's symbol server is off by default; it can be turned on with --allow-symbol-server (CLI) or the Symbols:AllowMicrosoftSymbolServer setting. " +
+            $"Searched: {(searched.Count == 0 ? "nothing" : string.Join("; ", searched))}.";
+    }
 }

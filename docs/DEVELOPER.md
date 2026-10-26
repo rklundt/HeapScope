@@ -17,7 +17,7 @@ cd heapScope
 dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
-- Full gate (sprint 1.9, the local stand-in for CI until the repository has one): `./build/gate.ps1` builds Debug
+- Full gate (sprint 1.9; CI since 2.3.5 runs a subset, section 7): `./build/gate.ps1` builds Debug
   and Release (zero warnings), runs the full suite and appends a line to `artifacts/gate/history.csv` (git-ignored):
   time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run is named
   again. Run it before closing a sprint.
@@ -26,6 +26,9 @@ dotnet test --solution HeapScope.sln
   `tests/HeapScope.UI.Wpf.Tests/bin/Debug/net10.0-windows/HeapScope.UI.Wpf.Tests.exe -longRunning 30 -noAutoReporters`;
   it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
 - Run the UI: `dotnet run --project src/HeapScope.UI.Wpf`.
+- The Avalonia prototype (sprint 2.3.5, ADR-025; outside `HeapScope.sln`, not shipped, removed by the port sprint 2.3.6):
+  `dotnet run --project spikes/AvaloniaGrid -- <dump>` shows the types grid and a type's objects through the real worker;
+  `--measure` scrolls the grids, prints first-show and stall times and the row lists' enumeration count, and exits.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
@@ -289,13 +292,21 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   protected by a ruleset: changes arrive only by PR (no approvals required, since there is one maintainer); direct
   pushes, force pushes and deletion are blocked.
 - Each sprint works on `sprint/X.Y`, branched from an up-to-date `develop` by `/start-sprint`.
-- Commits happen only through `/close-sprint`, one per sprint, message `Sprint X.Y: <title>` plus a short body. Work
-  outside a sprint that the owner asks for (a fix, docs, a chore) uses its own short branch (`fix/...`, `chore/...`)
-  off `develop` and the same PR flow.
+- Commits happen only through `/close-sprint`, one per sprint, message `Sprint X.Y: <title>` plus a short body. Since
+  sprint 2.3.5, work-in-progress commits may be pushed to `sprint/X.Y` to run CI on its draft PR; the squash merge still
+  leaves one commit per sprint on `develop`. Work outside a sprint that the owner asks for (a fix, docs, a chore) uses
+  its own short branch (`fix/...`, `chore/...`) off `develop` and the same PR flow.
+- CI (`.github/workflows/ci.yml`, sprint 2.3.5) runs on every PR into `develop` or `main` and every push to them, on
+  GitHub's hosted runners: Windows builds the solution and runs the fast tests; Linux builds the engine, the worker and
+  the CLI, runs the engine's tests, dumps the LeakyConsole fixture with `dotnet-dump` (pinned) and checks the CLI's
+  JSON against the known answers with `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named
+  runtime version); macOS does the same, informational (an arm64 runner; ADR-025). It does not replace the local gate, which also runs the
+  integration tests. Fixture dumps are never uploaded.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.
-- Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`.
+- Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`
+  (`X.Y.Z` for an in-between sprint such as 2.3.5).
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
