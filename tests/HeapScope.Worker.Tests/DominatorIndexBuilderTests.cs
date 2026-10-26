@@ -186,14 +186,14 @@ public sealed class DominatorIndexBuilderTests : IDisposable
     public void Retained_sizes_carry_a_note_for_incomplete_snapshots_and_a_gcdumps_unrooted_survivors()
     {
         // Review M6: both can overstate retained sizes, so the front ends say so beside them.
-        var index = new DominatorIndex(_expected, FromSidecar: false, MemoryMode.InMemory, Saved: true, Reachable: 90, Seconds: 1);
+        var index = new DominatorIndex(_expected, FromSidecar: false, MemoryMode.InMemory, Saved: true, Reachable: 90, Seconds: 1, UnreachableBytes: 3 * 1024 * 1024);
 
         var full = Rpc.WorkerService.Info(index, Core.SnapshotKind.FullDump, 100, completeGraph: true);
         var gcdump = Rpc.WorkerService.Info(index, Core.SnapshotKind.GcDump, 100, completeGraph: true);
         var truncated = Rpc.WorkerService.Info(index, Core.SnapshotKind.FullDump, 100, completeGraph: false);
 
         full.Note.ShouldBeNull("garbage in a full dump retains nothing by definition");
-        gcdump.Note.ShouldNotBeNull().ShouldContain("10 objects of this gcdump");
+        gcdump.Note.ShouldNotBeNull().ShouldContain("10 objects (3.0 MB) of this gcdump");
         (truncated.CompleteGraph, truncated.Note).ShouldBe((false, "This snapshot is incomplete, so some references are missing and retained sizes may be overstated."));
     }
 
@@ -218,6 +218,8 @@ public sealed class DominatorIndexBuilderTests : IDisposable
 
     private void AssertExpected(DominatorIndex index)
     {
+        var unreachable = Enumerable.Range(0, _graph.ObjectCount).Where(i => _expected.ImmediateDominator(i) == DominatorTree.Unreachable);
+        index.UnreachableBytes.ShouldBe((ulong)unreachable.Sum(i => (long)_graph.GetSize(i)));
         index.Dominators.ImmediateDominators.Span.ToArray().ShouldBe(_expected.ImmediateDominators.Span.ToArray());
         index.Dominators.RetainedSizes.Span.ToArray().ShouldBe(_expected.RetainedSizes.Span.ToArray());
         index.Reachable.ShouldBe(_expected.ImmediateDominators.Span.ToArray().LongCount(d => d != DominatorTree.Unreachable));

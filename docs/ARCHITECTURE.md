@@ -231,8 +231,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   columns refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6].
   `Snapshots/`: `SnapshotStore` (open, cache, memory mode); `SnapshotKinds` (per kind: the loader and its version, the
   snapshot over a graph, the kind's notes) [1.9]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
-  dropped in one step when it closes: each slot is one shared computation with its own lease and a token tied to the
-  snapshot's lifetime, so a caller that cancels only stops waiting [1.3]; the reverse references slot [2.1] and the
+  dropped in one step when it closes: each slot is one shared computation with its own lease; a caller that cancels
+  only stops waiting, and the computation is canceled when the last waiter leaves before it finishes and nobody joins
+  within a 2 s grace period (so a grid's re-query joins it), or when the snapshot closes (`DerivedWaiter`, after the
+  2.3 review M13) [1.3]; the reverse references slot [2.1] and the
   dominators slot with the retained lower bounds per grouping [2.3], with `SharedProgress` sending the computation's
   progress to every caller waiting for it (review M7). `ReverseIndexBuilder`: the reverse index opened from its sidecar,
   or built straight into it [2.3] (in managed arrays when there is none), and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
@@ -819,7 +821,8 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
     computed under older rules is rebuilt.
   - Caveats shown beside retained sizes (`DominatorIndexInfo.Note`, review M6): an incomplete snapshot misses
     references, and a gcdump's survivors whose root it did not record retain nothing here; both can overstate the
-    retained sizes of objects that share them. Treating those survivors as extra sources is a Backlog item.
+    retained sizes of objects that share them. For a gcdump the note gives their count and bytes (`DominatorIndex.
+    UnreachableBytes`). Treating those survivors as sources is a Backlog item, to be done with gcdumps at scale.
   - A group's retained size (`GroupRetention`, decision 6) is a lower bound: the retained sizes of its objects that no
     other object of the group dominates, found in one stackless walk of the dominator tree (12 bytes per object while it
     runs) counting each group's objects on the current path; computed once per grouping and kept with the snapshot.
@@ -832,8 +835,15 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
     3,875 MB), 2.0 s and 5.0 s mapped (peak 661 MB); 619 MB kept; retained per type 1.0 to 1.2 s. Before the review the
     working arrays took 21 bytes per object: peaks 3,702 and 4,285 MB in memory (DenseHeap over the 4 GB budget, as 1.9
     predicted), 1,118 and 1,080 MB mapped. The 1.9 prototype took 7.4 s (Medium) and 10.5 s (DenseHeap) for the
-    dominators and retained sizes. In the UI smoke run on the Small dump (5.5M objects) the dominators took 1.45 s. Not
-    measured on a 16 GB machine, where the mapped computation's random writes to file-backed pages may page (Backlog).
+    dominators and retained sizes. In the UI smoke run on the Small dump (5.5M objects) the dominators took 1.45 s.
+  - Under memory pressure (after the 2.3 review M14, `dominators --mode mapped --max-working-set-mb N`, a hard cap on the
+    process's working set as a stand-in for a 16 GB machine under load): with the working set capped at 2 GB the
+    reverse index and dominators take as long as uncapped (Medium 5.9 s, DenseHeap 8.0 s); capped at 1 GB, 7.9 s and
+    11.1 s against 5.8 s and 7.8 s uncapped, with 1.7 and 1.9 times the page faults (1.9M and 2.7M). Private bytes stay at
+    about 700 MB. No thrashing: the extra faults are pages of the mapped graph and sidecars read again. Trimmed pages
+    went to the standby list of a 32 GB machine, so these were soft faults; on a machine really short of memory they
+    are disk reads, an estimated 3 GB more reads on Medium at 1 GB, still well inside the 60 s budget on an SSD. A real
+    16 GB machine remains a Backlog check.
 - **Field names on paths**: not stored. Retention paths resolve the referencing field on demand from the
   dump (full dumps only, capability `FieldValues`).
 - **Retention paths** (built in sprint 2.2, `Analysis/Retention`): a path starts at a path root, an object held by a
@@ -1131,7 +1141,7 @@ Initial budgets (sprints refine them with measurements):
 | Type summary and diff on loaded Medium | < 5 s | type aggregation 0.05 s on Medium, 0.03 s on DenseHeap (54M objects); CLI `summary` end to end from the index cache 1.9 s and 2.0 s (1.3); CLI `diff` of Medium against DenseHeap end to end from the index caches 2.8 to 2.9 s, of which the aggregations 0.05 to 0.08 s each (1.4) |
 | Phase 2 indices (reverse references, semi-NCA dominators, retained sizes; prototype, 1.9) | under 60 s and within the 4 GB worker budget on a Medium-scale real heap | Medium 9.5 s, peak 3,514 MB (met in memory); DenseHeap 12.9 s, peak 4,119 MB in memory (missed by 23 MB), 2,360 MB with the graph mapped (met); hence computation follows the memory mode (section 6.4) |
 | Retention paths (2.2, `retention` on real index caches) | the root path tree within the 60 s Phase 2 budget; a type's key paths and an object's paths interactive (under 5 s) | Medium tree 0.8 to 1.2 s (219 MB), key paths up to 1.7 s (16M objects), an object's paths at most 6 ms, peak 2,802 MB in memory and 1,197 MB mapped; DenseHeap tree 1.6 to 2.3 s, key paths at most 0.4 s, an object's paths at most 176 ms, peak 3,320 MB in memory and 1,416 MB mapped. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
-| Dominators and retained sizes (2.3, `dominators` on real index caches, the worker's paths) | under 60 s for a Medium-scale real heap; Medium within the 4 GB worker budget in both memory modes | After the review: Medium reverse index and dominators 3.9 s in memory (peak 3,289 MB), 5.6 s mapped (peak 699 MB); DenseHeap 4.6 s in memory (peak 3,875 MB) and 7.0 s mapped (peak 661 MB). Met for both in both modes on the 32 GB machine (DenseHeap in memory missed by 189 MB before the review's M4); the paging cost on a 16 GB machine is not measured (Backlog) |
+| Dominators and retained sizes (2.3, `dominators` on real index caches, the worker's paths) | under 60 s for a Medium-scale real heap; Medium within the 4 GB worker budget in both memory modes | After the review: Medium reverse index and dominators 3.9 s in memory (peak 3,289 MB), 5.6 s mapped (peak 699 MB); DenseHeap 4.6 s in memory (peak 3,875 MB) and 7.0 s mapped (peak 661 MB). Met for both in both modes on the 32 GB machine (DenseHeap in memory missed by 189 MB before the review's M4). With the working set capped at 1 GB (a stand-in for memory pressure): Medium 7.9 s, DenseHeap 11.1 s, no thrashing; a real 16 GB machine is a Backlog check |
 | Reverse references index (2.1, `reverse-index` on real index caches; the Release worker on DenseHeap) | built well inside the 60 s Phase 2 budget; worker within 4 GB | Medium 0.6 to 0.8 s, 470 MB, benchmark peak 2,423 MB in memory and 970 MB mapped; DenseHeap 0.8 to 1.7 s, 831 MB, benchmark peak 3,454 MB in memory and 1,695 MB mapped; worker peak commit 2,644 MB after building DenseHeap's index in memory, plus up to 512 MB of ClrMD cache when fields are named; reopen from the sidecar 0.1 to 1.1 s; releasing the built index 7 to 14 ms. Met on the 32 GB machine; a 16 GB machine is not measured (section 6.4) |
 | Compact graph cost | ~30 to 38 bytes per object | 34.0 bytes per object at 3 references (sprint 0.2, synthetic 50M) |
 

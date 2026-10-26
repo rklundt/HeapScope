@@ -50,10 +50,10 @@ internal sealed partial class SnapshotStore
         }
 
         using var subscription = entry.Derived.DominatorProgress.Subscribe(progress);
-        var task = entry.Derived.GetOrStartDominators(lifetime => Task.Run(() => OpenOrComputeDominatorsAsync(entry, lifetime), lifetime));
+        using var waiter = entry.Derived.JoinDominators(lifetime => Task.Run(() => OpenOrComputeDominatorsAsync(entry, lifetime), lifetime));
         try
         {
-            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ObjectDisposedException || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
@@ -82,7 +82,7 @@ internal sealed partial class SnapshotStore
 
         const string phase = "Summing retained sizes by group";
         using var subscription = entry.Derived.DominatorProgress.Subscribe(progress);
-        var task = entry.Derived.GetOrStartGroupRetention(grouping, lifetime => Task.Run(
+        using var waiter = entry.Derived.JoinGroupRetention(grouping, lifetime => Task.Run(
             () =>
             {
                 using var lease = entry.Snapshot.AcquireLease();
@@ -114,7 +114,7 @@ internal sealed partial class SnapshotStore
             lifetime));
         try
         {
-            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ObjectDisposedException || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {

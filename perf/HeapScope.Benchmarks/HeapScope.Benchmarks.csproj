@@ -3,6 +3,8 @@
     <OutputType>Exe</OutputType>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- LibraryImport for the working set cap of the dominators benchmark (sprint 2.3 review M14). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Analysis\HeapScope.Analysis.csproj" />
