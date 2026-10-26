@@ -94,6 +94,17 @@ The reviewers confirmed:
   Backlog: no 16 GB machine or constrained run is available in this sprint; after M4 DenseHeap is within the budget in
   both modes on the 32 GB machine, and the section 10 row now says what was and was not measured.
 
+### After the close
+
+On the product owner's request (2026-10-25), on the branch `fix/derived-cancel-and-paging`:
+- M13 fixed: a slot's computation is canceled when its last waiter leaves before it finishes and nobody joins within a
+  2 s grace period (`DerivedWaiter`; tests in `DerivedDataTests`); a slot abandoned this way starts again for the next
+  caller.
+- M14 measured under a working set cap (ARCHITECTURE 6.4): no thrashing at 1 GB; a real 16 GB machine stays a Backlog
+  check, with a revisit trigger.
+- M6's second half stays deferred, agreed with the product owner: the note now gives the unrooted survivors' bytes as
+  well as their count, and the Backlog item says when to revisit it (with gcdumps at scale).
+
 ## Low / Trivial (listed; fixed where noted)
 
 - L1 Misplaced doc comments: `SnapshotSession.QueryTypePathsAsync`, `IndexFileLayout` (senior-dev, solution-architect).

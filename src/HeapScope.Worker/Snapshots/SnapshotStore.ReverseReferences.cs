@@ -49,10 +49,10 @@ internal sealed partial class SnapshotStore
         }
 
         using var subscription = entry.Derived.ReverseProgress.Subscribe(progress);
-        var task = entry.Derived.GetOrStartReverseReferences(lifetime => Task.Run(() => OpenOrBuildReverse(entry, lifetime), lifetime));
+        using var waiter = entry.Derived.JoinReverseReferences(lifetime => Task.Run(() => OpenOrBuildReverse(entry, lifetime), lifetime));
         try
         {
-            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ObjectDisposedException || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {

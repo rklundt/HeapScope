@@ -35,7 +35,32 @@ namespace HeapScope.Worker.Snapshots;
 /// <param name="Saved">Saved in the sidecar (opened from it, or computed into it), so the next open reuses them.</param>
 /// <param name="Reachable">Objects a root reaches.</param>
 /// <param name="Seconds">Time to open or compute them, the reverse references index included.</param>
-internal sealed record DominatorIndex(Dominators Dominators, bool FromSidecar, MemoryMode Mode, bool Saved, long Reachable, double Seconds);
+/// <param name="UnreachableBytes">Bytes of the objects no root reaches (for a gcdump, survivors whose root it did not record).</param>
+internal sealed record DominatorIndex(Dominators Dominators, bool FromSidecar, MemoryMode Mode, bool Saved, long Reachable, double Seconds, ulong UnreachableBytes = 0)
+{
+    /// <summary>This index with its reachable count and the bytes no root reaches, counted in one pass over the dominators.</summary>
+    public DominatorIndex WithUnreachable(HeapGraph graph)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        long reachable = 0;
+        ulong unreachableBytes = 0;
+        var idom = Dominators.ImmediateDominators.Span;
+        var sizes = graph.Sizes.Span;
+        for (var i = 0; i < idom.Length; i++)
+        {
+            if (idom[i] != DominatorTree.Unreachable)
+            {
+                reachable++;
+            }
+            else
+            {
+                unreachableBytes += sizes[i] == HeapGraph.LargeSizeMarker ? graph.GetSize(i) : sizes[i];
+            }
+        }
+
+        return this with { Reachable = reachable, UnreachableBytes = unreachableBytes };
+    }
+}
 
 /// <summary>Where a snapshot's dominators are kept, and the snapshot's memory mode (sprint 2.3).</summary>
 /// <param name="Sidecar">The sidecar path; null when the snapshot has no index cache (the dominators then stay in memory).</param>
@@ -79,7 +104,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
 
         var mode = ChooseMode(graph.ObjectCount, target, MemoryBudget.Current(), CommittedBytes() + reservations.Reserved);
         return TryOpenFile(graph, target, mode, cancellationToken) is { } opened
-            ? new DominatorIndex(opened, FromSidecar: true, mode, Saved: true, CountReachable(opened), 0)
+            ? new DominatorIndex(opened, FromSidecar: true, mode, Saved: true, 0, 0).WithUnreachable(graph)
             : null;
     }
 
@@ -116,7 +141,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
             {
                 if (TryOpenFile(graph, target, mode, cancellationToken) is { } computed)
                 {
-                    return new DominatorIndex(computed, FromSidecar: false, mode, Saved: true, reachable, 0);
+                    return new DominatorIndex(computed, FromSidecar: false, mode, Saved: true, reachable, 0).WithUnreachable(graph);
                 }
 
                 logger.LogWarning("Dominators sidecar {Path} could not be opened after writing it; they are computed in memory", sidecar);
@@ -125,7 +150,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
             {
                 // Another process (the UI and the CLI on one dump) wrote the same sidecar meanwhile (review M1).
                 logger.LogInformation("Dominators sidecar {Path} could not be written, but another process wrote it; using that one", sidecar);
-                return new DominatorIndex(other, FromSidecar: true, mode, Saved: true, CountReachable(other), 0);
+                return new DominatorIndex(other, FromSidecar: true, mode, Saved: true, 0, 0).WithUnreachable(graph);
             }
         }
 
@@ -138,7 +163,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
                 var retained = GC.AllocateUninitializedArray<ulong>(graph.ObjectCount);
                 var reachable = DominatorTree.Compute(graph, reverse, idom, retained, phases, cancellationToken);
                 var dominators = Dominators.FromColumns(graph, Column<int>.FromArray(idom), Column<ulong>.FromArray(retained), owner: null);
-                return new DominatorIndex(dominators, FromSidecar: false, MemoryMode.InMemory, Saved: false, reachable, 0);
+                return new DominatorIndex(dominators, FromSidecar: false, MemoryMode.InMemory, Saved: false, reachable, 0).WithUnreachable(graph);
             }
             finally
             {
@@ -204,17 +229,6 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
 
         file.Dispose();
         return null;
-    }
-
-    private static long CountReachable(Dominators dominators)
-    {
-        long reachable = 0;
-        foreach (var dominator in dominators.ImmediateDominators.Span)
-        {
-            reachable += dominator == DominatorTree.Unreachable ? 0 : 1;
-        }
-
-        return reachable;
     }
 
     private static long CommittedBytes()

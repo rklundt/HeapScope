@@ -88,9 +88,10 @@ internal sealed partial class WorkerService
         var unrooted = objectCount - index.Reachable;
         if (kind == SnapshotKind.GcDump && unrooted > 0)
         {
+            // How much memory is uncertain, not only how many objects (the long-term fix is in the Backlog).
             notes.Add(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{unrooted:N0} objects of this gcdump survived its collection but have no recorded root: they retain nothing here, and the retained sizes of objects that share them with a rooted object may be overstated."));
+                $"{unrooted:N0} objects ({Megabytes(index.UnreachableBytes)}) of this gcdump survived its collection but have no recorded root: they retain nothing here, and the retained sizes of objects that share them with a rooted object may be overstated."));
         }
 
         return new DominatorIndexInfo(
@@ -103,4 +104,8 @@ internal sealed partial class WorkerService
             completeGraph,
             notes.Count == 0 ? null : string.Join(" ", notes));
     }
+
+    private static string Megabytes(ulong bytes) => bytes < 1024 * 1024
+        ? string.Create(CultureInfo.InvariantCulture, $"{bytes / 1024.0:N1} KB")
+        : string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024):N1} MB");
 }

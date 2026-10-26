@@ -271,7 +271,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   (used to set the incomplete-segment rule).
 - `phase2-indices`: the 1.9 prototype of the Phase 2 indices (reverse references, semi-NCA dominators, retained sizes)
   on synthetic shapes or an index cache (ARCHITECTURE.md 6.4).
-- `dominators --cache <snapshot.hsidx> [--mode memory|mapped] [--out <folder>]` (sprint 2.3): the worker's path on a
+- `dominators --cache <snapshot.hsidx> [--mode memory|mapped] [--out <folder>] [--max-working-set-mb N]` (sprint 2.3; the
+  cap, a hard limit on the process's working set to see the computation under memory pressure, after the 2.3 review
+  M14; it also reports page faults and the peak working set): the worker's path on a
   real index cache: the reverse references and the dominators, computed straight into sidecars (in `--out`, or a temporary
   folder; only the two sidecars are deleted afterwards, and the folder only when the run made it) and mapped, or in managed arrays; the retained lower bounds per type; a reopen of the dominators sidecar.
   Times and peak private bytes per phase; exit 1 when the indices exceed 60 s or the run's peak 4 GB.

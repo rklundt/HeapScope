@@ -59,6 +59,15 @@ internal static class DominatorsBenchmark
 
         using var graph = opened.Graph!;
         Directory.CreateDirectory(output);
+        var cap = args.GetInt("max-working-set-mb", 0);
+        if (cap > 0)
+        {
+            // Review M14: pages over the cap are trimmed while the indices are computed (see WorkingSetCap).
+            WorkingSetCap.Apply(cap);
+            Measurement.Line("Working set capped", $"{cap:N0} MB");
+        }
+
+        var faultsBefore = WorkingSetCap.Counters().PageFaults;
         var fingerprint = new SnapshotFingerprint(1, 1, 1);
         var layout = IndexFileLayout.ForDominators(DominatorTree.SemanticsVersion);
         Measurement.Line("Graph", $"{graph.ObjectCount:N0} objects, {graph.EdgeCount:N0} references, {Measurement.Mb(graph.ColumnBytes)}; private after open {Measurement.Mb(PrivateAfterCollect())}");
@@ -92,6 +101,8 @@ internal static class DominatorsBenchmark
                 }
 
                 var total = reverseTime + time;
+                var (faults, peakWorkingSet) = WorkingSetCap.Counters();
+                Measurement.Line("Page faults, peak working set", $"{faults - faultsBefore:N0} faults (soft and hard) after the open; peak working set {Measurement.Mb(peakWorkingSet)}");
                 Measurement.Line("Peak private bytes, whole run", $"{Measurement.Mb(overallPeak.Peak)} (budget {Measurement.Mb(BudgetBytes)})");
                 Measurement.Line("Total", $"{overall.Elapsed.TotalSeconds:N1} s; reverse references and dominators {total.TotalSeconds:N1} s (budget 60 s)");
                 return overallPeak.Peak <= BudgetBytes && total <= s_timeBudget ? 0 : 1;

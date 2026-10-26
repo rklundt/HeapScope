@@ -177,18 +177,18 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         var late = new List<JobProgress>();
         using (derived.ReverseProgress.Subscribe(new InlineProgress(first.Add)))
         {
-            var a = derived.GetOrStartReverseReferences(Compute);
+            using var a = derived.JoinReverseReferences(Compute);
             derived.ReverseProgress.Report(new JobProgress("Indexing incoming references", 1, 4));
             using (derived.ReverseProgress.Subscribe(new InlineProgress(late.Add)))
             {
-                var b = derived.GetOrStartReverseReferences(Compute);
+                using var b = derived.JoinReverseReferences(Compute);
                 derived.ReverseProgress.Report(new JobProgress("Indexing incoming references", 2, 4));
-                b.ShouldBeSameAs(a);
+                b.Task.ShouldBeSameAs(a.Task);
             }
 
             derived.ReverseProgress.Report(new JobProgress("Indexing incoming references", 3, 4));
             gate.SetResult(new ReverseIndex(ReverseReferences.Build(_graph, cancellationToken: Ct), false, MemoryMode.InMemory, false));
-            (await a).References.Dispose();
+            (await a.Task).References.Dispose();
         }
 
         started.ShouldBe(1);
@@ -212,17 +212,17 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         var reports = new List<JobProgress>();
         using (derived.RootPathProgress.Subscribe(new InlineProgress(reports.Add)))
         {
-            var a = derived.GetOrStartRootPaths(Compute);
-            var b = derived.GetOrStartRootPaths(Compute);
+            using var a = derived.JoinRootPaths(Compute);
+            using var b = derived.JoinRootPaths(Compute);
             derived.RootPathProgress.Report(new JobProgress("Finding every object's shortest path from a root", 1, 2));
             gate.SetResult(HeapScope.Analysis.Retention.RootPathTree.Build(_graph, cancellationToken: Ct));
-            (await a).ShouldBeSameAs(await b);
+            (await a.Task).ShouldBeSameAs(await b.Task);
         }
 
         builds.ShouldBe(1);
         reports.ShouldHaveSingleItem();
         derived.Close();
-        _ = derived.GetOrStartRootPaths(Compute);
+        using var again = derived.JoinRootPaths(Compute);
         builds.ShouldBe(2, "closing drops the tree, so the next caller builds again");
     }
 
