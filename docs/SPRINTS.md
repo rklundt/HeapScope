@@ -25,7 +25,7 @@ everything else.
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
 | 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
-| 2.3.5 | Cross-platform and sharing decision | Wrapping | | |
+| 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
 | 2.3.6 | Avalonia port | Planned | | |
 | 2.4 | Retention explorer UI | Planned | | |
 | 2.5 | Allocation tracking | Planned | | |

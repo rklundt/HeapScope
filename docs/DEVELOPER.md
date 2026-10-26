@@ -298,8 +298,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   its own short branch (`fix/...`, `chore/...`) off `develop` and the same PR flow.
 - CI (`.github/workflows/ci.yml`, sprint 2.3.5) runs on every PR into `develop` or `main` and every push to them, on
   GitHub's hosted runners: Windows builds the solution and runs the fast tests; Linux builds the engine, the worker and
-  the CLI, runs the engine's tests, dumps the LeakyConsole fixture with `dotnet-dump` and analyzes it with the CLI;
-  macOS does the same, informational (an arm64 runner; ADR-025). It does not replace the local gate, which also runs the
+  the CLI, runs the engine's tests, dumps the LeakyConsole fixture with `dotnet-dump` (pinned) and checks the CLI's
+  JSON against the known answers with `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named
+  runtime version); macOS does the same, informational (an arm64 runner; ADR-025). It does not replace the local gate, which also runs the
   integration tests. Fixture dumps are never uploaded.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
