@@ -1389,8 +1389,8 @@ of LeakyApi under continuous load (25.6 MB, 168,073 samples) 1.1 s and 131 MB; 6
 follows samples, about 240 bytes each, more than file bytes); an open trace keeps 25 bytes per sample plus its names (14 MB for the 600 s trace).
 Whole-trace queries take 2 to 13 ms (types 244 ms on the first call, JIT included). A 12 s trace of 5,000 requests
 (4.1 MB, 5,415 samples) lists the five leaks' `Grow` methods as its top five call stacks. The UI smoke run's
-allocations step (Debug, that 12 s trace): the cold first show 3.3 s; expanding the first back trace and switching to
-the call tree, longest dispatcher operation 63 ms, lag 48 ms. TraceEvent's conversion cannot be canceled; it took under
+allocations step (Release, the 150 s trace, after the Small-sized dump's phases): the cold first show 3.0 s with a
+maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0. TraceEvent's conversion cannot be canceled; it took under
 2 s on these traces, and a much longer, busier trace would hold its reservation longer (Backlog: a streaming reader).
 
 ## 11. Error handling and logging

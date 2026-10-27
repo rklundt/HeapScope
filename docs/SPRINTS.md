@@ -29,7 +29,7 @@ everything else.
 | 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
-| 2.5 | Allocation tracking | In Progress | | |
+| 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
 | 2.6 | Smart leak detectors | Planned | | |
 | 2.7 | Navigation and polish | Planned | | |
 | 2.8 | Packaging and distribution | Planned | | |
@@ -2163,13 +2163,32 @@ capture item; the sprint says which systems it covers.
 5. [x] Application and CLI: the trace handle in the session; recording into the session folder; `allocations`
    command. Tests: application tests, CLI integration test.
 6. [x] UI: the Allocations page (timeline with interval selection, Types, Back traces, Call tree, Top call stacks),
-   Record allocations on the Processes page, `.nettrace` in the Open dialog, a smoke step. Tests: view model and view
+   Record allocations on the Processes page, `.nettrace` from the page's Open trace, a smoke step. Tests: view model and view
    tests, the smoke run.
 7. [x] Acceptance and measurements: LeakyApi under LoadGen, its leaking allocation site in the top call stacks
    (integration); reading time and peak for a long trace. Docs: ARCHITECTURE (code map, 4.4, ADR-028, 10, 11, 12),
    DEVELOPER, CLAUDE.md.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (docs/reviews/sprint-2.5.md): four reviewers (solution-architect, senior-dev, gc-specialist, and a
+support and system analyst). 4 High, 25 Moderate, 28 Low after dedupe; the re-review of the fixes added 3 Moderates and
+5 Lows, all fixed.
+- High, fixed and confirmed: managed frames without a name were shown as "[native code]" and merged, with nothing
+  saying why (now `[unresolved frame in <module>]`, counted, with the rundown and TraceEvent's conversion problems in
+  the descriptor, the log and the notes); the read's memory reservation rested on a misreported measurement (now
+  measured with the worker's GC settings on three traces: 96 MB plus 3 bytes per file byte); a trace was read again
+  after a worker restart without checking the file (now refused with `TraceChanged` when its size or write time
+  changed); the CLI labeled all-types totals as one type's.
+- Moderate (decided autonomously): 19 fixed now, among them one re-read per trace for concurrent queries, every stack
+  answered in the log with its stack node, the allocation kind per sample with LOH and POH columns, exact arrays and
+  pooled tree buffers, sorted samples and checked invariants, `.etlx` and partial-trace sweeps, a timeline bucket
+  limit, cancellation through the fast queries and the CLI's read, honest recording cancel and failure messages, one
+  meaning of %; 5 fixed in part with the rest in the Backlog or recorded (the conversion's cancellation, progress on
+  the fast queries, type id and module, the CLI's type text in the request line, more race tests); 1 deferred (one flattened-tree builder for the dominator and
+  allocation trees).
+- Measured (Release, the `allocations` benchmark with the worker's GC settings): a 72 MB, 600 s trace (565,625
+  samples) reads in 1.9 s with 227 MB of growth; whole-trace queries 2 to 13 ms. Acceptance: on LeakyApi under LoadGen
+  the leaking allocation sites are in the top call stacks, through the reader, the worker and the CLI (a 12 s trace
+  listed the five leaks' `Grow` methods as its top five stacks).
 
 ---
 
