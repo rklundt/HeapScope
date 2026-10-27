@@ -113,6 +113,7 @@ src/
   HeapScope.Capture            Process discovery, dump/gcdump capture, live counters, timed snapshots.
   HeapScope.Loaders.ClrMd      Full dump -> compact graph.
   HeapScope.Loaders.GcDump     gcdump -> compact graph (sprint 1.8).
+  HeapScope.Loaders.Trace      EventPipe trace -> sampled allocations (sprint 2.5, ADR-028).
   HeapScope.ThirdParty.GcDump  Vendored MIT gcdump reader and writer from dotnet/diagnostics (PerfView code), sprint 1.8.
   HeapScope.Contracts          IPC DTOs and service interfaces shared by UI, worker and CLI.
   HeapScope.Worker             Out-of-process analysis host (64-bit).
@@ -334,6 +335,21 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   (build, sidecar write, reopen in both modes) [2.1]; `retention`, the root path tree, key paths and object searches of
   a real index cache [2.2]; `dominators`, the reverse index and dominators as the worker computes them, in either mode
   [2.3].
+- **Allocation traces [2.5, ADR-028].** Capture: `TraceProfile.Allocations` (GC events at verbose with loader and JIT
+  events; the rundown on stop). Core: `Allocations/AllocationTrace` (frames, a deduplicated stack tree, types, and per
+  sample its time, innermost stack node, type and bytes; `NativeFrame`, `NoStackFrame`). Loaders.Trace:
+  `AllocationTraceReader` (the `Nettrace` signature checked first, TraceEvent's `.etlx` written to a private temporary
+  folder and deleted, runs of native frames merged, cancellation). Analysis: `Allocations/AllocationProfile` (sample
+  ranges by binary search, the timeline, types, totals, top stacks, a stack's frames) and `AllocationTreeRows` (the call
+  tree and back traces flattened from open keys like ADR-027, with `AllocationRow`, `AllocationTreeView`,
+  `AllocationFilter`). Worker: `Traces/TraceStore` (open traces, a memory reservation of 6 bytes per file byte while
+  reading) and `WorkerService.Allocations` with `AllocationTypesSource` and `AllocationTreeSource`. Application:
+  `Allocations/AllocationSession` (`TraceHandle`, reading again after a worker restart, `AllocationScope`, and
+  `StartRecord`, which records into the current session's folder and opens the trace). UI.ViewModels:
+  `AllocationsViewModel` (the page), `AllocationTraceViewModel` (a trace: interval, type, stacks), `AllocationTypesViewModel`,
+  `AllocationTreeViewModel`, `AllocationRowItem`, `AllocationTimelineGeometry`, `TimeInterval`; Record allocations and Stop
+  on `ProcessesViewModel`. UI: `Views/Pages/AllocationsPage` and `Controls/AllocationTimeline` (drag selects the
+  interval). Cli: `trace --profile allocations` and `AllocationsCommand` (`allocations`). Benchmarks: `allocations`.
 - **Fixtures.** The leak fixtures and known answers (ADR-013), `WasteFixtures` (LeakyConsole `--waste`) and `Waste.json`
   [1.6].
 - **build/.** The worker deployment targets and `gate.ps1`, the local full gate (DEVELOPER.md 2) [1.9].
@@ -357,6 +373,8 @@ flowchart TD
     Wk --> Sto[Storage]
     Wk --> LC[Loaders.ClrMd]
     Wk --> LG[Loaders.GcDump]
+    Wk --> LT[Loaders.Trace]
+    LT --> Core
     LG --> TP[ThirdParty.GcDump]
     Cap --> TP
     Wk --> Core
@@ -375,6 +393,7 @@ flowchart TD
 | Capture | Core, ThirdParty.GcDump | Microsoft.Diagnostics.NETCore.Client, TraceEvent |
 | Loaders.ClrMd | Core | Microsoft.Diagnostics.Runtime |
 | Loaders.GcDump | Core, ThirdParty.GcDump | Microsoft.Diagnostics.Tracing.TraceEvent |
+| Loaders.Trace | Core | Microsoft.Diagnostics.Tracing.TraceEvent (sprint 2.5) |
 | ThirdParty.GcDump | nothing | Microsoft.Diagnostics.NETCore.Client, TraceEvent (vendored code, sprint 1.8) |
 | Contracts | nothing (ADR-016) | StreamJsonRpc attributes only (no transport code) |
 | Worker | Core, Contracts, Analysis, Storage, Loaders.* | StreamJsonRpc |
@@ -532,6 +551,16 @@ Rules:
   `ResultColumn.Bound` (`ValueBound.Exact` or `LowerBound`; the type summary's retained column is a lower bound, every
   other retained column exact), whose texts are in `ValueBoundTexts` (with the set action's one name and how the
   dominators were obtained) so the CLI and the UI say it the same way.
+  Version 13 (sprint 2.5) added allocation traces (ADR-028): `OpenTraceAsync` (`OpenTraceRequest`, `TraceDescriptor`:
+  process, start, duration, samples, sampled bytes, types, lost events, samples without a stack, read time),
+  `CloseTraceAsync`, `QueryAllocationTimelineAsync` (sampled bytes per stretch), `QueryAllocationTypesAsync` (a result set
+  in `AllocationTypeColumns`), `QueryAllocationStacksAsync` (the top stacks with their frames, the allocating method
+  first) and `QueryAllocationTreeAsync` (`AllocationTreeRequest`: call tree or back traces, open keys, interval, type,
+  children per row, the row to reveal; rows in `AllocationTreeColumns`, kinds in `AllocationRowKinds`, keys formed as
+  `AllocationTreeKeys` describes, limits in `AllocationTreeLimits`). Intervals are seconds since the trace started; no
+  end means its end. `ValueBound.Estimate` marks sampled bytes (texts in `AllocationTexts`), and
+  `HeapScopeErrorCode.TraceNotLoaded` (1012) a trace the worker no longer has; a file that is not a trace is
+  `SnapshotFormat`.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1347,6 +1376,14 @@ leaking 20 requests of 2,000 items shows a GC heap rise of more than 10 MB withi
 now climbed about 14 MB a second between collections while the after-GC size changed only at each GC. The Live smoke
 run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest dispatcher operation of 18 to 26 ms;
 3,600 samples (an hour, the window sliding) stayed at 29 ms.
+Allocation traces (sprint 2.5, Release, the `allocations` benchmark): a 54 s LeakyApi trace under LoadGen (5.6 MB,
+45,110 samples, 113 stack nodes) reads in 2.0 s with a peak growth of about 4.6 times the file (the worker reserves 6);
+the samples keep 24 bytes each. Whole-trace queries: types 385 ms the first time (JIT included), top stacks 40 ms, back
+traces 48 ms, the call tree 18 ms. A 12 s trace of 5,000 requests (4.1 MB, 5,415 samples) lists the five leaks' `Grow`
+methods as its top five call stacks. The UI smoke run's allocations step (Debug, that 12 s trace): the cold first
+show 3.3 s; expanding the first back trace and switching to the call tree, longest dispatcher operation 63 ms, lag 48 ms.
+Reading time grows with the file (TraceEvent's conversion): a long, busy trace of hundreds of megabytes takes minutes
+and may not fit the memory budget, which refuses it with a plain message (Backlog: a streaming reader).
 
 ## 11. Error handling and logging
 - Microsoft.Extensions.Logging everywhere. The UI and the CLI each write a file per process and day,
@@ -1402,6 +1439,11 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
   can show a precise message.
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.
+- Allocation traces (sprint 2.5): opening a trace logs its file, process, duration, samples, frames and lost events;
+  each query logs its interval, type and the rows it answered (type and method names with their bytes; for trees the
+  open keys, the revealed row and the rows under it; for stacks each stack's allocating frame and nearest callers);
+  user actions on the page (an interval, a type, an expansion, the tree kind) log under a `HeapScope.Allocations`
+  activity whose trace id the worker's answer lines carry. Never event payloads beyond type names and sizes.
 
 ## 12. Security and privacy
 - Full dumps contain everything in the process memory: connection strings, tokens, personal data. HeapScope
@@ -1440,6 +1482,12 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
   index caches and their sidecars, monitoring timelines and traces are created 0700 (folders) and 0600 (files) instead
   of the process umask, which often lets other users read them. A folder the user picked keeps its permissions; on
   Windows the user profile's ACL applies as before.
+
+- Allocation traces (sprint 2.5) hold type and method names, times and sizes, not heap contents. Record allocations writes
+  them into the session folder (user-only, like dumps); the CLI writes them where `--out` says. Reading one writes
+  TraceEvent's `.etlx` (the same names, indexed) into a private temporary folder (`HeapScope/etlx` under the user's
+  temp folder, 0700 off Windows) and deletes it when the read ends, failed or canceled; nothing is written next to the
+  trace. Methods are named from the trace's own events, never a symbol server (ADR-017).
 
 ## 13. Architecture Decision Records
 
@@ -1847,6 +1895,24 @@ sprint 0.1.
   (0.03 s on Medium) whose keys survive a worker restart; Contracts owns the keys, kinds and limits. A future streaming
   or lazily expanded tree can use the same CSR.
 
+### ADR-028 Allocation traces read in the worker from EventPipe allocation ticks (added in sprint 2.5)
+- Context: 2.5 shows where allocations come from without an agent or dotnet-trace. The runtime's `GCAllocationTick`
+  event fires about every 100 KB allocated on a heap, with the type, the bytes since the last one and, on EventPipe, a
+  call stack; .NET 10 also has randomized allocation sampling, which older runtimes lack. Resolving stacks needs
+  TraceEvent's `TraceLog`, which converts the trace into an `.etlx` file and holds it in memory, several times the
+  trace's size (ADR-007 keeps such data out of the front end).
+- Decision: a new trace profile records allocation ticks (GC keyword at verbose, with loader and JIT events, rundown on
+  stop) for any .NET 6 or later process. The worker reads traces through `Loaders.Trace`, keeping only compact arrays:
+  frames by name, a deduplicated stack tree, types, and per sample its time, innermost stack node, type and bytes. Sizes
+  are estimates and marked so (`ValueBound.Estimate`). Queries take an interval and optionally a type; trees are served
+  flattened from open keys like ADR-027. The `.etlx` lives in a private temporary folder for the read only.
+- Alternatives: randomized sampling (better statistics, .NET 10 only; Backlog); reading in the front end (simpler, but
+  hundreds of megabytes in the UI process); keeping `TraceLog` open (no re-read after a restart, but many times the
+  memory).
+- Consequences: sampled bytes favor large and frequent allocations; small, rare ones may not appear. A trace is read
+  again after a worker restart (seconds for typical traces). Linking a trace to the snapshots it lies between (Compare's
+  "allocated between") needs both on one clock in the session record: Backlog.
+
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
 authoritative list.
@@ -1862,7 +1928,7 @@ authoritative list.
 | System.CommandLine | 2.0.13 | MIT | Cli |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |
 | Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | MIT | Capture |
-| Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | MIT | Capture (Loaders.GcDump in 1.8) |
+| Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | MIT | Capture (Loaders.GcDump in 1.8, Loaders.Trace in 2.5) |
 | xunit.v3 | 4.0.2 | Apache 2.0 | tests |
 | Shouldly | 4.3.0 | BSD 3-Clause | tests |
 

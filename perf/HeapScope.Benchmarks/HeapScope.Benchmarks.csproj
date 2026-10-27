@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\HeapScope.Core\HeapScope.Core.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Loaders.Trace\HeapScope.Loaders.Trace.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Baseline measurements of raw ClrMD heap walks for the 1.2 loader budgets. -->

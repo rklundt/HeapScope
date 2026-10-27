@@ -39,9 +39,10 @@ internal sealed class TraceStore(SnapshotStore snapshots, ILogger<TraceStore> lo
 {
     /// <summary>
     /// The memory reserved while reading, per byte of the trace file: TraceEvent's conversion and its stack index, plus
-    /// the samples kept (measured in the 2.5 benchmark).
+    /// the samples kept. The 2.5 benchmark measured a peak growth of about 4.6 bytes per byte (a 5.6 MB, 54 s LeakyApi
+    /// trace); 6 leaves headroom.
     /// </summary>
-    public const int ReadBytesPerFileByte = 4;
+    public const int ReadBytesPerFileByte = 6;
 
     private readonly ConcurrentDictionary<Guid, OpenTrace> _traces = new();
 

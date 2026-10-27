@@ -2138,7 +2138,8 @@ capture item; the sprint says which systems it covers.
    (top-down) with Total and Own; Top call stacks. Trees are served flattened from the open keys like ADR-027's tree
    (children by Total, 100 per page and a "more" row, a row limit).
 6. Recording from the UI: the Processes page gets "Record allocations" (30 s by default, stoppable), saved into the
-   session folder and opened when done; any `.nettrace` opens from the Open dialog. The CLI's `trace` takes
+   session folder and opened when done; any `.nettrace` opens from the Allocations page's Open trace (its own picker,
+   so the dump picker stays for dumps). The CLI's `trace` takes
    `--profile allocations`; a new `allocations <file>` command prints the top types and top call stacks of an interval.
 7. Linking a trace to the Compare tab ("allocated between the two snapshots") needs the trace and the snapshots on one
    clock in the session record: Backlog, next to the 1.7 timeline item. Recording from the Live page goes with it.
@@ -2149,22 +2150,22 @@ capture item; the sprint says which systems it covers.
    beyond type names and sizes.
 
 **Task breakdown**:
-1. [ ] Recording: `TraceProfile.Allocations` and `TraceKind.Allocations` (GC events at verbose with loader and JIT
+1. [x] Recording: `TraceProfile.Allocations` and `TraceKind.Allocations` (GC events at verbose with loader and JIT
    events, rundown on stop); CLI `trace --profile allocations`. Tests: providers unit test; an allocations trace of
    LeakyApi holds allocation ticks with stacks (integration).
-2. [ ] Model and reader: Core `AllocationTrace`; `HeapScope.Loaders.Trace` `AllocationTraceReader` (private `.etlx`
+2. [x] Model and reader: Core `AllocationTrace`; `HeapScope.Loaders.Trace` `AllocationTraceReader` (private `.etlx`
    deleted after, native runs collapsed, progress and cancellation, bad files refused with a plain message); layering
    rules updated. Tests: reader on a recorded trace, the `.etlx` is gone, a non-trace file is refused, architecture.
-3. [ ] Analysis: `AllocationProfile` (timeline buckets, types over an interval, top stacks, call tree and back-trace
+3. [x] Analysis: `AllocationProfile` (timeline buckets, types over an interval, top stacks, call tree and back-trace
    rows with paging and limits). Tests: synthetic traces with known answers.
-4. [ ] Contracts and worker: protocol 13; open, close, timeline, types, stacks and tree queries; memory reservation;
+4. [x] Contracts and worker: protocol 13; open, close, timeline, types, stacks and tree queries; memory reservation;
    provenance lines. Tests: worker tests, contract mirror.
-5. [ ] Application and CLI: the trace handle in the session; recording into the session folder; `allocations`
+5. [x] Application and CLI: the trace handle in the session; recording into the session folder; `allocations`
    command. Tests: application tests, CLI integration test.
-6. [ ] UI: the Allocations page (timeline with interval selection, Types, Back traces, Call tree, Top call stacks),
+6. [x] UI: the Allocations page (timeline with interval selection, Types, Back traces, Call tree, Top call stacks),
    Record allocations on the Processes page, `.nettrace` in the Open dialog, a smoke step. Tests: view model and view
    tests, the smoke run.
-7. [ ] Acceptance and measurements: LeakyApi under LoadGen, its leaking allocation site in the top call stacks
+7. [x] Acceptance and measurements: LeakyApi under LoadGen, its leaking allocation site in the top call stacks
    (integration); reading time and peak for a long trace. Docs: ARCHITECTURE (code map, 4.4, ADR-028, 10, 11, 12),
    DEVELOPER, CLAUDE.md.
 
@@ -2373,6 +2374,13 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
   grid and the Compare tab; extract it when a third grid needs it.
 - Typed fake rows for the older fakes (2.3.7 M15 rest, from 2.4): the type, instance and reference fakes still take
   positional rows; the 2.4 fakes are typed.
+
+- From 2.5 (decided autonomously at /start-sprint and while building): Compare's "allocated between the two
+  snapshots" from a trace recorded between them, which needs traces in `session.json` on the snapshots' clock (with the
+  1.7 timeline item), and Record allocations on the Live page while monitoring; .NET 10's randomized allocation sampling
+  as a second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces (the
+  TraceEvent conversion takes minutes and about 5 times the file's size in memory for traces of hundreds of megabytes);
+  choosing a timeline interval from the keyboard (2.7's keyboard work).
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first
