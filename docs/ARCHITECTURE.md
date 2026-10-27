@@ -342,8 +342,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   folder and deleted, runs of native frames merged, cancellation). Analysis: `Allocations/AllocationProfile` (sample
   ranges by binary search, the timeline, types, totals, top stacks, a stack's frames) and `AllocationTreeRows` (the call
   tree and back traces flattened from open keys like ADR-027, with `AllocationRow`, `AllocationTreeView`,
-  `AllocationFilter`). Worker: `Traces/TraceStore` (open traces, a memory reservation of 6 bytes per file byte while
-  reading) and `WorkerService.Allocations` with `AllocationTypesSource` and `AllocationTreeSource`. Application:
+  `AllocationFilter`). Worker: `Traces/TraceStore` (open traces, a memory reservation while reading,
+  `ReadReservation`) and `WorkerService.Allocations` with `AllocationTypesSource` and `AllocationTreeSource`. Application:
   `Allocations/AllocationSession` (`TraceHandle`, reading again after a worker restart, `AllocationScope`, and
   `StartRecord`, which records into the current session's folder and opens the trace). UI.ViewModels:
   `AllocationsViewModel` (the page), `AllocationTraceViewModel` (a trace: interval, type, stacks), `AllocationTypesViewModel`,
@@ -559,8 +559,12 @@ Rules:
   children per row, the row to reveal; rows in `AllocationTreeColumns`, kinds in `AllocationRowKinds`, keys formed as
   `AllocationTreeKeys` describes, limits in `AllocationTreeLimits`). Intervals are seconds since the trace started; no
   end means its end. `ValueBound.Estimate` marks sampled bytes (texts in `AllocationTexts`), and
-  `HeapScopeErrorCode.TraceNotLoaded` (1012) a trace the worker no longer has; a file that is not a trace is
-  `SnapshotFormat`.
+  `HeapScopeErrorCode.TraceNotLoaded` (1012) a trace the worker no longer has; a file that is not a trace, or a trace
+  without allocation samples, is `SnapshotFormat`. After the 2.5 review: `TraceDescriptor` also carries the file's size
+  and write time (its identity; a re-read of a changed file is refused with `TraceChanged`, 1013), samples with
+  unresolved frames, whether the rundown arrived, and TraceEvent's conversion problems (`AllocationTexts.NotesFor` says
+  what they mean); the types answer has `LOH bytes` and `POH bytes` columns; a timeline has at most
+  `AllocationTreeLimits.MaxBuckets` (10,000) stretches; `AllocationTreeKeys.Node` and `BackTrace` form the tree keys.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1376,14 +1380,17 @@ leaking 20 requests of 2,000 items shows a GC heap rise of more than 10 MB withi
 now climbed about 14 MB a second between collections while the after-GC size changed only at each GC. The Live smoke
 run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest dispatcher operation of 18 to 26 ms;
 3,600 samples (an hour, the window sliding) stayed at 29 ms.
-Allocation traces (sprint 2.5, Release, the `allocations` benchmark): a 54 s LeakyApi trace under LoadGen (5.6 MB,
-45,110 samples, 113 stack nodes) reads in 2.0 s with a peak growth of about 4.6 times the file (the worker reserves 6);
-the samples keep 24 bytes each. Whole-trace queries: types 385 ms the first time (JIT included), top stacks 40 ms, back
-traces 48 ms, the call tree 18 ms. A 12 s trace of 5,000 requests (4.1 MB, 5,415 samples) lists the five leaks' `Grow`
-methods as its top five call stacks. The UI smoke run's allocations step (Debug, that 12 s trace): the cold first
-show 3.3 s; expanding the first back trace and switching to the call tree, longest dispatcher operation 63 ms, lag 48 ms.
-Reading time grows with the file (TraceEvent's conversion): a long, busy trace of hundreds of megabytes takes minutes
-and may not fit the memory budget, which refuses it with a plain message (Backlog: a streaming reader).
+Allocation traces (sprint 2.5, Release, the `allocations` benchmark with the worker's GC settings, Server GC with 12
+heaps on the 24-thread machine; growth over private bytes before the read, the 2.5 review): a 54 s LeakyApi trace under
+LoadGen whose process was killed before the rundown (5.6 MB, 45,110 samples) reads in 1.1 s with 40 MB of growth; 150 s
+of LeakyApi under continuous load (25.6 MB, 168,073 samples) 1.1 s and 131 MB; 600 s (72 MB, 565,625 samples) 1.9 s and
+227 MB, about 76 MB plus 2.1 bytes per file byte. The worker reserves 96 MB plus 3 bytes per file byte while reading
+(`TraceStore.ReadReservation`); an open trace keeps 25 bytes per sample plus its names (14 MB for the 600 s trace).
+Whole-trace queries take 2 to 13 ms (types 244 ms on the first call, JIT included). A 12 s trace of 5,000 requests
+(4.1 MB, 5,415 samples) lists the five leaks' `Grow` methods as its top five call stacks. The UI smoke run's
+allocations step (Debug, that 12 s trace): the cold first show 3.3 s; expanding the first back trace and switching to
+the call tree, longest dispatcher operation 63 ms, lag 48 ms. TraceEvent's conversion cannot be canceled; it took under
+2 s on these traces, and a much longer, busier trace would hold its reservation longer (Backlog: a streaming reader).
 
 ## 11. Error handling and logging
 - Microsoft.Extensions.Logging everywhere. The UI and the CLI each write a file per process and day,
@@ -1439,9 +1446,13 @@ and may not fit the memory budget, which refuses it with a plain message (Backlo
   can show a precise message.
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.
-- Allocation traces (sprint 2.5): opening a trace logs its file, process, duration, samples, frames and lost events;
+- Allocation traces (sprint 2.5): opening a trace logs its file with its size and write time, the reader's version, the
+  process (and that it came from the first allocation tick), the recording's start and duration, samples, frames, lost
+  events, samples without a stack or with unresolved frames, whether the rundown arrived and TraceEvent's conversion
+  problems; a re-read logs both file identities; a recording logs why it ended (duration, Stop, process exit, cancel);
   each query logs its interval, type and the rows it answered (type and method names with their bytes; for trees the
-  open keys, the revealed row and the rows under it; for stacks each stack's allocating frame and nearest callers);
+  open keys, the revealed row and the rows under it; for stacks every stack answered with its rank, innermost stack
+  node and first 16 frames);
   user actions on the page (an interval, a type, an expansion, the tree kind) log under a `HeapScope.Allocations`
   activity whose trace id the worker's answer lines carry. Never event payloads beyond type names and sizes.
 
@@ -1487,7 +1498,9 @@ and may not fit the memory budget, which refuses it with a plain message (Backlo
   them into the session folder (user-only, like dumps); the CLI writes them where `--out` says. Reading one writes
   TraceEvent's `.etlx` (the same names, indexed) into a private temporary folder (`HeapScope/etlx` under the user's
   temp folder, 0700 off Windows) and deletes it when the read ends, failed or canceled; nothing is written next to the
-  trace. Methods are named from the trace's own events, never a symbol server (ADR-017).
+  trace. A worker killed mid-read leaves its `.etlx`: the next worker deletes those over an hour old that no reader
+  holds, and logs it; a canceled recording's file is deleted, and the session sweep removes `*.nettrace.partial` files.
+  Methods are named from the trace's own events, never a symbol server (ADR-017).
 
 ## 13. Architecture Decision Records
 
@@ -1910,8 +1923,17 @@ sprint 0.1.
   hundreds of megabytes in the UI process); keeping `TraceLog` open (no re-read after a restart, but many times the
   memory).
 - Consequences: sampled bytes favor large and frequent allocations; small, rare ones may not appear. A trace is read
-  again after a worker restart (seconds for typical traces). Linking a trace to the snapshots it lies between (Compare's
-  "allocated between") needs both on one clock in the session record: Backlog.
+  again after a worker restart (seconds for typical traces), once for all the queries that find it gone, and only when
+  the file's size and write time are unchanged. Linking a trace to the snapshots it lies between (Compare's "allocated
+  between") needs both on one clock in the session record: Backlog.
+- Amended in the 2.5 review: EventPipe walks managed frames only, so a frame without a name is a managed method the
+  trace does not name (usually the recording ended before the rundown); it is labeled `[unresolved frame in <module>]`,
+  never merged with its neighbors, and counted; whether the rundown arrived and the problems TraceEvent reported while
+  converting are part of the result and its notes. Each sample keeps its kind (small, large or pinned object heap; the
+  runtime ticks per heap and kind). Types are told apart by name: two types of one name in different load contexts
+  share a row, and joining trace types to a diff's rows (name and module) needs the tick's type id and the module, kept
+  with the Compare item. TraceEvent's conversion cannot be canceled: a cancel takes effect when it returns (the job's
+  status says so); reading the samples after it checks the token every 4,096 events.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

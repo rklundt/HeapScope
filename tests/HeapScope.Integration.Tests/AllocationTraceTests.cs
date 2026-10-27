@@ -109,6 +109,7 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         trace.Types.ShouldContain("System.Byte[]");
         trace.Frames.ShouldContain(f => f.Contains("Leak.Grow", StringComparison.Ordinal), "methods compiled before recording are named from the rundown");
         trace.Info.HasRundown.ShouldBeTrue();
+        trace.Info.ConversionIssues.ShouldBe(0, string.Join(" | ", trace.Info.FirstIssues ?? []));
         trace.Info.SamplesWithUnresolvedFrames.ShouldBeLessThan(trace.SampleCount / 20, "nearly every frame is named");
         trace.SampleKinds.ShouldContain(AllocationKind.Small);
         Directory.GetFiles(_scratch.Path).ShouldBeEmpty("the .etlx is deleted after reading");

@@ -322,8 +322,10 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   folder; only the two sidecars are deleted afterwards, and the folder only when the run made it) and mapped, or in managed arrays; the retained lower bounds per type; a reopen of the dominators sidecar.
   Times and peak private bytes per phase; exit 1 when the indices exceed 60 s or the run's peak 4 GB.
 - `allocations --trace <file.nettrace>` (sprint 2.5): reads an allocations trace as the worker does, with the read's time
-  and peak private bytes against the file's size (the worker reserves 6 bytes per file byte), what the samples keep, and
-  the whole-trace types, top stacks and both trees.
+  and its growth over the private bytes before it against the file's size (the worker reserves 96 MB plus 3 bytes per
+  file byte), what reading found (rundown, unresolved frames, conversion problems), what the samples keep, and the
+  whole-trace types, top stacks and both trees. Run it with the worker's GC settings, or the growth reads low:
+  `DOTNET_gcServer=1 DOTNET_gcConcurrent=0 DOTNET_GCHeapCount=<half the logical processors, hex>`.
 - `retention --cache <snapshot.hsidx> [--mode memory|mapped] [--types 3]` (sprint 2.2): the root path tree, the key
   paths of the types with the most objects and one object's paths of each, with times and peak private bytes; exit 1
   when the tree exceeds 60 s or a query 5 s.

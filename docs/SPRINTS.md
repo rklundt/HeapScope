@@ -2378,9 +2378,16 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
 - From 2.5 (decided autonomously at /start-sprint and while building): Compare's "allocated between the two
   snapshots" from a trace recorded between them, which needs traces in `session.json` on the snapshots' clock (with the
   1.7 timeline item), and Record allocations on the Live page while monitoring; .NET 10's randomized allocation sampling
-  as a second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces (the
-  TraceEvent conversion takes minutes and about 5 times the file's size in memory for traces of hundreds of megabytes);
-  choosing a timeline interval from the keyboard (2.7's keyboard work).
+  as a second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces (TraceEvent's
+  conversion cannot be canceled and holds about 2 bytes per file byte while it runs; 72 MB read in 1.9 s);
+  choosing a timeline interval from the keyboard (2.7's keyboard work). Compare's link also needs each tick's type id
+  and module (types are joined to diff rows by name and module; a trace keeps names only, ADR-028).
+- From the 2.5 review (decided autonomously): extract one flattened-tree builder (children order, batches, "more"
+  rows, the row limit) and one set of tree keys and limits in Contracts from the dominator and allocation trees when a
+  third tree arrives (2.6 or Compare's link), with their view models' shared parts (M5); progress on the timeline,
+  types and stacks queries (a protocol change; milliseconds on the traces measured) (M4); a tick's type id and module
+  for two types of one name (M6); the smoke step's interval and type checks (L17); the client logging which answers it
+  applied (L27).
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first

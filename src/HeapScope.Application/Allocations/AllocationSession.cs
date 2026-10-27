@@ -38,9 +38,11 @@ public sealed class TraceHandle
     internal TraceHandle(TraceDescriptor descriptor, int generation)
     {
         Path = descriptor.Path;
-        Descriptor = descriptor;
-        Generation = generation;
+        _read = new Read(descriptor, generation);
     }
+
+    // The descriptor and the generation it belongs to change together: one reference, swapped whole (the 2.5 re-review).
+    private volatile Read _read;
 
     /// <summary>Stable id of this handle in the session.</summary>
     public Guid Id { get; } = Guid.NewGuid();
@@ -48,11 +50,11 @@ public sealed class TraceHandle
     public string Path { get; }
 
     /// <summary>What the worker reported when the trace was last read.</summary>
-    public TraceDescriptor Descriptor { get; private set; }
+    public TraceDescriptor Descriptor => _read.Descriptor;
 
     public bool IsClosed { get; internal set; }
 
-    internal int Generation { get; private set; }
+    internal int Generation => _read.Generation;
 
     internal Guid WorkerTraceId => Descriptor.TraceId;
 
@@ -62,11 +64,9 @@ public sealed class TraceHandle
     /// <summary>One re-read at a time: queries that find the trace gone wait for the same read (the 2.5 review).</summary>
     internal SemaphoreSlim Reopening { get; } = new(1, 1);
 
-    internal void Update(TraceDescriptor descriptor, int generation)
-    {
-        Descriptor = descriptor;
-        Generation = generation;
-    }
+    internal void Update(TraceDescriptor descriptor, int generation) => _read = new Read(descriptor, generation);
+
+    private sealed record Read(TraceDescriptor Descriptor, int Generation);
 }
 
 /// <summary>
@@ -157,8 +157,7 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
             if (ct.IsCancellationRequested)
             {
                 // A canceled recording is not kept: it would hold method and type names nobody asked to keep.
-                TryDelete(trace.Path);
-                _logger.LogInformation("Deleted the canceled recording {Path}", trace.Path);
+                LogDelete(trace.Path, "the job was canceled");
                 ct.ThrowIfCancellationRequested();
             }
 
@@ -166,6 +165,12 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
             try
             {
                 return await OpenAsync(trace.Path, progress, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Canceled while reading: the recording is not kept either (the 2.5 re-review).
+                LogDelete(trace.Path, "the job was canceled while reading it");
+                throw;
             }
             catch (WorkerException ex)
             {
@@ -344,6 +349,13 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
             }
 
             handle.Update(descriptor, generation);
+            if (handle.IsClosed)
+            {
+                // Closed while this read ran: CloseAsync saw the old generation and closed nothing (the 2.5 re-review).
+                await worker.InvokeAsync((service, ct) => service.CloseTraceAsync(descriptor.TraceId, ct), CancellationToken.None).ConfigureAwait(false);
+                ThrowIfClosed(handle);
+            }
+
             _logger.LogInformation("Read {Path} again as worker trace {WorkerTraceId} (generation {Generation}): {Samples} samples, the same file", handle.Path, descriptor.TraceId, generation, descriptor.Samples);
         }
         finally
@@ -357,15 +369,17 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
         $"{System.IO.Path.GetFileName(handle.Path)} changed since it was opened, so its rows would no longer match. Close this trace and open it again.",
         null);
 
-    private static void TryDelete(string path)
+    // Deletes a canceled recording and logs what happened to it (the 2.5 re-review: a failed delete is not "deleted").
+    private void LogDelete(string path, string why)
     {
         try
         {
             File.Delete(path);
+            _logger.LogInformation("Deleted the recording {Path}: {Why}", path, why);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The session sweep removes it later.
+            _logger.LogWarning("The recording {Path} could not be deleted ({Why}): {Message}", path, why, ex.Message);
         }
     }
 

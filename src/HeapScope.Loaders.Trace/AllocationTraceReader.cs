@@ -81,20 +81,22 @@ public static class AllocationTraceReader
         {
             // TraceEvent's conversion cannot be canceled: a cancel takes effect when it returns (ADR-028).
             progress?.Report("Resolving the trace's call stacks (a cancel takes effect after this step)");
-            var conversion = new StringWriter();
+            var conversion = new IssueWriter(KeptIssues);
             try
             {
                 TraceLog.CreateFromEventPipeDataFile(fullPath, etlx, new TraceLogOptions { ContinueOnError = true, ConversionLog = conversion });
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
             {
+                conversion.Flush();
                 throw new SnapshotFormatException($"{fullPath} could not be read as an EventPipe trace: {ex.Message} The recording may have been cut short; record it again.", ex);
             }
 
+            conversion.Flush();
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report("Reading allocation samples");
             using var log = new TraceLog(etlx);
-            return new Builder(log, Issues(conversion.ToString()), cancellationToken).Build();
+            return new Builder(log, conversion.Count, conversion.First, cancellationToken).Build();
         }
         finally
         {
@@ -144,13 +146,48 @@ public static class AllocationTraceReader
         return (files, bytes);
     }
 
-    // TraceEvent's conversion log lines that report a problem (its own words; it writes no event payloads).
-    private static List<string> Issues(string conversionLog) =>
-        [.. conversionLog.Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => line.Contains("error", StringComparison.OrdinalIgnoreCase)
+    /// <summary>
+    /// TraceEvent's conversion log, keeping only what reports a problem: how many lines, and the first few (its own words;
+    /// it writes no event payloads). Nothing else is held, however long a damaged trace's log grows (the 2.5 re-review).
+    /// </summary>
+    private sealed class IssueWriter(int kept) : TextWriter
+    {
+        private readonly StringBuilder _line = new();
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public int Count { get; private set; }
+
+        public List<string> First { get; } = [];
+
+        public override void Write(char value)
+        {
+            if (value == '\n')
+            {
+                Flush();
+            }
+            else if (_line.Length < 1000)
+            {
+                _line.Append(value);
+            }
+        }
+
+        public override void Flush()
+        {
+            var line = _line.ToString().Trim();
+            _line.Clear();
+            if (line.Contains("error", StringComparison.OrdinalIgnoreCase)
                 || line.Contains("warning", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("exception", StringComparison.OrdinalIgnoreCase))];
+                || line.Contains("exception", StringComparison.OrdinalIgnoreCase))
+            {
+                Count++;
+                if (First.Count < kept)
+                {
+                    First.Add(line);
+                }
+            }
+        }
+    }
 
     private static void CheckSignature(string path)
     {
@@ -189,7 +226,7 @@ public static class AllocationTraceReader
         }
     }
 
-    private sealed class Builder(TraceLog log, List<string> issues, CancellationToken cancellationToken)
+    private sealed class Builder(TraceLog log, int issues, List<string> firstIssues, CancellationToken cancellationToken)
     {
         private readonly List<string> _frames = [];
         private readonly Dictionary<string, int> _frameIds = new(StringComparer.Ordinal);
@@ -266,8 +303,8 @@ public static class AllocationTraceReader
                 _withoutStack,
                 _unresolvedSamples,
                 _rundownEvents > 0,
-                issues.Count,
-                [.. issues.Take(KeptIssues)]);
+                issues,
+                firstIssues);
             return new AllocationTrace(_frames, _types, [.. _stackFrames], [.. _stackParents], _times, _stacks, _sampleTypes, _bytes, _kinds, info);
         }
 

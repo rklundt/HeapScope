@@ -106,6 +106,11 @@ internal static partial class CliCommands
             {
                 result.AddError("--type narrows the call stacks; the types view lists every type. Use --view stacks or summary with --type.");
             }
+
+            if (shown == "types" && result.GetValue(types) == 0)
+            {
+                result.AddError("The types view needs --types 1 or more.");
+            }
         });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
@@ -133,7 +138,8 @@ internal static partial class CliCommands
 
             List<IReadOnlyList<string?>> typeRows = [];
             IReadOnlyList<ResultColumn> typeColumns = [];
-            (long Bytes, int Samples) allTypes = (descriptor.SampledBytes, descriptor.Samples);
+            // The interval's totals of every type, from the types answer; none when no types were asked for.
+            (long Bytes, int Samples)? allTypes = null;
             if (wantedTypes > 0)
             {
                 var answer = await session.QueryTypesAsync(handle, scope, ct).ConfigureAwait(false);
@@ -145,7 +151,8 @@ internal static partial class CliCommands
 
             // One meaning of % in the UI and the CLI: a share of the bytes shown (AllocationTexts.ShareOf).
             var top = shownView == "types" ? null : await session.QueryStacksAsync(handle, scope, parseResult.GetValue(stacks), ct).ConfigureAwait(false);
-            var (shownBytes, shownSamples) = top is null ? allTypes : (top.SampledBytes, top.Samples);
+            // Without stacks the types view ran (the validator asks for at least one type).
+            var (shownBytes, shownSamples) = top is null ? allTypes!.Value : (top.SampledBytes, top.Samples);
             string Share(long bytes) => shownBytes == 0 ? "0" : (100.0 * bytes / shownBytes).ToString("0.##", CultureInfo.InvariantCulture);
             var interval = string.Create(CultureInfo.InvariantCulture, $"{scope.FromSeconds:0.###} s to {(scope.ToSeconds is { } end ? end.ToString("0.###", CultureInfo.InvariantCulture) + " s" : "the end")}");
 
@@ -181,7 +188,7 @@ internal static partial class CliCommands
                         descriptor.SamplesWithUnresolvedFrames,
                         descriptor.HasRundown,
                         descriptor.ConversionIssues,
-                        TypesBytes = allTypes.Bytes,
+                        TypesBytes = allTypes?.Bytes,
                         Types = JsonRows(typeColumns, typeRows),
                         Stacks = top?.Stacks.Select(s => new { s.Bytes, s.Samples, Percent = double.Parse(Share(s.Bytes), CultureInfo.InvariantCulture), s.Frames }),
                     }).ConfigureAwait(false);
@@ -195,7 +202,7 @@ internal static partial class CliCommands
                     {
                         // Every type of the interval, whatever --type says (it narrows the stacks).
                         await output.WriteLineAsync().ConfigureAwait(false);
-                        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"All types from {interval}: about {allTypes.Bytes:N0} bytes")).ConfigureAwait(false);
+                        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"All types from {interval}: about {allTypes?.Bytes ?? 0:N0} bytes")).ConfigureAwait(false);
                         await output.WriteLineAsync($"{"Bytes",16} {"%",7} {"Samples",9} {"LOH bytes",14} {"POH bytes",12}  Type").ConfigureAwait(false);
                         int At(string column) => typeColumns.Select((c, i) => (c.Name, i)).Single(c => c.Name == column).i;
                         long Number(IReadOnlyList<string?> row, string column) => long.Parse(row[At(column)]!, CultureInfo.InvariantCulture);

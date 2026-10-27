@@ -33,9 +33,11 @@ The reviewers confirmed:
   and says so. Status: Fixed; confirmation below.
 - **H2 The memory reservation rested on a misreported measurement** (gc-specialist). The benchmark divided the
   process's absolute peak by the file size, so "4.6 times the file" was mostly the runtime's baseline, from one 5.6 MB
-  trace. Fix: the benchmark reports growth over the private bytes before the read; three traces measured (5.6, 25.6 and
-  the 10-minute trace below); the reservation is a fixed part plus a part per file byte fitted to them
-  (`TraceStore.ReadReservation`), and section 10 is corrected. Status: Fixed; confirmation below.
+  trace. Fix: the benchmark reports growth over the private bytes before the read, with the worker's GC settings
+  (Server GC, 12 heaps; the re-review found the first runs used DATAS and read low). Three traces: 5.6 MB 40 MB growth,
+  25.6 MB 131 MB, 72 MB (600 s, 565,625 samples) 227 MB, about 76 MB plus 2.1 bytes per file byte. The reservation is
+  now 96 MB plus 3 bytes per file byte (`TraceStore.ReadReservation`); section 10 is corrected. Status: Fixed;
+  confirmation below.
 - **H3 Reading a trace again after a worker restart never checked it was the same file** (support). Rows and open keys
   could silently come from a different file. Fix: `TraceDescriptor` carries the file's size and write time (logged on
   open); a re-read compares them and refuses a changed file with `TraceChanged` (1013), closing the new read and
@@ -65,7 +67,9 @@ The reviewers confirmed:
   now: each sample keeps its kind (small, large or pinned object heap), and the types answer has LOH and POH byte
   columns. Deferred with Compare's "allocated between": the type id and module, needed to join trace types to diff rows.
 - M7 Kept trace memory unaccounted; the reservation borrowed a snapshot mode (solution-architect, gc-specialist). Fixed
-  now: an open trace holds a reservation for its arrays until closed; `ReserveWorking` takes a trace-specific next step.
+  now: `ReserveWorking` takes a trace-specific next step and no snapshot mode. A standing reservation per open trace was
+  tried and removed in the re-review: the arrays are already in the committed memory every reservation counts, so it
+  counted them twice; the open line logs what a trace keeps.
 - M8 The stacks line logged ten stacks of four frames; disputed frames sit deeper (support). Fixed now: every stack
   answered, with its rank, bytes, samples, innermost node (which rebuilds it from the same trace), frame count and the
   first 16 frames.

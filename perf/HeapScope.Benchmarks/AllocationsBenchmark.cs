@@ -45,7 +45,8 @@ internal static class AllocationsBenchmark
         AllocationTrace trace;
         var stopwatch = Stopwatch.StartNew();
         // Growth over the process's private bytes before the read, sampled every 100 ms (the 2.5 review: the absolute peak
-        // mostly measured the runtime's own baseline).
+        // mostly measured the runtime's own baseline). Run it with the worker's GC settings (DEVELOPER.md 6): Server GC,
+        // not concurrent, DOTNET_GCHeapCount at half the logical processors in hex, or the growth reads low.
         GC.Collect();
         var before = Process.GetCurrentProcess().PrivateMemorySize64;
         using (var peak = new PrivateBytesSampler())
@@ -53,7 +54,7 @@ internal static class AllocationsBenchmark
             trace = AllocationTraceReader.Read(path, null, CancellationToken.None);
             stopwatch.Stop();
             var growth = peak.Peak - before;
-            Measurement.Line("Read", $"{stopwatch.Elapsed.TotalSeconds:N1} s, growth {Measurement.Mb(growth)} ({growth / (double)Math.Max(1, fileBytes):N2} x the file; {Measurement.Mb(before)} before); worker reserves {Measurement.Mb(64L * 1024 * 1024 + (fileBytes * 6))}");
+            Measurement.Line("Read", $"{stopwatch.Elapsed.TotalSeconds:N1} s, growth {Measurement.Mb(growth)} ({growth / (double)Math.Max(1, fileBytes):N2} x the file; {Measurement.Mb(before)} before); worker reserves {Measurement.Mb(96L * 1024 * 1024 + (fileBytes * 3))} (TraceStore.ReadReservation)");
         }
 
         GC.Collect();

@@ -34,20 +34,23 @@ namespace HeapScope.Worker.Traces;
 
 /// <summary>
 /// The allocation traces open in the worker (sprint 2.5, ADR-028), next to the snapshots and under the same memory
-/// budget: a read reserves its working memory, and an open trace keeps a reservation for its arrays until it is closed.
+/// budget: a read reserves its working memory. An open trace's arrays are part of the worker's committed memory, which
+/// every later reservation counts, so they hold no reservation of their own (that would count them twice, the 2.5
+/// re-review); the open line logs what they keep.
 /// A trace is read once and kept as compact arrays; the TraceEvent data used to read it is dropped.
 /// </summary>
 internal sealed class TraceStore
 {
     /// <summary>
     /// The working memory reserved while reading: a fixed part for TraceEvent and the runtime's names, plus a part per
-    /// byte of the trace file (TraceEvent's conversion and stack index, and the samples kept). From the 2.5 benchmark's
-    /// growth measurements (ARCHITECTURE.md 10).
+    /// byte of the trace file (TraceEvent's conversion and stack index, and the samples kept). The 2.5 review measured
+    /// growth with the worker's GC settings (12 heaps): 40 MB for a 5.6 MB trace, 131 MB for 26 MB, 227 MB for 72 MB,
+    /// about 76 MB plus 2.1 bytes per file byte; this leaves a margin on each (ARCHITECTURE.md 10).
     /// </summary>
-    public const long ReadFixedBytes = 64L * 1024 * 1024;
+    public const long ReadFixedBytes = 96L * 1024 * 1024;
 
     /// <inheritdoc cref="ReadFixedBytes"/>
-    public const int ReadBytesPerFileByte = 6;
+    public const int ReadBytesPerFileByte = 3;
 
     /// <summary>How old a leftover <c>.etlx</c> must be before the start sweep deletes it.</summary>
     private static readonly TimeSpan s_sweepAge = TimeSpan.FromHours(1);
@@ -64,10 +67,17 @@ internal sealed class TraceStore
         // Files a killed worker left behind (the 2.5 review); off the starting thread.
         _ = Task.Run(() =>
         {
-            var (files, bytes) = AllocationTraceReader.SweepTemporaryFiles(s_sweepAge);
-            if (files > 0)
+            try
             {
-                _logger.LogInformation("Deleted {Files} temporary trace files ({Bytes} bytes) left by an earlier read", files, bytes);
+                var (files, bytes) = AllocationTraceReader.SweepTemporaryFiles(s_sweepAge);
+                if (files > 0)
+                {
+                    _logger.LogInformation("Deleted {Files} temporary trace files ({Bytes} bytes) left by an earlier read", files, bytes);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "The temporary trace files could not be swept");
             }
         });
     }
@@ -106,13 +116,13 @@ internal sealed class TraceStore
         if (trace.SampleCount == 0)
         {
             _logger.LogInformation("Refused allocation trace {Path} ({FileBytes} bytes, written {Written:O}): no allocation samples", path, length, written);
-            throw new SnapshotFormatException($"{path} has no allocation samples: it was not recorded with the allocations profile. Record one with Record allocations on the Processes page, or 'heapscope-cli trace --profile allocations'.");
+            // Either cause leaves no sample: another profile, or a process that allocated too little (the 2.5 re-review).
+            throw new SnapshotFormatException($"{path} has no allocation samples: it was recorded with another profile, or the process allocated less than about 100 KB per heap while recording. Record with Record allocations on the Processes page (or 'heapscope-cli trace --profile allocations') while the application is busy, or for longer.");
         }
 
         var kept = KeptBytes(trace);
-        var reservation = _snapshots.ReserveWorking(kept, "Keeping the allocation trace", next);
         var id = Guid.NewGuid();
-        var open = new OpenTrace(path, trace, reservation);
+        var open = new OpenTrace(path, trace);
         _traces[id] = open;
         var seconds = Stopwatch.GetElapsedTime(started).TotalSeconds;
 
@@ -168,7 +178,6 @@ internal sealed class TraceStore
             return false;
         }
 
-        open.Dispose();
         MemoryReservations.Collect();
         _logger.LogInformation("Closed allocation trace {Id} ({Path})", traceId, open.Path);
         return true;
@@ -184,8 +193,8 @@ internal sealed class TraceStore
         + trace.Types.Sum(t => 40L + (2L * t.Length));
 }
 
-/// <summary>An open trace with its type ids by name, holding its memory reservation until closed.</summary>
-internal sealed class OpenTrace(string path, AllocationTrace trace, IDisposable reservation) : IDisposable
+/// <summary>An open trace with its type ids by name.</summary>
+internal sealed class OpenTrace(string path, AllocationTrace trace)
 {
     public string Path { get; } = path;
 
@@ -194,8 +203,6 @@ internal sealed class OpenTrace(string path, AllocationTrace trace, IDisposable 
     public Dictionary<string, int> TypeIds { get; } = Index(trace);
 
     public long TotalBytes { get; } = trace.SampleBytes.Sum();
-
-    public void Dispose() => reservation.Dispose();
 
     private static Dictionary<string, int> Index(AllocationTrace trace)
     {
