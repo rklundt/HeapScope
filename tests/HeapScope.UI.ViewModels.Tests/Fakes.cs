@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Globalization;
 using System.IO;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -570,17 +571,130 @@ internal sealed class FakeWorkerService : IWorkerService
     public List<string> InspectionRuns { get; } = [];
 
     /// <summary>When set, inspection runs wait for it (or their cancellation).</summary>
-    public Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+    // Allocation traces (sprint 2.5): one canned trace. Byte[] is allocated by Grow (300 bytes in 3 samples, called from
+    // Handle and Main); String by Log (100 bytes in 1 sample, called from Main).
+    public List<OpenTraceRequest> TracesOpened { get; } = [];
 
-    public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public List<Guid> TracesClosed { get; } = [];
 
-    public Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public List<AllocationTypesRequest> TypeQueries { get; } = [];
 
-    public Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public List<AllocationStacksRequest> StackQueries { get; } = [];
 
-    public Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public List<AllocationTreeRequest> AllocationTreeQueries { get; } = [];
 
-    public Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public static readonly ResultColumn[] AllocationTypeColumnsList =
+    [
+        new(AllocationTypeColumns.Type, ResultColumnKind.Text, IsKey: true),
+        new(AllocationTypeColumns.Bytes, ResultColumnKind.Bytes, Bound: ValueBound.Estimate),
+        new(AllocationTypeColumns.Samples, ResultColumnKind.Integer),
+        new(AllocationTypeColumns.Percent, ResultColumnKind.Percent),
+    ];
+
+    public static readonly ResultColumn[] AllocationTreeColumnsList =
+    [
+        new(AllocationTreeColumns.Key, ResultColumnKind.Text, IsKey: true), new(AllocationTreeColumns.ParentKey, ResultColumnKind.Text),
+        new(AllocationTreeColumns.Depth, ResultColumnKind.Integer), new(AllocationTreeColumns.Kind, ResultColumnKind.Text),
+        new(AllocationTreeColumns.Name, ResultColumnKind.Text), new(AllocationTreeColumns.Total, ResultColumnKind.Bytes, Bound: ValueBound.Estimate),
+        new(AllocationTreeColumns.Own, ResultColumnKind.Bytes, Bound: ValueBound.Estimate), new(AllocationTreeColumns.Samples, ResultColumnKind.Integer),
+        new(AllocationTreeColumns.Percent, ResultColumnKind.Percent), new(AllocationTreeColumns.Children, ResultColumnKind.Integer),
+        new(AllocationTreeColumns.Expanded, ResultColumnKind.Integer),
+    ];
+
+    /// <summary>The back traces: key, parent key, name, total, own (-1 for none), and the type they are of (null for both).</summary>
+    public static readonly (string Key, string Parent, string Name, long Total, long Own, string? Type)[] BackTraceNodes =
+    [
+        ("b:1", AllocationTreeKeys.Root, "App.Grow", 300, 300, "System.Byte[]"),
+        ("b:1/2", "b:1", "App.Handle", 300, -1, "System.Byte[]"),
+        ("b:3", AllocationTreeKeys.Root, "App.Log", 100, 100, "System.String"),
+        ("b:3/0", "b:3", "App.Main", 100, -1, "System.String"),
+    ];
+
+    public static readonly (string Key, string Parent, string Name, long Total, long Own, string? Type)[] CallTreeNodes =
+    [
+        ("n:0", AllocationTreeKeys.Root, "App.Main", 400, 0, null),
+        ("n:1", "n:0", "App.Handle", 300, 0, null),
+        ("n:2", "n:1", "App.Grow", 300, 300, "System.Byte[]"),
+        ("n:3", "n:0", "App.Log", 100, 100, "System.String"),
+    ];
+
+    public Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (OpenFailure is { } failure)
+        {
+            return Task.FromException<TraceDescriptor>(failure);
+        }
+
+        TracesOpened.Add(request);
+        return Task.FromResult(new TraceDescriptor(Guid.NewGuid(), request.Path, 42, "App", DateTimeOffset.UnixEpoch, 10, 4, 400, 2, 0, 0, 0.1));
+    }
+
+    public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken)
+    {
+        TracesClosed.Add(traceId);
+        return Task.CompletedTask;
+    }
+
+    public Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken) =>
+        Task.FromResult(new AllocationTimelineResult([new(0, 300, 3), new(5, 100, 1)], 5, 10));
+
+    public Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken)
+    {
+        TypeQueries.Add(request);
+        List<IReadOnlyList<string?>> rows = [["System.Byte[]", "300", "3", "75"], ["System.String", "100", "1", "25"]];
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        return Task.FromResult(new AllocationTypesResult(new ResultSetInfo(id, rows.Count, AllocationTypeColumnsList), 400, 4));
+    }
+
+    public Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken)
+    {
+        StackQueries.Add(request);
+        AllocationStackDto[] stacks = [new(300, 3, ["App.Grow", "App.Handle", "App.Main"]), new(100, 1, ["App.Log", "App.Main"])];
+        var shown = request.TypeName switch
+        {
+            "System.Byte[]" => stacks[..1],
+            "System.String" => stacks[1..],
+            _ => stacks,
+        };
+        return Task.FromResult(new AllocationStacksResult(shown, shown.Sum(s => s.Bytes), shown.Sum(s => s.Samples)));
+    }
+
+    public Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        AllocationTreeQueries.Add(request);
+        var nodes = (request.Kind == AllocationTreeKindDto.CallTree ? CallTreeNodes : BackTraceNodes)
+            .Where(n => request.TypeName is null || n.Type is null || n.Type == request.TypeName)
+            .ToArray();
+        var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
+        var rows = new List<IReadOnlyList<string?>>();
+        var keys = new List<string>();
+        var total = nodes.Where(n => n.Parent == AllocationTreeKeys.Root).Sum(n => n.Total);
+        void Emit(string parent, int depth)
+        {
+            foreach (var node in nodes.Where(n => n.Parent == parent))
+            {
+                var children = nodes.Count(n => n.Parent == node.Key);
+                var open = children > 0 && expanded.Contains(node.Key);
+                rows.Add(
+                [
+                    node.Key, node.Parent, depth.ToString(CultureInfo.InvariantCulture), AllocationRowKinds.Frame, node.Name,
+                    node.Total.ToString(CultureInfo.InvariantCulture), node.Own < 0 ? null : node.Own.ToString(CultureInfo.InvariantCulture), "1",
+                    (100.0 * node.Total / total).ToString("0.##", CultureInfo.InvariantCulture), children.ToString(CultureInfo.InvariantCulture), open ? "1" : "0",
+                ]);
+                keys.Add(node.Key);
+                if (open)
+                {
+                    Emit(node.Key, depth + 1);
+                }
+            }
+        }
+
+        Emit(AllocationTreeKeys.Root, 0);
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        return Task.FromResult(new AllocationTreeResult(new ResultSetInfo(id, rows.Count, AllocationTreeColumnsList), total, 4, false, request.RevealKey is { } reveal ? keys.IndexOf(reveal) : -1));
+    }
 
     public TaskCompletionSource? InspectionGate { get; set; }
 
@@ -732,6 +846,8 @@ internal sealed class FakeUserInteraction : HeapScope.UI.Services.IUserInteracti
     public List<string> Questions { get; } = [];
 
     public Task<string?> PickDumpFileAsync() => Task.FromResult(NextFile);
+
+    public Task<string?> PickTraceFileAsync() => Task.FromResult(NextFile);
 
     public Task<bool> ConfirmAsync(string title, string message)
     {

@@ -274,6 +274,14 @@ internal sealed class SmokeRunner(IServiceProvider services)
                 Combine();
             }
 
+            if (completed && services.GetRequiredService<UiOptions>().SmokeAllocationsPath is { } allocationTrace)
+            {
+                completed = await RunSmokeAllocationsAsync(shell, allocationTrace, watchdog, logger);
+                shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+                await Task.Delay(500);
+                Combine();
+            }
+
             if (completed && services.GetRequiredService<UiOptions>().SmokeComparePath is { } other)
             {
                 completed = await RunSmokeCompareAsync(snapshots, other, watchdog, logger);
@@ -533,6 +541,67 @@ internal sealed class SmokeRunner(IServiceProvider services)
         await retainers.QueryTask;
         snapshots.Tab = SnapshotTabs.Snapshot;
         return focused;
+    }
+
+    /// <summary>
+    /// Shows an allocations trace on the Allocations page (sprint 2.5): its first show is logged as a cold cost; expanding
+    /// the first back trace and switching to the call tree are the checked part. Returns whether both showed rows.
+    /// </summary>
+    private static async Task<bool> RunSmokeAllocationsAsync(ShellViewModel shell, string path, DispatcherWatchdog watchdog, ILogger logger)
+    {
+        var allocations = shell.Allocations;
+        if (allocations is null)
+        {
+            return false;
+        }
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await allocations.OpenPathAsync(path);
+        if (allocations.Selected is not { } trace)
+        {
+            logger.LogWarning("Smoke allocations: {Path} was not shown: {Status}", path, allocations.Status);
+            return false;
+        }
+
+        await trace.LoadTask;
+        await trace.Types.QueryTask;
+        await trace.Tree.QueryTask;
+        await TouchRowsAsync(trace.Types.Rows);
+        await TouchRowsAsync(trace.Tree.Rows);
+        await IdleAsync();
+        var shown = trace.Tree.Rows.Count > 0 && trace.Tree.Rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke allocations: {Shown} ({Status}) in {Seconds:N1} s, {Types:N0} types, {Stacks} top stacks, first back trace {First}; first show (cold): maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
+            shown,
+            trace.Tree.Status ?? trace.StacksStatus ?? "ok",
+            stopwatch.Elapsed.TotalSeconds,
+            trace.Types.Rows.Count,
+            trace.Stacks.Count,
+            shown ? trace.Tree.Rows.GetRow(0).Name : "none",
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperationBound.TotalMilliseconds);
+        if (!shown)
+        {
+            return false;
+        }
+
+        watchdog.Reset();
+        trace.Tree.ToggleCommand.Execute(trace.Tree.Rows.GetRow(0));
+        await trace.Tree.QueryTask;
+        await TouchRowsAsync(trace.Tree.Rows);
+        var expanded = trace.Tree.Rows.Count;
+        trace.ShowCallTree = true;
+        await trace.Tree.QueryTask;
+        await TouchRowsAsync(trace.Tree.Rows);
+        await IdleAsync();
+        var callTree = trace.Tree.Rows.Count > 0 && trace.Tree.Rows.GetRow(0).IsLoaded;
+        logger.LogInformation(
+            "Smoke allocations drill: expanded to {Expanded:N0} rows, call tree {CallTree}; maximum dispatcher lag {LagMs:N0} ms, longest dispatcher operation at most {OperationMs:N0} ms",
+            expanded,
+            callTree,
+            watchdog.MaxLag.TotalMilliseconds,
+            watchdog.MaxOperationBound.TotalMilliseconds);
+        return callTree;
     }
 
     /// <summary>

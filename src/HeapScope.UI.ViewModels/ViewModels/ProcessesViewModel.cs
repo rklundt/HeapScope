@@ -48,17 +48,25 @@ public sealed record ProcessRow(int ProcessId, string Name, string Runtime, stri
 
 /// <summary>
 /// The Processes page (sprint 1.1): running .NET processes with elevation hints, capture into the current session,
-/// and opening the captured dump through the Snapshots page (which runs the memory check).
+/// and opening the captured dump through the Snapshots page (which runs the memory check). Since sprint 2.5 it also
+/// records a process's allocations, shown on the Allocations page when done.
 /// </summary>
-public sealed partial class ProcessesViewModel(ICaptureService capture, SnapshotsViewModel snapshots, IUserInteraction interaction) : ObservableObject
+public sealed partial class ProcessesViewModel(ICaptureService capture, SnapshotsViewModel snapshots, IUserInteraction interaction, AllocationsViewModel? allocations = null) : ObservableObject
 {
+    private CancellationTokenSource? _recording;
+
     private readonly ICaptureService _capture = capture ?? throw new ArgumentNullException(nameof(capture));
     private readonly SnapshotsViewModel _snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
     private readonly IUserInteraction _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(CaptureCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CaptureCommand), nameof(RecordAllocationsCommand))]
     private ProcessRow? _selected;
+
+    /// <summary>True while Record allocations records; Stop ends it and keeps what was recorded.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RecordAllocationsCommand), nameof(StopRecordingCommand))]
+    private bool _isRecording;
 
     [ObservableProperty]
     private string? _status;
@@ -116,6 +124,51 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
     }
 
     private bool CanCapture() => Selected is not null && Unavailable is null;
+
+    /// <summary>Whether this page can record allocations (the host has an Allocations page).</summary>
+    public bool CanRecordAllocations => allocations is not null;
+
+    private bool CanRecord() => CanCapture() && allocations is not null && !IsRecording;
+
+    /// <summary>
+    /// Records the selected process's sampled allocations (sprint 2.5) for up to 30 s into the session folder, then shows
+    /// them on the Allocations page.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRecord))]
+    private async Task RecordAllocationsAsync()
+    {
+        var target = Selected!;
+        _recording?.Dispose();
+        _recording = new CancellationTokenSource();
+        IsRecording = true;
+        var duration = HeapScope.Application.Allocations.AllocationSession.DefaultRecording;
+        Status = $"Recording the allocations of {target.Name} (pid {target.ProcessId}) for up to {duration.TotalSeconds:N0} s. Use the application now; Stop keeps what was recorded.";
+        try
+        {
+            var handle = await allocations!.RecordAsync(target.ProcessId, target.Name, duration, _recording.Token);
+            LastCapturePath = handle.Path;
+            Status = $"Recorded {System.IO.Path.GetFileName(handle.Path)}: about {Format.Bytes(handle.Descriptor.SampledBytes)} allocated in {handle.Descriptor.DurationSeconds:N1} s. A trace holds method and type names, not heap contents; keep it private.";
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Recording canceled.";
+        }
+        catch (CaptureFailedException ex)
+        {
+            Status = ex.Message;
+        }
+        catch (HeapScope.Application.Workers.WorkerException ex)
+        {
+            Status = ex.Message;
+        }
+        finally
+        {
+            IsRecording = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsRecording))]
+    private void StopRecording() => _recording?.Cancel();
 
     [RelayCommand(CanExecute = nameof(CanCapture))]
     private async Task CaptureAsync()

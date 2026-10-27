@@ -52,10 +52,16 @@ public static class ViewModelServiceCollectionExtensions
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<SnapshotsViewModel>(),
             sp.GetRequiredService<SessionLibrary>()));
+        services.AddSingleton(sp => new AllocationsViewModel(
+            sp.GetRequiredService<HeapScope.Application.Allocations.AllocationSession>(),
+            sp.GetRequiredService<IUiDispatcher>(),
+            sp.GetRequiredService<IUserInteraction>(),
+            sp.GetService<ILoggerFactory>()));
         services.AddSingleton(sp => new ProcessesViewModel(
             sp.GetRequiredService<ICaptureService>(),
             sp.GetRequiredService<SnapshotsViewModel>(),
-            sp.GetRequiredService<IUserInteraction>()));
+            sp.GetRequiredService<IUserInteraction>(),
+            sp.GetRequiredService<AllocationsViewModel>()));
         services.AddSingleton(sp => new AboutViewModel(
             sp.GetRequiredService<WorkerOperations>(),
             sp.GetRequiredService<IUserInteraction>(),
@@ -72,7 +78,8 @@ public static class ViewModelServiceCollectionExtensions
             sp.GetRequiredService<SnapshotsViewModel>(),
             sp.GetRequiredService<ProcessesViewModel>(),
             sp.GetRequiredService<AboutViewModel>(),
-            sp.GetRequiredService<LiveViewModel>()));
+            sp.GetRequiredService<LiveViewModel>(),
+            sp.GetRequiredService<AllocationsViewModel>()));
         return services;
     }
 }
