@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using HeapScope.UI.Views;
@@ -106,6 +107,48 @@ public sealed class AvaloniaUserInteraction(Func<Window?> owner) : IUserInteract
 
     public Task ShowMessageAsync(string title, string message) =>
         MessageWindow.ShowAsync(owner(), title, message, MessageButtons.Ok);
+
+    public async Task<bool> OpenFileAsync(string path)
+    {
+        if (owner() is not { } window || !File.Exists(path))
+        {
+            return false;
+        }
+
+        return await window.Launcher.LaunchFileInfoAsync(new FileInfo(path));
+    }
+
+    public async Task<bool> ShowInFolderAsync(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            // Explorer and Finder select the file; elsewhere the folder opens. Explorer's exit code means nothing, so it
+            // is not awaited. The path is one argument (Windows paths hold no quotes).
+            if (OperatingSystem.IsWindows())
+            {
+                using var _ = Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = false });
+                return true;
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                using var _ = Process.Start(new ProcessStartInfo("open") { ArgumentList = { "-R", path }, UseShellExecute = false });
+                return true;
+            }
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+
+        return owner() is { } window && Path.GetDirectoryName(path) is { } folder
+            && await window.Launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(folder));
+    }
 
     public async Task CopyTextAsync(string text)
     {

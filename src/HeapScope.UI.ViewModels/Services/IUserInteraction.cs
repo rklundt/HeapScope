@@ -47,6 +47,12 @@ public interface IUserInteraction
 
     /// <summary>Tells the user something that needs no answer (sprint 2.7).</summary>
     Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
+
+    /// <summary>Opens a file in the system's app for its type (the Live timeline); false when nothing could open it.</summary>
+    Task<bool> OpenFileAsync(string path) => Task.FromResult(false);
+
+    /// <summary>Shows a file in the system's file manager, selected where the system can; false when it could not.</summary>
+    Task<bool> ShowInFolderAsync(string path) => Task.FromResult(false);
 }
 
 /// <summary>Answers every question with yes and picks no file; used by smoke runs, which must never block.</summary>

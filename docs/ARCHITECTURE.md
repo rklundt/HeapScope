@@ -291,7 +291,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). `Services/`: `IUiDispatcher` (post to the UI
-  thread, `YieldToRenderAsync`) with `ImmediateUiDispatcher` for tests, `IUserInteraction` (asynchronous dialogs) with
+  thread, `YieldToRenderAsync`) with `ImmediateUiDispatcher` for tests, `IUserInteraction` (asynchronous dialogs; opening a file or showing it in its folder since the timeline row) with
   `AutomaticUserInteraction` for smoke runs. `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>`
   (the query lifecycle shared by the grids: debounced filter, latest query wins, column-name sort, first page preloaded
   before the grid binds, release) and `TypeGridViewModel<TRow>` (grouping) over the generic `VirtualRowList<TRow>` (data
