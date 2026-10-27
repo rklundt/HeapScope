@@ -25,6 +25,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HeapScope.Application.Jobs;
@@ -242,6 +243,15 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ShouldContain("Leak detectors");
             window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ShouldContain("Memory waste");
 
+            // A click on a group heading selects nothing (2.6 review L13); a click on the tile below it does.
+            var selected = snapshots.Inspections.Selected;
+            var heading = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "Memory waste" && t.Classes.Contains("groupHeading"));
+            Click(window, heading);
+            snapshots.Inspections.Selected.ShouldBe(selected);
+            var tile = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "Duplicate strings");
+            Click(window, tile);
+            snapshots.Inspections.Selected!.Title.ShouldBe("Duplicate strings");
+
             ui.BindingErrors.ShouldBeEmpty();
             window.Close();
         });
@@ -356,13 +366,127 @@ public sealed class ViewTests(UiSession ui) : IDisposable
         });
     }
 
+    [Fact]
+    public async Task Every_page_tab_and_subject_is_reached_with_the_keyboard_only()
+    {
+        // Sprint 2.7 acceptance: every view reachable by keyboard; the path survives view switches.
+        await ui.RunAsync(async () =>
+        {
+            var interaction = new FakeUserInteraction { SaveFile = Path.Combine(_folder, "types.csv") };
+            var (shell, worker) = Shell(interaction: interaction);
+            worker.Service.Rows.Add(["App.Order", "2", "80"]);
+            worker.Service.InstanceRows.Add(["0x1000", "App.Order", "40", "Gen2", ""]);
+            worker.Service.ReferenceRows.Add(["Customer", "0x3000", "App.Customer", "60"]);
+            var snapshots = shell.Snapshots;
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell);
+            window.Show();
+            var command = OperatingSystem.IsMacOS() ? RawInputModifiers.Meta : RawInputModifiers.Control;
+            PhysicalKey[] digits = [PhysicalKey.Digit1, PhysicalKey.Digit2, PhysicalKey.Digit3, PhysicalKey.Digit4, PhysicalKey.Digit5, PhysicalKey.Digit6, PhysicalKey.Digit7, PhysicalKey.Digit8, PhysicalKey.Digit9];
+
+            // Pages by number, in the sidebar's order.
+            for (var i = shell.NavigationItems.Count - 1; i >= 0; i--)
+            {
+                Press(window, digits[i], command);
+                shell.SelectedItem.ShouldBe(shell.NavigationItems[i]);
+            }
+
+            var dump = Path.Combine(_folder, "app.dmp");
+            await File.WriteAllBytesAsync(dump, [1]);
+            await snapshots.OpenPathAsync(dump);
+            await snapshots.Types.QueryTask;
+            await Settle(snapshots.Types.Rows);
+
+            // The Snapshots tabs, from any page.
+            shell.ShowHelp();
+            foreach (var tab in Enum.GetValues<SnapshotTabs>().Reverse())
+            {
+                Press(window, digits[(int)tab], RawInputModifiers.Alt);
+                (shell.SelectedItem.Page, snapshots.Tab).ShouldBe((snapshots, tab));
+            }
+
+            // The filter, then the types grid: Down selects a row, Enter opens its objects, Enter on one opens it.
+            Press(window, PhysicalKey.F, command);
+            var filter = window.FocusManager!.GetFocusedElement().ShouldBeOfType<TextBox>();
+            filter.Name.ShouldBe("FilterBox");
+            var types = Grid(window, "TypesGrid");
+            types.Focus();
+            Press(window, PhysicalKey.ArrowDown);
+            Press(window, PhysicalKey.Enter);
+            var instances = snapshots.Navigator.Current.ShouldBeOfType<InstancesViewModel>();
+            await instances.QueryTask;
+            await Settle(instances.Rows);
+            var instancesGrid = Grid(window, "InstancesGrid");
+            instancesGrid.Focus();
+            Press(window, PhysicalKey.ArrowDown);
+
+            // Bookmark the selected row, open it, and come back along the path.
+            Press(window, PhysicalKey.D, command);
+            await WaitFor(() => snapshots.Bookmarks.Items.Count == 1);
+            Press(window, PhysicalKey.Enter);
+            var obj = snapshots.Navigator.Current.ShouldBeOfType<ObjectViewModel>();
+            await obj.LoadTask;
+            Press(window, PhysicalKey.ArrowLeft, RawInputModifiers.Alt);
+            snapshots.Navigator.Current.ShouldBe(instances);
+
+            // The path survives other pages and tabs; Command+L focuses it and Up moves along it.
+            Press(window, digits[0], command);
+            Press(window, digits[(int)SnapshotTabs.Retainers], RawInputModifiers.Alt);
+            Press(window, digits[(int)SnapshotTabs.Snapshot], RawInputModifiers.Alt);
+            snapshots.Navigator.Current.ShouldBe(instances);
+            Press(window, PhysicalKey.L, command);
+            Dispatcher.UIThread.RunJobs();
+            var focused = window.FocusManager!.GetFocusedElement() as Visual;
+            focused.ShouldNotBeNull().FindAncestorOfType<ListBox>(includeSelf: true).ShouldNotBeNull().Name.ShouldBe("PathList");
+            Press(window, PhysicalKey.ArrowUp);
+            snapshots.Navigator.Current.ShouldBeOfType<TypeSummaryViewModel>();
+
+            // Export the view's grid, refresh a page, and the shortcuts list.
+            Press(window, PhysicalKey.E, command);
+            await WaitFor(() => File.Exists(interaction.SaveFile));
+            Press(window, PhysicalKey.F1);
+            shell.SelectedItem.Page.ShouldBe(shell.About);
+            window.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "ShortcutList").ItemCount.ShouldBe(shell.ShortcutList.Count);
+            Press(window, PhysicalKey.F5);
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
+    private static void Click(Window window, Control control)
+    {
+        var point = control.TranslatePoint(new Point(4, control.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Press(Window window, PhysicalKey key, RawInputModifiers modifiers = RawInputModifiers.None)
+    {
+        window.KeyPressQwerty(key, modifiers);
+        window.KeyReleaseQwerty(key, modifiers);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static async Task WaitFor(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition())
+        {
+            DateTime.UtcNow.ShouldBeLessThan(deadline, "condition not met in time");
+            await Task.Delay(10);
+            Dispatcher.UIThread.RunJobs();
+        }
+    }
+
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 
-    private static DataGrid Grid(Window window, string name) =>
+    internal static DataGrid Grid(Window window, string name) =>
         window.GetVisualDescendants().OfType<DataGrid>().Single(g => g.Name == name);
 
     // Lets the first page of rows arrive and the grids lay out with it.
-    private static async Task Settle<TRow>(VirtualRowList<TRow> rows)
+    internal static async Task Settle<TRow>(VirtualRowList<TRow> rows)
         where TRow : class, IIndexedRow
     {
         Dispatcher.UIThread.RunJobs();
@@ -370,7 +494,7 @@ public sealed class ViewTests(UiSession ui) : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    private (ShellViewModel Shell, FakeWorkerClient Worker) Shell(string? unavailable = null)
+    internal (ShellViewModel Shell, FakeWorkerClient Worker) Shell(string? unavailable = null, FakeUserInteraction? interaction = null)
     {
         // The app's own view model wiring over fakes (sprint 2.3.7 review M15).
         var worker = new FakeWorkerClient();
@@ -386,7 +510,7 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             .AddSingleton(new Application.Sessions.SessionLibrary(Path.Combine(_folder, "sessions")))
             .AddSingleton(sp => new Application.Allocations.AllocationSession(worker, jobs, new Application.Sessions.TraceService(), sp.GetRequiredService<Application.Sessions.SessionLibrary>()))
             .AddSingleton<IUiDispatcher>(ImmediateUiDispatcher.Instance)
-            .AddSingleton<IUserInteraction>(new FakeUserInteraction())
+            .AddSingleton<IUserInteraction>(interaction ?? new FakeUserInteraction())
             .AddHeapScopeViewModels()
             .BuildServiceProvider();
         return (services.GetRequiredService<ShellViewModel>(), worker);

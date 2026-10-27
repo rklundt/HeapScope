@@ -41,6 +41,12 @@ public interface IUserInteraction
 
     /// <summary>Puts text on the clipboard (the About page's details for support, sprint 2.3.7); nothing where there is none.</summary>
     Task CopyTextAsync(string text) => Task.CompletedTask;
+
+    /// <summary>Asks where to save a file (a grid's CSV export, sprint 2.7); null when the user cancels.</summary>
+    Task<string?> PickSaveFileAsync(string title, string suggestedName) => Task.FromResult<string?>(null);
+
+    /// <summary>Tells the user something that needs no answer (sprint 2.7).</summary>
+    Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
 }
 
 /// <summary>Answers every question with yes and picks no file; used by smoke runs, which must never block.</summary>

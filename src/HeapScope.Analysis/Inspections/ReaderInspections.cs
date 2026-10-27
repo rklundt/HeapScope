@@ -230,7 +230,7 @@ internal sealed class DuplicateStringsInspection : IInspection
 
     private static readonly InspectionColumn[] s_columns =
     [
-        new(InspectionColumns.Value, InspectionColumnKind.Text),
+        new(InspectionColumns.Value, InspectionColumnKind.Text, HasValues: true),
         new(InspectionColumns.Copies, InspectionColumnKind.Integer),
         new(InspectionColumns.Bytes, InspectionColumnKind.Bytes),
         new(InspectionColumns.Wasted, InspectionColumnKind.Bytes),

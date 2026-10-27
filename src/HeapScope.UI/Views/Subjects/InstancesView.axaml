@@ -39,7 +39,7 @@
       <Button DockPanel.Dock="Right" Content="Why alive" Margin="0,0,6,0" Command="{Binding WhyAliveCommand}"
               ToolTip.Tip="The key retention paths: from which roots, through which objects, these objects are kept alive" />
       <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
-      <TextBox DockPanel.Dock="Left" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+      <TextBox x:Name="FilterBox" DockPanel.Dock="Left" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
                ToolTip.Tip="0x1f2a: address prefix. /pattern/: regular expression on the value. Anything else: text in the value (strings)." />
       <CheckBox DockPanel.Dock="Left" Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
                 IsChecked="{Binding ShowRetained, Mode=TwoWay}"
@@ -49,7 +49,7 @@
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding ValuesExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
-    <DataGrid x:Name="InstancesGrid" CanUserSortColumns="True"
+    <DataGrid x:Name="InstancesGrid" ctl:GridExports.ExportName="Instances" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"

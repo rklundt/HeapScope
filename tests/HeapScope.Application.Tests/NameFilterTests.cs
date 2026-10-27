@@ -59,4 +59,45 @@ public sealed class NameFilterTests
         NameFilter.Match("x", null).ShouldBeEmpty();
         NameFilter.Match("x", "y").ShouldBeNull();
     }
+
+    [Theory]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "leaks entry", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "entry leaks", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "leaks order", false)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "leaks -cache", false)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "leaks -order", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "-SCE", false)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "-", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "cache module:leaky", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "cache m:LeakyApi.dll", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "cache module:system", false)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "-module:system", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "-module:leaky", false)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "module:", true)]
+    [InlineData("Fixtures.Leaks.StaticCacheEntry", "order -m:", false)]
+    public void Terms_must_all_match_minus_leaves_out_and_module_tests_the_module(string name, string filter, bool expected)
+    {
+        NameFilter.IsMatch(name, "LeakyApi.dll", filter).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void A_row_without_a_module_never_matches_a_module_term()
+    {
+        NameFilter.IsMatch("Fixtures.Leaks", null, "module:leaky").ShouldBeFalse();
+        NameFilter.IsMatch("Fixtures.Leaks", string.Empty, "-module:leaky").ShouldBeTrue();
+        NameFilter.IsMatch("Fixtures.Leaks", "module:leaky").ShouldBeFalse("the name-only overload knows no module");
+    }
+
+    [Fact]
+    public void Highlighting_marks_every_name_term_in_order_and_skips_module_terms()
+    {
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "entry leaks m:app").ShouldBe([(9, 5), (26, 5)]);
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "leaks -cache").ShouldBeNull();
+        NameFilter.Terms("-m:App.dll cache").ShouldBe([("App.dll", true, true), ("cache", false, false)]);
+
+        // Review H2: terms over the same characters give one range each, never overlapping.
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "entry entry").ShouldBe([(26, 5)]);
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "Cache ach").ShouldBe([(21, 5)]);
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "static cache").ShouldBe([(15, 11)], "touching ranges join");
+    }
 }

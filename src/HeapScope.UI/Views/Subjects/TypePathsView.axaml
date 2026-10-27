@@ -35,7 +35,7 @@
       <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
-    <DataGrid x:Name="TypePathsGrid" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
+    <DataGrid x:Name="TypePathsGrid" ctl:GridExports.ExportName="RetentionPaths" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ToolTip.Tip="Double-click or Enter opens an example object kept alive this way.">
       <DataGrid.Columns>

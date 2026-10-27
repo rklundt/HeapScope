@@ -26,6 +26,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application;
+using HeapScope.Application.Bookmarks;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -110,7 +111,8 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         WorkerOperations operations,
         IUiDispatcher dispatcher,
         IUserInteraction interaction,
-        ILoggerFactory? loggers = null)
+        ILoggerFactory? loggers = null,
+        BookmarkStore? bookmarks = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
@@ -119,6 +121,8 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         _session.SnapshotsChanged += OnSnapshotsChanged;
         Types = new TypeSummaryViewModel(session, dispatcher, loggers?.CreateLogger<TypeSummaryViewModel>(), this);
         Navigator = new NavigatorViewModel(session, Types, this, loggers);
+        Navigator.StepShown += OnStepShown;
+        Bookmarks = new BookmarksViewModel(bookmarks, this, loggers?.CreateLogger<BookmarksViewModel>());
         Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>(), this);
         Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>(), this);
         Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this, loggers?.CreateLogger<RetainedBySetViewModel>());
@@ -145,8 +149,10 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
         if (target.Kind is NavigationKind.Retainers or NavigationKind.RetainedBySet)
         {
-            // The target first, so showing the tab queries what it asks for rather than the biggest retainers.
+            // The target first, so showing the tab queries what it asks for rather than the biggest retainers. The link is a
+            // step of the analysis path (sprint 2.7), replayed when it is chosen again.
             Retainers.Navigate(target);
+            Navigator.Record(target);
             Tab = SnapshotTabs.Retainers;
             return;
         }
@@ -163,6 +169,39 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
     /// <summary>The Snapshot tab's subjects: the types grid, instances and objects, with back and forward (sprint 1.5).</summary>
     public NavigatorViewModel Navigator { get; }
 
+    /// <summary>Bookmarked objects of every open snapshot (sprint 2.7).</summary>
+    public BookmarksViewModel Bookmarks { get; }
+
+    /// <summary>
+    /// Bookmarks <paramref name="row"/>'s object when it opens one, else the object shown on the Snapshot tab, or removes
+    /// its bookmark (Command+D, sprint 2.7); false when there was nothing to bookmark.
+    /// </summary>
+    public async Task<bool> ToggleBookmarkAsync(IObjectLink? row = null)
+    {
+        if (Selected is not { } selected)
+        {
+            return false;
+        }
+
+        if (row is { LinkAddress: not 0 and var address })
+        {
+            await Bookmarks.ToggleAsync(selected.Handle, address, row.LinkTypeName);
+            return true;
+        }
+
+        if (Tab == SnapshotTabs.Snapshot && Navigator.Current is ObjectViewModel { Address: not 0 } shown)
+        {
+            await Bookmarks.ToggleAsync(shown.Snapshot, shown.Address, shown.TypeName);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Bookmarks the object shown on the Snapshot tab, or removes its bookmark (the object view's button).</summary>
+    [RelayCommand]
+    private Task ToggleBookmark() => ToggleBookmarkAsync();
+
     /// <summary>The comparison of two open snapshots (sprint 1.4).</summary>
     public CompareViewModel Compare { get; }
 
@@ -172,7 +211,11 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
     /// <summary>The selected snapshot's dominator tree, icicle and set retention (sprint 2.4); queried when the tab is shown.</summary>
     public RetainersViewModel Retainers { get; }
 
-    public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
+    public void Dispose()
+    {
+        _session.SnapshotsChanged -= OnSnapshotsChanged;
+        Navigator.StepShown -= OnStepShown;
+    }
 
     /// <summary>
     /// Opens <paramref name="path"/>: asks first when a first load may not fit in available memory (Application decides,
@@ -244,7 +287,8 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
     partial void OnSelectedChanged(SnapshotItemViewModel? value)
     {
-        Navigator.Reset();
+        // Each snapshot keeps its analysis path while it is open (sprint 2.7).
+        Navigator.Show(value?.Handle);
         Types.Show(value?.Handle);
         Inspections.Show(value?.Handle);
         Retainers.Show(value?.Handle);
@@ -259,6 +303,20 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
     private void OnSnapshotsChanged(object? sender, EventArgs e) => _dispatcher.Post(Refresh);
 
+    // Back, Forward or the sidebar showed a step: show its tab, replaying a Retainers link (sprint 2.7).
+    private void OnStepShown(object? sender, AnalysisStep step)
+    {
+        if (step.Target is { } target)
+        {
+            Retainers.Navigate(target);
+            Tab = SnapshotTabs.Retainers;
+        }
+        else
+        {
+            Tab = SnapshotTabs.Snapshot;
+        }
+    }
+
     private void Refresh()
     {
         var handles = _session.Snapshots;
@@ -266,6 +324,8 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         {
             if (!handles.Contains(Snapshots[i].Handle))
             {
+                Navigator.Forget(Snapshots[i].Handle);
+                Bookmarks.Forget(Snapshots[i].Handle);
                 Snapshots.RemoveAt(i);
             }
         }
@@ -275,6 +335,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
             if (!Snapshots.Any(s => s.Handle == handle))
             {
                 Snapshots.Add(new SnapshotItemViewModel(handle));
+                _ = Bookmarks.LoadAsync(handle);
             }
         }
 
@@ -282,6 +343,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         {
             Selected = Snapshots.FirstOrDefault();
         }
+
+        // Another snapshot opened or closed: the growth detectors' baseline choices follow (2.6 review M12).
+        Inspections.RefreshBaselines();
     }
 }
 

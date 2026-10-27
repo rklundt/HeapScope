@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Globalization;
+using HeapScope.Application.Exports;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 
@@ -35,16 +36,13 @@ internal static partial class CliCommands
 {
     private static async Task WriteCsvAsync(TextWriter output, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
-        await output.WriteLineAsync(string.Join(",", columns.Select(c => Csv(c.Name)))).ConfigureAwait(false);
+        // A local view for the person running the command (ADR-026): every column. Text read from a dump that a
+        // spreadsheet would run as a formula is shown as text, as in the app's exports (2.7 review).
+        await output.WriteLineAsync(string.Join(",", columns.Select(c => CsvExport.Quote(c.Name)))).ConfigureAwait(false);
         foreach (var row in rows)
         {
-            await output.WriteLineAsync(string.Join(",", row.Select(Csv))).ConfigureAwait(false);
+            await output.WriteLineAsync(string.Join(",", row.Select((cell, i) => CsvExport.Cell(cell, i < columns.Count ? columns[i].Kind : ResultColumnKind.Text)))).ConfigureAwait(false);
         }
-
-        static string Csv(string? value) =>
-            value is null ? string.Empty
-            : value.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\""
-            : value;
     }
 
     /// <summary>

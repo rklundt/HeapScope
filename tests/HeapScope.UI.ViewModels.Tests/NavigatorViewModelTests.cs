@@ -123,8 +123,9 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Opening_after_going_back_drops_the_forward_history_and_releases_its_rows()
+    public async Task Opening_after_going_back_starts_a_branch_and_keeps_the_later_steps()
     {
+        // Sprint 2.7: the analysis path is a tree (dotMemory's Analysis Path); nothing is dropped or released.
         var instances = await OpenInstancesAsync();
         instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
         var obj = (ObjectViewModel)Navigator.Current;
@@ -133,11 +134,85 @@ public sealed class NavigatorViewModelTests : IDisposable
         Navigator.BackCommand.Execute(null);
         var released = _worker.Service.Released.Count;
 
-        Navigator.OpenInstances(_snapshots.Selected!.Handle, "App.Customer", "App.dll");
+        var customers = Navigator.OpenInstances(_snapshots.Selected!.Handle, "App.Customer", "App.dll");
 
         Navigator.CanGoForward.ShouldBeFalse();
         Navigator.Trail.Count.ShouldBe(2);
+        Navigator.Steps.Select(s => (s.Depth, s.Subject)).ShouldBe([(0, (INavigationSubject)Navigator.Types), (1, instances), (2, obj), (1, customers)]);
+        _worker.Service.Released.Count.ShouldBe(released, "the earlier branch keeps its rows");
+
+        // The earlier branch is one choice away, and Forward from it goes where it went before.
+        Navigator.CurrentStep = Navigator.Steps[1];
+        Navigator.Current.ShouldBeSameAs(instances);
+        Navigator.ForwardCommand.Execute(null);
+        Navigator.Current.ShouldBeSameAs(obj);
+    }
+
+    [Fact]
+    public async Task Closing_a_step_closes_its_branch_releases_its_rows_and_shows_its_parent()
+    {
+        var instances = await OpenInstancesAsync();
+        instances.OpenRowCommand!.Execute(await FirstRowAsync(instances.Rows));
+        await ((ObjectViewModel)Navigator.Current).LoadTask;
+        var released = _worker.Service.Released.Count;
+
+        Navigator.CloseStepCommand.Execute(Navigator.Steps[1]);
+
+        Navigator.Steps.ShouldHaveSingleItem();
+        Navigator.Current.ShouldBeOfType<TypeSummaryViewModel>();
         await WaitUntilAsync(() => _worker.Service.Released.Count >= released + 2);
+        Navigator.CloseStepCommand.Execute(Navigator.Steps[0]);
+        Navigator.Steps.ShouldHaveSingleItem("the types grid stays");
+    }
+
+    [Fact]
+    public async Task Each_snapshot_keeps_its_path_while_snapshots_tabs_and_pages_change()
+    {
+        // Sprint 2.7 acceptance: history survives view switches.
+        var instances = await OpenInstancesAsync();
+        var first = _snapshots.Selected!;
+        await OpenAsync("other.dmp");
+        Navigator.Trail.Count.ShouldBe(1, "a new snapshot starts its own path");
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        _snapshots.Tab = SnapshotTabs.Compare;
+
+        _snapshots.Selected = first;
+
+        Navigator.Current.ShouldBeSameAs(instances);
+        Navigator.Trail.Count.ShouldBe(2);
+        Navigator.CanGoBack.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Closing_a_snapshot_closes_its_path()
+    {
+        var instances = await OpenInstancesAsync();
+        var released = _worker.Service.Released.Count;
+
+        await _snapshots.CloseCommand.ExecuteAsync(_snapshots.Selected);
+
+        await WaitUntilAsync(() => _worker.Service.Released.Count > released);
+        Navigator.Steps.ShouldHaveSingleItem();
+        Navigator.Current.ShouldBeOfType<TypeSummaryViewModel>();
+    }
+
+    [Fact]
+    public async Task A_link_into_the_retainers_tab_is_a_step_that_back_and_forward_replay()
+    {
+        await OpenInstancesAsync();
+        var snapshot = _snapshots.Selected!.Handle;
+
+        _snapshots.Navigate(NavigationTarget.Retainers(snapshot, typeName: "App.Order", module: "App.dll"));
+
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
+        Navigator.CurrentStep!.Target.ShouldNotBeNull().Kind.ShouldBe(NavigationKind.Retainers);
+        Navigator.CurrentStep.Title.ShouldBe("Retainers: App.Order");
+        Navigator.Current.ShouldBeOfType<InstancesViewModel>("the Snapshot tab keeps showing the step it came from");
+
+        Navigator.BackCommand.Execute(null);
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Snapshot);
+        Navigator.ForwardCommand.Execute(null);
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
     }
 
     [Fact]

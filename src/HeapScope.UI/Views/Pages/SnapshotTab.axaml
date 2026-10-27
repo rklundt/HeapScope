@@ -61,8 +61,8 @@
       <!-- Subjects (sprint 1.5): the types grid, a type's objects, one object, a type's referrers (2.1) and paths (2.2); back and forward. -->
       <DockPanel DataContext="{Binding Navigator}" x:DataType="vm:NavigatorViewModel">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-          <Button Content="Back" Command="{Binding BackCommand}" ToolTip.Tip="Back (Alt+Left or the mouse's back button)" />
-          <Button Content="Forward" Margin="4,0,0,0" Command="{Binding ForwardCommand}" ToolTip.Tip="Forward (Alt+Right or the mouse's forward button)" />
+          <Button Content="Back" Command="{Binding BackCommand}" ToolTip.Tip="Back along the analysis path (Alt+Left or the mouse's back button)" />
+          <Button Content="Forward" Margin="4,0,0,0" Command="{Binding ForwardCommand}" ToolTip.Tip="Forward along the analysis path (Alt+Right or the mouse's forward button)" />
           <ItemsControl ItemsSource="{Binding Trail}" Margin="12,0,0,0" VerticalAlignment="Center">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
@@ -70,7 +70,7 @@
               </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:INavigationSubject">
+              <DataTemplate x:DataType="vm:AnalysisStep">
                 <StackPanel Orientation="Horizontal">
                   <TextBlock Text=" / " Classes="subtle" />
                   <TextBlock Text="{Binding Title}" MaxWidth="360" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />

@@ -39,7 +39,7 @@
         <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
       </DockPanel>
       <ctl:NoteText Text="{Binding SessionStatus}" Classes="subtle" Margin="0,0,0,4" />
-      <DataGrid x:Name="Sessions" ItemsSource="{Binding RecentSessions}" MaxHeight="220" Margin="0,0,0,24">
+      <DataGrid x:Name="Sessions" ctl:GridExports.ExportName="Sessions" ItemsSource="{Binding RecentSessions}" MaxHeight="220" Margin="0,0,0,24">
         <DataGrid.Columns>
           <DataGridTextColumn Header="Session" x:DataType="sessions:SessionSummary" Binding="{Binding Name}" Width="*" />
           <DataGridTextColumn Header="Created" x:DataType="sessions:SessionSummary" Binding="{Binding CreatedUtc.LocalDateTime, StringFormat='{}{0:g}'}" Width="140" />

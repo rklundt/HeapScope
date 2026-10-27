@@ -122,7 +122,8 @@ public enum InspectionColumnKind
 }
 
 /// <param name="IsKey">The column that identifies a row (an object's address, or a type's name).</param>
-public sealed record InspectionColumn(string Name, InspectionColumnKind Kind, bool IsKey = false);
+/// <param name="HasValues">The column carries the target's data, such as a duplicate string's text (sprint 2.7, ADR-026).</param>
+public sealed record InspectionColumn(string Name, InspectionColumnKind Kind, bool IsKey = false, bool HasValues = false);
 
 /// <summary>
 /// Column names shared by the inspections. <see cref="TypeName"/>, <see cref="Module"/> and <see cref="Scope"/> are

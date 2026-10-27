@@ -46,6 +46,11 @@ public sealed class AvaloniaUserInteraction(Func<Window?> owner) : IUserInteract
         new("All files") { Patterns = ["*"] },
     ];
 
+    private static readonly FilePickerFileType[] s_csvTypes =
+    [
+        new("CSV files") { Patterns = ["*.csv"] },
+    ];
+
     public async Task<string?> PickDumpFileAsync()
     {
         if (owner() is not { } window)
@@ -80,6 +85,27 @@ public sealed class AvaloniaUserInteraction(Func<Window?> owner) : IUserInteract
 
     public Task<bool> ConfirmAsync(string title, string message) =>
         MessageWindow.ShowAsync(owner(), title, message, MessageButtons.YesNo);
+
+    public async Task<string?> PickSaveFileAsync(string title, string suggestedName)
+    {
+        if (owner() is not { } window)
+        {
+            return null;
+        }
+
+        var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title,
+            SuggestedFileName = suggestedName,
+            DefaultExtension = "csv",
+            ShowOverwritePrompt = true,
+            FileTypeChoices = s_csvTypes,
+        });
+        return file?.TryGetLocalPath();
+    }
+
+    public Task ShowMessageAsync(string title, string message) =>
+        MessageWindow.ShowAsync(owner(), title, message, MessageButtons.Ok);
 
     public async Task CopyTextAsync(string text)
     {

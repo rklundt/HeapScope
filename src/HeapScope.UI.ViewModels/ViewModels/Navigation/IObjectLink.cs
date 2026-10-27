@@ -31,4 +31,7 @@ public interface IObjectLink
 {
     /// <summary>The object it opens; 0 when it opens nothing (not loaded yet, or not a reference).</summary>
     ulong LinkAddress { get; }
+
+    /// <summary>The object's type, when the row knows it (a bookmark's label, sprint 2.7).</summary>
+    string? LinkTypeName => null;
 }

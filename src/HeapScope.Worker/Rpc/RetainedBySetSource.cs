@@ -40,8 +40,8 @@ internal sealed class RetainedBySetSource : IResultSource
         new(RetainedBySetColumns.Objects, ResultColumnKind.Integer),
         new(RetainedBySetColumns.Retained, ResultColumnKind.Bytes),
         new(RetainedBySetColumns.Percent, ResultColumnKind.Percent),
-        new(RetainedBySetColumns.TypeName, ResultColumnKind.Text),
-        new(RetainedBySetColumns.Module, ResultColumnKind.Text),
+        new(RetainedBySetColumns.TypeName, ResultColumnKind.Text, IsHidden: true),
+        new(RetainedBySetColumns.Module, ResultColumnKind.Text, IsHidden: true),
     ];
 
     private readonly Row[] _rows;

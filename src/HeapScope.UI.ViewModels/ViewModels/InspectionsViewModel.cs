@@ -135,6 +135,9 @@ public sealed partial class InspectionsViewModel : ObservableObject
 
     private bool _choosingBaseline;
 
+    // The person chose the baseline (None included), so a refresh keeps it while it stays open (2.6 review M12).
+    private bool _baselineChosen;
+
     public InspectionsViewModel(SnapshotSession session, ILogger? logger = null, INavigator? navigator = null)
     {
         _navigator = navigator;
@@ -184,6 +187,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
         Status = null;
         Snapshot = snapshot;
         _started = false;
+        _baselineChosen = false;
         ChooseBaselines(snapshot);
         if (IsActive)
         {
@@ -205,7 +209,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
         if (value?.Run is { } run)
         {
             var columns = run.Rows.Info.Columns;
-            Columns = [.. columns.Select((c, i) => (c, i)).Where(c => !InspectionColumns.IsHidden(c.c.Name))];
+            Columns = [.. columns.Select((c, i) => (c, i)).Where(c => !c.c.IsHidden)];
             Rows = CellRowItem.CreateList(run.Rows, run.Rows.Info, ex => Status = ex.Message, _logger);
         }
         else
@@ -383,7 +387,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
                 return;
             }
 
-            var key = run.Rows.Info.Columns.Select((c, i) => (c, i)).First(c => !InspectionColumns.IsHidden(c.c.Name)).i;
+            var key = run.Rows.Info.Columns.Select((c, i) => (c, i)).First(c => !c.c.IsHidden).i;
             tile.FirstRows = [.. first.Rows.Take(TileRows).Select(r => r[key] ?? string.Empty)];
             if (isFragmentation)
             {
@@ -413,10 +417,13 @@ public sealed partial class InspectionsViewModel : ObservableObject
 
     /// <summary>
     /// The baseline choices for <paramref name="snapshot"/>: none, and the other open snapshots, latest first. The latest
-    /// one of the same process captured earlier is chosen (a growth detector needs the earlier dump; ADR-018).
+    /// one of the same process captured earlier is chosen (a growth detector needs the earlier dump; ADR-018). With
+    /// <paramref name="keep"/>, a chosen baseline that is still open stays chosen (snapshots opened or closed, 2.7).
     /// </summary>
-    private void ChooseBaselines(SnapshotHandle? snapshot)
+    private void ChooseBaselines(SnapshotHandle? snapshot, bool keep = false)
     {
+        var keepChoice = keep && _baselineChosen;
+        var kept = Baseline?.Snapshot;
         _choosingBaseline = true;
         try
         {
@@ -438,10 +445,10 @@ public sealed partial class InspectionsViewModel : ObservableObject
                     other));
             }
 
-            var mine = snapshot.Descriptor;
-            Baseline = BaselineChoices.Skip(1).FirstOrDefault(c =>
-                    c.Snapshot!.Descriptor.ProcessName == mine.ProcessName
-                    && c.Snapshot.Descriptor.CapturedAtUtc is { } then && mine.CapturedAtUtc is { } now && then < now)
+            var same = keepChoice ? BaselineChoices.FirstOrDefault(c => c.Snapshot == kept) : null;
+            _baselineChosen = same is not null;
+            Baseline = same
+                ?? BaselineChoices.Skip(1).FirstOrDefault(c => IsEarlierOfSameProcess(c.Snapshot!.Descriptor, snapshot.Descriptor))
                 ?? BaselineChoices[0];
         }
         finally
@@ -450,15 +457,59 @@ public sealed partial class InspectionsViewModel : ObservableObject
         }
     }
 
-    partial void OnBaselineChanged(BaselineChoice? value)
+    /// <summary>
+    /// Rebuilds the baseline choices after snapshots opened or closed (2.6 review M12): a baseline the person chose stays
+    /// chosen while it is open; otherwise the default is chosen again (an earlier capture of the process may have opened),
+    /// and the growth detectors run again when it changed.
+    /// </summary>
+    public void RefreshBaselines()
     {
-        // Choosing another baseline runs the growth detectors again (only those use it).
-        if (_choosingBaseline || !_started || Snapshot is not { } snapshot)
+        if (Snapshot is not { } snapshot)
         {
             return;
         }
 
-        _logger.LogInformation("Inspections: baseline {Baseline} chosen for {Snapshot}", value?.Snapshot?.Path ?? "none", snapshot.Path);
+        var before = Baseline?.Snapshot;
+        ChooseBaselines(snapshot, keep: true);
+        if (Baseline?.Snapshot != before)
+        {
+            Rerun(Baseline, "changed as snapshots opened or closed");
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="candidate"/> is an earlier capture of the process of <paramref name="mine"/>: the same
+    /// process id when both dumps record one, else the same process name (2.6 review M12; dumps record no start time, and
+    /// an earlier capture time rules out most reused ids). A time that is only a file's time (a copied dump) orders
+    /// nothing, as on the Compare tab, so no default is chosen then (2.7 review).
+    /// </summary>
+    internal static bool IsEarlierOfSameProcess(SnapshotDescriptor candidate, SnapshotDescriptor mine) =>
+        !candidate.CaptureTimeFromFile && !mine.CaptureTimeFromFile
+        && candidate.CapturedAtUtc is { } then && mine.CapturedAtUtc is { } now && then < now
+        && (candidate.ProcessId is { } id && mine.ProcessId is { } myId
+            ? id == myId && (candidate.ProcessName is null || mine.ProcessName is null || candidate.ProcessName == mine.ProcessName)
+            : candidate.ProcessName is not null && candidate.ProcessName == mine.ProcessName);
+
+    partial void OnBaselineChanged(BaselineChoice? value)
+    {
+        if (_choosingBaseline)
+        {
+            return;
+        }
+
+        _baselineChosen = true;
+        Rerun(value, "chosen");
+    }
+
+    // Another baseline runs the growth detectors again (only those use it).
+    private void Rerun(BaselineChoice? value, string how)
+    {
+        if (!_started || Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        _logger.LogInformation("Inspections: baseline {Baseline} {How} for {Snapshot}", value?.Snapshot?.Path ?? "none", how, snapshot.Path);
 
         // While the first run goes on, it reruns the stale growth tiles when it ends (review H6): it is not cancelled.
         if (!_runAll.IsCompleted || _running is not { } running)

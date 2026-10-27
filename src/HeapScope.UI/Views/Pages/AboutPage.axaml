@@ -27,6 +27,7 @@
              xmlns:vm="using:HeapScope.UI.ViewModels"
              x:Class="HeapScope.UI.Views.Pages.AboutPage"
              x:DataType="vm:AboutViewModel">
+  <ScrollViewer>
   <StackPanel Margin="4">
     <TextBlock FontSize="20" Text="About" Margin="0,0,0,12" />
     <TextBlock Text="{Binding ProductVersion}" />
@@ -41,5 +42,18 @@
     </StackPanel>
     <TextBlock Margin="0,16,0,0" TextWrapping="Wrap" Classes="subtle"
                Text="Memory dumps can contain secrets. HeapScope never uploads anything." />
+    <!-- Sprint 2.7: the one shortcut table, which the window also uses; F1 comes here. -->
+    <TextBlock x:Name="ShortcutsHeading" Text="Keyboard shortcuts" FontWeight="SemiBold" Margin="0,16,0,6" />
+    <ItemsControl x:Name="ShortcutList" ItemsSource="{Binding Shortcuts}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:Shortcut">
+          <Grid ColumnDefinitions="160,*" Margin="0,1">
+            <TextBlock Text="{Binding Gesture}" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="1" Text="{Binding Description}" TextWrapping="Wrap" />
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
   </StackPanel>
+  </ScrollViewer>
 </UserControl>

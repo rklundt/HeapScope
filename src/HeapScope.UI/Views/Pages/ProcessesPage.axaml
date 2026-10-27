@@ -50,14 +50,15 @@
                  Text="Processes marked 'Needs administrator' run elevated or as another user. To capture them, run HeapScope as administrator." />
     </Border>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
-    <DataGrid ItemsSource="{Binding Processes}" SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="True">
+    <DataGrid ItemsSource="{Binding Processes}" ctl:GridExports.ExportName="Processes" SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="True">
       <DataGrid.Columns>
         <DataGridTextColumn Header="PID" x:DataType="vm:ProcessRow" Binding="{Binding ProcessId}" Width="70" CellStyleClasses="number" />
         <DataGridTextColumn Header="Name" x:DataType="vm:ProcessRow" Binding="{Binding Name}" Width="200" />
         <DataGridTextColumn Header="Runtime" x:DataType="vm:ProcessRow" Binding="{Binding Runtime}" Width="130" />
         <DataGridTextColumn Header="Elevation" x:DataType="vm:ProcessRow" Binding="{Binding Elevation}" Width="140" />
         <DataGridTextColumn Header="Working set" x:DataType="vm:ProcessRow" Binding="{Binding WorkingSetBytes, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number" />
-        <DataGridTextColumn Header="Command line" x:DataType="vm:ProcessRow" Binding="{Binding CommandLine}" Width="*" />
+        <!-- A command line can carry secrets: an export leaves it out unless the person opts in (ADR-026, 2.7 review H1). -->
+        <DataGridTextColumn Header="Command line" x:DataType="vm:ProcessRow" Binding="{Binding CommandLine}" Width="*" ctl:GridExports.HasValues="True" />
       </DataGrid.Columns>
     </DataGrid>
   </DockPanel>

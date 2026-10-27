@@ -27,12 +27,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:pages="using:HeapScope.UI.Views.Pages"
              x:Class="HeapScope.UI.Views.Subjects.ObjectView"
              x:DataType="vm:ObjectViewModel">
   <DockPanel>
     <DockPanel DockPanel.Dock="Top" Margin="0,0,8,4">
       <Button DockPanel.Dock="Right" Content="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" VerticalAlignment="Top"
               ToolTip.Tip="What this object alone keeps alive, and what keeps it alive, on the Retainers tab" />
+      <!-- Sprint 2.7: the Snapshots page holds the bookmarks of every open snapshot. -->
+      <Button x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
+              Command="{Binding $parent[pages:SnapshotsPage].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
+              ToolTip.Tip="Mark this object, or remove its mark (Ctrl+D or Cmd+D). Bookmarks are listed on the left and kept for the next time the snapshot is opened." />
       <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
@@ -69,7 +74,7 @@
         <TabItem Header="Outgoing">
           <DockPanel Margin="0,4,0,0">
             <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Classes="subtle" />
-            <DataGrid x:Name="ReferencesGrid" CanUserSortColumns="False"
+            <DataGrid x:Name="ReferencesGrid" ctl:GridExports.ExportName="References" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding ReferenceRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Double-click or Enter opens the referenced object.">
               <DataGrid.Columns>
@@ -85,7 +90,7 @@
           <DockPanel Margin="0,4,0,0">
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
-            <DataGrid x:Name="IncomingGrid" CanUserSortColumns="False"
+            <DataGrid x:Name="IncomingGrid" ctl:GridExports.ExportName="Referrers" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding IncomingRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Double-click or Enter opens the referencing object.">
               <DataGrid.Columns>
@@ -113,7 +118,7 @@
             </WrapPanel>
             <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" Margin="0,0,0,4"
                       ToolTip.Tip="Runs of System and Microsoft objects between other steps are folded into one line unless shown." />
-            <DataGrid x:Name="KeyPathsGrid" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
+            <DataGrid x:Name="KeyPathsGrid" ctl:GridExports.ExportName="KeyRetentionPaths" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
                       ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
               <DataGrid.Columns>
