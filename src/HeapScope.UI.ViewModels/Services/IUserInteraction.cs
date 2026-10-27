@@ -33,6 +33,9 @@ public interface IUserInteraction
     /// <summary>Asks for a dump file; null when the user cancels.</summary>
     Task<string?> PickDumpFileAsync();
 
+    /// <summary>Asks for an allocation trace (.nettrace, sprint 2.5); null when the user cancels.</summary>
+    Task<string?> PickTraceFileAsync() => Task.FromResult<string?>(null);
+
     /// <summary>Asks a yes or no question; true for yes.</summary>
     Task<bool> ConfirmAsync(string title, string message);
 

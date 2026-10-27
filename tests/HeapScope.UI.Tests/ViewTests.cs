@@ -212,6 +212,77 @@ public sealed class ViewTests(UiSession ui) : IDisposable
     }
 
     [Fact]
+    public async Task The_allocations_page_shows_a_trace_and_its_tree_expands_with_the_keys()
+    {
+        await ui.RunAsync(async () =>
+        {
+            var (shell, worker) = Shell();
+            var allocations = shell.Allocations.ShouldNotBeNull();
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell) { Width = 1400, Height = 900 };
+            window.Show();
+            var path = Path.Combine(_folder, "app.nettrace");
+            await File.WriteAllBytesAsync(path, [1]);
+
+            await allocations.OpenPathAsync(path);
+            var trace = allocations.Selected.ShouldNotBeNull();
+            await trace.LoadTask;
+            await trace.Types.QueryTask;
+            await trace.Tree.QueryTask;
+            await Settle(trace.Types.Rows);
+            await Settle(trace.Tree.Rows);
+
+            shell.SelectedItem.Page.ShouldBe(allocations, "opening a trace shows the Allocations page");
+            var timeline = window.GetVisualDescendants().OfType<Controls.AllocationTimeline>().ShouldHaveSingleItem();
+            timeline.Buckets!.Count.ShouldBe(2);
+            timeline.Bounds.Width.ShouldBeGreaterThan(0);
+            Grid(window, "TypesGrid").GetVisualDescendants().OfType<DataGridRow>().Count().ShouldBe(2);
+            Grid(window, "StacksGrid").GetVisualDescendants().OfType<DataGridRow>().Count().ShouldBe(2);
+
+            // A drag across the timeline selects an interval for every view.
+            var left = timeline.TranslatePoint(new Point(timeline.Bounds.Width * 0.1, 20), window)!.Value;
+            var right = timeline.TranslatePoint(new Point(timeline.Bounds.Width * 0.6, 20), window)!.Value;
+            window.MouseDown(left, Avalonia.Input.MouseButton.Left);
+            window.MouseMove(right);
+            window.MouseUp(right, Avalonia.Input.MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            trace.Selection.ShouldNotBeNull();
+            await trace.LoadTask;
+            await trace.Tree.QueryTask;
+            await Settle(trace.Tree.Rows);
+            worker.Service.StackQueries[^1].ToSeconds.ShouldNotBeNull();
+
+            // Right expands the selected back trace in place, Left collapses it.
+            var tree = Grid(window, "TreeGrid");
+            tree.SelectedIndex = 0;
+            tree.Focus();
+            window.KeyPressQwerty(Avalonia.Input.PhysicalKey.ArrowRight, Avalonia.Input.RawInputModifiers.None);
+            window.KeyReleaseQwerty(Avalonia.Input.PhysicalKey.ArrowRight, Avalonia.Input.RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await trace.Tree.QueryTask;
+            await Settle(trace.Tree.Rows);
+            trace.Tree.Rows.Count.ShouldBe(3);
+            await trace.Tree.SelectTask;
+            Dispatcher.UIThread.RunJobs();
+            window.KeyPressQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
+            window.KeyReleaseQwerty(Avalonia.Input.PhysicalKey.ArrowLeft, Avalonia.Input.RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await trace.Tree.QueryTask;
+            await Settle(trace.Tree.Rows);
+            trace.Tree.Rows.Count.ShouldBe(2);
+
+            // The call tree.
+            trace.ShowCallTree = true;
+            await trace.Tree.QueryTask;
+            await Settle(trace.Tree.Rows);
+            trace.Tree.Rows.GetRow(0).Name.ShouldBe("App.Main");
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
+    [Fact]
     public async Task The_live_page_charts_samples_and_binds_cleanly()
     {
         await ui.RunAsync(() =>
@@ -277,6 +348,7 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             .AddSingleton<Application.Sessions.ICaptureService>(capture)
             .AddSingleton(new MonitorService(capture, new SyntheticCounterSource(0, perSecond: 1)))
             .AddSingleton(new Application.Sessions.SessionLibrary(Path.Combine(_folder, "sessions")))
+            .AddSingleton(sp => new Application.Allocations.AllocationSession(worker, jobs, new Application.Sessions.TraceService(), sp.GetRequiredService<Application.Sessions.SessionLibrary>()))
             .AddSingleton<IUiDispatcher>(ImmediateUiDispatcher.Instance)
             .AddSingleton<IUserInteraction>(new FakeUserInteraction())
             .AddHeapScopeViewModels()

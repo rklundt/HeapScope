@@ -57,7 +57,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _crashMessage;
 
-    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about, LiveViewModel? live = null)
+    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about, LiveViewModel? live = null, AllocationsViewModel? allocations = null)
     {
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -68,12 +68,19 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         [
             new NavigationItem("Home", Home),
             new NavigationItem("Snapshots", Snapshots),
+            .. allocations is null ? Array.Empty<NavigationItem>() : [new NavigationItem("Allocations", allocations)],
             new NavigationItem("Processes", processes ?? throw new ArgumentNullException(nameof(processes))),
             .. live is null ? Array.Empty<NavigationItem>() : [new NavigationItem("Live", live)],
             new NavigationItem("Jobs", JobsPage),
             new NavigationItem("About", about ?? throw new ArgumentNullException(nameof(about))),
         ];
         Live = live;
+        Allocations = allocations;
+        if (allocations is not null)
+        {
+            // A trace opened or recorded shows the Allocations page.
+            allocations.TraceShown += OnTraceShown;
+        }
         _selectedItem = NavigationItems[0];
 
         foreach (var job in operations.Jobs.Jobs)
@@ -104,12 +111,20 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>The Live page (sprint 1.7), when the host provides monitoring.</summary>
     public LiveViewModel? Live { get; }
 
+    /// <summary>The Allocations page (sprint 2.5), when the host has one.</summary>
+    public AllocationsViewModel? Allocations { get; }
+
     /// <summary>All jobs, newest first; the jobs panel and the Jobs page bind to it.</summary>
     public ObservableCollection<JobViewModel> Jobs { get; } = [];
 
     public void Dispose()
     {
         Snapshots.PropertyChanged -= OnSnapshotsPropertyChanged;
+        if (Allocations is not null)
+        {
+            Allocations.TraceShown -= OnTraceShown;
+        }
+
         Snapshots.Dispose();
         _operations.Jobs.JobAdded -= OnJobAdded;
         _operations.Jobs.JobChanged -= OnJobChanged;
@@ -158,6 +173,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             SelectedItem = NavigationItems[1];
         }
     }
+
+    private void OnTraceShown(object? sender, EventArgs e) =>
+        SelectedItem = NavigationItems.First(i => i.Page == Allocations);
 
     private void OnJobAdded(object? sender, TrackedJob job) => _dispatcher.Post(() => AddJob(job));
 

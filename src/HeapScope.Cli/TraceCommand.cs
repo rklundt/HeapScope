@@ -43,8 +43,12 @@ internal static partial class CliCommands
                 result.AddError("--duration must be 1 second or more.");
             }
         });
-        var profile = new Option<string>("--profile") { Description = "cpu: CPU samples with call stacks. gc: collections, pauses and sampled allocations.", DefaultValueFactory = _ => "cpu" };
-        profile.AcceptOnlyFromAmong("cpu", "gc");
+        var profile = new Option<string>("--profile")
+        {
+            Description = "cpu: CPU samples with call stacks. gc: collections, pauses and sampled allocations. allocations: sampled allocations with call stacks (read it with 'allocations').",
+            DefaultValueFactory = _ => "cpu",
+        };
+        profile.AcceptOnlyFromAmong("cpu", "gc", "allocations");
         var output = new Option<FileInfo?>("--out") { Description = "The .nettrace file to write; default: <process>-<pid>-<time>.nettrace in the current folder." };
 
         var command = new Command("trace", "Record an EventPipe trace of a running .NET process (read it with PerfView or Visual Studio). Ctrl+C stops the recording and keeps it.");
@@ -56,7 +60,12 @@ internal static partial class CliCommands
         {
             var processId = parseResult.GetValue(pid);
             var path = parseResult.GetValue(output)?.FullName ?? DefaultTracePath(processId);
-            var kind = parseResult.GetValue(profile) == "gc" ? TraceKind.Gc : TraceKind.Cpu;
+            var kind = parseResult.GetValue(profile) switch
+            {
+                "gc" => TraceKind.Gc,
+                "allocations" => TraceKind.Allocations,
+                _ => TraceKind.Cpu,
+            };
             await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"Recording {kind} trace of {processId} for {parseResult.GetValue(duration)} s (Ctrl+C stops)...")).ConfigureAwait(false);
             TraceResult result;
             try

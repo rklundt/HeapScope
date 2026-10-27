@@ -29,7 +29,7 @@ everything else.
 | 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
-| 2.5 | Allocation tracking | Planned | | |
+| 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
 | 2.6 | Smart leak detectors | Planned | | |
 | 2.7 | Navigation and polish | Planned | | |
 | 2.8 | Packaging and distribution | Planned | | |
@@ -2120,9 +2120,75 @@ diff the "new since the baseline" view that dumps alone cannot (ADR-018).
 Linux and macOS too, but the trace recorder attaches through capture's process discovery, Windows only until the Linux
 capture item; the sprint says which systems it covers.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously at /start-sprint, 2026-10-26; Phase 2 autonomy, one sprint at a time):
+1. Source: the runtime's `GCAllocationTick` events (one about every 100 KB allocated, with the type name, the bytes
+   since the last one and a call stack), recorded by a new `Allocations` trace profile. It works on .NET 6 and later
+   with no agent. Sizes are estimates: each sample stands for the bytes allocated since the previous one, so columns
+   say "sampled" and the CLI and UI say so once. .NET 10's randomized allocation sampling goes to the Backlog.
+2. The worker reads the trace (ADR-007: heavy data stays out of the front end), through a new loader project
+   `HeapScope.Loaders.Trace` (Core plus TraceEvent, like the other loaders). The model (`AllocationTrace`: frames, a
+   deduplicated stack tree, types, and per-sample time, stack, type and bytes) lives in Core; the aggregations in
+   Analysis. Protocol 13. A new ADR-028 records it.
+3. TraceEvent needs an `.etlx` file to resolve stacks: the worker writes it to a private temporary folder and deletes it
+   after reading; nothing is written next to the trace.
+4. Managed frames are named from the trace's own rundown (no symbol downloads, ADR-017); runs of unnamed native frames
+   collapse into one `[native code]` frame.
+5. Views (an Allocations page, one tab per opened trace): a timeline of sampled bytes per second where dragging selects
+   the interval; a Types grid; Back traces of the selected type (the allocating method, then its callers); a Call tree
+   (top-down) with Total and Own; Top call stacks. Trees are served flattened from the open keys like ADR-027's tree
+   (children by Total, 100 per page and a "more" row, a row limit).
+6. Recording from the UI: the Processes page gets "Record allocations" (30 s by default, stoppable), saved into the
+   session folder and opened when done; any `.nettrace` opens from the Allocations page's Open trace (its own picker,
+   so the dump picker stays for dumps). The CLI's `trace` takes
+   `--profile allocations`; a new `allocations <file>` command prints the top types and top call stacks of an interval.
+7. Linking a trace to the Compare tab ("allocated between the two snapshots") needs the trace and the snapshots on one
+   clock in the session record: Backlog, next to the 1.7 timeline item. Recording from the Live page goes with it.
+8. Platforms: reading and every view work on Windows, Linux and macOS; recording from the UI uses process discovery
+   (Windows only until the Linux capture item); the CLI records wherever the diagnostics port answers.
+9. Logs (ARCHITECTURE 11): each query logs its interval, filters and the rows it answered with (type and method names,
+   counts and bytes), so a disputed stack is traced from the UI action to the worker's answer; never event payloads
+   beyond type names and sizes.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**:
+1. [x] Recording: `TraceProfile.Allocations` and `TraceKind.Allocations` (GC events at verbose with loader and JIT
+   events, rundown on stop); CLI `trace --profile allocations`. Tests: providers unit test; an allocations trace of
+   LeakyApi holds allocation ticks with stacks (integration).
+2. [x] Model and reader: Core `AllocationTrace`; `HeapScope.Loaders.Trace` `AllocationTraceReader` (private `.etlx`
+   deleted after, native runs collapsed, progress and cancellation, bad files refused with a plain message); layering
+   rules updated. Tests: reader on a recorded trace, the `.etlx` is gone, a non-trace file is refused, architecture.
+3. [x] Analysis: `AllocationProfile` (timeline buckets, types over an interval, top stacks, call tree and back-trace
+   rows with paging and limits). Tests: synthetic traces with known answers.
+4. [x] Contracts and worker: protocol 13; open, close, timeline, types, stacks and tree queries; memory reservation;
+   provenance lines. Tests: worker tests, contract mirror.
+5. [x] Application and CLI: the trace handle in the session; recording into the session folder; `allocations`
+   command. Tests: application tests, CLI integration test.
+6. [x] UI: the Allocations page (timeline with interval selection, Types, Back traces, Call tree, Top call stacks),
+   Record allocations on the Processes page, `.nettrace` from the page's Open trace, a smoke step. Tests: view model and view
+   tests, the smoke run.
+7. [x] Acceptance and measurements: LeakyApi under LoadGen, its leaking allocation site in the top call stacks
+   (integration); reading time and peak for a long trace. Docs: ARCHITECTURE (code map, 4.4, ADR-028, 10, 11, 12),
+   DEVELOPER, CLAUDE.md.
+
+**Review summary** (docs/reviews/sprint-2.5.md): four reviewers (solution-architect, senior-dev, gc-specialist, and a
+support and system analyst). 4 High, 25 Moderate, 28 Low after dedupe; the re-review of the fixes added 3 Moderates and
+5 Lows, all fixed.
+- High, fixed and confirmed: managed frames without a name were shown as "[native code]" and merged, with nothing
+  saying why (now `[unresolved frame in <module>]`, counted, with the rundown and TraceEvent's conversion problems in
+  the descriptor, the log and the notes); the read's memory reservation rested on a misreported measurement (now
+  measured with the worker's GC settings on three traces: 96 MB plus 3 bytes per file byte); a trace was read again
+  after a worker restart without checking the file (now refused with `TraceChanged` when its size or write time
+  changed); the CLI labeled all-types totals as one type's.
+- Moderate (decided autonomously): 19 fixed now, among them one re-read per trace for concurrent queries, every stack
+  answered in the log with its stack node, the allocation kind per sample with LOH and POH columns, exact arrays and
+  pooled tree buffers, sorted samples and checked invariants, `.etlx` and partial-trace sweeps, a timeline bucket
+  limit, cancellation through the fast queries and the CLI's read, honest recording cancel and failure messages, one
+  meaning of %; 5 fixed in part with the rest in the Backlog or recorded (the conversion's cancellation, progress on
+  the fast queries, type id and module, the CLI's type text in the request line, more race tests); 1 deferred (one flattened-tree builder for the dominator and
+  allocation trees).
+- Measured (Release, the `allocations` benchmark with the worker's GC settings): a 72 MB, 600 s trace (565,625
+  samples) reads in 1.9 s with 227 MB of growth; whole-trace queries 2 to 13 ms. Acceptance: on LeakyApi under LoadGen
+  the leaking allocation sites are in the top call stacks, through the reader, the worker and the CLI (a 12 s trace
+  listed the five leaks' `Grow` methods as its top five stacks).
 
 ---
 
@@ -2327,6 +2393,20 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
   grid and the Compare tab; extract it when a third grid needs it.
 - Typed fake rows for the older fakes (2.3.7 M15 rest, from 2.4): the type, instance and reference fakes still take
   positional rows; the 2.4 fakes are typed.
+
+- From 2.5 (decided autonomously at /start-sprint and while building): Compare's "allocated between the two
+  snapshots" from a trace recorded between them, which needs traces in `session.json` on the snapshots' clock (with the
+  1.7 timeline item), and Record allocations on the Live page while monitoring; .NET 10's randomized allocation sampling
+  as a second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces (TraceEvent's
+  conversion cannot be canceled and holds about 2 bytes per file byte while it runs; 72 MB read in 1.9 s);
+  choosing a timeline interval from the keyboard (2.7's keyboard work). Compare's link also needs each tick's type id
+  and module (types are joined to diff rows by name and module; a trace keeps names only, ADR-028).
+- From the 2.5 review (decided autonomously): extract one flattened-tree builder (children order, batches, "more"
+  rows, the row limit) and one set of tree keys and limits in Contracts from the dominator and allocation trees when a
+  third tree arrives (2.6 or Compare's link), with their view models' shared parts (M5); progress on the timeline,
+  types and stacks queries (a protocol change; milliseconds on the traces measured) (M4); a tick's type id and module
+  for two types of one name (M6); the smoke step's interval and type checks (L17); the client logging which answers it
+  applied (L27).
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first

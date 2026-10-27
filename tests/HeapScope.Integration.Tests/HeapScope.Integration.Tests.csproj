@@ -9,7 +9,9 @@
     <!-- The loader and the index cache are tested in process against fixture dumps (sprint 1.2). -->
     <ProjectReference Include="..\..\src\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Loaders.GcDump\HeapScope.Loaders.GcDump.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Loaders.Trace\HeapScope.Loaders.Trace.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Analysis\HeapScope.Analysis.csproj" />
     <!-- Build order only: the tests start these executables from their own output folders. -->
     <!-- Referenced (sprint 2.2) so the text tree of `paths` is tested directly; the tests still run the built exe. -->
     <ProjectReference Include="..\..\src\HeapScope.Cli\HeapScope.Cli.csproj" />

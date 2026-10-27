@@ -147,6 +147,32 @@ public interface IWorkerService
     Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
+    /// <summary>
+    /// Reads the sampled allocations of an EventPipe trace (sprint 2.5, ADR-028). A file that is not a trace fails with
+    /// <see cref="HeapScopeErrorCode.SnapshotFormat"/>; one too large for the memory budget with
+    /// <see cref="HeapScopeErrorCode.InsufficientMemory"/>.
+    /// </summary>
+    Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>Closes a trace; closing an unknown trace does nothing.</summary>
+    Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sampled bytes per stretch of the trace. This and the other allocation queries fail with
+    /// <see cref="HeapScopeErrorCode.TraceNotLoaded"/> for an unknown trace and with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/> for an empty interval or a type no sample has.
+    /// </summary>
+    Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The types allocated in an interval, most sampled bytes first.</summary>
+    Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The call stacks with the most sampled bytes in an interval.</summary>
+    Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The call tree or back traces of an interval, flattened from the open keys.</summary>
+    Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 
     /// <summary>

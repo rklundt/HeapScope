@@ -68,7 +68,8 @@ internal static class WorkerErrors
     /// </summary>
     public static bool IsRefusal(HeapScopeErrorCode code) => code is HeapScopeErrorCode.CapabilityNotSupported
         or HeapScopeErrorCode.InvalidArgument or HeapScopeErrorCode.SnapshotChanged or HeapScopeErrorCode.SnapshotNotLoaded
-        or HeapScopeErrorCode.ResultSetNotFound or HeapScopeErrorCode.RuntimeComponentMissing or HeapScopeErrorCode.InsufficientMemory;
+        or HeapScopeErrorCode.ResultSetNotFound or HeapScopeErrorCode.RuntimeComponentMissing or HeapScopeErrorCode.InsufficientMemory
+        or HeapScopeErrorCode.TraceNotLoaded or HeapScopeErrorCode.SnapshotFormat;
 
     /// <summary>
     /// Runs an RPC method body, translating domain exceptions into coded errors. Every outcome except cancellation is
