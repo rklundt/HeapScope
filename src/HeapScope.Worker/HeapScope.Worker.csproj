@@ -11,6 +11,7 @@
     <ProjectReference Include="..\HeapScope.Storage\HeapScope.Storage.csproj" />
     <ProjectReference Include="..\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
     <ProjectReference Include="..\HeapScope.Loaders.GcDump\HeapScope.Loaders.GcDump.csproj" />
+    <ProjectReference Include="..\HeapScope.Loaders.Trace\HeapScope.Loaders.Trace.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="HeapScope.Worker.Tests" />

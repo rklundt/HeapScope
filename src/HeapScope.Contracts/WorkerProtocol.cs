@@ -42,7 +42,9 @@ public static class WorkerProtocol
     /// trace context (StreamJsonRpc activity tracing).
     /// Version 12 (sprint 2.4): the dominator tree query, exact set retention, columns that say whether their values are
     /// lower bounds. ARCHITECTURE.md 4.4 has the details.
-    public const int Version = 12;
+    /// Version 13 (sprint 2.5): allocation traces (open, close, timeline, types, stacks, call tree and back traces), the
+    /// estimate value bound and the trace error code.
+    public const int Version = 13;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

@@ -87,6 +87,9 @@ public enum ValueBound
 
     /// <summary>The true value is at least this.</summary>
     LowerBound = 1,
+
+    /// <summary>Estimated from samples, such as an allocation trace's bytes (sprint 2.5).</summary>
+    Estimate = 2,
 }
 
 /// <summary>What a value bound means, said the same way by every front end (sprint 2.4, 2.3.7 review M7).</summary>
@@ -102,7 +105,12 @@ public static class ValueBoundTexts
     public const string Exact = "Exactly this much: what each row alone keeps alive; rows side by side never share.";
 
     /// <summary>The note for <paramref name="bound"/>.</summary>
-    public static string For(ValueBound bound) => bound == ValueBound.LowerBound ? LowerBound : Exact;
+    public static string For(ValueBound bound) => bound switch
+    {
+        ValueBound.LowerBound => LowerBound,
+        ValueBound.Estimate => AllocationTexts.Sampled,
+        _ => Exact,
+    };
 
     /// <summary>How the dominators were obtained, said the same way by the UI and the CLI.</summary>
     public static string DominatorsSource(bool fromSidecar) => fromSidecar ? "read from the saved index" : "computed";

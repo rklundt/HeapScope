@@ -53,4 +53,7 @@ public enum HeapScopeErrorCode
 
     /// <summary>A reopen that requires the index cache found it missing or invalid: the file changed since it was opened.</summary>
     SnapshotChanged = 1011,
+
+    /// <summary>The allocation trace is not open in the worker: closed, or the worker restarted (sprint 2.5).</summary>
+    TraceNotLoaded = 1012,
 }

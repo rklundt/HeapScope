@@ -570,6 +570,18 @@ internal sealed class FakeWorkerService : IWorkerService
     public List<string> InspectionRuns { get; } = [];
 
     /// <summary>When set, inspection runs wait for it (or their cancellation).</summary>
+    public Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
     public TaskCompletionSource? InspectionGate { get; set; }
 
     public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) =>
