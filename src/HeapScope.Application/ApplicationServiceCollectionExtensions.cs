@@ -68,6 +68,13 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<Capture.GcDumpCapturer>()));
         services.AddSingleton<Sessions.ICaptureService>(sp => sp.GetRequiredService<Sessions.CaptureService>());
         services.AddSingleton<Sessions.TraceService>();
+        services.AddSingleton(sp => new Allocations.AllocationSession(
+            sp.GetRequiredService<IWorkerClient>(),
+            sp.GetRequiredService<JobTracker>(),
+            sp.GetRequiredService<Sessions.TraceService>(),
+            sp.GetRequiredService<Sessions.SessionLibrary>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Allocations.AllocationSession>>()));
         services.TryAddSingleton<Monitoring.ICounterSource, Monitoring.EventPipeCounterSource>();
         services.AddSingleton(sp => new Monitoring.MonitorService(
             sp.GetRequiredService<Sessions.ICaptureService>(),

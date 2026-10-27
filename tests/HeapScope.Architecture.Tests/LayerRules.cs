@@ -41,6 +41,9 @@ internal static class LayerRules
         ["HeapScope.Loaders.ClrMd"] = new(["HeapScope.Core"], ["Microsoft.Diagnostics.Runtime"]),
         ["HeapScope.Loaders.GcDump"] = new(["HeapScope.Core", "HeapScope.ThirdParty.GcDump"], ["Microsoft.Diagnostics.Tracing.TraceEvent"]),
 
+        // Allocation traces (sprint 2.5, ADR-028): EventPipe traces read with TraceEvent.
+        ["HeapScope.Loaders.Trace"] = new(["HeapScope.Core"], ["Microsoft.Diagnostics.Tracing.TraceEvent"]),
+
         // Vendored gcdump reader and writer (sprint 1.8, THIRD-PARTY-NOTICES.md): diagnostics libraries only.
         ["HeapScope.ThirdParty.GcDump"] = new(
             [],
@@ -50,7 +53,7 @@ internal static class LayerRules
         ["HeapScope.Worker"] = new(
             [
                 "HeapScope.Core", "HeapScope.Contracts", "HeapScope.Analysis", "HeapScope.Storage",
-                "HeapScope.Loaders.ClrMd", "HeapScope.Loaders.GcDump",
+                "HeapScope.Loaders.ClrMd", "HeapScope.Loaders.GcDump", "HeapScope.Loaders.Trace",
             ],
             ["StreamJsonRpc"]),
         ["HeapScope.Application"] = new(

@@ -36,6 +36,12 @@ public enum TraceProfile
 
     /// <summary>Garbage collections, their pauses and allocation ticks (sampled allocations).</summary>
     Gc = 1,
+
+    /// <summary>
+    /// Sampled allocations with call stacks (sprint 2.5): allocation ticks, one about every 100 KB allocated, plus the
+    /// loader and JIT events and the rundown that name the methods on the stacks.
+    /// </summary>
+    Allocations = 2,
 }
 
 /// <summary>A trace that was written.</summary>
@@ -52,6 +58,8 @@ public static class TraceRecorder
 {
     private const long RuntimeDefaultKeywords = 0x14C14FCCBD;
     private const long GcKeyword = 0x1;
+    private const long LoaderKeyword = 0x8;
+    private const long JitKeyword = 0x10;
     private const long SampleProfilerKeywords = unchecked((long)0xF00000000000);
 
     /// <summary>The EventPipe providers of a profile.</summary>
@@ -60,6 +68,12 @@ public static class TraceRecorder
         TraceProfile.Gc =>
         [
             new("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, GcKeyword),
+        ],
+        TraceProfile.Allocations =>
+        [
+            // Allocation ticks are verbose GC events; EventPipe records a stack with each one. Loader and JIT events name
+            // the modules and the methods compiled while recording; the rundown on stop names the rest.
+            new("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, GcKeyword | LoaderKeyword | JitKeyword),
         ],
         _ =>
         [

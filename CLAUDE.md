@@ -80,10 +80,11 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
   `inspect <dump> [<name>] [--top|--all] [--format]`, `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
   [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]
-  [--profile cpu|gc] [--out]`, `worker ping`, `worker info`, `synthetic --objects N`)
+  [--profile cpu|gc|allocations] [--out]`, `allocations <trace> [--from] [--to] [--type] [--types] [--stacks]
+  [--frames] [--view summary|types|stacks] [--format]`, `worker ping`, `worker info`, `synthetic --objects N`)
 - UI smoke runs: `HeapScope --smoke-synthetic N`, `--smoke-live N` or `--smoke-open <dump> [--smoke-compare <dump>]
-  [--smoke-trace <file>]`, with `--headless` where there is no display (exit 0 ok, 3 lag, 4 failed, 5 first window
+  [--smoke-allocations <trace>] [--smoke-trace <file>]`, with `--headless` where there is no display (exit 0 ok, 3 lag, 4 failed, 5 first window
   over 30 s, 6 a grid walked a whole row list). Measure untraced; traces are for finding where time goes. Sample dumps
   of a runtime no longer installed need `--Symbols:DacFolder` (DEVELOPER.md 2).
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <name>` (`graph-build`, `dump-stats`,
-  `stack-roots`, `index-cache`, `load-dump`, `phase2-indices`, `reverse-index --cache <hsidx>`, `retention --cache <hsidx>`, `dominators --cache <hsidx> [--mode mapped]`, `trace-report --trace <file>`)
+  `stack-roots`, `index-cache`, `load-dump`, `phase2-indices`, `reverse-index --cache <hsidx>`, `retention --cache <hsidx>`, `dominators --cache <hsidx> [--mode mapped]`, `allocations --trace <file>`, `trace-report --trace <file>`)

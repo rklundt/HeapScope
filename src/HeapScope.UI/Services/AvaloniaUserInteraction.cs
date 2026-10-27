@@ -40,6 +40,12 @@ public sealed class AvaloniaUserInteraction(Func<Window?> owner) : IUserInteract
         new("All files") { Patterns = ["*"] },
     ];
 
+    private static readonly FilePickerFileType[] s_traceTypes =
+    [
+        new("Allocation traces") { Patterns = ["*.nettrace"] },
+        new("All files") { Patterns = ["*"] },
+    ];
+
     public async Task<string?> PickDumpFileAsync()
     {
         if (owner() is not { } window)
@@ -52,6 +58,22 @@ public sealed class AvaloniaUserInteraction(Func<Window?> owner) : IUserInteract
             Title = "Open a memory dump",
             AllowMultiple = false,
             FileTypeFilter = s_dumpTypes,
+        });
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
+    public async Task<string?> PickTraceFileAsync()
+    {
+        if (owner() is not { } window)
+        {
+            return null;
+        }
+
+        var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open an allocation trace",
+            AllowMultiple = false,
+            FileTypeFilter = s_traceTypes,
         });
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }

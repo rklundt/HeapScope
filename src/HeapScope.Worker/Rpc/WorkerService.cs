@@ -42,6 +42,7 @@ internal sealed partial class WorkerService(
     WorkerOptions options,
     ResultSetStore resultSets,
     SnapshotStore snapshots,
+    HeapScope.Worker.Traces.TraceStore traces,
     IHostApplicationLifetime lifetime,
     ILogger<WorkerService> logger) : IWorkerService
 {

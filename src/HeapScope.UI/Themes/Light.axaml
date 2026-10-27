@@ -45,6 +45,9 @@
   <SolidColorBrush x:Key="Icicle.Bar1" Color="#FFB6D4F2" />
   <SolidColorBrush x:Key="Icicle.Bar2" Color="#FF9CC3EA" />
   <SolidColorBrush x:Key="Icicle.Path" Color="#FFF2C46D" />
+  <!-- Allocations timeline (sprint 2.5): the bars and the selected interval, green as in the dotMemory research. -->
+  <SolidColorBrush x:Key="Allocation.Bar" Color="#FF6FA3D6" />
+  <SolidColorBrush x:Key="Allocation.Interval" Color="#5548B860" />
   <SolidColorBrush x:Key="HeapKind.Unknown" Color="#FF9E9E9E" />
   <SolidColorBrush x:Key="HeapKind.Gen0" Color="#FF4CAF50" />
   <SolidColorBrush x:Key="HeapKind.Gen1" Color="#FF2196F3" />

@@ -48,6 +48,8 @@ internal static class WorkerVersions
             $"root paths {PathRoots.SemanticsVersion}",
             $"dominator tree {DominatorTree.SemanticsVersion}",
             $"ClrMD {ClrMdDumpLoader.LibraryVersion}",
+            $"allocation trace reader {HeapScope.Loaders.Trace.AllocationTraceReader.Version}",
+            $"TraceEvent {HeapScope.Loaders.Trace.AllocationTraceReader.LibraryVersion}",
             "inspections " + string.Join(", ", InspectionCatalog.All.Select(i => string.Create(CultureInfo.InvariantCulture, $"{i.Name} v{i.Version}"))),
         ]);
 }

@@ -33,6 +33,9 @@ public enum TraceKind
 
     /// <summary>Garbage collections, their pauses and sampled allocations.</summary>
     Gc = 1,
+
+    /// <summary>Sampled allocations with call stacks (sprint 2.5), for the Allocations page and the <c>allocations</c> command.</summary>
+    Allocations = 2,
 }
 
 /// <summary>A trace that was written.</summary>

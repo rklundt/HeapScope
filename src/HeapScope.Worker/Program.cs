@@ -76,6 +76,7 @@ if (options is not null)
     builder.Services.AddSingleton(new ResultSetStore());
     builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator());
     builder.Services.AddSingleton<HeapScope.Worker.Snapshots.SnapshotStore>();
+    builder.Services.AddSingleton<HeapScope.Worker.Traces.TraceStore>();
     builder.Services.AddSingleton<WorkerService>();
     builder.Services.AddHostedService<ParentProcessWatcher>();
     builder.Services.AddHostedService<WorkerRpcServer>();

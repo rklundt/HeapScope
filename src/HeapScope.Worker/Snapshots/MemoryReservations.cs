@@ -73,6 +73,25 @@ internal sealed class MemoryReservations(Func<MemoryBudget>? budget = null, Func
         return new Reservation(this, bytes);
     }
 
+    /// <summary>
+    /// Reserves <paramref name="bytes"/> for work that belongs to no snapshot (sprint 2.5: allocation traces), refusing with
+    /// <paramref name="nextStep"/> as the plain-language next step.
+    /// </summary>
+    public IDisposable Reserve(long bytes, string what, string nextStep)
+    {
+        lock (_gate)
+        {
+            if (Refusal(bytes, what, _budget(), _committed() + _reserved, nextStep) is { } refusal)
+            {
+                throw new InsufficientMemoryException(refusal);
+            }
+
+            _reserved += bytes;
+        }
+
+        return new Reservation(this, bytes);
+    }
+
     /// <summary>Throws like <see cref="Reserve"/> when <paramref name="bytes"/> would not fit now, reserving nothing.</summary>
     public void Check(long bytes, string what, MemoryMode graphMode, bool hasCache) =>
         Reserve(bytes, what, graphMode, hasCache).Dispose();
@@ -94,6 +113,19 @@ internal sealed class MemoryReservations(Func<MemoryBudget>? budget = null, Func
         var next = graphMode == MemoryMode.InMemory && hasCache
             ? "Close other snapshots, or open this one mapped, and try again."
             : "Close other snapshots or other applications, and try again.";
+        return Refusal(needed, what, budget, committedBytes, next);
+    }
+
+    /// <summary>Why <paramref name="needed"/> bytes do not fit (null when they do), with <paramref name="next"/> as the next step.</summary>
+    internal static string? Refusal(long needed, string what, MemoryBudget budget, long committedBytes, string next)
+    {
+        ArgumentNullException.ThrowIfNull(budget);
+        var room = Math.Min(budget.AvailableBytes, (long)(budget.TotalPhysicalBytes * budget.Fraction) - committedBytes);
+        if (needed <= room)
+        {
+            return null;
+        }
+
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{what} needs about {needed / (1024 * 1024):N0} MB, and the analysis worker has {Math.Max(0, room) / (1024 * 1024):N0} MB left of its memory budget. {next}");

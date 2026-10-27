@@ -128,4 +128,26 @@ public class ContractMirrorTests
             HeapScope.Analysis.Retention.DominatorTreeRows.TrailHead,
             HeapScope.Analysis.Retention.DominatorTreeRows.TrailTail));
     }
+
+    [Fact]
+    public void The_allocation_trees_wire_vocabulary_mirrors_the_analysis()
+    {
+        // Sprint 2.5: Contracts owns the allocation trees' kinds, keys and limits; Analysis mirrors them.
+        Enum.GetValues<AllocationTreeKindDto>().ToDictionary(v => v.ToString(), v => (int)v)
+            .ShouldBe(Enum.GetValues<HeapScope.Analysis.Allocations.AllocationTreeKind>().ToDictionary(v => v.ToString(), v => (int)v));
+        Enum.GetNames<HeapScope.Analysis.Allocations.AllocationRowKind>().ShouldBe([AllocationRowKinds.Frame, AllocationRowKinds.More], ignoreOrder: true);
+
+        HeapScope.Analysis.Allocations.AllocationTreeRows.RootKey.ShouldBe(AllocationTreeKeys.Root);
+        var nodeKey = HeapScope.Analysis.Allocations.AllocationTreeRows.NodeKey(12);
+        nodeKey.ShouldBe(AllocationTreeKeys.Node(12));
+        var backTrace = HeapScope.Analysis.Allocations.AllocationTreeRows.BackTraceKey(AllocationTreeKeys.Root, 7);
+        backTrace.ShouldBe(AllocationTreeKeys.BackTrace(AllocationTreeKeys.Root, 7));
+        HeapScope.Analysis.Allocations.AllocationTreeRows.BackTraceKey(backTrace, 3).ShouldBe(AllocationTreeKeys.BackTrace(backTrace, 3));
+        HeapScope.Analysis.Allocations.AllocationTreeRows.MoreKey(nodeKey, 100).ShouldBe(AllocationTreeKeys.More(nodeKey, 100));
+        HeapScope.Analysis.Allocations.AllocationTreeRows.MoreKey(AllocationTreeKeys.Root, 100).ShouldBe(AllocationTreeKeys.More(AllocationTreeKeys.Root, 100));
+
+        (AllocationTreeLimits.MaxRows, AllocationTreeLimits.MaxDepth).ShouldBe((
+            HeapScope.Analysis.Allocations.AllocationTreeRows.MaxRows,
+            HeapScope.Analysis.Allocations.AllocationTreeRows.MaxDepth));
+    }
 }
