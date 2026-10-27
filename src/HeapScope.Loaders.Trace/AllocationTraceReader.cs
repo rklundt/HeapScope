@@ -88,11 +88,11 @@ public static class AllocationTraceReader
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
             {
-                conversion.Flush();
+                conversion.EndLine();
                 throw new SnapshotFormatException($"{fullPath} could not be read as an EventPipe trace: {ex.Message} The recording may have been cut short; record it again.", ex);
             }
 
-            conversion.Flush();
+            conversion.EndLine();
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report("Reading allocation samples");
             using var log = new TraceLog(etlx);
@@ -164,7 +164,7 @@ public static class AllocationTraceReader
         {
             if (value == '\n')
             {
-                Flush();
+                EndLine();
             }
             else if (_line.Length < 1000)
             {
@@ -172,7 +172,8 @@ public static class AllocationTraceReader
             }
         }
 
-        public override void Flush()
+        /// <summary>Ends the line in progress (TraceEvent may flush in the middle of one, so a flush does not).</summary>
+        public void EndLine()
         {
             var line = _line.ToString().Trim();
             _line.Clear();

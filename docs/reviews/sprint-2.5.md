@@ -6,7 +6,7 @@ result a user contests). Moderates follow the lead engineer's recommendation (pr
 for moderate recommendations"), marked "decided autonomously". The first solution-architect run stalled without a
 report and was run again with a narrower brief.
 
-Totals after dedupe: 4 High, 25 Moderate, 28 Low. A finding raised by more than one reviewer is merged and keeps the
+Totals after dedupe: 4 High, 25 Moderate, 28 Low (the re-review of the fixes added 3 Moderates and 5 Lows, all fixed). A finding raised by more than one reviewer is merged and keeps the
 highest severity.
 
 The reviewers confirmed:
@@ -110,7 +110,23 @@ The reviewers confirmed:
 
 ## Confirmations
 
-To be recorded after the reviewers re-read the fixes.
+The fixes went back to the reviewers who raised them (2026-10-26), who re-read the code and tests:
+- gc-specialist: H1 and H2 confirmed (H2 after the third trace was measured with the worker's GC settings; margin about
+  1.4 times the measured growth); M6, M17, M20, M23, M24 confirmed, M2 in part (recorded above). Raised N1 (the
+  standing reservation per open trace counted its arrays twice: removed), N2 (the no-samples message named one cause:
+  it names both now) and N3 (the conversion log was held whole: a counting writer keeps three lines), all confirmed.
+  Lows left: sizes above 72 MB are extrapolated (section 10 says so); the writer now ends lines only at a newline.
+- support: H1, H3 and H4 confirmed (its H1 to H3). Raised a new Moderate, the CLI printing whole-trace totals as an
+  interval's (`allTypes` fell back to the descriptor): fixed, no fallback; its usage check refused a plain
+  `--view types`, which a new CLI test run now covers. Its two Lows (a failed delete logged as done; no test that a
+  healthy trace has no conversion problems) confirmed fixed.
+- solution-architect: M1, M3 and Lows 8, 9, 11 confirmed; M2, M4, M6, M7 in part; M5 once its Backlog entry was added.
+  Raised two Lows, both fixed: a tab closed during a re-read left the new read open; the standing reservation (also
+  gc-specialist's N1).
+- senior-dev: M1, M2, M4, M5, M7, M8 confirmed; M3, M6, M9 in part (a cancel while reading now deletes the recording
+  too). No new High or Moderate. Lows fixed from it: the sweep's errors are caught and logged; a trace's descriptor and
+  generation change as one reference.
+- H1 to H4 are Fixed and confirmed.
 
 ## Low / Trivial (listed only)
 

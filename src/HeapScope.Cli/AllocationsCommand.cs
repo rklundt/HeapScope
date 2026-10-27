@@ -107,7 +107,8 @@ internal static partial class CliCommands
                 result.AddError("--type narrows the call stacks; the types view lists every type. Use --view stacks or summary with --type.");
             }
 
-            if (shown == "types" && result.GetValue(types) == 0)
+            // Only an explicit --types 0: left at its default, it has no value here (the 2.5 re-review).
+            if (shown == "types" && result.GetResult(types) is { Implicit: false } && result.GetValue(types) == 0)
             {
                 result.AddError("The types view needs --types 1 or more.");
             }

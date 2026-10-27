@@ -295,6 +295,10 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         csvCode.ShouldBe(0, csv);
         csv.ShouldContain("Rank,Bytes,Samples,Percent,Frames");
 
+        var (typesCode, typesOnly) = await RunCliAsync("allocations", _shared.TracePath, "--view", "types");
+        typesCode.ShouldBe(0, typesOnly);
+        typesOnly.ShouldContain("All types from");
+
         var (usageCode, usage) = await RunCliAsync("allocations", _shared.TracePath, "--format", "csv");
         usageCode.ShouldBe(64, usage);
 
