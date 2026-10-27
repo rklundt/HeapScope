@@ -136,7 +136,7 @@ internal sealed class TypeDiffSource : IResultSource
         var goneRows = rows.Count(r => r.IsGone);
         if (!string.IsNullOrWhiteSpace(request.Filter))
         {
-            rows.RemoveAll(r => !NameFilter.IsMatch(r.Name, request.Filter));
+            rows.RemoveAll(r => !NameFilter.IsMatch(r.Name, r.Module, request.Filter));
         }
 
         sort.Sort(rows, sortColumn, request.Descending);

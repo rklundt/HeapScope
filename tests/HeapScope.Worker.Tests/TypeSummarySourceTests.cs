@@ -117,6 +117,14 @@ public sealed class TypeSummarySourceTests : IDisposable
     public void Dispose() => _graph.Dispose();
 
     [Fact]
+    public void Filter_terms_combine_and_a_module_term_tests_the_module()
+    {
+        Names(Create(new TypeSummaryRequest(Guid.Empty, Filter: "m:app.dll -customer"))).ShouldBe(["App.Cache.Entry", "App.Model.Order"]);
+        Names(Create(new TypeSummaryRequest(Guid.Empty, Filter: "-module:app"))).ShouldBe(["System.Byte[]"]);
+        Names(Create(new TypeSummaryRequest(Guid.Empty, TypeGrouping.Namespace, Filter: "module:app"))).ShouldBeEmpty("namespace groups have no module");
+    }
+
+    [Fact]
     public void Link_columns_are_flagged_hidden_and_no_column_carries_values()
     {
         var columns = Create(new TypeSummaryRequest(Guid.Empty)).Columns;

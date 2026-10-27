@@ -119,6 +119,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         _session.SnapshotsChanged += OnSnapshotsChanged;
         Types = new TypeSummaryViewModel(session, dispatcher, loggers?.CreateLogger<TypeSummaryViewModel>(), this);
         Navigator = new NavigatorViewModel(session, Types, this, loggers);
+        Navigator.StepShown += OnStepShown;
         Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>(), this);
         Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>(), this);
         Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this, loggers?.CreateLogger<RetainedBySetViewModel>());
@@ -145,8 +146,10 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
         if (target.Kind is NavigationKind.Retainers or NavigationKind.RetainedBySet)
         {
-            // The target first, so showing the tab queries what it asks for rather than the biggest retainers.
+            // The target first, so showing the tab queries what it asks for rather than the biggest retainers. The link is a
+            // step of the analysis path (sprint 2.7), replayed when it is chosen again.
             Retainers.Navigate(target);
+            Navigator.Record(target);
             Tab = SnapshotTabs.Retainers;
             return;
         }
@@ -172,7 +175,11 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
     /// <summary>The selected snapshot's dominator tree, icicle and set retention (sprint 2.4); queried when the tab is shown.</summary>
     public RetainersViewModel Retainers { get; }
 
-    public void Dispose() => _session.SnapshotsChanged -= OnSnapshotsChanged;
+    public void Dispose()
+    {
+        _session.SnapshotsChanged -= OnSnapshotsChanged;
+        Navigator.StepShown -= OnStepShown;
+    }
 
     /// <summary>
     /// Opens <paramref name="path"/>: asks first when a first load may not fit in available memory (Application decides,
@@ -244,7 +251,8 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
     partial void OnSelectedChanged(SnapshotItemViewModel? value)
     {
-        Navigator.Reset();
+        // Each snapshot keeps its analysis path while it is open (sprint 2.7).
+        Navigator.Show(value?.Handle);
         Types.Show(value?.Handle);
         Inspections.Show(value?.Handle);
         Retainers.Show(value?.Handle);
@@ -259,6 +267,20 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
     private void OnSnapshotsChanged(object? sender, EventArgs e) => _dispatcher.Post(Refresh);
 
+    // Back, Forward or the sidebar showed a step: show its tab, replaying a Retainers link (sprint 2.7).
+    private void OnStepShown(object? sender, AnalysisStep step)
+    {
+        if (step.Target is { } target)
+        {
+            Retainers.Navigate(target);
+            Tab = SnapshotTabs.Retainers;
+        }
+        else
+        {
+            Tab = SnapshotTabs.Snapshot;
+        }
+    }
+
     private void Refresh()
     {
         var handles = _session.Snapshots;
@@ -266,6 +288,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         {
             if (!handles.Contains(Snapshots[i].Handle))
             {
+                Navigator.Forget(Snapshots[i].Handle);
                 Snapshots.RemoveAt(i);
             }
         }

@@ -56,8 +56,8 @@
       <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
       <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
-      <TextBox Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
-               ToolTip.Tip="Substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything." />
+      <TextBox x:Name="FilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+               ToolTip.Tip="Terms separated by spaces must all match. Each is a substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything. -term leaves out matches; module:name (m:name) matches the module. Ctrl+F (Cmd+F) comes here." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
     </WrapPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />

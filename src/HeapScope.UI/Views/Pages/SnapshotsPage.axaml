@@ -26,6 +26,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:pages="using:HeapScope.UI.Views.Pages"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              x:Class="HeapScope.UI.Views.Pages.SnapshotsPage"
              x:DataType="vm:SnapshotsViewModel">
   <DockPanel Margin="4">
@@ -35,16 +36,39 @@
       <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
       <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" MaxWidth="600" />
     </StackPanel>
-    <ListBox DockPanel.Dock="Left" Width="260" Margin="0,0,16,0" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Selected, Mode=TwoWay}">
-      <ListBox.ItemTemplate>
-        <DataTemplate x:DataType="vm:SnapshotItemViewModel">
-          <StackPanel Margin="2,4">
-            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" />
-            <TextBlock Text="{Binding Process}" Classes="subtle" FontSize="11" TextTrimming="CharacterEllipsis" />
-          </StackPanel>
-        </DataTemplate>
-      </ListBox.ItemTemplate>
-    </ListBox>
+    <!-- The open snapshots, the selected one's analysis path (sprint 2.7) and the bookmarks of every open snapshot. -->
+    <Grid DockPanel.Dock="Left" Width="260" Margin="0,0,16,0" RowDefinitions="Auto,*,Auto,2*,Auto,*">
+      <ListBox Grid.Row="0" x:Name="SnapshotList" MaxHeight="220" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+               AutomationProperties.Name="Open snapshots">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:SnapshotItemViewModel">
+            <StackPanel Margin="2,4">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" />
+              <TextBlock Text="{Binding Process}" Classes="subtle" FontSize="11" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="2" Text="Analysis path" FontWeight="SemiBold" Margin="0,12,0,4"
+                 ToolTip.Tip="Every step taken in this snapshot. Opening something from an earlier step starts a branch; the later steps stay. Ctrl+L (Cmd+L) comes here." />
+      <ListBox Grid.Row="3" x:Name="PathList" DataContext="{Binding Navigator}" x:DataType="vm:NavigatorViewModel"
+               ItemsSource="{Binding Steps}" SelectedItem="{Binding CurrentStep, Mode=TwoWay}" AutomationProperties.Name="Analysis path">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:AnalysisStep">
+            <DockPanel Margin="{Binding Depth, Converter={x:Static ctl:IndentConverter.Instance}}">
+              <Button DockPanel.Dock="Right" Content="x" Padding="4,0" Margin="4,0,0,0" FontSize="11"
+                      IsVisible="{Binding Parent, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Command="{Binding $parent[ListBox].((vm:NavigatorViewModel)DataContext).CloseStepCommand}" CommandParameter="{Binding}"
+                      ToolTip.Tip="Close this step and the steps opened from it" />
+              <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+            </DockPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="4" Text="Bookmarks" FontWeight="SemiBold" Margin="0,12,0,4"
+                 ToolTip.Tip="Objects marked with Ctrl+D (Cmd+D) in any open snapshot; kept for the next time the snapshot is opened." />
+      <ContentControl Grid.Row="5" x:Name="BookmarksHost" />
+    </Grid>
     <TabControl SelectedIndex="{Binding SelectedTab, Mode=TwoWay}">
       <TabItem Header="Snapshot">
         <pages:SnapshotTab />

@@ -24,44 +24,131 @@
 namespace HeapScope.Contracts;
 
 /// <summary>
-/// The type-to-filter rules (sprint 1.3), shared by the worker (which filters) and the UI (which highlights the matched
-/// characters), so both always agree. Not anchored. Smart case: an all lower-case filter ignores case; a filter with
-/// capitals is matched as typed. A filter with <c>*</c> matches any run of characters there (its parts appear in order,
-/// case-insensitive). A plain filter is a substring; a filter with capitals that is not found is also tried as
-/// CamelHumps: <c>SCE</c> or <c>StaCaEn</c> match <c>StaticCacheEntry</c> (each capital starts a word of the name).
+/// The type-to-filter rules (sprint 1.3, terms in 2.7), shared by the worker (which filters) and the UI (which highlights
+/// the matched characters), so both always agree. A filter is terms separated by spaces, all of which must match:
+/// <c>-term</c> leaves out names that match it; <c>module:text</c> (or <c>m:text</c>) matches the row's module instead of
+/// its name, and a row without a module does not match it. Each term is matched as in 1.3: not anchored; smart case (an
+/// all lower-case term ignores case, one with capitals is matched as typed); <c>*</c> matches any run of characters (its
+/// parts appear in order, case-insensitive); a plain term is a substring, and a term with capitals that is not found is
+/// also tried as CamelHumps: <c>SCE</c> or <c>StaCaEn</c> match <c>StaticCacheEntry</c> (each capital starts a word).
 /// </summary>
 public static class NameFilter
 {
-    /// <summary>True when <paramref name="name"/> matches <paramref name="filter"/> (an empty filter matches everything).</summary>
-    public static bool IsMatch(string name, string? filter) => Match(name, filter) is not null;
+    private static readonly string[] s_modulePrefixes = ["module:", "m:"];
+
+    /// <summary>True when <paramref name="name"/> matches <paramref name="filter"/> (an empty filter matches everything); a module term never matches.</summary>
+    public static bool IsMatch(string name, string? filter) => IsMatch(name, null, filter);
+
+    /// <summary>True when the row named <paramref name="name"/>, in <paramref name="module"/> (null or empty: none), matches every term.</summary>
+    public static bool IsMatch(string name, string? module, string? filter)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        foreach (var term in Terms(filter))
+        {
+            var target = term.OnModule ? module : name;
+            var matched = !string.IsNullOrEmpty(target) && MatchTerm(target, term.Text) is not null;
+            if (matched == term.Negated)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
-    /// The matched character ranges (start, length) in <paramref name="name"/>, or null when it does not match. An empty
-    /// filter matches with no ranges.
+    /// The matched character ranges (start, length) of the name terms in <paramref name="name"/>, in order, or null when a
+    /// name term rules it out. Module terms are not tested here. An empty filter matches with no ranges.
     /// </summary>
     public static IReadOnlyList<(int Start, int Length)>? Match(string name, string? filter)
     {
         ArgumentNullException.ThrowIfNull(name);
+        var ranges = new List<(int Start, int Length)>();
+        foreach (var term in Terms(filter))
+        {
+            if (term.OnModule)
+            {
+                continue;
+            }
+
+            var matched = MatchTerm(name, term.Text);
+            if (term.Negated)
+            {
+                if (matched is not null)
+                {
+                    return null;
+                }
+
+                continue;
+            }
+
+            if (matched is null)
+            {
+                return null;
+            }
+
+            ranges.AddRange(matched);
+        }
+
+        ranges.Sort();
+        return ranges;
+    }
+
+    /// <summary>The filter's terms: text, whether it is negated, whether it tests the module.</summary>
+    public static IReadOnlyList<(string Text, bool Negated, bool OnModule)> Terms(string? filter)
+    {
         if (string.IsNullOrWhiteSpace(filter))
         {
             return [];
         }
 
-        filter = filter.Trim();
-        if (filter.Contains('*', StringComparison.Ordinal))
+        var terms = new List<(string, bool, bool)>();
+        foreach (var part in filter.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
         {
-            return MatchWildcard(name, filter);
+            var text = part;
+            var negated = text[0] == '-';
+            if (negated)
+            {
+                text = text[1..];
+            }
+
+            var onModule = false;
+            foreach (var prefix in s_modulePrefixes)
+            {
+                if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    text = text[prefix.Length..];
+                    onModule = true;
+                    break;
+                }
+            }
+
+            // A term still being typed ("-", "module:") filters nothing yet.
+            if (text.Length > 0)
+            {
+                terms.Add((text, negated, onModule));
+            }
         }
 
-        // Smart case: an all lower-case filter ignores case; one with capitals means them.
-        var smartCase = filter.Any(char.IsUpper);
-        var index = name.IndexOf(filter, smartCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+        return terms;
+    }
+
+    private static List<(int, int)>? MatchTerm(string name, string term)
+    {
+        if (term.Contains('*', StringComparison.Ordinal))
+        {
+            return MatchWildcard(name, term);
+        }
+
+        // Smart case: an all lower-case term ignores case; one with capitals means them.
+        var smartCase = term.Any(char.IsUpper);
+        var index = name.IndexOf(term, smartCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
         if (index >= 0)
         {
-            return [(index, filter.Length)];
+            return [(index, term.Length)];
         }
 
-        return smartCase ? MatchCamelHumps(name, filter) : null;
+        return smartCase ? MatchCamelHumps(name, term) : null;
     }
 
     private static List<(int, int)>? MatchWildcard(string name, string filter)
