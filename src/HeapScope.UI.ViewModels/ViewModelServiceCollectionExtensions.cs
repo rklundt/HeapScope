@@ -71,7 +71,8 @@ public static class ViewModelServiceCollectionExtensions
             sp.GetRequiredService<MonitorService>(),
             sp.GetRequiredService<ICaptureService>(),
             sp.GetRequiredService<IUiDispatcher>(),
-            sp.GetService<ILogger<LiveViewModel>>()));
+            sp.GetService<ILogger<LiveViewModel>>(),
+            sp.GetRequiredService<IUserInteraction>()));
         services.AddSingleton(sp => new GridExportService(
             sp.GetRequiredService<IUserInteraction>(),
             sp.GetService<ILogger<GridExportService>>()));

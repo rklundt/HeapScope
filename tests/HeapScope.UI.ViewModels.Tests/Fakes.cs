@@ -884,4 +884,21 @@ internal sealed class FakeUserInteraction : HeapScope.UI.Services.IUserInteracti
         Questions.Add(message);
         return Task.FromResult(Answer);
     }
+
+    /// <summary>Files asked to be opened or shown in their folder (the Live timeline).</summary>
+    public List<string> Opened { get; } = [];
+
+    public List<string> Shown { get; } = [];
+
+    public Task<bool> OpenFileAsync(string path)
+    {
+        Opened.Add(path);
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> ShowInFolderAsync(string path)
+    {
+        Shown.Add(path);
+        return Task.FromResult(true);
+    }
 }

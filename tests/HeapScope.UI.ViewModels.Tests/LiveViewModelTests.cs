@@ -40,13 +40,14 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "HeapScopeTests", Guid.NewGuid().ToString("N"));
     private readonly FeedSource _feed = new();
     private readonly FakeCaptureService _capture;
+    private readonly FakeUserInteraction _interaction = new();
     private readonly LiveViewModel _live;
 
     public LiveViewModelTests()
     {
         _capture = new FakeCaptureService(_root, new JobTracker(TimeProvider.System));
         _capture.Processes.Add(new ProcessEntry(42, "app", null, "10.0.0", ProcessElevation.NotElevated, false, null, null));
-        _live = new LiveViewModel(new MonitorService(_capture, _feed), _capture, new ImmediateUiDispatcher());
+        _live = new LiveViewModel(new MonitorService(_capture, _feed), _capture, new ImmediateUiDispatcher(), interaction: _interaction);
     }
 
     [Fact]
@@ -127,6 +128,57 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         await WaitUntilAsync(() => !_live.IsRunning);
         _live.Status!.ShouldStartWith("Stopped after 3 samples and 1 snapshots.");
         _live.StartCommand.CanExecute(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_stopped_runs_timeline_opens_shows_in_its_folder_and_deletes_after_asking()
+    {
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+        _live.StartCommand.Execute(null);
+        _live.HasTimeline.ShouldBeFalse("not while running");
+        await _feed.SendAsync(100 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.Samples.Count == 1);
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+
+        var path = _live.TimelinePath.ShouldNotBeNull();
+        File.Exists(path).ShouldBeTrue();
+        _live.Status!.ShouldNotContain(path, Case.Insensitive, "the path has its own row");
+        await _live.OpenTimelineCommand.ExecuteAsync(null);
+        await _live.ShowTimelineCommand.ExecuteAsync(null);
+        (_interaction.Opened.Single(), _interaction.Shown.Single()).ShouldBe((path, path));
+
+        _interaction.Answer = false;
+        await _live.DeleteTimelineCommand.ExecuteAsync(null);
+        File.Exists(path).ShouldBeTrue("declined");
+        _interaction.Questions.Single().ShouldContain(Path.GetFileName(path));
+
+        _interaction.Answer = true;
+        await _live.DeleteTimelineCommand.ExecuteAsync(null);
+        File.Exists(path).ShouldBeFalse();
+        (_live.TimelinePath, _live.HasTimeline, _live.Status).ShouldBe((null, false, "Timeline deleted."));
+        _live.OpenTimelineCommand.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_timeline_removed_outside_HeapScope_is_said_to_be_gone()
+    {
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+        _live.StartCommand.Execute(null);
+        await _feed.SendAsync(100 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.Samples.Count == 1);
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+        File.Delete(_live.TimelinePath.ShouldNotBeNull());
+
+        await _live.OpenTimelineCommand.ExecuteAsync(null);
+
+        _interaction.Opened.ShouldBeEmpty();
+        (_live.HasTimeline, _live.Status).ShouldBe((false, "The timeline file is no longer there."));
     }
 
     [Fact]
