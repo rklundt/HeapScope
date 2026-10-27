@@ -56,6 +56,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     private readonly MonitorService _monitor;
     private readonly ICaptureService _capture;
     private readonly IUiDispatcher _dispatcher;
+    private readonly IUserInteraction? _interaction;
     private readonly ILogger _logger;
     private readonly List<HeapSample> _samples = [];
     private readonly List<DateTimeOffset> _markers = [];
@@ -91,6 +92,14 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     private bool _isRunning;
 
+    /// <summary>The last run's timeline file once the run stopped, while it is there; null otherwise.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTimeline))]
+    [NotifyCanExecuteChangedFor(nameof(OpenTimelineCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowTimelineCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteTimelineCommand))]
+    private string? _timelinePath;
+
     [ObservableProperty]
     private string? _status;
 
@@ -104,8 +113,9 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     private int _chartVersion;
 
-    public LiveViewModel(MonitorService monitor, ICaptureService capture, IUiDispatcher dispatcher, ILogger<LiveViewModel>? logger = null)
+    public LiveViewModel(MonitorService monitor, ICaptureService capture, IUiDispatcher dispatcher, ILogger<LiveViewModel>? logger = null, IUserInteraction? interaction = null)
     {
+        _interaction = interaction;
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -117,6 +127,9 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<SnapshotCard> Snapshots { get; } = [];
 
     public IReadOnlyList<string> RearmModes { get; } = ["below", "once", "step"];
+
+    /// <summary>Whether the timeline row (its path, Open, Show in folder, Delete) is shown.</summary>
+    public bool HasTimeline => TimelinePath is not null;
 
     /// <summary>The chart's samples, oldest first (read on the UI thread).</summary>
     public IReadOnlyList<HeapSample> Samples => _samples;
@@ -179,6 +192,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         _samples.Clear();
         _markers.Clear();
         Snapshots.Clear();
+        TimelinePath = null;
         HighGcPressure = false;
         Latest = null;
         ChartVersion++;
@@ -203,6 +217,73 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop() => _run?.Stop();
+
+    private bool CanUseTimeline() => TimelinePath is not null && _interaction is not null;
+
+    [RelayCommand(CanExecute = nameof(CanUseTimeline))]
+    private async Task OpenTimelineAsync()
+    {
+        if (TimelineOrGone() is { } path)
+        {
+            var opened = await _interaction!.OpenFileAsync(path);
+            _logger.LogInformation("Timeline open asked: {Outcome}", opened ? "opened" : "no app");
+            if (!opened)
+            {
+                Status = "No app opened the timeline. It is a CSV file; Show in folder finds it.";
+            }
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanUseTimeline))]
+    private async Task ShowTimelineAsync()
+    {
+        if (TimelineOrGone() is { } path)
+        {
+            var shown = await _interaction!.ShowInFolderAsync(path);
+            _logger.LogInformation("Timeline show in folder asked: {Outcome}", shown ? "shown" : "failed");
+            if (!shown)
+            {
+                Status = "The folder could not be opened.";
+            }
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanUseTimeline))]
+    private async Task DeleteTimelineAsync()
+    {
+        if (TimelineOrGone() is not { } path
+            || !await _interaction!.ConfirmAsync("Delete the timeline", $"Delete {Path.GetFileName(path)}? This cannot be undone. The run's snapshots are kept."))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+            TimelinePath = null;
+            Status = "Timeline deleted.";
+            _logger.LogInformation("Timeline deleted");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The type only: the message holds the path, which names the session and the process.
+            _logger.LogWarning("Deleting the timeline failed: {Error}", ex.GetType().Name);
+            Status = "The timeline could not be deleted: " + ex.Message;
+        }
+    }
+
+    /// <summary>The timeline's path, or null after saying it is gone (deleted or moved outside HeapScope).</summary>
+    private string? TimelineOrGone()
+    {
+        if (TimelinePath is { } path && File.Exists(path))
+        {
+            return path;
+        }
+
+        TimelinePath = null;
+        Status = "The timeline file is no longer there.";
+        return null;
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -339,7 +420,8 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
             // The final status first: whoever sees IsRunning turn false (a test on another thread) then reads it.
             Status = ended ?? string.Create(CultureInfo.CurrentCulture,
-                $"Stopped after {_samples.Count:N0} samples and {run.Captures.Count(c => c.Result is not null)} snapshots.{(run.TimelinePath is { } path ? " Timeline: " + path : string.Empty)}");
+                $"Stopped after {_samples.Count:N0} samples and {run.Captures.Count(c => c.Result is not null)} snapshots.");
+            TimelinePath = run.TimelinePath;
             IsRunning = false;
         });
     }

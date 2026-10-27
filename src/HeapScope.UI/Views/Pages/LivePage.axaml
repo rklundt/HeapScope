@@ -67,6 +67,16 @@
         <Button Content="Stop" Margin="8,0,0,0" Padding="16,3" Command="{Binding StopCommand}" VerticalAlignment="Center" />
       </WrapPanel>
       <ctl:NoteText Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
+      <WrapPanel Margin="0,0,0,6" IsVisible="{Binding HasTimeline}">
+        <TextBlock Text="Timeline:" VerticalAlignment="Center" Margin="0,0,6,0"
+                   ToolTip.Tip="One row per sample (heap sizes, GC counts, time in GC) and one per snapshot, as CSV. Counters only, none of the process's data." />
+        <SelectableTextBlock Text="{Binding TimelinePath}" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <Button Content="Open" Command="{Binding OpenTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0"
+                ToolTip.Tip="Open the timeline in the app for CSV files, such as a spreadsheet." />
+        <Button Content="Show in folder" Command="{Binding ShowTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <Button Content="Delete..." Command="{Binding DeleteTimelineCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Delete the timeline file. The run's snapshots are kept." />
+      </WrapPanel>
       <DockPanel Margin="0,0,0,6">
         <Border DockPanel.Dock="Right" Background="{DynamicResource Brush.Growth}" CornerRadius="3" Padding="8,1"
                 IsVisible="{Binding HighGcPressure}"
