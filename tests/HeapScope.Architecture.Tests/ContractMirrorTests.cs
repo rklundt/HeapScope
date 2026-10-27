@@ -89,6 +89,10 @@ public class ContractMirrorTests
         var analysis = typeof(HeapScope.Analysis.Inspections.InspectionColumns).GetFields().ToDictionary(f => f.Name, f => (string)f.GetRawConstantValue()!);
         wire.ShouldAllBe(c => analysis.ContainsKey(c.Key) && analysis[c.Key] == c.Value);
         HeapScope.Analysis.Inspections.InspectionCatalog.Find(InspectionNames.Fragmentation).ShouldNotBeNull();
+
+        // Sprint 2.6: the kinds on the wire are the Analysis kinds' names.
+        typeof(InspectionKinds).GetFields().Select(f => (string)f.GetRawConstantValue()!)
+            .ShouldBe(Enum.GetNames<HeapScope.Analysis.Inspections.InspectionKind>(), ignoreOrder: true);
     }
 
     [Fact]

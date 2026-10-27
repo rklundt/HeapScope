@@ -83,6 +83,34 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Leak_detectors_come_first_and_the_growth_detector_compares_with_the_earlier_snapshot_of_the_process()
+    {
+        _worker.Service.Inspections.Insert(0, new InspectionInfo("growing-static-collections", "Growing static collections", "Grows.", "Bound it.", null, InspectionKinds.Leak, UsesBaseline: true));
+        _worker.Service.Inspections.Insert(1, new InspectionInfo("timer-leaks", "Timer leaks", "Timers.", "Dispose them.", null, InspectionKinds.Leak));
+        var earlier = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _worker.Service.CapturedAt = path => path.EndsWith("a.dmp", StringComparison.Ordinal) ? earlier : earlier.AddMinutes(2);
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        await _snapshots.OpenPathAsync(Dump("b.dmp"));
+
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        await Inspections.RunTask;
+
+        Inspections.Tiles.Select(t => (t.Title, t.GroupHeader)).Take(3).ShouldBe([("Growing static collections", "Leak detectors"), ("Timer leaks", null), ("Duplicate strings", "Memory waste")]);
+        Inspections.UsesBaseline.ShouldBeTrue();
+        Inspections.Baseline!.Snapshot!.Path.ShouldEndWith("a.dmp", Case.Sensitive, "the earlier snapshot of the same process");
+        var growth = _worker.Service.InspectionRequests.Single(r => r.Name == "growing-static-collections");
+        growth.BaselineSnapshotId.ShouldBe(Inspections.Baseline.Snapshot.Descriptor.SnapshotId);
+        _worker.Service.InspectionRequests.Single(r => r.Name == "timer-leaks").BaselineSnapshotId.ShouldBeNull("only the growth detector uses a baseline");
+        Inspections.Tiles[0].Summary!.ShouldContain("growth since a.dmp");
+
+        Inspections.Baseline = Inspections.BaselineChoices[0];
+        await Inspections.RunTask;
+
+        _worker.Service.InspectionRequests.Last().ShouldBe(new InspectionRequest(growth.SnapshotId, "growing-static-collections"));
+        _worker.Service.InspectionRuns.Count(n => n == "timer-leaks").ShouldBe(1, "choosing a baseline runs only the detectors that use one");
+    }
+
+    [Fact]
     public async Task A_row_naming_one_object_opens_that_object_and_a_tile_selected_while_running_fills_when_done()
     {
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
