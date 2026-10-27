@@ -46,6 +46,14 @@ public sealed partial class InspectionTileViewModel(InspectionInfo info) : Obser
 
     public bool IsAvailable => Info.Unavailable is null;
 
+    /// <summary>A leak detector (sprint 2.6), shown in its own group above the waste inspections.</summary>
+    public bool IsDetector => Info.Kind == InspectionKinds.Leak;
+
+    /// <summary>The group's heading on the first tile of each group ("Leak detectors", "Memory waste"); null on the others.</summary>
+    public string? GroupHeader { get; internal set; }
+
+    public bool HasGroupHeader => GroupHeader is not null;
+
     /// <summary>"Waiting", "Running...", an error, or null when the finding is shown.</summary>
     [ObservableProperty]
     private string? _status;
@@ -75,6 +83,12 @@ public sealed record FragmentItem(string Heap, long Live, long? Free, long Pinne
 
     public string Text => string.Create(CultureInfo.CurrentCulture,
         $"{Heap}: {Format.Bytes(Live)} live, {(Free is { } free ? Format.Bytes(free) + $" free ({FreeFraction:P0})" : "free unknown")}{(PinnedObjects > 0 ? $", {PinnedObjects:N0} pinned ({Format.Bytes(PinnedBytes)})" : string.Empty)}");
+}
+
+/// <summary>A choice of baseline for the detectors that measure growth (sprint 2.6): another open snapshot, or none.</summary>
+public sealed record BaselineChoice(string Text, SnapshotHandle? Snapshot)
+{
+    public override string ToString() => Text;
 }
 
 /// <summary>What an inspection row opens: the objects of a type in a scope, or one object.</summary>
@@ -110,6 +124,12 @@ public sealed partial class InspectionsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isActive;
 
+    /// <summary>The baseline the growth detectors compare with (sprint 2.6); "None" by default unless an earlier snapshot of the same process is open.</summary>
+    [ObservableProperty]
+    private BaselineChoice? _baseline;
+
+    private bool _choosingBaseline;
+
     public InspectionsViewModel(SnapshotSession session, ILogger? logger = null, INavigator? navigator = null)
     {
         _navigator = navigator;
@@ -119,7 +139,14 @@ public sealed partial class InspectionsViewModel : ObservableObject
 
     public SnapshotHandle? Snapshot { get; private set; }
 
+    /// <summary>The tiles: the leak detectors first, then the waste inspections.</summary>
     public ObservableCollection<InspectionTileViewModel> Tiles { get; } = [];
+
+    /// <summary>"None" and the other open snapshots, for the baseline picker.</summary>
+    public ObservableCollection<BaselineChoice> BaselineChoices { get; } = [];
+
+    /// <summary>Whether any inspection uses a baseline (the picker is shown).</summary>
+    public bool UsesBaseline => Tiles.Any(t => t.Info.UsesBaseline && t.IsAvailable);
 
     public ObservableCollection<FragmentItem> Fragments { get; } = [];
 
@@ -145,10 +172,12 @@ public sealed partial class InspectionsViewModel : ObservableObject
         Tiles.Clear();
         Fragments.Clear();
         OnPropertyChanged(nameof(HasFragments));
+        OnPropertyChanged(nameof(UsesBaseline));
         Selected = null;
         Status = null;
         Snapshot = snapshot;
         _started = false;
+        ChooseBaselines(snapshot);
         if (IsActive)
         {
             Start();
@@ -258,10 +287,21 @@ public sealed partial class InspectionsViewModel : ObservableObject
                 return;
             }
 
-            foreach (var info in inspections)
+            // Detectors first, each group under its heading (sprint 2.6).
+            string? group = null;
+            foreach (var info in inspections.OrderBy(i => i.Kind == InspectionKinds.Leak ? 0 : 1))
             {
-                Tiles.Add(new InspectionTileViewModel(info) { Status = info.Unavailable is null ? "Waiting" : null, Summary = info.Unavailable });
+                var heading = info.Kind == InspectionKinds.Leak ? "Leak detectors" : "Memory waste";
+                Tiles.Add(new InspectionTileViewModel(info)
+                {
+                    Status = info.Unavailable is null ? "Waiting" : null,
+                    Summary = info.Unavailable,
+                    GroupHeader = heading == group ? null : heading,
+                });
+                group = heading;
             }
+
+            OnPropertyChanged(nameof(UsesBaseline));
 
             Status = null;
             foreach (var tile in Tiles.Where(t => t.IsAvailable).ToList())
@@ -298,7 +338,13 @@ public sealed partial class InspectionsViewModel : ObservableObject
         tile.Status = "Running...";
         try
         {
-            var run = await _session.RunInspectionAsync(snapshot, tile.Info.Name, null, cancellationToken);
+            var baseline = tile.Info.UsesBaseline ? Baseline?.Snapshot : null;
+            _logger.LogInformation(
+                "Inspections: running {Inspection} on {Snapshot}{Baseline}",
+                tile.Info.Name,
+                snapshot.Path,
+                baseline is null ? string.Empty : " with the baseline " + baseline.Path);
+            var run = await _session.RunInspectionAsync(snapshot, tile.Info.Name, null, cancellationToken, baseline);
             if (cancellationToken.IsCancellationRequested)
             {
                 Release(run);
@@ -308,7 +354,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
             tile.Run = run;
             var result = run.Result;
             tile.Summary = string.Create(CultureInfo.CurrentCulture,
-                $"{result.Count:N0} found, {Format.Bytes(result.Bytes)}{(result.WastedBytes is { } wasted ? $", {Format.Bytes(wasted)} wasted" : string.Empty)}");
+                $"{result.Count:N0} found, {Format.Bytes(result.Bytes)}{(result.WastedBytes is { } wasted ? $", {Format.Bytes(wasted)} wasted" : string.Empty)}{(baseline is not null && result.BaselineSnapshotId is not null ? $"; growth since {Path.GetFileName(baseline.Path)}" : string.Empty)}");
             tile.Note = result.Note;
             tile.HasFindings = result.Count > 0;
             var isFragmentation = tile.Info.Name == InspectionNames.Fragmentation;
@@ -342,6 +388,81 @@ public sealed partial class InspectionsViewModel : ObservableObject
         {
             _logger.LogWarning(ex, "The {Inspection} inspection failed", tile.Info.Name);
             tile.Status = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// The baseline choices for <paramref name="snapshot"/>: none, and the other open snapshots, latest first. The latest
+    /// one of the same process captured earlier is chosen (a growth detector needs the earlier dump; ADR-018).
+    /// </summary>
+    private void ChooseBaselines(SnapshotHandle? snapshot)
+    {
+        _choosingBaseline = true;
+        try
+        {
+            BaselineChoices.Clear();
+            BaselineChoices.Add(new BaselineChoice("None", null));
+            if (snapshot is null)
+            {
+                Baseline = BaselineChoices[0];
+                return;
+            }
+
+            var others = _session.Snapshots.Where(s => s != snapshot && !s.IsClosed)
+                .OrderByDescending(s => s.Descriptor.CapturedAtUtc ?? DateTimeOffset.MinValue)
+                .ToList();
+            foreach (var other in others)
+            {
+                BaselineChoices.Add(new BaselineChoice(
+                    string.Create(CultureInfo.CurrentCulture, $"{Path.GetFileName(other.Path)}{(other.Descriptor.CapturedAtUtc is { } at ? $" ({at.ToLocalTime():g})" : string.Empty)}"),
+                    other));
+            }
+
+            var mine = snapshot.Descriptor;
+            Baseline = BaselineChoices.Skip(1).FirstOrDefault(c =>
+                    c.Snapshot!.Descriptor.ProcessName == mine.ProcessName
+                    && c.Snapshot.Descriptor.CapturedAtUtc is { } then && mine.CapturedAtUtc is { } now && then < now)
+                ?? BaselineChoices[0];
+        }
+        finally
+        {
+            _choosingBaseline = false;
+        }
+    }
+
+    partial void OnBaselineChanged(BaselineChoice? value)
+    {
+        // Choosing another baseline runs the growth detectors again (only those use it).
+        if (_choosingBaseline || !_started || Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        _logger.LogInformation("Inspections: baseline {Baseline} chosen for {Snapshot}", value?.Snapshot?.Path ?? "none", snapshot.Path);
+        _running?.Cancel();
+        _running?.Dispose();
+        _running = new CancellationTokenSource();
+        var token = _running.Token;
+        RunTask = RerunAsync(snapshot, [.. Tiles.Where(t => t.Info.UsesBaseline && t.IsAvailable)], token);
+    }
+
+    private async Task RerunAsync(SnapshotHandle snapshot, List<InspectionTileViewModel> tiles, CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var tile in tiles)
+            {
+                var previous = tile.Run;
+                await RunOneAsync(snapshot, tile, cancellationToken);
+                if (!ReferenceEquals(previous, tile.Run))
+                {
+                    Release(previous);
+                }
+            }
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Another baseline or snapshot replaced this run.
         }
     }
 
