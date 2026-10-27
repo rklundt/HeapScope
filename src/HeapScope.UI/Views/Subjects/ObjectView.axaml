@@ -33,6 +33,10 @@
     <DockPanel DockPanel.Dock="Top" Margin="0,0,8,4">
       <Button DockPanel.Dock="Right" Content="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" VerticalAlignment="Top"
               ToolTip.Tip="What this object alone keeps alive, and what keeps it alive, on the Retainers tab" />
+      <!-- Sprint 2.7: the Snapshots page holds the bookmarks of every open snapshot. -->
+      <Button x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
+              Command="{Binding $parent[UserControl].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
+              ToolTip.Tip="Mark this object, or remove its mark (Ctrl+D or Cmd+D). Bookmarks are listed on the left and kept for the next time the snapshot is opened." />
       <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />

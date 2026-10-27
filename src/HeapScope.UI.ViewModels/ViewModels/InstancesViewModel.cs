@@ -33,7 +33,7 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.ViewModels;
 
 /// <summary>One object in the instances grid, filled when its page arrives.</summary>
-public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow
+public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow, IObjectLink
 {
     public int Index { get; } = index;
 
@@ -53,6 +53,10 @@ public sealed class InstanceRowItem(int index) : ObservableObject, IIndexedRow
     public long? Retained { get; private set; }
 
     public bool IsLoaded { get; private set; }
+
+    public ulong LinkAddress => IsLoaded ? Address : 0;
+
+    public string? LinkTypeName => IsLoaded ? Type : null;
 
     /// <summary>A row list over an instances result set; fails at once when a column is missing.</summary>
     public static VirtualRowList<InstanceRowItem> CreateList(ResultSetHandle? rows, ResultSetInfo info, Action<Exception>? onError = null, ILogger? logger = null)

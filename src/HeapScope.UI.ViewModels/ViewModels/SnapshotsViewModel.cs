@@ -26,6 +26,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application;
+using HeapScope.Application.Bookmarks;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -110,7 +111,8 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         WorkerOperations operations,
         IUiDispatcher dispatcher,
         IUserInteraction interaction,
-        ILoggerFactory? loggers = null)
+        ILoggerFactory? loggers = null,
+        BookmarkStore? bookmarks = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
@@ -120,6 +122,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         Types = new TypeSummaryViewModel(session, dispatcher, loggers?.CreateLogger<TypeSummaryViewModel>(), this);
         Navigator = new NavigatorViewModel(session, Types, this, loggers);
         Navigator.StepShown += OnStepShown;
+        Bookmarks = new BookmarksViewModel(bookmarks, this, loggers?.CreateLogger<BookmarksViewModel>());
         Compare = new CompareViewModel(session, Snapshots, dispatcher, loggers?.CreateLogger<CompareViewModel>(), this);
         Inspections = new InspectionsViewModel(session, loggers?.CreateLogger<InspectionsViewModel>(), this);
         Retainers = new RetainersViewModel(session, dispatcher, loggers?.CreateLogger<RetainersViewModel>(), this, loggers?.CreateLogger<RetainedBySetViewModel>());
@@ -165,6 +168,39 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
     /// <summary>The Snapshot tab's subjects: the types grid, instances and objects, with back and forward (sprint 1.5).</summary>
     public NavigatorViewModel Navigator { get; }
+
+    /// <summary>Bookmarked objects of every open snapshot (sprint 2.7).</summary>
+    public BookmarksViewModel Bookmarks { get; }
+
+    /// <summary>
+    /// Bookmarks <paramref name="row"/>'s object when it opens one, else the object shown on the Snapshot tab, or removes
+    /// its bookmark (Command+D, sprint 2.7); false when there was nothing to bookmark.
+    /// </summary>
+    public async Task<bool> ToggleBookmarkAsync(IObjectLink? row = null)
+    {
+        if (Selected is not { } selected)
+        {
+            return false;
+        }
+
+        if (row is { LinkAddress: not 0 and var address })
+        {
+            await Bookmarks.ToggleAsync(selected.Handle, address, row.LinkTypeName);
+            return true;
+        }
+
+        if (Tab == SnapshotTabs.Snapshot && Navigator.Current is ObjectViewModel { Address: not 0 } shown)
+        {
+            await Bookmarks.ToggleAsync(shown.Snapshot, shown.Address, shown.TypeName);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Bookmarks the object shown on the Snapshot tab, or removes its bookmark (the object view's button).</summary>
+    [RelayCommand]
+    private Task ToggleBookmark() => ToggleBookmarkAsync();
 
     /// <summary>The comparison of two open snapshots (sprint 1.4).</summary>
     public CompareViewModel Compare { get; }
@@ -289,6 +325,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
             if (!handles.Contains(Snapshots[i].Handle))
             {
                 Navigator.Forget(Snapshots[i].Handle);
+                Bookmarks.Forget(Snapshots[i].Handle);
                 Snapshots.RemoveAt(i);
             }
         }
@@ -298,6 +335,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
             if (!Snapshots.Any(s => s.Handle == handle))
             {
                 Snapshots.Add(new SnapshotItemViewModel(handle));
+                _ = Bookmarks.LoadAsync(handle);
             }
         }
 

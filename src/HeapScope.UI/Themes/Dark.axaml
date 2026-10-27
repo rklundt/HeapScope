@@ -38,6 +38,12 @@
   <SolidColorBrush x:Key="Brush.Info.Border" Color="#FF388BFD" />
   <SolidColorBrush x:Key="Brush.Error.Background" Color="#FF3D1F1D" />
   <SolidColorBrush x:Key="Brush.Error.Border" Color="#FFF85149" />
+  <!-- Bookmark marks (sprint 2.7). -->
+  <SolidColorBrush x:Key="Brush.Mark.Red" Color="#FFF85149" />
+  <SolidColorBrush x:Key="Brush.Mark.Orange" Color="#FFF0883E" />
+  <SolidColorBrush x:Key="Brush.Mark.Green" Color="#FF3FB950" />
+  <SolidColorBrush x:Key="Brush.Mark.Blue" Color="#FF58A6FF" />
+  <SolidColorBrush x:Key="Brush.Mark.Purple" Color="#FFBC8CFF" />
   <!-- Diff deltas (sprint 1.4): growth and shrinkage. -->
   <SolidColorBrush x:Key="Brush.Growth" Color="#FFFF7B72" />
   <SolidColorBrush x:Key="Brush.Shrink" Color="#FF3FB950" />

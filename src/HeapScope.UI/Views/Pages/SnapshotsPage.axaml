@@ -67,7 +67,34 @@
       </ListBox>
       <TextBlock Grid.Row="4" Text="Bookmarks" FontWeight="SemiBold" Margin="0,12,0,4"
                  ToolTip.Tip="Objects marked with Ctrl+D (Cmd+D) in any open snapshot; kept for the next time the snapshot is opened." />
-      <ContentControl Grid.Row="5" x:Name="BookmarksHost" />
+      <DockPanel Grid.Row="5" DataContext="{Binding Bookmarks}" x:DataType="vm:BookmarksViewModel">
+        <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" Classes="subtle" TextWrapping="Wrap"
+                   IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock DockPanel.Dock="Top" Text="None yet. Ctrl+D (Cmd+D) marks the shown object or the selected row's object." Classes="subtle" TextWrapping="Wrap"
+                   IsVisible="{Binding !Items.Count}" />
+        <ListBox x:Name="BookmarkList" ItemsSource="{Binding Items}" AutomationProperties.Name="Bookmarks"
+                 ctl:ListBehaviors.OpenCommand="{Binding OpenCommand}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:BookmarkItem">
+              <DockPanel ToolTip.Tip="{Binding SnapshotTitle}">
+                <Button DockPanel.Dock="Left" Width="14" Height="14" Padding="0" Margin="0,0,6,0" VerticalAlignment="Center"
+                        Background="{Binding ColorKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}"
+                        Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).CycleColorCommand}" CommandParameter="{Binding}"
+                        ToolTip.Tip="Change the color" AutomationProperties.Name="Change the color" />
+                <Button DockPanel.Dock="Right" Content="x" Padding="4,0" FontSize="11" Margin="4,0,0,0"
+                        Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).RemoveCommand}" CommandParameter="{Binding}"
+                        ToolTip.Tip="Remove the bookmark" />
+                <StackPanel>
+                  <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="subtle" FontSize="11">
+                    <Run Text="{Binding AddressText}" /><Run Text=" in " /><Run Text="{Binding SnapshotTitle}" />
+                  </TextBlock>
+                </StackPanel>
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
     </Grid>
     <TabControl SelectedIndex="{Binding SelectedTab, Mode=TwoWay}">
       <TabItem Header="Snapshot">

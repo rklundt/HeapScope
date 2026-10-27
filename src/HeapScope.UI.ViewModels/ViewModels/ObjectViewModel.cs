@@ -82,6 +82,8 @@ public sealed class ReferenceRowItem(int index) : ObservableObject, IIndexedRow,
 
     public ulong LinkAddress => IsLoaded ? Address : 0;
 
+    public string? LinkTypeName => IsLoaded ? Type : null;
+
     public string AddressText { get; private set; } = string.Empty;
 
     public string Type { get; private set; } = string.Empty;
@@ -231,6 +233,9 @@ public sealed partial class ObjectViewModel : ObservableObject, INavigationSubje
 
     /// <summary>The navigation title.</summary>
     public string Title { get; private set; } = string.Empty;
+
+    /// <summary>The object's type, once read (a bookmark's label, sprint 2.7).</summary>
+    public string? TypeName { get; private set; }
 
     /// <summary>Opens a reference row or a field link as a new subject.</summary>
     public ICommand OpenCommand { get; }
@@ -402,6 +407,7 @@ public sealed partial class ObjectViewModel : ObservableObject, INavigationSubje
         {
             var details = await _session.GetObjectAsync(Snapshot, Address, progress: null, cancellationToken);
             Title = string.Create(CultureInfo.InvariantCulture, $"{details.TypeName} at 0x{details.Address:x}");
+            TypeName = details.TypeName;
             OnPropertyChanged(nameof(Title));
             Summary = string.Create(
                 CultureInfo.CurrentCulture,
