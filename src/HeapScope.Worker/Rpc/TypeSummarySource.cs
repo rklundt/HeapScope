@@ -54,8 +54,8 @@ internal sealed class TypeSummarySource : IResultSource
 
     private static readonly ResultColumn[] s_keyColumns =
     [
-        new(TypeSummaryColumns.TypeName, ResultColumnKind.Text),
-        new(TypeSummaryColumns.Module, ResultColumnKind.Text),
+        new(TypeSummaryColumns.TypeName, ResultColumnKind.Text, IsHidden: true),
+        new(TypeSummaryColumns.Module, ResultColumnKind.Text, IsHidden: true),
     ];
 
     private readonly SummaryRow[] _rows;

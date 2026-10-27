@@ -82,7 +82,7 @@
                 <TextBlock DockPanel.Dock="Top" Text="Types" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
                 <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
-                <DataGrid x:Name="TypesGrid" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                <DataGrid x:Name="TypesGrid" ctl:GridExports.ExportName="AllocatedTypes" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                           ctl:GridBehaviors.ResultColumns="{Binding Columns}"
                           ctl:GridBehaviors.Rows="{Binding Rows}"
                           ToolTip.Tip="Select a type to see where it was allocated" />
@@ -103,7 +103,7 @@
                   <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
                   <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
                   <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Note}" TextWrapping="Wrap" Classes="subtle" />
-                  <DataGrid x:Name="TreeGrid" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
+                  <DataGrid x:Name="TreeGrid" ctl:GridExports.ExportName="AllocationCallTree" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
                             ctl:GridBehaviors.Rows="{Binding Rows}"
                             ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
                             ctl:GridBehaviors.ExpandCommand="{Binding ExpandCommand}" ctl:GridBehaviors.CollapseCommand="{Binding CollapseCommand}"
@@ -137,7 +137,7 @@
               <DockPanel Grid.Column="0">
                 <TextBlock DockPanel.Dock="Top" Text="Top call stacks" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <ctl:NoteText DockPanel.Dock="Top" Text="{Binding StacksStatus}" TextWrapping="Wrap" />
-                <DataGrid x:Name="StacksGrid" ItemsSource="{Binding Stacks}" SelectedItem="{Binding SelectedStack, Mode=TwoWay}" CanUserSortColumns="False" IsReadOnly="True">
+                <DataGrid x:Name="StacksGrid" ctl:GridExports.ExportName="AllocationStacks" ItemsSource="{Binding Stacks}" SelectedItem="{Binding SelectedStack, Mode=TwoWay}" CanUserSortColumns="False" IsReadOnly="True">
                   <DataGrid.Columns>
                     <DataGridTextColumn Header="#" x:DataType="vm:AllocationStackItem" Binding="{Binding Rank}" Width="40" CellStyleClasses="number" />
                     <DataGridTextColumn Header="Bytes" x:DataType="vm:AllocationStackItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />

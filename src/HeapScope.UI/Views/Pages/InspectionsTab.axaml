@@ -104,7 +104,7 @@
         <TextBlock TextWrapping="Wrap" Classes="subtle"><Run Text="Fix: " /><Run Text="{Binding Fix}" /></TextBlock>
       </StackPanel>
     </Panel>
-    <DataGrid x:Name="InspectionGrid" CanUserSortColumns="False"
+    <DataGrid x:Name="InspectionGrid" ctl:GridExports.ExportName="Inspection" CanUserSortColumns="False"
               ctl:GridBehaviors.ResultColumns="{Binding Columns}"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"

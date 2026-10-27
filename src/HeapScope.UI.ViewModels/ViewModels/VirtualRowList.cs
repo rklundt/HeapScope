@@ -54,7 +54,7 @@ public static class VirtualRowList
 /// (rows on screen are always near it), so a list of millions of instances holds a few thousand rows. <see cref="Cancel"/> ends the list when a newer query replaces it: page requests in flight
 /// stop, and their rows and errors are dropped.
 /// </summary>
-public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
+public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged, IGridExport
     where TRow : class, IIndexedRow
 {
     private readonly ResultSetHandle? _rows;
@@ -106,6 +106,20 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged
     public bool IsSynchronized => false;
 
     public object SyncRoot => this;
+
+    /// <summary>The result's columns; empty for an empty list (sprint 2.7, exports).</summary>
+    public IReadOnlyList<ResultColumn> Columns => _rows?.Info.Columns ?? [];
+
+    int IGridExport.RowCount => Count;
+
+    /// <summary>
+    /// Writes every row of the result set, fetched from the worker apart from the grid's own pages (sprint 2.7). A newer
+    /// query that releases the set ends the export with <see cref="ObjectDisposedException"/>.
+    /// </summary>
+    public Task<long> WriteCsvAsync(TextWriter output, bool includeValues, CancellationToken cancellationToken) =>
+        _rows is null
+            ? HeapScope.Application.Exports.CsvExport.WriteAsync(output, [], [], includeValues, cancellationToken)
+            : HeapScope.Application.Exports.CsvExport.WriteAsync(output, _rows, includeValues, cancellationToken);
 
     /// <summary>Pages requested so far (tests).</summary>
     public IReadOnlyCollection<int> RequestedPages => _pages.Keys;

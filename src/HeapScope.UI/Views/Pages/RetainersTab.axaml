@@ -89,7 +89,7 @@
         <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,2,0,2" />
         <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,2" />
         <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" Margin="0,0,0,2" />
-        <DataGrid x:Name="SetGrid" CanUserSortColumns="False"
+        <DataGrid x:Name="SetGrid" ctl:GridExports.ExportName="RetainedBySet" CanUserSortColumns="False"
                   ctl:GridBehaviors.ResultColumns="{Binding Columns}"
                   ctl:GridBehaviors.Rows="{Binding Rows}"
                   ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
@@ -108,7 +108,7 @@
       <Button Content="{x:Static vm:RetainersViewModel.SetActionText}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding SelectedRow}"
               ToolTip.Tip="What every object of the selected row's type keeps alive together, exactly" />
     </WrapPanel>
-    <DataGrid x:Name="TreeGrid" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
+    <DataGrid x:Name="TreeGrid" ctl:GridExports.ExportName="DominatorTree" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ctl:GridBehaviors.ExpandCommand="{Binding ExpandCommand}" ctl:GridBehaviors.CollapseCommand="{Binding CollapseCommand}"

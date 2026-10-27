@@ -25,6 +25,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using HeapScope.UI.Controls;
 using HeapScope.UI.ViewModels;
 
 namespace HeapScope.UI.Views;
@@ -50,6 +51,15 @@ public partial class MainWindow : Window
         // 1.5), seen before any control handles them.
         AddHandler(PointerPressedEvent, OnPreviewPointerPressed, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
+
+        // Every grid's "Export to CSV..." (sprint 2.7) reaches the shell's export service here.
+        AddHandler(GridExports.ExportRequestedEvent, OnExportRequested);
+    }
+
+    private void OnExportRequested(object? sender, GridExportRequestedEventArgs e)
+    {
+        e.Handled = true;
+        _ = _viewModel?.Exports.ExportAsync(e.Name, e.Export);
     }
 
     private void OnPreviewPointerPressed(object? sender, PointerPressedEventArgs e)

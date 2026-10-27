@@ -45,7 +45,8 @@ public static class WorkerProtocol
     /// Version 13 (sprint 2.5): allocation traces (open, close, timeline, types, stacks, call tree and back traces), the
     /// estimate value bound and the trace error code.
     /// Version 14 (sprint 2.6): inspection kinds (the leak detectors) and a baseline snapshot on inspection requests.
-    public const int Version = 14;
+    /// Version 15 (sprint 2.7): result columns say whether they are hidden and whether they carry values.
+    public const int Version = 15;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

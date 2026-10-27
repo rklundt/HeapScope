@@ -67,8 +67,8 @@ internal sealed class AllocationTreeSource(AllocationTreeView view) : IResultSou
 {
     public static readonly ResultColumn[] TreeColumns =
     [
-        new(AllocationTreeColumns.Key, ResultColumnKind.Text, IsKey: true),
-        new(AllocationTreeColumns.ParentKey, ResultColumnKind.Text),
+        new(AllocationTreeColumns.Key, ResultColumnKind.Text, IsKey: true, IsHidden: true),
+        new(AllocationTreeColumns.ParentKey, ResultColumnKind.Text, IsHidden: true),
         new(AllocationTreeColumns.Depth, ResultColumnKind.Integer),
         new(AllocationTreeColumns.Kind, ResultColumnKind.Text),
         new(AllocationTreeColumns.Name, ResultColumnKind.Text),
@@ -76,8 +76,8 @@ internal sealed class AllocationTreeSource(AllocationTreeView view) : IResultSou
         new(AllocationTreeColumns.Own, ResultColumnKind.Bytes, Bound: ValueBound.Estimate),
         new(AllocationTreeColumns.Samples, ResultColumnKind.Integer),
         new(AllocationTreeColumns.Percent, ResultColumnKind.Percent),
-        new(AllocationTreeColumns.Children, ResultColumnKind.Integer),
-        new(AllocationTreeColumns.Expanded, ResultColumnKind.Integer),
+        new(AllocationTreeColumns.Children, ResultColumnKind.Integer, IsHidden: true),
+        new(AllocationTreeColumns.Expanded, ResultColumnKind.Integer, IsHidden: true),
     ];
 
     public IReadOnlyList<ResultColumn> Columns => TreeColumns;

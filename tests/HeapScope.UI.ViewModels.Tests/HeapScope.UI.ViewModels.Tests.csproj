@@ -3,4 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.UI.ViewModels\HeapScope.UI.ViewModels.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\HeapScope.Application.Tests\RecordingLogger.cs" Link="Shared\RecordingLogger.cs" />
+    <Compile Include="..\HeapScope.Application.Tests\RecordingLoggerOfT.cs" Link="Shared\RecordingLoggerOfT.cs" />
+  </ItemGroup>
 </Project>

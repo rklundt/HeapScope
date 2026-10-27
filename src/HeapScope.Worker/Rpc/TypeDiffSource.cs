@@ -52,8 +52,8 @@ internal sealed class TypeDiffSource : IResultSource
     private static readonly ResultColumn[] s_typeColumns =
     [
         .. s_columns,
-        new(TypeDiffColumns.TypeName, ResultColumnKind.Text),
-        new(TypeDiffColumns.Module, ResultColumnKind.Text),
+        new(TypeDiffColumns.TypeName, ResultColumnKind.Text, IsHidden: true),
+        new(TypeDiffColumns.Module, ResultColumnKind.Text, IsHidden: true),
     ];
 
     private readonly DiffRow[] _rows;

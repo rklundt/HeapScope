@@ -57,8 +57,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _crashMessage;
 
-    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about, LiveViewModel? live = null, AllocationsViewModel? allocations = null)
+    public ShellViewModel(WorkerOperations operations, IUiDispatcher dispatcher, HomeViewModel home, SnapshotsViewModel snapshots, ProcessesViewModel processes, AboutViewModel about, LiveViewModel? live = null, AllocationsViewModel? allocations = null, GridExportService? exports = null)
     {
+        Exports = exports ?? new GridExportService(new AutomaticUserInteraction());
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         Home = home ?? throw new ArgumentNullException(nameof(home));
@@ -113,6 +114,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>The Allocations page (sprint 2.5), when the host has one.</summary>
     public AllocationsViewModel? Allocations { get; }
+
+    /// <summary>Exports grids to CSV (sprint 2.7); the window hands it every grid's export request.</summary>
+    public GridExportService Exports { get; }
+
+    /// <summary>The keyboard shortcuts, for the shortcuts list (sprint 2.7).</summary>
+    public IReadOnlyList<Shortcut> ShortcutList => Shortcuts.List([.. NavigationItems.Select(i => i.Title)]);
 
     /// <summary>All jobs, newest first; the jobs panel and the Jobs page bind to it.</summary>
     public ObservableCollection<JobViewModel> Jobs { get; } = [];

@@ -116,6 +116,15 @@ public sealed class TypeSummarySourceTests : IDisposable
 
     public void Dispose() => _graph.Dispose();
 
+    [Fact]
+    public void Link_columns_are_flagged_hidden_and_no_column_carries_values()
+    {
+        var columns = Create(new TypeSummaryRequest(Guid.Empty)).Columns;
+
+        columns.Where(c => c.IsHidden).Select(c => c.Name).ShouldBe([TypeSummaryColumns.TypeName, TypeSummaryColumns.Module]);
+        columns.ShouldAllBe(c => !c.HasValues);
+    }
+
     private TypeSummarySource Create(TypeSummaryRequest request, bool generations = false) =>
         TypeSummarySource.Create(_graph, _aggregation, request, generations);
 

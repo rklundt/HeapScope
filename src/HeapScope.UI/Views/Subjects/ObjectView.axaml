@@ -69,7 +69,7 @@
         <TabItem Header="Outgoing">
           <DockPanel Margin="0,4,0,0">
             <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Classes="subtle" />
-            <DataGrid x:Name="ReferencesGrid" CanUserSortColumns="False"
+            <DataGrid x:Name="ReferencesGrid" ctl:GridExports.ExportName="References" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding ReferenceRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Double-click or Enter opens the referenced object.">
               <DataGrid.Columns>
@@ -85,7 +85,7 @@
           <DockPanel Margin="0,4,0,0">
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
-            <DataGrid x:Name="IncomingGrid" CanUserSortColumns="False"
+            <DataGrid x:Name="IncomingGrid" ctl:GridExports.ExportName="Referrers" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding IncomingRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Double-click or Enter opens the referencing object.">
               <DataGrid.Columns>
@@ -113,7 +113,7 @@
             </WrapPanel>
             <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" Margin="0,0,0,4"
                       ToolTip.Tip="Runs of System and Microsoft objects between other steps are folded into one line unless shown." />
-            <DataGrid x:Name="KeyPathsGrid" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
+            <DataGrid x:Name="KeyPathsGrid" ctl:GridExports.ExportName="KeyRetentionPaths" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
                       ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
               <DataGrid.Columns>

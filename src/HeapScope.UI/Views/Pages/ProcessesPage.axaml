@@ -50,7 +50,7 @@
                  Text="Processes marked 'Needs administrator' run elevated or as another user. To capture them, run HeapScope as administrator." />
     </Border>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
-    <DataGrid ItemsSource="{Binding Processes}" SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="True">
+    <DataGrid ItemsSource="{Binding Processes}" ctl:GridExports.ExportName="Processes" SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="True">
       <DataGrid.Columns>
         <DataGridTextColumn Header="PID" x:DataType="vm:ProcessRow" Binding="{Binding ProcessId}" Width="70" CellStyleClasses="number" />
         <DataGridTextColumn Header="Name" x:DataType="vm:ProcessRow" Binding="{Binding Name}" Width="200" />

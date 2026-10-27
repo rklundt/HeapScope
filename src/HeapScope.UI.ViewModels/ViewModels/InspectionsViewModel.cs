@@ -205,7 +205,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
         if (value?.Run is { } run)
         {
             var columns = run.Rows.Info.Columns;
-            Columns = [.. columns.Select((c, i) => (c, i)).Where(c => !InspectionColumns.IsHidden(c.c.Name))];
+            Columns = [.. columns.Select((c, i) => (c, i)).Where(c => !c.c.IsHidden)];
             Rows = CellRowItem.CreateList(run.Rows, run.Rows.Info, ex => Status = ex.Message, _logger);
         }
         else
@@ -383,7 +383,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
                 return;
             }
 
-            var key = run.Rows.Info.Columns.Select((c, i) => (c, i)).First(c => !InspectionColumns.IsHidden(c.c.Name)).i;
+            var key = run.Rows.Info.Columns.Select((c, i) => (c, i)).First(c => !c.c.IsHidden).i;
             tile.FirstRows = [.. first.Rows.Take(TileRows).Select(r => r[key] ?? string.Empty)];
             if (isFragmentation)
             {
