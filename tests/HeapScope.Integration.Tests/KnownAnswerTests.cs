@@ -91,7 +91,7 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
     [Fact]
     public void Every_fixture_has_a_known_answer_and_no_answer_is_orphaned()
     {
-        var expected = LeakCatalog.All.Select(l => l.Name).Concat(s_semanticNames).Order(StringComparer.Ordinal);
+        var expected = LeakCatalog.All.Concat(LeakCatalog.Detected).Select(l => l.Name).Concat(s_semanticNames).Append("Clean").Order(StringComparer.Ordinal);
 
         KnownAnswer.AllNames().Order(StringComparer.Ordinal).ShouldBe(expected);
         foreach (var name in KnownAnswer.AllNames())
@@ -99,8 +99,23 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
             var answer = KnownAnswer.Load(name);
             answer.FormatVersion.ShouldBe(KnownAnswer.CurrentFormatVersion, name);
             answer.Name.ShouldBe(name);
-            answer.Types.ShouldNotBeEmpty();
-            answer.Kind.ShouldBeOneOf("leak", "semantics", "inspection");
+            answer.Kind.ShouldBeOneOf("leak", "semantics", "inspection", "detected", "clean");
+            if (answer.Kind != "clean")
+            {
+                answer.Types.ShouldNotBeEmpty(name);
+            }
+
+            if (answer.Kind is "leak" or "detected")
+            {
+                answer.Detections.ShouldNotBeNull(name).ShouldNotBeEmpty(name);
+                answer.Roots.ShouldNotBeNull(name);
+            }
+
+            if (answer.Kind == "clean")
+            {
+                answer.Detections.ShouldNotBeNull(name).ShouldBeEmpty(name);
+            }
+
             if (answer.Kind == "inspection")
             {
                 answer.Findings.ShouldNotBeNull(name);

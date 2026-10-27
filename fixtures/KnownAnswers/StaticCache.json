@@ -18,5 +18,6 @@
   "growingCollection": "System.Collections.Generic.Dictionary<System.Int32, Fixtures.Leaks.StaticCacheEntry>",
   "pathShape": [ "Fixtures.Leaks.StaticCacheLeak.s_cache", "System.Collections.Generic.Dictionary", "+Entry[]", "Fixtures.Leaks.StaticCacheEntry" ],
   "minRetainedBytesPerItem": { "base": 96, "payloadMultiplier": 1 },
+  "detections": [ { "detector": "growing-static-collections", "key": "Fixtures.Leaks.StaticCacheLeak.s_cache", "perItem": 1 } ],
   "notes": "An entry retains its metadata, the metadata name string and the payload array."
 }

@@ -297,16 +297,19 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
 
     /// <summary>
     /// Runs an inspection (sprint 1.6). Its rows re-run it when the set is gone, reopening the snapshot after a worker
-    /// restart, like any query.
+    /// restart, like any query. <paramref name="baseline"/> is an earlier snapshot for the inspections that measure growth
+    /// (sprint 2.6); both are reopened together when needed.
     /// </summary>
-    public async Task<InspectionRun> RunInspectionAsync(SnapshotHandle handle, string name, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    public async Task<InspectionRun> RunInspectionAsync(SnapshotHandle handle, string name, IProgress<JobProgress>? progress, CancellationToken cancellationToken, SnapshotHandle? baseline = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentException.ThrowIfNullOrEmpty(name);
         InspectionResultDto? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
-            latest = await UseAsync(handle, (service, id, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name), progress, innerCt), ct).ConfigureAwait(false);
+            latest = baseline is null
+                ? await UseAsync(handle, (service, id, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name), progress, innerCt), ct).ConfigureAwait(false)
+                : await UseBothAsync(handle, baseline, (service, id, baselineId, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name, baselineId), progress, innerCt), ct).ConfigureAwait(false);
             return latest.Rows;
         }
 
