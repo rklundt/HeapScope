@@ -78,7 +78,15 @@ public enum ResultColumnKind
 /// namespace or assembly row are a lower bound (ADR-024); an object's, a dominator tree row's and a set's exact.
 /// Front ends render from this one flag (<see cref="ValueBoundTexts"/>).
 /// </param>
-public sealed record ResultColumn(string Name, ResultColumnKind Kind, bool IsKey = false, ValueBound Bound = ValueBound.Exact);
+/// <param name="IsHidden">
+/// A column that links a row to what it opens (a raw type name, a module, a tree key) and is not shown (sprint 2.7,
+/// replacing the naming convention of 1.5 and 1.6); exports leave it out.
+/// </param>
+/// <param name="HasValues">
+/// A column that carries the target's data: string text or field values (sprint 2.7, ADR-026). A shared export leaves it
+/// out unless the person exporting opts in.
+/// </param>
+public sealed record ResultColumn(string Name, ResultColumnKind Kind, bool IsKey = false, ValueBound Bound = ValueBound.Exact, bool IsHidden = false, bool HasValues = false);
 
 /// <summary>Whether a column's values are exact (sprint 2.4).</summary>
 public enum ValueBound

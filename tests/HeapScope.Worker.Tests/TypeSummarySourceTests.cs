@@ -116,6 +116,44 @@ public sealed class TypeSummarySourceTests : IDisposable
 
     public void Dispose() => _graph.Dispose();
 
+    [Fact]
+    public void Filter_terms_combine_and_a_module_term_tests_the_module()
+    {
+        Names(Create(new TypeSummaryRequest(Guid.Empty, Filter: "m:app.dll -customer"))).ShouldBe(["App.Cache.Entry", "App.Model.Order"]);
+        Names(Create(new TypeSummaryRequest(Guid.Empty, Filter: "-module:app"))).ShouldBe(["System.Byte[]"]);
+        Names(Create(new TypeSummaryRequest(Guid.Empty, TypeGrouping.Namespace, Filter: "module:app"))).ShouldBeEmpty("namespace groups have no module");
+    }
+
+    [Fact]
+    public void Inspection_columns_carry_their_hidden_and_value_flags_onto_the_wire()
+    {
+        // 2.7 review: the inspection source's flags, which exports rely on.
+        HeapScope.Analysis.Inspections.InspectionColumn[] columns =
+        [
+            new(HeapScope.Analysis.Inspections.InspectionColumns.Value, HeapScope.Analysis.Inspections.InspectionColumnKind.Text, HasValues: true),
+            new(InspectionColumns.Address, HeapScope.Analysis.Inspections.InspectionColumnKind.Address, IsKey: true),
+            new(InspectionColumns.TypeName, HeapScope.Analysis.Inspections.InspectionColumnKind.Text),
+            new(InspectionColumns.Module, HeapScope.Analysis.Inspections.InspectionColumnKind.Text),
+            new(InspectionColumns.Scope, HeapScope.Analysis.Inspections.InspectionColumnKind.Text),
+        ];
+        var source = new InspectionSource(new HeapScope.Analysis.Inspections.RowTable<int>(columns, [], 0, (_, _) => { }));
+
+        source.Columns.Select(c => (c.Name, c.IsHidden, c.HasValues)).ShouldBe(
+        [
+            (HeapScope.Analysis.Inspections.InspectionColumns.Value, false, true), (InspectionColumns.Address, false, false), (InspectionColumns.TypeName, true, false),
+            (InspectionColumns.Module, true, false), (InspectionColumns.Scope, true, false),
+        ]);
+    }
+
+    [Fact]
+    public void Link_columns_are_flagged_hidden_and_no_column_carries_values()
+    {
+        var columns = Create(new TypeSummaryRequest(Guid.Empty)).Columns;
+
+        columns.Where(c => c.IsHidden).Select(c => c.Name).ShouldBe([TypeSummaryColumns.TypeName, TypeSummaryColumns.Module]);
+        columns.ShouldAllBe(c => !c.HasValues);
+    }
+
     private TypeSummarySource Create(TypeSummaryRequest request, bool generations = false) =>
         TypeSummarySource.Create(_graph, _aggregation, request, generations);
 

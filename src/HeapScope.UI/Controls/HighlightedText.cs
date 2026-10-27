@@ -74,8 +74,13 @@ public static class HighlightedText
                 inlines.Add(new Run(text[position..start]));
             }
 
-            inlines.Add(new Run(text.Substring(start, length)) { FontWeight = FontWeight.Bold });
-            position = start + length;
+            // Ranges never overlap (NameFilter merges them); never draw a character twice even if they did (2.7 review H2).
+            var from = Math.Max(start, position);
+            if (start + length > from)
+            {
+                inlines.Add(new Run(text[from..(start + length)]) { FontWeight = FontWeight.Bold });
+                position = start + length;
+            }
         }
 
         if (position < text.Length)

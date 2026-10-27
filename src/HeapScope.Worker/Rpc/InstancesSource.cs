@@ -48,7 +48,7 @@ internal sealed class InstancesSource : IResultSource
         new(InstanceColumns.Type, ResultColumnKind.Text),
         new(InstanceColumns.Bytes, ResultColumnKind.Bytes),
         new(InstanceColumns.Generation, ResultColumnKind.Text),
-        new(InstanceColumns.Value, ResultColumnKind.Text),
+        new(InstanceColumns.Value, ResultColumnKind.Text, HasValues: true),
     ];
 
     private static readonly ResultColumn[] s_columnsWithRetained = [.. s_columns, new(InstanceColumns.Retained, ResultColumnKind.Bytes)];

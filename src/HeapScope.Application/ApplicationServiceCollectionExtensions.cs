@@ -57,6 +57,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton(sp => new Sessions.SessionLibrary(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Sessions.SessionOptions>>().Value.Root,
             sp.GetRequiredService<TimeProvider>()));
+        // Bookmarks live beside the session library (sprint 2.7), so a test's or smoke run's library keeps them too.
+        services.TryAddSingleton(sp => new Bookmarks.BookmarkStore(Path.GetDirectoryName(sp.GetRequiredService<Sessions.SessionLibrary>().Root)));
         services.AddSingleton(sp => new Sessions.CaptureService(
             sp.GetRequiredService<Capture.IProcessDiscovery>(),
             sp.GetRequiredService<Capture.DumpCapturer>(),

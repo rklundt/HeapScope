@@ -231,6 +231,63 @@ public sealed class InspectionsViewModelTests : IDisposable
         await WaitUntilAsync(() => kept.All(id => !_worker.Service.LiveSets.Contains(id)));
     }
 
+    [Fact]
+    public async Task The_baseline_choices_follow_snapshots_opened_and_closed_and_keep_a_chosen_one()
+    {
+        // 2.6 review M12.
+        _worker.Service.Inspections.Insert(0, new InspectionInfo("growing-static-collections", "Growing static collections", "Grows.", "Bound it.", null, InspectionKinds.Leak, UsesBaseline: true));
+        var earlier = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _worker.Service.CapturedAt = path => path.EndsWith("a.dmp", StringComparison.Ordinal) ? earlier : earlier.AddMinutes(2);
+        await _snapshots.OpenPathAsync(Dump("b.dmp"));
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        await Inspections.RunTask;
+        Inspections.BaselineChoices.ShouldHaveSingleItem().Text.ShouldBe("None");
+
+        // The earlier capture opens: it is listed, chosen and the growth detector runs again with it.
+        var current = _snapshots.Selected!;
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        _snapshots.Selected = current;
+        await Inspections.RunTask;
+        Inspections.BaselineChoices.Count.ShouldBe(2);
+        Inspections.Baseline!.Snapshot!.Path.ShouldEndWith("a.dmp", Case.Sensitive);
+        _worker.Service.InspectionRequests.Last(r => r.Name == "growing-static-collections").BaselineSnapshotId.ShouldBe(Inspections.Baseline.Snapshot.Descriptor.SnapshotId);
+
+        // A baseline the person chose (None) stays while other snapshots close; a chosen snapshot that closes gives way.
+        await _snapshots.OpenPathAsync(Dump("c.dmp"));
+        _snapshots.Selected = current;
+        Inspections.Baseline!.Snapshot!.Path.ShouldEndWith("a.dmp", Case.Sensitive, "selecting a snapshot chooses its default again");
+        Inspections.Baseline = Inspections.BaselineChoices[0];
+        await Inspections.RunTask;
+        await _snapshots.CloseCommand.ExecuteAsync(_snapshots.Snapshots.Single(s => s.Handle.Path.EndsWith("c.dmp", StringComparison.Ordinal)));
+        Inspections.Baseline.Snapshot.ShouldBeNull("the person's choice stays");
+        Inspections.BaselineChoices.Count.ShouldBe(2);
+        Inspections.Baseline = Inspections.BaselineChoices.Single(c => c.Snapshot?.Path.EndsWith("a.dmp", StringComparison.Ordinal) == true);
+        await Inspections.RunTask;
+        await _snapshots.CloseCommand.ExecuteAsync(_snapshots.Snapshots.Single(s => s.Handle.Path.EndsWith("a.dmp", StringComparison.Ordinal)));
+        await Inspections.RunTask;
+        Inspections.BaselineChoices.ShouldNotContain(c => c.Snapshot != null && c.Snapshot.Path.EndsWith("a.dmp", StringComparison.Ordinal));
+        Inspections.Baseline.Snapshot.ShouldBeNull("c.dmp is a later capture, so the default is none");
+        _worker.Service.InspectionRequests.Last(r => r.Name == "growing-static-collections").BaselineSnapshotId.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(42, "App", 42, "App", true)]
+    [InlineData(43, "App", 42, "App", false)]
+    [InlineData(null, "App", 42, "App", true)]
+    [InlineData(null, "Other", null, "App", false)]
+    [InlineData(42, null, 42, "App", true)]
+    public void An_earlier_capture_of_the_same_process_matches_by_id_else_by_name(int? id, string? name, int? myId, string? myName, bool expected)
+    {
+        var now = DateTimeOffset.UtcNow;
+        InspectionsViewModel.IsEarlierOfSameProcess(Descriptor(id, name, now.AddMinutes(-1)), Descriptor(myId, myName, now)).ShouldBe(expected);
+        InspectionsViewModel.IsEarlierOfSameProcess(Descriptor(id, name, now.AddMinutes(1)), Descriptor(myId, myName, now)).ShouldBeFalse("a later capture never");
+        InspectionsViewModel.IsEarlierOfSameProcess(Descriptor(id, name, now.AddMinutes(-1)) with { CaptureTimeFromFile = true }, Descriptor(myId, myName, now))
+            .ShouldBeFalse("a file's time orders nothing");
+
+        static SnapshotDescriptor Descriptor(int? id, string? name, DateTimeOffset at) =>
+            new(Guid.NewGuid(), "x.dmp", SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, name, id, "10.0", at, 1, 1, 1, 1, 1, default, false, null, 0, []);
+    }
+
     [Theory]
     [InlineData("NullSlots", "Null slots")]
     [InlineData("FreePercent", "Free %")]

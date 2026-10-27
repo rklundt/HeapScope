@@ -737,9 +737,9 @@ internal sealed class FakeWorkerService : IWorkerService
     {
         "duplicate-strings" =>
         [
-            new("Value", ResultColumnKind.Text), new("Copies", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Wasted", ResultColumnKind.Bytes),
-            new(InspectionColumns.Address, ResultColumnKind.Address, true), new(InspectionColumns.TypeName, ResultColumnKind.Text),
-            new(InspectionColumns.Module, ResultColumnKind.Text), new(InspectionColumns.Scope, ResultColumnKind.Text),
+            new("Value", ResultColumnKind.Text, HasValues: true), new("Copies", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes), new("Wasted", ResultColumnKind.Bytes),
+            new(InspectionColumns.Address, ResultColumnKind.Address, true), new(InspectionColumns.TypeName, ResultColumnKind.Text, IsHidden: true),
+            new(InspectionColumns.Module, ResultColumnKind.Text, IsHidden: true), new(InspectionColumns.Scope, ResultColumnKind.Text, IsHidden: true),
         ],
         "large-arrays" =>
         [
@@ -754,7 +754,7 @@ internal sealed class FakeWorkerService : IWorkerService
         _ =>
         [
             new("Type", ResultColumnKind.Text, true), new("Objects", ResultColumnKind.Integer), new("Bytes", ResultColumnKind.Bytes),
-            new(InspectionColumns.TypeName, ResultColumnKind.Text), new(InspectionColumns.Module, ResultColumnKind.Text), new(InspectionColumns.Scope, ResultColumnKind.Text),
+            new(InspectionColumns.TypeName, ResultColumnKind.Text, IsHidden: true), new(InspectionColumns.Module, ResultColumnKind.Text, IsHidden: true), new(InspectionColumns.Scope, ResultColumnKind.Text, IsHidden: true),
         ],
     };
 
@@ -859,6 +859,25 @@ internal sealed class FakeUserInteraction : HeapScope.UI.Services.IUserInteracti
     public Task<string?> PickDumpFileAsync() => Task.FromResult(NextFile);
 
     public Task<string?> PickTraceFileAsync() => Task.FromResult(NextFile);
+
+    /// <summary>Where a save picker answers (sprint 2.7); null cancels.</summary>
+    public string? SaveFile { get; set; }
+
+    public List<string> Messages { get; } = [];
+
+    public Task<string?> PickSaveFileAsync(string title, string suggestedName)
+    {
+        SuggestedNames.Add(suggestedName);
+        return Task.FromResult(SaveFile);
+    }
+
+    public List<string> SuggestedNames { get; } = [];
+
+    public Task ShowMessageAsync(string title, string message)
+    {
+        Messages.Add(message);
+        return Task.CompletedTask;
+    }
 
     public Task<bool> ConfirmAsync(string title, string message)
     {

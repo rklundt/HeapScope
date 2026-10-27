@@ -208,7 +208,7 @@ internal static partial class CliCommands
     /// <summary>The visible columns of rows, numbers right aligned, widths from the content.</summary>
     private static async Task WriteGridAsync(TextWriter output, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
-        var shown = columns.Select((c, i) => (Column: c, Index: i)).Where(c => !InspectionColumns.IsHidden(c.Column.Name)).ToList();
+        var shown = columns.Select((c, i) => (Column: c, Index: i)).Where(c => !c.Column.IsHidden).ToList();
         string Cell(IReadOnlyList<string?> row, (ResultColumn Column, int Index) c) =>
             row[c.Index] is { } text && c.Column.Kind is ResultColumnKind.Integer or ResultColumnKind.Bytes && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
                 ? number.ToString("N0", CultureInfo.InvariantCulture)

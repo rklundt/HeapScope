@@ -29,27 +29,37 @@ using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
 
+
 /// <summary>
-/// The Snapshot tab's subjects and history (sprint 1.5, dotMemory's drill-down): the types grid is the root; links open
-/// instances, objects, a type's referrers (sprint 2.1) or its retention paths (sprint 2.2) as new subjects through
-/// <see cref="Navigate"/>. Back and Forward move through the history; opening something after going back drops the
-/// forward entries (their result sets are released). At most <see cref="MaxHistory"/> subjects are kept. Since sprint
-/// 2.4 (2.3.7 review M8) the history is typed (<see cref="INavigationSubject"/>) and the subjects follow their links
-/// through the <see cref="INavigator"/> they were built with.
+/// The Snapshot tab's subjects and the analysis path (sprint 1.5, dotMemory's drill-down; a branching path per snapshot
+/// since 2.7): the types grid is the root; links open instances, objects, a type's referrers (sprint 2.1) or its retention
+/// paths (sprint 2.2) as new steps through <see cref="Navigate"/>, and links into the Retainers tab are recorded as steps
+/// (<see cref="Record"/>). Each open snapshot keeps its own <see cref="AnalysisPath"/> while it is open, so switching
+/// snapshots, tabs or pages never loses it. Back and Forward move along the path; choosing a step in the sidebar shows it;
+/// <see cref="StepShown"/> tells the page which tab a step needs. The subjects follow their links through the
+/// <see cref="INavigator"/> they were built with (2.3.7 review M8).
 /// </summary>
 public sealed partial class NavigatorViewModel : ObservableObject
 {
-    /// <summary>Subjects kept in the history, the types grid included.</summary>
-    public const int MaxHistory = 30;
+    /// <summary>Steps kept per snapshot, the types grid included.</summary>
+    public const int MaxHistory = AnalysisPath.MaxSteps;
 
     private readonly SnapshotSession _session;
     private readonly INavigator? _navigator;
     private readonly ILoggerFactory? _loggers;
-    private readonly List<INavigationSubject> _history = [];
-    private int _position;
+    private readonly ILogger _logger;
+    private readonly Dictionary<SnapshotHandle, AnalysisPath> _paths = [];
+    private readonly AnalysisPath _noSnapshot;
+    private AnalysisPath _path;
+    private SnapshotHandle? _snapshot;
+    private IReadOnlyList<AnalysisStep>? _steps;
 
     [ObservableProperty]
     private INavigationSubject _current;
+
+    /// <summary>The current step; the sidebar selects it, and choosing another step shows that one.</summary>
+    [ObservableProperty]
+    private AnalysisStep? _currentStep;
 
     /// <param name="navigator">What the subjects' links go through: the Snapshots page, which picks the tab first.</param>
     public NavigatorViewModel(SnapshotSession session, TypeSummaryViewModel types, INavigator? navigator = null, ILoggerFactory? loggers = null)
@@ -58,12 +68,21 @@ public sealed partial class NavigatorViewModel : ObservableObject
         Types = types ?? throw new ArgumentNullException(nameof(types));
         _navigator = navigator;
         _loggers = loggers;
-        _history.Add(types);
+        _logger = (ILogger?)loggers?.CreateLogger<NavigatorViewModel>() ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        _noSnapshot = new AnalysisPath(types);
+        _path = _noSnapshot;
         _current = types;
+        _currentStep = _path.Current;
     }
+
+    /// <summary>A step was shown by Back, Forward or the sidebar (not by a link, which picks its own tab).</summary>
+    public event EventHandler<AnalysisStep>? StepShown;
 
     /// <summary>The root subject: the types grid of the selected snapshot.</summary>
     public TypeSummaryViewModel Types { get; }
+
+    /// <summary>The selected snapshot's analysis path.</summary>
+    public AnalysisPath Path => _path;
 
     // The view keeps one grid per kind of subject, built at window load, and only swaps their data: building a DataGrid
     // on every navigation took 136 to 332 ms on the dispatcher (sprint 1.5 smoke runs).
@@ -99,30 +118,56 @@ public sealed partial class NavigatorViewModel : ObservableObject
     [ObservableProperty]
     private ObjectViewModel? _shownObject;
 
-    /// <summary>The subjects from the root to the current one, for the breadcrumb.</summary>
-    public IReadOnlyList<INavigationSubject> Trail => _history.Take(_position + 1).ToList();
+    /// <summary>The steps from the root to the current one, for the breadcrumb.</summary>
+    public IReadOnlyList<AnalysisStep> Trail => _path.Trail;
 
-    public bool CanGoBack => _position > 0;
+    /// <summary>Every step of the path in tree order, for the sidebar; the same list until the path's steps change.</summary>
+    public IReadOnlyList<AnalysisStep> Steps => _steps ??= _path.Steps;
 
-    public bool CanGoForward => _position < _history.Count - 1;
+    public bool CanGoBack => _path.CanGoBack;
 
-    /// <summary>Back to the types grid with an empty history (another snapshot was selected).</summary>
-    public void Reset()
+    public bool CanGoForward => _path.CanGoForward;
+
+    /// <summary>
+    /// Shows the path of <paramref name="snapshot"/> (another snapshot was selected), made with the types grid as its root
+    /// the first time; null shows an empty path.
+    /// </summary>
+    public void Show(SnapshotHandle? snapshot)
     {
-        foreach (var subject in _history.Skip(1))
+        if (snapshot is null)
         {
-            subject.Close();
+            _path = _noSnapshot;
+        }
+        else if (!_paths.TryGetValue(snapshot, out var path))
+        {
+            _paths[snapshot] = _path = new AnalysisPath(Types);
+        }
+        else
+        {
+            _path = path;
         }
 
-        _history.RemoveRange(1, _history.Count - 1);
-        ShownInstances = null;
-        ShownObject = null;
-        ShownTypeReferrers = null;
-        ShownTypePaths = null;
-        Move(0);
+        _snapshot = snapshot;
+        _logger.LogInformation("Analysis path: showing snapshot {Snapshot} ({Steps} steps)", SnapshotId, _path.Count);
+        ClearShown();
+        Move();
     }
 
-    /// <summary>Opens a target of the Snapshot tab as a new subject; other targets are not this tab's and are ignored.</summary>
+    /// <summary>Closes the path of a snapshot that was closed, releasing its subjects' result sets.</summary>
+    public void Forget(SnapshotHandle snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (_paths.Remove(snapshot, out var path))
+        {
+            path.CloseAll();
+            if (path == _path)
+            {
+                Show(null);
+            }
+        }
+    }
+
+    /// <summary>Opens a target of the Snapshot tab as a new step; other targets are not this tab's and are ignored.</summary>
     public INavigationSubject? Navigate(NavigationTarget target)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -134,6 +179,16 @@ public sealed partial class NavigatorViewModel : ObservableObject
             NavigationKind.TypePaths when target.TypeName is { } typeName => OpenTypePaths(target.Snapshot, typeName, target.Module),
             _ => null,
         };
+    }
+
+    /// <summary>Records a link into the Retainers tab as a step, replayed when it is chosen again (sprint 2.7).</summary>
+    public AnalysisStep Record(NavigationTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var step = _path.Open(target);
+        Log("Opened", step);
+        Move();
+        return step;
     }
 
     /// <summary>Shows the objects of a type in <paramref name="snapshot"/>, all of them or those in a scope (sprint 1.6).</summary>
@@ -177,34 +232,89 @@ public sealed partial class NavigatorViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanGoBack))]
-    private void Back() => Move(_position - 1);
+    private void Back() => ShowStep(_path.Back());
 
     [RelayCommand(CanExecute = nameof(CanGoForward))]
-    private void Forward() => Move(_position + 1);
+    private void Forward() => ShowStep(_path.Forward());
+
+    /// <summary>Closes a step and the steps opened from it (the sidebar's close button); the root stays.</summary>
+    [RelayCommand]
+    private void CloseStep(AnalysisStep? step)
+    {
+        if (step?.Parent is null)
+        {
+            return;
+        }
+
+        var wasShown = _path.Trail.Contains(step);
+        var kind = KindOf(step);
+        var closed = _path.Close(step);
+        _logger.LogInformation("Analysis path: closed {Kind} step {Step} and {Below} below it in snapshot {Snapshot} ({Steps} steps)", kind, step.Id, closed - 1, SnapshotId, _path.Count);
+        if (wasShown)
+        {
+            ShowStep(_path.Current);
+        }
+        else
+        {
+            Move();
+        }
+    }
+
+    // The sidebar chose a step (two-way binding): show it.
+    partial void OnCurrentStepChanged(AnalysisStep? value)
+    {
+        if (value is not null && value != _path.Current && _path.Steps.Contains(value))
+        {
+            ShowStep(_path.Select(value));
+        }
+    }
+
+    private void ShowStep(AnalysisStep step)
+    {
+        Log("Showed", step);
+        Move();
+        StepShown?.Invoke(this, step);
+    }
 
     private void Push(INavigationSubject subject)
     {
-        // Opening after going back replaces the forward history.
-        foreach (var dropped in _history.Skip(_position + 1))
-        {
-            dropped.Close();
-        }
-
-        _history.RemoveRange(_position + 1, _history.Count - _position - 1);
-        _history.Add(subject);
-        if (_history.Count > MaxHistory)
-        {
-            _history[1].Close();
-            _history.RemoveAt(1);
-        }
-
-        Move(_history.Count - 1);
+        var step = _path.Open(subject);
+        Log("Opened", step);
+        Move();
     }
 
-    private void Move(int position)
+    // The step's id, its parent's and the snapshot's tie a step to the subject's own query lines that follow (review).
+    private void Log(string action, AnalysisStep step) =>
+        _logger.LogInformation(
+            "Analysis path: {Action} {Kind} step {Step} (from step {Parent}, depth {Depth}) in snapshot {Snapshot} ({Steps} steps)",
+            action, KindOf(step), step.Id, step.Parent?.Id, step.Depth, SnapshotId, _path.Count);
+
+    private string SnapshotId => _snapshot?.Descriptor?.SnapshotId.ToString() ?? "none";
+
+    // Kinds are allow-listed names, never a type name or an address (ARCHITECTURE 11).
+    private static string KindOf(AnalysisStep step) => step.Subject switch
     {
-        _position = position;
-        Current = _history[position];
+        null => step.Target!.Kind.ToString(),
+        TypeSummaryViewModel => "Types",
+        InstancesViewModel => "Instances",
+        ObjectViewModel => "Object",
+        TypeReferrersViewModel => "TypeReferrers",
+        TypePathsViewModel => "TypePaths",
+        _ => "Subject",
+    };
+
+    private void ClearShown()
+    {
+        ShownInstances = null;
+        ShownObject = null;
+        ShownTypeReferrers = null;
+        ShownTypePaths = null;
+    }
+
+    private void Move()
+    {
+        CurrentStep = _path.Current;
+        Current = _path.Current.SubjectShown;
         switch (Current)
         {
             case InstancesViewModel instances:
@@ -221,12 +331,19 @@ public sealed partial class NavigatorViewModel : ObservableObject
                 break;
         }
 
+        OnPropertyChanged(nameof(Path));
         OnPropertyChanged(nameof(IsTypesShown));
         OnPropertyChanged(nameof(IsInstancesShown));
         OnPropertyChanged(nameof(IsObjectShown));
         OnPropertyChanged(nameof(IsTypeReferrersShown));
         OnPropertyChanged(nameof(IsTypePathsShown));
         OnPropertyChanged(nameof(Trail));
+        if (_steps is null || _steps.Count != _path.Count || !_steps.SequenceEqual(_path.Steps))
+        {
+            _steps = null;
+            OnPropertyChanged(nameof(Steps));
+        }
+
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
         BackCommand.NotifyCanExecuteChanged();

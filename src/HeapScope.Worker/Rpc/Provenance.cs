@@ -111,6 +111,13 @@ internal static class Provenance
             {
                 text.Append(named);
             }
+            else if (property.Name == "Filter" && propertyValue is string { Length: > 0 } filter)
+            {
+                // The filter's shape, never its text (2.7 review): "why is my type missing?" needs to know that an
+                // exclusion or a module term was there.
+                var terms = NameFilter.Terms(filter);
+                text.Append(CultureInfo.InvariantCulture, $"({filter.Length} chars; {terms.Count(t => !t.Negated && !t.OnModule)} terms, {terms.Count(t => t.Negated)} excluding, {terms.Count(t => t.OnModule)} on the module)");
+            }
             else
             {
                 Append(text, propertyValue, depth + 1);

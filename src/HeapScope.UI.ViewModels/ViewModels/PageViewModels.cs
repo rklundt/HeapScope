@@ -185,6 +185,9 @@ public sealed partial class AboutViewModel(WorkerOperations operations, IUserInt
     /// <summary>Where this run writes its log; null when it is not known.</summary>
     public string? LogFolder { get; } = logFolder;
 
+    /// <summary>The keyboard shortcuts (sprint 2.7), set by the shell, which knows the pages.</summary>
+    public IReadOnlyList<Shortcut> Shortcuts { get; set; } = [];
+
     /// <summary>The details above as one text, for a support request.</summary>
     [RelayCommand]
     private Task CopyDetailsAsync() => interaction?.CopyTextAsync(

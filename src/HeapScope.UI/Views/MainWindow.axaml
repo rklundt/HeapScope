@@ -62,7 +62,13 @@
       </ctl:AttributionText>
     </Border>
     <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.Surface}" Padding="8,3">
-      <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" />
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Right" Text="F1: keyboard shortcuts" Classes="subtle" Margin="12,0,0,0" />
+        <Button x:Name="CancelExport" DockPanel.Dock="Right" Content="Cancel export" Padding="6,0" Margin="8,0,0,0"
+                Command="{Binding Exports.CancelCommand}" IsVisible="{Binding Exports.IsExporting}" />
+        <TextBlock x:Name="ExportStatus" DockPanel.Dock="Right" Text="{Binding Exports.Status}" Classes="subtle" Margin="12,0,0,0" />
+        <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" />
+      </DockPanel>
     </Border>
     <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="12,6" MaxHeight="160">
       <DockPanel>

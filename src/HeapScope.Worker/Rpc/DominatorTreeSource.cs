@@ -35,8 +35,8 @@ internal sealed class DominatorTreeSource(DominatorTreeView view, ulong[] rowAdd
 {
     public static readonly ResultColumn[] TreeColumns =
     [
-        new(DominatorTreeColumns.Key, ResultColumnKind.Text, IsKey: true),
-        new(DominatorTreeColumns.ParentKey, ResultColumnKind.Text),
+        new(DominatorTreeColumns.Key, ResultColumnKind.Text, IsKey: true, IsHidden: true),
+        new(DominatorTreeColumns.ParentKey, ResultColumnKind.Text, IsHidden: true),
         new(DominatorTreeColumns.Depth, ResultColumnKind.Integer),
         new(DominatorTreeColumns.Kind, ResultColumnKind.Text),
         new(DominatorTreeColumns.Name, ResultColumnKind.Text),
@@ -46,8 +46,8 @@ internal sealed class DominatorTreeSource(DominatorTreeView view, ulong[] rowAdd
         new(DominatorTreeColumns.Retained, ResultColumnKind.Bytes),
         new(DominatorTreeColumns.Bytes, ResultColumnKind.Bytes),
         new(DominatorTreeColumns.Percent, ResultColumnKind.Percent),
-        new(DominatorTreeColumns.Children, ResultColumnKind.Integer),
-        new(DominatorTreeColumns.Expanded, ResultColumnKind.Integer),
+        new(DominatorTreeColumns.Children, ResultColumnKind.Integer, IsHidden: true),
+        new(DominatorTreeColumns.Expanded, ResultColumnKind.Integer, IsHidden: true),
     ];
 
     public IReadOnlyList<ResultColumn> Columns => TreeColumns;
