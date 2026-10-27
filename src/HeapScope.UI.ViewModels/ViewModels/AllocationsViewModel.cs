@@ -103,9 +103,9 @@ public sealed partial class AllocationsViewModel : ObservableObject
     /// Records sampled allocations of a process into the session folder (Record allocations on the Processes page), then
     /// shows the trace. <paramref name="stop"/> ends the recording early and keeps it.
     /// </summary>
-    public async Task<TraceHandle> RecordAsync(int processId, string processName, TimeSpan duration, CancellationToken stop)
+    public async Task<TraceHandle> RecordAsync(int processId, string processName, TimeSpan duration, CancellationToken stop, Action? recorded = null)
     {
-        var handle = await _session.StartRecord(processId, processName, duration, stop).Result;
+        var handle = await _session.StartRecord(processId, processName, duration, stop, recorded is null ? null : () => _dispatcher.Post(recorded)).Result;
         Show(handle);
         return handle;
     }
@@ -132,8 +132,7 @@ public sealed partial class AllocationsViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(IsEmpty));
-        tab.Types.Close();
-        tab.Tree.Close();
+        tab.Close();
         if (Selected == tab)
         {
             Selected = Traces.LastOrDefault();

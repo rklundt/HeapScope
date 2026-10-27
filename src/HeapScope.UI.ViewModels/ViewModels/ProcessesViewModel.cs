@@ -86,6 +86,9 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
     /// <summary>The path of the last successful capture (tests).</summary>
     public string? LastCapturePath { get; private set; }
 
+    /// <summary>The path of the last allocations recording, read or not (tests).</summary>
+    public string? LastRecordingPath { get; private set; }
+
     /// <summary>Why capture is not available on this system (sprint 2.3.6), or null; the page shows it instead of the list.</summary>
     public string? Unavailable => _capture.UnavailableReason;
 
@@ -145,8 +148,13 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
         Status = $"Recording the allocations of {target.Name} (pid {target.ProcessId}) for up to {duration.TotalSeconds:N0} s. Use the application now; Stop keeps what was recorded.";
         try
         {
-            var handle = await allocations!.RecordAsync(target.ProcessId, target.Name, duration, _recording.Token);
-            LastCapturePath = handle.Path;
+            // Stop does nothing once recording has ended and the trace is being read.
+            var handle = await allocations!.RecordAsync(target.ProcessId, target.Name, duration, _recording.Token, () =>
+            {
+                IsRecording = false;
+                Status = $"Reading the allocations of {target.Name}...";
+            });
+            LastRecordingPath = handle.Path;
             Status = $"Recorded {System.IO.Path.GetFileName(handle.Path)}: about {Format.Bytes(handle.Descriptor.SampledBytes)} allocated in {handle.Descriptor.DurationSeconds:N1} s. A trace holds method and type names, not heap contents; keep it private.";
         }
         catch (OperationCanceledException)
@@ -157,6 +165,12 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
         {
             Status = ex.Message;
         }
+        catch (HeapScope.Application.Allocations.TraceRecordedButNotReadException ex)
+        {
+            // The trace is kept: say where, and how to open it later (the 2.5 review).
+            LastRecordingPath = ex.Path;
+            Status = ex.Message;
+        }
         catch (HeapScope.Application.Workers.WorkerException ex)
         {
             Status = ex.Message;
@@ -164,6 +178,8 @@ public sealed partial class ProcessesViewModel(ICaptureService capture, Snapshot
         finally
         {
             IsRecording = false;
+            _recording?.Dispose();
+            _recording = null;
         }
     }
 

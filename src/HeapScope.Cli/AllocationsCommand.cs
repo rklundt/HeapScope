@@ -24,6 +24,7 @@
 using System.CommandLine;
 using System.Globalization;
 using HeapScope.Application.Allocations;
+using HeapScope.Application.Jobs;
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -94,9 +95,16 @@ internal static partial class CliCommands
             }
 
             // An option left at its default has no value in a validator.
-            if (result.GetValue(format) == "csv" && (result.GetValue(view) ?? "summary") == "summary")
+            var shown = result.GetValue(view) ?? "summary";
+            if (result.GetValue(format) == "csv" && shown == "summary")
             {
                 result.AddError("CSV holds one table: add --view types or --view stacks.");
+            }
+
+            // The types view lists every type of the interval; a type narrows the call stacks only (the 2.5 review).
+            if (shown == "types" && result.GetValue(type) is not null)
+            {
+                result.AddError("--type narrows the call stacks; the types view lists every type. Use --view stacks or summary with --type.");
             }
         });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
@@ -109,7 +117,15 @@ internal static partial class CliCommands
             }
 
             var session = services().GetRequiredService<AllocationSession>();
-            var handle = await session.StartOpen(file.FullName).Result.ConfigureAwait(false);
+            var openJob = session.StartOpen(file.FullName);
+            TraceHandle handle;
+            using (var openProgress = new ConsoleProgress(services().GetRequiredService<JobTracker>(), openJob, error))
+            using (ct.Register(openJob.Cancel))
+            {
+                handle = await openJob.Result.ConfigureAwait(false);
+                openProgress.Complete();
+            }
+
             var descriptor = handle.Descriptor;
             var scope = new AllocationScope(parseResult.GetValue(from), parseResult.GetValue(to), parseResult.GetValue(type));
             var shownView = parseResult.GetValue(view)!;
@@ -117,17 +133,20 @@ internal static partial class CliCommands
 
             List<IReadOnlyList<string?>> typeRows = [];
             IReadOnlyList<ResultColumn> typeColumns = [];
+            (long Bytes, int Samples) allTypes = (descriptor.SampledBytes, descriptor.Samples);
             if (wantedTypes > 0)
             {
                 var answer = await session.QueryTypesAsync(handle, scope, ct).ConfigureAwait(false);
                 typeColumns = answer.Rows.Info.Columns;
+                allTypes = (answer.Result.SampledBytes, answer.Result.Samples);
                 typeRows = await FetchRowsAsync(answer.Rows, Math.Min(wantedTypes, answer.Result.Types.TotalCount), ct).ConfigureAwait(false);
                 await ReleaseQuietlyAsync(answer.Rows, ct).ConfigureAwait(false);
             }
 
+            // One meaning of % in the UI and the CLI: a share of the bytes shown (AllocationTexts.ShareOf).
             var top = shownView == "types" ? null : await session.QueryStacksAsync(handle, scope, parseResult.GetValue(stacks), ct).ConfigureAwait(false);
-            var totals = await session.QueryStacksAsync(handle, scope with { TypeName = null }, 1, ct).ConfigureAwait(false);
-            string Share(long bytes) => totals.SampledBytes == 0 ? "0" : (100.0 * bytes / totals.SampledBytes).ToString("0.##", CultureInfo.InvariantCulture);
+            var (shownBytes, shownSamples) = top is null ? allTypes : (top.SampledBytes, top.Samples);
+            string Share(long bytes) => shownBytes == 0 ? "0" : (100.0 * bytes / shownBytes).ToString("0.##", CultureInfo.InvariantCulture);
             var interval = string.Create(CultureInfo.InvariantCulture, $"{scope.FromSeconds:0.###} s to {(scope.ToSeconds is { } end ? end.ToString("0.###", CultureInfo.InvariantCulture) + " s" : "the end")}");
 
             switch (parseResult.GetValue(format))
@@ -154,11 +173,15 @@ internal static partial class CliCommands
                         From = scope.FromSeconds,
                         To = scope.ToSeconds,
                         Type = scope.TypeName,
-                        SampledBytes = top?.SampledBytes ?? totals.SampledBytes,
-                        Samples = top?.Samples ?? totals.Samples,
+                        SampledBytes = shownBytes,
+                        Samples = shownSamples,
                         BytesAre = ValueBound.Estimate.ToString(),
                         descriptor.LostEvents,
                         descriptor.SamplesWithoutStack,
+                        descriptor.SamplesWithUnresolvedFrames,
+                        descriptor.HasRundown,
+                        descriptor.ConversionIssues,
+                        TypesBytes = allTypes.Bytes,
                         Types = JsonRows(typeColumns, typeRows),
                         Stacks = top?.Stacks.Select(s => new { s.Bytes, s.Samples, Percent = double.Parse(Share(s.Bytes), CultureInfo.InvariantCulture), s.Frames }),
                     }).ConfigureAwait(false);
@@ -167,15 +190,19 @@ internal static partial class CliCommands
                     await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
                         $"{descriptor.Path}: {descriptor.ProcessName ?? "process"} ({descriptor.ProcessId}), {descriptor.DurationSeconds:N1} s recorded, {descriptor.Samples:N0} samples")).ConfigureAwait(false);
                     await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                        $"From {interval}{(scope.TypeName is null ? string.Empty : ", type " + scope.TypeName)}: about {(top?.SampledBytes ?? totals.SampledBytes):N0} bytes allocated ({(top?.Samples ?? totals.Samples):N0} samples)")).ConfigureAwait(false);
+                        $"From {interval}{(scope.TypeName is null ? string.Empty : ", type " + scope.TypeName)}: about {shownBytes:N0} bytes allocated ({shownSamples:N0} samples)")).ConfigureAwait(false);
                     if (typeRows.Count > 0)
                     {
+                        // Every type of the interval, whatever --type says (it narrows the stacks).
                         await output.WriteLineAsync().ConfigureAwait(false);
-                        await output.WriteLineAsync($"{"Bytes",16} {"%",7} {"Samples",9}  Type").ConfigureAwait(false);
+                        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"All types from {interval}: about {allTypes.Bytes:N0} bytes")).ConfigureAwait(false);
+                        await output.WriteLineAsync($"{"Bytes",16} {"%",7} {"Samples",9} {"LOH bytes",14} {"POH bytes",12}  Type").ConfigureAwait(false);
+                        int At(string column) => typeColumns.Select((c, i) => (c.Name, i)).Single(c => c.Name == column).i;
+                        long Number(IReadOnlyList<string?> row, string column) => long.Parse(row[At(column)]!, CultureInfo.InvariantCulture);
                         foreach (var row in typeRows)
                         {
                             await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                                $"{long.Parse(row[1]!, CultureInfo.InvariantCulture),16:N0} {row[3],7} {long.Parse(row[2]!, CultureInfo.InvariantCulture),9:N0}  {row[0]}")).ConfigureAwait(false);
+                                $"{Number(row, AllocationTypeColumns.Bytes),16:N0} {row[At(AllocationTypeColumns.Percent)],7} {Number(row, AllocationTypeColumns.Samples),9:N0} {Number(row, AllocationTypeColumns.LargeObjectHeap),14:N0} {Number(row, AllocationTypeColumns.PinnedObjectHeap),12:N0}  {row[At(AllocationTypeColumns.Type)]}")).ConfigureAwait(false);
                         }
                     }
 
@@ -202,11 +229,11 @@ internal static partial class CliCommands
                     break;
             }
 
-            // Every format: what the sizes mean, and when the trace undercounts.
-            await error.WriteLineAsync("Note: " + AllocationTexts.Sampled).ConfigureAwait(false);
-            if (descriptor.LostEvents > 0)
+            // Every format: what the sizes and shares mean, and when the trace undercounts or misses names.
+            await error.WriteLineAsync("Note: " + AllocationTexts.Sampled + " " + AllocationTexts.ShareOf).ConfigureAwait(false);
+            if (AllocationTexts.NotesFor(descriptor) is { Length: > 0 } notes)
             {
-                await error.WriteLineAsync("Note: " + AllocationTexts.Lost(descriptor.LostEvents)).ConfigureAwait(false);
+                await error.WriteLineAsync("Note: " + notes).ConfigureAwait(false);
             }
 
             return Success;

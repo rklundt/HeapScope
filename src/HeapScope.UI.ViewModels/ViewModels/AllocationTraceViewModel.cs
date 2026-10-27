@@ -98,7 +98,8 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
         Summary = string.Create(
             CultureInfo.CurrentCulture,
             $"{d.ProcessName ?? "Process"} ({d.ProcessId}), {d.DurationSeconds:N1} s recorded, about {Format.Bytes(d.SampledBytes)} allocated in {d.Samples:N0} samples");
-        Note = AllocationTexts.Sampled + (d.LostEvents > 0 ? " " + AllocationTexts.Lost(d.LostEvents) : string.Empty);
+        Note = string.Join(" ", new[] { AllocationTexts.Sampled, AllocationTexts.ShareOf, AllocationTexts.NotesFor(d) }.Where(n => n.Length > 0));
+        IsIncomplete = !d.HasRundown || d.ConversionIssues > 0 || d.SamplesWithUnresolvedFrames > 0;
         UpdateInterval();
     }
 
@@ -108,8 +109,11 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
 
     public string Summary { get; }
 
-    /// <summary>What the sizes mean, and when the trace undercounts.</summary>
+    /// <summary>What the sizes and shares mean, and when the trace undercounts or misses names.</summary>
     public string Note { get; }
+
+    /// <summary>Whether the trace misses its rundown, names or part of its stream (the note says which).</summary>
+    public bool IsIncomplete { get; }
 
     public AllocationTypesViewModel Types { get; }
 
@@ -124,8 +128,24 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
 
     public double DurationSeconds => Trace.Descriptor.DurationSeconds;
 
-    /// <summary>The timeline and the stacks loading (tests and smoke runs await it).</summary>
-    public Task LoadTask { get; private set; } = Task.CompletedTask;
+    /// <summary>The timeline and the latest stacks loading (tests and smoke runs await it).</summary>
+    public Task LoadTask => Task.WhenAll(_timelineTask, _stacksTask);
+
+    private Task _timelineTask = Task.CompletedTask;
+
+    // Whether the views show the whole trace now, so a repeated "whole trace" asks nothing again.
+    private bool _wholeTrace = true;
+    private Task _stacksTask = Task.CompletedTask;
+    private readonly CancellationTokenSource _closing = new();
+
+    /// <summary>Stops this trace's pending loads (its tab was closed).</summary>
+    public void Close()
+    {
+        _closing.Cancel();
+        _stacks?.Cancel();
+        Types.Close();
+        Tree.Close();
+    }
 
     /// <summary>What the queries are about now.</summary>
     public AllocationScope Scope => new(Selection?.FromSeconds ?? 0, Selection?.ToSeconds, TypeName);
@@ -133,31 +153,56 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
     /// <summary>Loads the timeline, the types, the tree and the stacks of the whole trace.</summary>
     public void Start()
     {
-        LoadTask = LoadTimelineAsync();
+        using var activity = Act("show the trace{0}", string.Empty);
+        _timelineTask = LoadTimelineAsync();
         Refresh(types: true);
     }
 
     partial void OnSelectionChanged(TimeInterval? value)
     {
+        // A click without a drag is no interval: the whole trace (the 2.5 review).
+        if (value is { } interval && interval.ToSeconds <= interval.FromSeconds)
+        {
+            var wasWhole = _wholeTrace;
+            Selection = null;
+            if (wasWhole)
+            {
+                return;
+            }
+        }
+
+        if (value is not null && value.ToSeconds <= value.FromSeconds)
+        {
+            return;
+        }
+
+        if (value is null && _wholeTrace)
+        {
+            return;
+        }
+
+        _wholeTrace = value is null;
+
         UpdateInterval();
-        using var activity = Act("select the interval {0}", Interval ?? string.Empty);
+        using var activity = Act(
+            "select the interval {0}",
+            value is null ? "whole trace" : string.Create(CultureInfo.InvariantCulture, $"{value.FromSeconds:R} s to {value.ToSeconds:R} s"));
         Refresh(types: true);
     }
 
     partial void OnShowCallTreeChanged(bool value) => Tree.Kind = value ? AllocationTreeKindDto.CallTree : AllocationTreeKindDto.BackTraces;
 
     [RelayCommand]
-    private void WholeTrace()
-    {
-        using var activity = Act("select the whole trace{0}", string.Empty);
-        Selection = null;
-    }
+    private void WholeTrace() => Selection = null;
 
     [RelayCommand(CanExecute = nameof(HasType))]
     private void AllTypes()
     {
         using var activity = Act("show every type{0}", string.Empty);
         TypeName = null;
+
+        // Clears the grid's row too, so picking the same type again narrows again (the 2.5 review).
+        Types.SelectedRow = null;
         Refresh(types: false);
     }
 
@@ -189,10 +234,8 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
     {
         _stacks?.Cancel();
         _stacks?.Dispose();
-        _stacks = new CancellationTokenSource();
-        var token = _stacks.Token;
-        var load = LoadStacksAsync(scope, token);
-        LoadTask = Task.WhenAll(LoadTask, load);
+        _stacks = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token);
+        _stacksTask = LoadStacksAsync(scope, _stacks.Token);
     }
 
     private async Task LoadStacksAsync(AllocationScope scope, CancellationToken cancellationToken)
@@ -214,11 +257,13 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
             }
 
             SelectedStack = Stacks.FirstOrDefault();
-            StacksStatus = Stacks.Count == 0 ? "No allocation was sampled in this interval." : null;
+            StacksStatus = Stacks.Count == 0
+                ? scope.TypeName is { } type ? $"No allocation of {type} was sampled in this interval." : "No allocation was sampled in this interval."
+                : null;
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
-            // A newer interval or type replaced this list.
+            // A newer interval or type replaced this list, or the tab was closed.
         }
         catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
@@ -236,14 +281,24 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
     {
         // About 200 bars across the trace, at least 10 ms each.
         BucketSeconds = Math.Max(AllocationTreeLimits.MinBucketSeconds, Math.Round(Math.Max(DurationSeconds, 1) / 200, 2));
+        using var activity = new Activity("HeapScope.Query").SetTag("grid", "AllocationTimeline").Start();
         try
         {
-            var timeline = await _session.QueryTimelineAsync(Trace, BucketSeconds, CancellationToken.None);
+            var timeline = await _session.QueryTimelineAsync(Trace, BucketSeconds, _closing.Token);
             Buckets = timeline.Buckets;
+        }
+        catch (Exception) when (_closing.IsCancellationRequested)
+        {
+            // The tab was closed.
         }
         catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             _logger.LogInformation("Allocations: the timeline was refused: {Reason}", ex.Message);
+            Buckets = [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "The allocations timeline failed");
             Buckets = [];
         }
     }
@@ -252,7 +307,7 @@ public sealed partial class AllocationTraceViewModel : ObservableObject
     private Activity? Act(string action, object argument)
     {
         var activity = new Activity("HeapScope.Allocations").Start();
-        _logger.LogInformation("Allocations of {Trace}: {Action}", Title, string.Format(CultureInfo.InvariantCulture, action, argument));
+        _logger.LogInformation("Allocations of {Trace} (worker trace {WorkerTrace}): {Action}", Trace.Path, Trace.Descriptor.TraceId, string.Format(CultureInfo.InvariantCulture, action, argument));
         return activity;
     }
 }

@@ -79,7 +79,7 @@ internal sealed partial class SnapshotStore
     /// Reserves memory for work that belongs to no snapshot (sprint 2.5: reading an allocation trace), against the same
     /// worker-wide budget. Dispose it, then <see cref="MemoryReservations.Collect"/>, when the work ends.
     /// </summary>
-    public IDisposable ReserveWorking(long bytes, string what) => _reservations.Reserve(bytes, what, MemoryMode.Mapped, hasCache: false);
+    public IDisposable ReserveWorking(long bytes, string what, string nextStep) => _reservations.Reserve(bytes, what, nextStep);
 
     public async Task<ulong[]?> GetGroupRetentionAsync(Guid snapshotId, GroupKey grouping, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {

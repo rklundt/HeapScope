@@ -26,25 +26,46 @@ using HeapScope.Core;
 using HeapScope.Core.Allocations;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace HeapScope.Loaders.Trace;
 
 /// <summary>
 /// Reads the sampled allocations of an EventPipe trace (sprint 2.5, ADR-028): the runtime's allocation ticks with their
-/// types, bytes and call stacks. TraceEvent resolves stacks through an <c>.etlx</c> file, which is written to a private
-/// temporary folder and deleted after reading; nothing is written next to the trace. Methods are named from the trace's
-/// own rundown, never from a symbol server (ADR-017); runs of native frames become one <see cref="AllocationTrace.NativeFrame"/>.
+/// types, kinds, bytes and call stacks. TraceEvent resolves stacks through an <c>.etlx</c> file, which is written to a
+/// private temporary folder and deleted after reading; nothing is written next to the trace. Methods are named from the
+/// trace's own events (JIT, loader and the rundown), never from a symbol server (ADR-017). EventPipe walks managed frames
+/// only, so a frame without a name is a managed method the trace does not name, labeled so and counted (the 2.5 review);
+/// whether the rundown arrived and what TraceEvent reported while converting are part of the result.
 /// </summary>
 public static class AllocationTraceReader
 {
+    /// <summary>
+    /// Changes when how stacks, frames or samples are built changes (the worker's versions line, ARCHITECTURE.md 11), so a
+    /// log line can be matched to the rules that produced it. 1: sprint 2.5.
+    /// </summary>
+    public const int Version = 1;
+
+    /// <summary>TraceEvent's version, for the worker's versions line.</summary>
+    public static string LibraryVersion { get; } = typeof(TraceLog).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+    /// <summary>The temporary folder the <c>.etlx</c> files are written to.</summary>
+    public static string DefaultTemporaryFolder { get; } = Path.Combine(Path.GetTempPath(), "HeapScope", "etlx");
+
     private static readonly byte[] s_magic = Encoding.ASCII.GetBytes("Nettrace");
+
+    /// <summary>The allocation tick's event id in the runtime provider.</summary>
+    private const int AllocationTickEventId = 10;
+
+    /// <summary>Conversion problems kept for the log.</summary>
+    private const int KeptIssues = 3;
 
     /// <summary>Reads <paramref name="path"/>.</summary>
     /// <param name="progress">Phases, in words, for the job's status line.</param>
     /// <exception cref="SnapshotFormatException">The file is not an EventPipe trace or cannot be read.</exception>
     public static AllocationTrace Read(string path, IProgress<string>? progress, CancellationToken cancellationToken) =>
-        Read(path, progress, Path.Combine(Path.GetTempPath(), "HeapScope", "etlx"), cancellationToken);
+        Read(path, progress, DefaultTemporaryFolder, cancellationToken);
 
     /// <summary>Reads <paramref name="path"/>, writing the temporary <c>.etlx</c> into <paramref name="temporaryFolder"/> (tests).</summary>
     internal static AllocationTrace Read(string path, IProgress<string>? progress, string temporaryFolder, CancellationToken cancellationToken)
@@ -58,27 +79,78 @@ public static class AllocationTraceReader
         var etlx = Path.Combine(folder.FullName, Guid.NewGuid().ToString("N") + ".etlx");
         try
         {
-            progress?.Report("Resolving the trace's call stacks");
+            // TraceEvent's conversion cannot be canceled: a cancel takes effect when it returns (ADR-028).
+            progress?.Report("Resolving the trace's call stacks (a cancel takes effect after this step)");
+            var conversion = new StringWriter();
             try
             {
-                TraceLog.CreateFromEventPipeDataFile(fullPath, etlx, new TraceLogOptions { ContinueOnError = true, ConversionLog = TextWriter.Null });
+                TraceLog.CreateFromEventPipeDataFile(fullPath, etlx, new TraceLogOptions { ContinueOnError = true, ConversionLog = conversion });
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
             {
-                throw new SnapshotFormatException($"{fullPath} could not be read as an EventPipe trace: {ex.Message}", ex);
+                throw new SnapshotFormatException($"{fullPath} could not be read as an EventPipe trace: {ex.Message} The recording may have been cut short; record it again.", ex);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report("Reading allocation samples");
             using var log = new TraceLog(etlx);
-            return new Builder(log, cancellationToken).Build();
+            return new Builder(log, Issues(conversion.ToString()), cancellationToken).Build();
         }
         finally
         {
             TryDelete(etlx);
-            TryDelete(Path.ChangeExtension(etlx, ".etlx.log"));
+            TryDelete(etlx + ".log");
         }
     }
+
+    /// <summary>
+    /// Deletes <c>.etlx</c> files a read left behind (a worker killed mid-read, the 2.5 review): those not written to for
+    /// <paramref name="minimumAge"/> and not open elsewhere. Returns the files and bytes removed.
+    /// </summary>
+    public static (int Files, long Bytes) SweepTemporaryFiles(TimeSpan minimumAge, string? temporaryFolder = null)
+    {
+        var folder = temporaryFolder ?? DefaultTemporaryFolder;
+        if (!Directory.Exists(folder))
+        {
+            return (0, 0);
+        }
+
+        var (files, bytes) = (0, 0L);
+        foreach (var file in Directory.EnumerateFiles(folder, "*.etlx*"))
+        {
+            try
+            {
+                var info = new FileInfo(file);
+                if (DateTime.UtcNow - info.LastWriteTimeUtc < minimumAge)
+                {
+                    continue;
+                }
+
+                // A file another worker is reading cannot be opened exclusively.
+                using (new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                }
+
+                var length = info.Length;
+                File.Delete(file);
+                (files, bytes) = (files + 1, bytes + length);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // In use or already gone.
+            }
+        }
+
+        return (files, bytes);
+    }
+
+    // TraceEvent's conversion log lines that report a problem (its own words; it writes no event payloads).
+    private static List<string> Issues(string conversionLog) =>
+        [.. conversionLog.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("warning", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("exception", StringComparison.OrdinalIgnoreCase))];
 
     private static void CheckSignature(string path)
     {
@@ -86,12 +158,16 @@ public static class AllocationTraceReader
         int read;
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             read = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
         }
-        catch (FileNotFoundException ex)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             throw new SnapshotFormatException($"{path} does not exist.", ex);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new SnapshotFormatException($"{path} could not be read: {ex.Message} If it is still being recorded, wait until the recording ends.", ex);
         }
 
         // The nettrace format starts with its magic, then the FastSerialization header.
@@ -109,11 +185,11 @@ public static class AllocationTraceReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best effort: the temporary folder is the user's alone.
+            // The worker's start sweeps what is left (SweepTemporaryFiles).
         }
     }
 
-    private sealed class Builder(TraceLog log, CancellationToken cancellationToken)
+    private sealed class Builder(TraceLog log, List<string> issues, CancellationToken cancellationToken)
     {
         private readonly List<string> _frames = [];
         private readonly Dictionary<string, int> _frameIds = new(StringComparer.Ordinal);
@@ -122,35 +198,63 @@ public static class AllocationTraceReader
         private readonly List<int> _stackFrames = [];
         private readonly List<int> _stackParents = [];
         private readonly Dictionary<(int Parent, int Frame), int> _nodes = [];
-        private readonly Dictionary<CallStackIndex, int> _leaves = [];
-        private readonly List<double> _times = [];
-        private readonly List<int> _stacks = [];
-        private readonly List<int> _sampleTypes = [];
-        private readonly List<long> _bytes = [];
+        private readonly Dictionary<CallStackIndex, (int Node, bool Unresolved)> _leaves = [];
         private readonly List<int> _scratch = [];
+        private double[] _times = [];
+        private int[] _stacks = [];
+        private int[] _sampleTypes = [];
+        private long[] _bytes = [];
+        private AllocationKind[] _kinds = [];
+        private int _count;
+        private bool _ordered = true;
         private long _withoutStack;
+        private long _unresolvedSamples;
+        private long _rundownEvents;
+        private long _events;
         private int _processId;
         private string? _processName;
 
         public AllocationTrace Build()
         {
+            // Exact arrays from the trace's event counts: no list doubling over millions of samples (the 2.5 review).
+            Allocate(ExpectedTicks());
             var source = log.Events.GetSource();
             var canceled = false;
-            source.Clr.GCAllocationTick += data =>
+            var rundownProvider = ClrRundownTraceEventParser.ProviderGuid;
+            source.AllEvents += e =>
             {
-                if ((_times.Count & 0x3FF) == 0x3FF && cancellationToken.IsCancellationRequested)
+                if (e.ProviderGuid == rundownProvider)
+                {
+                    _rundownEvents++;
+                }
+
+                if ((++_events & 0xFFF) == 0 && cancellationToken.IsCancellationRequested)
                 {
                     canceled = true;
                     source.StopProcessing();
-                    return;
                 }
-
-                Add(data);
+            };
+            source.Clr.GCAllocationTick += data =>
+            {
+                if (!canceled)
+                {
+                    Add(data);
+                }
             };
             source.Process();
             if (canceled)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            if (_count != _times.Length)
+            {
+                Allocate(_count);
+            }
+
+            if (!_ordered)
+            {
+                SortByTime();
             }
 
             var info = new AllocationTraceInfo(
@@ -159,21 +263,45 @@ public static class AllocationTraceReader
                 log.SessionStartTime.ToUniversalTime(),
                 log.SessionDuration.TotalMilliseconds,
                 log.EventsLost,
-                _withoutStack);
-            return new AllocationTrace(
-                _frames,
-                _types,
-                [.. _stackFrames],
-                [.. _stackParents],
-                [.. _times],
-                [.. _stacks],
-                [.. _sampleTypes],
-                [.. _bytes],
-                info);
+                _withoutStack,
+                _unresolvedSamples,
+                _rundownEvents > 0,
+                issues.Count,
+                [.. issues.Take(KeptIssues)]);
+            return new AllocationTrace(_frames, _types, [.. _stackFrames], [.. _stackParents], _times, _stacks, _sampleTypes, _bytes, _kinds, info);
+        }
+
+        private int ExpectedTicks()
+        {
+            long ticks = 0;
+            foreach (var counts in log.Stats)
+            {
+                if (counts.ProviderGuid == ClrTraceEventParser.ProviderGuid && (int)counts.EventID == AllocationTickEventId)
+                {
+                    ticks += counts.Count;
+                }
+            }
+
+            return (int)Math.Min(ticks, Array.MaxLength);
+        }
+
+        private void Allocate(int length)
+        {
+            Array.Resize(ref _times, length);
+            Array.Resize(ref _stacks, length);
+            Array.Resize(ref _sampleTypes, length);
+            Array.Resize(ref _bytes, length);
+            Array.Resize(ref _kinds, length);
         }
 
         private void Add(GCAllocationTickTraceData data)
         {
+            if (_count == _times.Length)
+            {
+                // More ticks than the counts said: grow by half (rare).
+                Allocate(Math.Max(1024, _count + (_count / 2)));
+            }
+
             if (_processId == 0 && data.ProcessID > 0)
             {
                 _processId = data.ProcessID;
@@ -188,31 +316,68 @@ public static class AllocationTraceReader
                 _typeIds.Add(typeName, type);
             }
 
-            var stack = Leaf(data.CallStackIndex());
+            var (stack, unresolved) = Leaf(data.CallStackIndex());
+            if (unresolved)
+            {
+                _unresolvedSamples++;
+            }
 
-            _times.Add(data.TimeStampRelativeMSec);
-            _stacks.Add(stack);
-            _sampleTypes.Add(type);
-            _bytes.Add(data.AllocationAmount64);
+            var time = data.TimeStampRelativeMSec;
+            if (_count > 0 && time < _times[_count - 1])
+            {
+                _ordered = false;
+            }
+
+            _times[_count] = time;
+            _stacks[_count] = stack;
+            _sampleTypes[_count] = type;
+            _bytes[_count] = data.AllocationAmount64;
+            _kinds[_count] = data.AllocationKind switch
+            {
+                GCAllocationKind.Large => AllocationKind.Large,
+                (GCAllocationKind)2 => AllocationKind.Pinned,
+                _ => AllocationKind.Small,
+            };
+            _count++;
         }
 
-        /// <summary>The innermost node of a TraceLog stack, adding its frames to the tree the first time.</summary>
-        private int Leaf(CallStackIndex index)
+        // EventPipe buffers are per thread: a sample can arrive after a later one. The queries binary-search the times.
+        private void SortByTime()
+        {
+            var order = new int[_count];
+            for (var i = 0; i < order.Length; i++)
+            {
+                order[i] = i;
+            }
+
+            var keys = (double[])_times.Clone();
+            Array.Sort(keys, order);
+            _times = keys;
+            _stacks = Permute(_stacks, order);
+            _sampleTypes = Permute(_sampleTypes, order);
+            _bytes = Permute(_bytes, order);
+            _kinds = Permute(_kinds, order);
+        }
+
+        private static T[] Permute<T>(T[] values, int[] order)
+        {
+            var sorted = new T[values.Length];
+            for (var i = 0; i < order.Length; i++)
+            {
+                sorted[i] = values[order[i]];
+            }
+
+            return sorted;
+        }
+
+        /// <summary>The innermost node of a TraceLog stack, adding its frames to the tree the first time; whether it has an unresolved frame.</summary>
+        private (int Node, bool Unresolved) Leaf(CallStackIndex index)
         {
             if (index == CallStackIndex.Invalid)
             {
                 // Kept in the totals under a frame of its own, so every view adds up to the same bytes.
                 _withoutStack++;
-                var frame = FrameId(AllocationTrace.NoStackFrame);
-                if (!_nodes.TryGetValue((-1, frame), out var none))
-                {
-                    none = _stackFrames.Count;
-                    _stackFrames.Add(frame);
-                    _stackParents.Add(-1);
-                    _nodes.Add((-1, frame), none);
-                }
-
-                return none;
+                return (Node(-1, FrameId(AllocationTrace.NoStackFrame)), false);
             }
 
             if (_leaves.TryGetValue(index, out var known))
@@ -220,44 +385,46 @@ public static class AllocationTraceReader
                 return known;
             }
 
-            // Innermost first, with runs of native frames merged into one.
+            // Innermost first; every frame kept, named or not (merging unnamed frames would hide different methods).
             _scratch.Clear();
+            var unresolved = false;
             for (var at = index; at != CallStackIndex.Invalid; at = log.CallStacks.Caller(at))
             {
-                var frame = Frame(log.CallStacks.CodeAddressIndex(at));
-                if (frame == NativeId && _scratch.Count > 0 && _scratch[^1] == NativeId)
-                {
-                    continue;
-                }
-
+                var (frame, named) = Frame(log.CallStacks.CodeAddressIndex(at));
+                unresolved |= !named;
                 _scratch.Add(frame);
             }
 
             var node = -1;
             for (var i = _scratch.Count - 1; i >= 0; i--)
             {
-                if (!_nodes.TryGetValue((node, _scratch[i]), out var child))
-                {
-                    child = _stackFrames.Count;
-                    _stackFrames.Add(_scratch[i]);
-                    _stackParents.Add(node);
-                    _nodes.Add((node, _scratch[i]), child);
-                }
-
-                node = child;
+                node = Node(node, _scratch[i]);
             }
 
-            _leaves.Add(index, node);
+            _leaves.Add(index, (node, unresolved));
+            return (node, unresolved);
+        }
+
+        private int Node(int parent, int frame)
+        {
+            if (!_nodes.TryGetValue((parent, frame), out var node))
+            {
+                node = _stackFrames.Count;
+                _stackFrames.Add(frame);
+                _stackParents.Add(parent);
+                _nodes.Add((parent, frame), node);
+            }
+
             return node;
         }
 
-        private int NativeId => FrameId(AllocationTrace.NativeFrame);
-
-        private int Frame(CodeAddressIndex address)
+        private (int Frame, bool Named) Frame(CodeAddressIndex address)
         {
             var method = log.CodeAddresses.MethodIndex(address);
             var name = method == MethodIndex.Invalid ? null : log.CodeAddresses.Methods.FullMethodName(method);
-            return FrameId(string.IsNullOrEmpty(name) ? AllocationTrace.NativeFrame : name);
+            return string.IsNullOrEmpty(name)
+                ? (FrameId(AllocationTrace.UnresolvedFrame(log.CodeAddresses.ModuleFile(address)?.Name)), false)
+                : (FrameId(name), true);
         }
 
         private int FrameId(string name)

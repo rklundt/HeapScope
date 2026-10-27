@@ -79,7 +79,9 @@ public sealed partial class AllocationTreeViewModel : GridQueryViewModel<Allocat
 
     protected override string BusyText => Kind == AllocationTreeKindDto.CallTree ? "Building the call tree..." : "Building the back traces...";
 
-    protected override string EmptyText => "No allocation was sampled in this interval.";
+    protected override string EmptyText => Scope.TypeName is { } type
+        ? $"No allocation of {type} was sampled in this interval."
+        : "No allocation was sampled in this interval.";
 
     /// <summary>Shows a trace's tree for <paramref name="scope"/>, every row closed.</summary>
     public void Show(TraceHandle? trace, AllocationScope scope)
@@ -213,7 +215,7 @@ public sealed partial class AllocationTreeViewModel : GridQueryViewModel<Allocat
     private Activity? Act(string action, object argument)
     {
         var activity = new Activity("HeapScope.Allocations").Start();
-        Logger.LogInformation("Allocations {Kind}: {Action}", Kind, string.Format(CultureInfo.InvariantCulture, action, argument));
+        Logger.LogInformation("Allocations {Kind} of {Trace} (worker trace {WorkerTrace}): {Action}", Kind, Trace?.Path, Trace?.Descriptor.TraceId, string.Format(CultureInfo.InvariantCulture, action, argument));
         return activity;
     }
 

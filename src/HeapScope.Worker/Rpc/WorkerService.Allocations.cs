@@ -35,17 +35,17 @@ internal sealed partial class WorkerService
     /// <summary>Rows written to a query's provenance line.</summary>
     private const int LoggedAllocationRows = 10;
 
+    /// <summary>Frames of each stack written to the stacks line; the stack node gives the rest.</summary>
+    private const int LoggedFrames = 16;
+
     public Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         GuardAsync(request, () => traces.OpenAsync(request, progress is null ? null : new ThrottledProgress<JobProgress>(progress), cancellationToken));
 
-    public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken)
-    {
-        traces.Close(traceId);
-        return Task.CompletedTask;
-    }
+    public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken) =>
+        GuardAsync<bool>(traceId, () => Task.FromResult(traces.Close(traceId)));
 
     public Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken) =>
-        GuardAsync(request, () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             if (request.BucketSeconds is < AllocationTreeLimits.MinBucketSeconds or > AllocationTreeLimits.MaxBucketSeconds || double.IsNaN(request.BucketSeconds))
@@ -54,7 +54,12 @@ internal sealed partial class WorkerService
             }
 
             var open = Trace(request.TraceId);
-            var buckets = AllocationProfile.Timeline(open.Trace, request.BucketSeconds * 1000);
+            if (AllocationProfile.BucketCount(open.Trace, request.BucketSeconds * 1000) > AllocationTreeLimits.MaxBuckets)
+            {
+                throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"A timeline has at most {AllocationTreeLimits.MaxBuckets:N0} stretches; ask for longer ones (this trace is {open.Trace.Info.DurationMs / 1000:N1} s)."));
+            }
+
+            var buckets = await Task.Run(() => AllocationProfile.Timeline(open.Trace, request.BucketSeconds * 1000, cancellationToken), cancellationToken).ConfigureAwait(false);
             var result = new AllocationTimelineResult(
                 [.. buckets.Select(b => new AllocationBucketDto(b.StartMs / 1000, b.Bytes, b.Samples))],
                 request.BucketSeconds,
@@ -65,17 +70,18 @@ internal sealed partial class WorkerService
                 buckets.Length,
                 request.BucketSeconds,
                 string.Join("; ", buckets.OrderByDescending(b => b.Bytes).Take(3).Select(b => string.Create(CultureInfo.InvariantCulture, $"{b.StartMs / 1000:0.##} s {b.Bytes} bytes"))));
-            return Task.FromResult(result);
+            return result;
         });
 
     public Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken) =>
-        GuardAsync(request, () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             var open = Trace(request.TraceId);
             var filter = Filter(open, request.FromSeconds, request.ToSeconds, null);
-            var rows = AllocationProfile.Types(open.Trace, filter);
-            var (bytes, samples) = AllocationProfile.Totals(open.Trace, filter);
+            var (rows, (bytes, samples)) = await Task.Run(
+                () => (AllocationProfile.Types(open.Trace, filter, cancellationToken), AllocationProfile.Totals(open.Trace, filter, cancellationToken)),
+                cancellationToken).ConfigureAwait(false);
             logger.LogInformation(
                 "Allocation types of trace {Id} from {From} s to {To}: {Types} types, {Samples} samples of {Bytes} bytes; top {Top}",
                 request.TraceId,
@@ -84,12 +90,12 @@ internal sealed partial class WorkerService
                 rows.Length,
                 samples,
                 bytes,
-                string.Join("; ", rows.Take(LoggedAllocationRows).Select(r => string.Create(CultureInfo.InvariantCulture, $"{open.Trace.Types[r.Type]} {r.Bytes} bytes ({r.Samples} samples)"))));
-            return Task.FromResult(new AllocationTypesResult(resultSets.Add(new AllocationTypesSource(open.Trace, rows, bytes)), bytes, samples));
+                string.Join("; ", rows.Take(LoggedAllocationRows).Select(r => string.Create(CultureInfo.InvariantCulture, $"{open.Trace.Types[r.Type]} {r.Bytes} bytes ({r.Samples} samples, LOH {r.LargeBytes}, POH {r.PinnedBytes})"))));
+            return new AllocationTypesResult(resultSets.Add(new AllocationTypesSource(open.Trace.Types, rows, bytes)), bytes, samples);
         });
 
     public Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken) =>
-        GuardAsync(request, () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             if (request.Count is < 1 or > AllocationTreeLimits.MaxStacks)
@@ -99,13 +105,15 @@ internal sealed partial class WorkerService
 
             var open = Trace(request.TraceId);
             var filter = Filter(open, request.FromSeconds, request.ToSeconds, request.TypeName);
-            var top = AllocationProfile.TopStacks(open.Trace, filter, request.Count);
-            var (bytes, samples) = AllocationProfile.Totals(open.Trace, filter);
+            var (top, (bytes, samples)) = await Task.Run(
+                () => (AllocationProfile.TopStacks(open.Trace, filter, request.Count, cancellationToken), AllocationProfile.Totals(open.Trace, filter, cancellationToken)),
+                cancellationToken).ConfigureAwait(false);
             var stacks = top.Select(s => new AllocationStackDto(s.Bytes, s.Samples, [.. AllocationProfile.FramesOf(open.Trace, s.Node).Select(f => open.Trace.Frames[f])])).ToArray();
 
-            // Each stack as its allocating frame and nearest callers, so a disputed stack is found in the log.
+            // Every stack answered, with its rank, its innermost stack node (which rebuilds it from the same trace) and its
+            // frames, allocating frame first: framework frames come first, so the disputed one may be deep (the 2.5 review).
             logger.LogInformation(
-                "Allocation stacks of trace {Id} from {From} s to {To}, type {Type}: {Samples} samples of {Bytes} bytes, {Count} stacks; top {Top}",
+                "Allocation stacks of trace {Id} from {From} s to {To}, type {Type}: {Samples} samples of {Bytes} bytes, {Count} stacks: {Stacks}",
                 request.TraceId,
                 request.FromSeconds,
                 To(request.ToSeconds),
@@ -113,8 +121,10 @@ internal sealed partial class WorkerService
                 samples,
                 bytes,
                 stacks.Length,
-                string.Join("; ", stacks.Take(LoggedAllocationRows).Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.Bytes} bytes ({s.Samples} samples) {string.Join(" < ", s.Frames.Take(4))}"))));
-            return Task.FromResult(new AllocationStacksResult(stacks, bytes, samples));
+                string.Join(" || ", top.Select((s, i) => string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"#{i + 1} {s.Bytes} bytes ({s.Samples} samples) node {s.Node}, {stacks[i].Frames.Count} frames: {string.Join(" < ", stacks[i].Frames.Take(LoggedFrames))}{(stacks[i].Frames.Count > LoggedFrames ? " < ..." : string.Empty)}"))));
+            return new AllocationStacksResult(stacks, bytes, samples);
         });
 
     public Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
@@ -184,7 +194,8 @@ internal sealed partial class WorkerService
         var type = -1;
         if (typeName is not null && !open.TypeIds.TryGetValue(typeName, out type))
         {
-            throw new ArgumentException($"No sample in this trace has the type {typeName}.");
+            // The text may be what someone typed: not repeated (ARCHITECTURE.md 11).
+            throw new ArgumentException("No sample in this trace has that type. The types view ('allocations <trace> --view types' on the command line) lists the type names.");
         }
 
         return new AllocationFilter(fromSeconds * 1000, toSeconds is { } end ? end * 1000 : double.PositiveInfinity, type);

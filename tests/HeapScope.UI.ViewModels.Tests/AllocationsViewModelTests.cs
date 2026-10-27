@@ -182,6 +182,79 @@ public sealed class AllocationsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task After_a_worker_restart_one_action_reads_the_trace_once()
+    {
+        var trace = await OpenAsync();
+        _worker.NewGeneration();
+        Service.OpenTraceGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Types, tree and stacks all find the trace gone at once.
+        trace.Selection = new TimeInterval(1, 4);
+        Service.OpenTraceGate.SetResult();
+        await SettleAsync(trace);
+
+        Service.TracesOpened.Count.ShouldBe(2, "the first open, then one read again for all three queries");
+        trace.StacksStatus.ShouldBeNull();
+        trace.Stacks.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_trace_whose_file_changed_is_not_read_again_silently()
+    {
+        var trace = await OpenAsync();
+        _worker.NewGeneration();
+        Service.TraceFileBytes = 2000;
+
+        trace.Selection = new TimeInterval(1, 4);
+        await SettleAsync(trace);
+
+        trace.StacksStatus!.ShouldContain("changed since it was opened");
+        Service.TracesClosed.ShouldHaveSingleItem("the read of the changed file is closed again");
+    }
+
+    [Fact]
+    public async Task All_types_clears_the_row_so_the_same_type_narrows_again()
+    {
+        var trace = await OpenAsync();
+        await TypesAsync(trace);
+        trace.Types.SelectedRow = trace.Types.Rows.GetRow(0);
+        await SettleAsync(trace);
+        trace.TypeName.ShouldBe("System.Byte[]");
+
+        trace.AllTypesCommand.Execute(null);
+        await SettleAsync(trace);
+        trace.Types.SelectedRow.ShouldBeNull();
+        trace.Types.SelectedRow = trace.Types.Rows.GetRow(0);
+        await SettleAsync(trace);
+
+        trace.TypeName.ShouldBe("System.Byte[]");
+        Service.StackQueries[^1].TypeName.ShouldBe("System.Byte[]");
+    }
+
+    [Fact]
+    public async Task A_click_without_a_drag_is_the_whole_trace_and_closing_mid_load_reports_nothing()
+    {
+        var trace = await OpenAsync();
+        var queries = Service.StackQueries.Count;
+
+        trace.Selection = new TimeInterval(3, 3);
+        await SettleAsync(trace);
+
+        trace.Selection.ShouldBeNull();
+        trace.Interval.ShouldBe("The whole trace");
+        Service.StackQueries.Count.ShouldBe(queries, "nothing to ask again");
+
+        Service.OpenTraceGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _worker.NewGeneration();
+        trace.Selection = new TimeInterval(1, 2);
+        await _page.CloseCommand.ExecuteAsync(trace);
+        Service.OpenTraceGate.SetResult();
+        await trace.LoadTask;
+
+        trace.StacksStatus.ShouldNotBe("The call stacks failed. Details are in the log.");
+    }
+
+    [Fact]
     public void The_timeline_maps_buckets_to_bars_and_pixels_to_seconds()
     {
         AllocationBucketDto[] buckets = [new(0, 300, 3), new(5, 100, 1)];

@@ -51,6 +51,9 @@ public sealed class LeakyApiAllocations : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         Api = await FixtureProcess.StartApiAsync();
+
+        // The leaks' methods are compiled before recording starts, so only the rundown names them (the 2.5 review).
+        await Api.PostWorkAsync(1, CancellationToken.None);
         using var stop = new CancellationTokenSource();
         var recording = TraceRecorder.RecordAsync(Api.ProcessId, TracePath, TraceProfile.Allocations, TimeSpan.FromMinutes(5), stop.Token);
         await Task.Delay(TimeSpan.FromSeconds(1));
@@ -104,7 +107,10 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         trace.Info.ProcessId.ShouldBe(_shared.Api.ProcessId);
         trace.SampleBytes.Sum().ShouldBeGreaterThan(10_000_000);
         trace.Types.ShouldContain("System.Byte[]");
-        trace.Frames.ShouldContain(f => f.Contains("Leak.Grow", StringComparison.Ordinal), "methods are named from the rundown");
+        trace.Frames.ShouldContain(f => f.Contains("Leak.Grow", StringComparison.Ordinal), "methods compiled before recording are named from the rundown");
+        trace.Info.HasRundown.ShouldBeTrue();
+        trace.Info.SamplesWithUnresolvedFrames.ShouldBeLessThan(trace.SampleCount / 20, "nearly every frame is named");
+        trace.SampleKinds.ShouldContain(AllocationKind.Small);
         Directory.GetFiles(_scratch.Path).ShouldBeEmpty("the .etlx is deleted after reading");
     }
 
@@ -113,10 +119,41 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
     {
         var trace = AllocationTraceReader.Read(_shared.TracePath, null, _scratch.Path, Ct);
 
-        var top = AllocationProfile.TopStacks(trace, AllocationFilter.All, 10);
+        var top = AllocationProfile.TopStacks(trace, AllocationFilter.All, 10, Ct);
         var stacks = top.Select(s => AllocationProfile.FramesOf(trace, s.Node).Select(f => trace.Frames[f]).ToArray()).ToArray();
         var report = string.Join(Environment.NewLine, top.Zip(stacks, (s, frames) => string.Create(CultureInfo.InvariantCulture, $"{s.Bytes:N0} B: {string.Join(" < ", frames.Take(4))}")));
         stacks.ShouldContain(frames => frames.Any(f => f.StartsWith("Fixtures.Leaks.", StringComparison.Ordinal) && f.Contains("Leak.Grow", StringComparison.Ordinal)), report);
+    }
+
+    [Fact]
+    public async Task A_recording_whose_process_exits_has_no_rundown_and_says_so()
+    {
+        using var api = await FixtureProcess.StartApiAsync();
+        await api.PostWorkAsync(1, Ct);
+        var path = _scratch.File("exited.nettrace");
+        var recording = TraceRecorder.RecordAsync(api.ProcessId, path, TraceProfile.Allocations, TimeSpan.FromMinutes(2), Ct);
+        await Task.Delay(TimeSpan.FromSeconds(1), Ct);
+        await api.PostWorkAsync(200, Ct);
+        api.Dispose();
+        (await recording).StoppedEarly.ShouldBeTrue();
+
+        var handle = await _session.StartOpen(path).Result;
+
+        handle.Descriptor.HasRundown.ShouldBeFalse();
+        AllocationTexts.NotesFor(handle.Descriptor).ShouldContain("before the runtime named its methods");
+    }
+
+    [Fact]
+    public async Task A_trace_with_no_allocation_samples_is_refused_with_the_profile_to_use()
+    {
+        var path = _scratch.File("cpu.nettrace");
+        var recording = TraceRecorder.RecordAsync(_shared.Api.ProcessId, path, TraceProfile.Cpu, TimeSpan.FromSeconds(2), Ct);
+        await recording;
+
+        var ex = await Should.ThrowAsync<WorkerOperationException>(() => _session.StartOpen(path).Result);
+
+        ex.ErrorCode.ShouldBe(HeapScopeErrorCode.SnapshotFormat);
+        ex.Message.ShouldContain("has no allocation samples");
     }
 
     [Fact]

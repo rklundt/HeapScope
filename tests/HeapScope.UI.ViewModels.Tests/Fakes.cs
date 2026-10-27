@@ -626,8 +626,15 @@ internal sealed class FakeWorkerService : IWorkerService
         }
 
         TracesOpened.Add(request);
-        return Task.FromResult(new TraceDescriptor(Guid.NewGuid(), request.Path, 42, "App", DateTimeOffset.UnixEpoch, 10, 4, 400, 2, 0, 0, 0.1));
+        var descriptor = new TraceDescriptor(Guid.NewGuid(), request.Path, 42, "App", DateTimeOffset.UnixEpoch, 10, 4, 400, 2, 0, 0, 0.1, TraceFileBytes, DateTimeOffset.UnixEpoch);
+        return OpenTraceGate is { } gate ? gate.Task.ContinueWith(_ => descriptor, TaskScheduler.Default) : Task.FromResult(descriptor);
     }
+
+    /// <summary>When set, trace opens wait for it (tests make queries overlap a re-read).</summary>
+    public TaskCompletionSource? OpenTraceGate { get; set; }
+
+    /// <summary>The trace file's size every open reports; a test changes it to make the file look changed.</summary>
+    public long TraceFileBytes { get; set; } = 1000;
 
     public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken)
     {

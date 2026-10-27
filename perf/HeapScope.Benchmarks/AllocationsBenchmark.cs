@@ -44,15 +44,20 @@ internal static class AllocationsBenchmark
 
         AllocationTrace trace;
         var stopwatch = Stopwatch.StartNew();
+        // Growth over the process's private bytes before the read, sampled every 100 ms (the 2.5 review: the absolute peak
+        // mostly measured the runtime's own baseline).
+        GC.Collect();
+        var before = Process.GetCurrentProcess().PrivateMemorySize64;
         using (var peak = new PrivateBytesSampler())
         {
-            var before = peak.Peak;
             trace = AllocationTraceReader.Read(path, null, CancellationToken.None);
             stopwatch.Stop();
-            Measurement.Line("Read", $"{stopwatch.Elapsed.TotalSeconds:N1} s, peak {Measurement.Mb(peak.Peak)} ({peak.Peak / (double)Math.Max(1, fileBytes):N1} x the file; {Measurement.Mb(before)} before)");
+            var growth = peak.Peak - before;
+            Measurement.Line("Read", $"{stopwatch.Elapsed.TotalSeconds:N1} s, growth {Measurement.Mb(growth)} ({growth / (double)Math.Max(1, fileBytes):N2} x the file; {Measurement.Mb(before)} before); worker reserves {Measurement.Mb(64L * 1024 * 1024 + (fileBytes * 6))}");
         }
 
         GC.Collect();
+        Measurement.Line("Found", $"rundown {(trace.Info.HasRundown ? "seen" : "missing")}, {trace.Info.SamplesWithUnresolvedFrames:N0} samples with unresolved frames, {trace.Info.ConversionIssues} conversion problems, {trace.Info.LostEvents:N0} lost events");
         Measurement.Line("Kept", $"{trace.SampleCount:N0} samples ({Measurement.Mb((long)trace.SampleCount * AllocationTrace.BytesPerSample)}), {trace.StackFrames.Length:N0} stack nodes, {trace.Frames.Count:N0} frames, {trace.Types.Count:N0} types; managed heap {Measurement.Mb(Measurement.ManagedHeapAfterFullGc())}");
         Time("Types", () => AllocationProfile.Types(trace, AllocationFilter.All).Length);
         Time("Top 20 stacks", () => AllocationProfile.TopStacks(trace, AllocationFilter.All, 20).Length);

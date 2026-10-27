@@ -56,4 +56,7 @@ public enum HeapScopeErrorCode
 
     /// <summary>The allocation trace is not open in the worker: closed, or the worker restarted (sprint 2.5).</summary>
     TraceNotLoaded = 1012,
+
+    /// <summary>An allocation trace's file changed since it was opened, so it is not read again silently (the 2.5 review).</summary>
+    TraceChanged = 1013,
 }

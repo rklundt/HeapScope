@@ -139,10 +139,10 @@ public class ContractMirrorTests
 
         HeapScope.Analysis.Allocations.AllocationTreeRows.RootKey.ShouldBe(AllocationTreeKeys.Root);
         var nodeKey = HeapScope.Analysis.Allocations.AllocationTreeRows.NodeKey(12);
-        nodeKey.ShouldBe("n:12");
+        nodeKey.ShouldBe(AllocationTreeKeys.Node(12));
         var backTrace = HeapScope.Analysis.Allocations.AllocationTreeRows.BackTraceKey(AllocationTreeKeys.Root, 7);
-        backTrace.ShouldBe("b:7");
-        HeapScope.Analysis.Allocations.AllocationTreeRows.BackTraceKey(backTrace, 3).ShouldBe("b:7/3");
+        backTrace.ShouldBe(AllocationTreeKeys.BackTrace(AllocationTreeKeys.Root, 7));
+        HeapScope.Analysis.Allocations.AllocationTreeRows.BackTraceKey(backTrace, 3).ShouldBe(AllocationTreeKeys.BackTrace(backTrace, 3));
         HeapScope.Analysis.Allocations.AllocationTreeRows.MoreKey(nodeKey, 100).ShouldBe(AllocationTreeKeys.More(nodeKey, 100));
         HeapScope.Analysis.Allocations.AllocationTreeRows.MoreKey(AllocationTreeKeys.Root, 100).ShouldBe(AllocationTreeKeys.More(AllocationTreeKeys.Root, 100));
 

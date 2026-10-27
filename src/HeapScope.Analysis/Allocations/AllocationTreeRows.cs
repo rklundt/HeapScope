@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Buffers;
 using System.Globalization;
 using HeapScope.Core.Allocations;
 
@@ -102,26 +103,41 @@ public static class AllocationTreeRows
         ArgumentNullException.ThrowIfNull(trace);
         ArgumentNullException.ThrowIfNull(expanded);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxChildren, 1);
-        var (own, ownSamples) = AllocationProfile.Own(trace, filter);
-        var builder = new Builder(trace, expanded, maxChildren, cancellationToken);
-        long totalBytes = 0;
-        var totalSamples = 0;
-        for (var n = 0; n < own.Length; n++)
-        {
-            totalBytes += own[n];
-            totalSamples += ownSamples[n];
-        }
 
-        if (kind == AllocationTreeKind.CallTree)
+        // Working arrays sized by the stack nodes come from the pool: every expansion is a query (the 2.5 review).
+        var count = trace.StackFrames.Length;
+        var own = ArrayPool<long>.Shared.Rent(Math.Max(count, 1));
+        var ownSamples = ArrayPool<int>.Shared.Rent(Math.Max(count, 1));
+        try
         {
-            builder.CallTree(own, ownSamples);
-        }
-        else
-        {
-            builder.BackTraces(own, ownSamples);
-        }
+            Array.Clear(own, 0, count);
+            Array.Clear(ownSamples, 0, count);
+            AllocationProfile.Own(trace, filter, own.AsSpan(0, count), ownSamples.AsSpan(0, count), cancellationToken);
+            long totalBytes = 0;
+            var totalSamples = 0;
+            for (var n = 0; n < count; n++)
+            {
+                totalBytes += own[n];
+                totalSamples += ownSamples[n];
+            }
 
-        return new AllocationTreeView(builder.Rows, builder.Truncated, totalBytes, totalSamples);
+            var builder = new Builder(trace, expanded, maxChildren, cancellationToken);
+            if (kind == AllocationTreeKind.CallTree)
+            {
+                builder.CallTree(own, ownSamples, count);
+            }
+            else
+            {
+                builder.BackTraces(own, ownSamples, count);
+            }
+
+            return new AllocationTreeView(builder.Rows, builder.Truncated, totalBytes, totalSamples);
+        }
+        finally
+        {
+            ArrayPool<long>.Shared.Return(own);
+            ArrayPool<int>.Shared.Return(ownSamples);
+        }
     }
 
     private sealed class Builder(AllocationTrace trace, IReadOnlySet<string> expanded, int maxChildren, CancellationToken cancellationToken)
@@ -130,60 +146,78 @@ public static class AllocationTreeRows
 
         public bool Truncated { get; private set; }
 
-        public void CallTree(long[] own, int[] ownSamples)
+        public void CallTree(long[] own, int[] ownSamples, int count)
         {
-            // Children are created after their parents (the reader's tree), so one pass from the end sums each subtree.
-            var count = own.Length;
-            var total = (long[])own.Clone();
-            var samples = (int[])ownSamples.Clone();
-            for (var n = count - 1; n >= 0; n--)
+            var total = ArrayPool<long>.Shared.Rent(Math.Max(count, 1));
+            var samples = ArrayPool<int>.Shared.Rent(Math.Max(count, 1));
+            var starts = ArrayPool<int>.Shared.Rent(count + 2);
+            var fill = ArrayPool<int>.Shared.Rent(count + 2);
+            var children = ArrayPool<int>.Shared.Rent(Math.Max(count, 1));
+            try
             {
-                var parent = trace.StackParents[n];
-                if (parent >= 0)
+                // A parent comes before its children (AllocationTrace checks it), so one pass from the end sums each subtree.
+                Array.Copy(own, total, count);
+                Array.Copy(ownSamples, samples, count);
+                for (var n = count - 1; n >= 0; n--)
                 {
-                    total[parent] += total[n];
-                    samples[parent] += samples[n];
+                    var parent = trace.StackParents[n];
+                    if (parent >= 0)
+                    {
+                        total[parent] += total[n];
+                        samples[parent] += samples[n];
+                    }
                 }
-            }
 
-            // Children lists of the nodes the interval reached.
-            var starts = new int[count + 2];
-            for (var n = 0; n < count; n++)
-            {
-                if (samples[n] > 0)
+                // Children lists of the nodes the interval reached: node p's in starts[p + 1] to starts[p + 2].
+                Array.Clear(starts, 0, count + 2);
+                for (var n = 0; n < count; n++)
                 {
-                    starts[trace.StackParents[n] + 2]++;
+                    if (samples[n] > 0)
+                    {
+                        starts[trace.StackParents[n] + 2]++;
+                    }
                 }
-            }
 
-            for (var i = 1; i < starts.Length; i++)
-            {
-                starts[i] += starts[i - 1];
-            }
-
-            var children = new int[starts[^1]];
-            var fill = (int[])starts.Clone();
-            for (var n = 0; n < count; n++)
-            {
-                if (samples[n] > 0)
+                for (var i = 1; i < count + 2; i++)
                 {
-                    children[fill[trace.StackParents[n] + 1]++] = n;
+                    starts[i] += starts[i - 1];
                 }
+
+                Array.Copy(starts, fill, count + 2);
+                for (var n = 0; n < count; n++)
+                {
+                    if (samples[n] > 0)
+                    {
+                        children[fill[trace.StackParents[n] + 1]++] = n;
+                    }
+                }
+
+                List(RootKey, -1, 0);
+            }
+            finally
+            {
+                ArrayPool<long>.Shared.Return(total);
+                ArrayPool<int>.Shared.Return(samples);
+                ArrayPool<int>.Shared.Return(starts);
+                ArrayPool<int>.Shared.Return(fill);
+                ArrayPool<int>.Shared.Return(children);
             }
 
-            ReadOnlySpan<int> ChildrenOf(int node) => children.AsSpan(starts[node + 1], starts[node + 2] - starts[node + 1]);
+            int ChildCount(int node) => starts[node + 2] - starts[node + 1];
 
             void List(string listKey, int node, int depth)
             {
-                var ordered = ChildrenOf(node).ToArray()
-                    .OrderByDescending(c => total[c]).ThenBy(c => trace.Frames[trace.StackFrames[c]], StringComparer.Ordinal).ThenBy(c => c)
-                    .ToArray();
+                var ordered = children.AsSpan(starts[node + 1], ChildCount(node)).ToArray();
+                Array.Sort(ordered, (a, b) =>
+                    total[a] != total[b] ? total[b].CompareTo(total[a])
+                    : string.CompareOrdinal(trace.Frames[trace.StackFrames[a]], trace.Frames[trace.StackFrames[b]]) is var byName and not 0 ? byName
+                    : a.CompareTo(b));
                 var shown = Math.Min(ordered.Length, Batches(listKey) * maxChildren);
                 for (var i = 0; i < shown && !Truncated; i++)
                 {
                     var child = ordered[i];
                     var key = NodeKey(child);
-                    var childCount = ChildrenOf(child).Length;
+                    var childCount = ChildCount(child);
                     var isExpanded = depth < MaxDepth && childCount > 0 && expanded.Contains(key);
                     var frame = trace.StackFrames[child];
                     if (Add(new AllocationRow(key, listKey, depth, AllocationRowKind.Frame, frame, trace.Frames[frame], total[child], own[child], samples[child], childCount, isExpanded)) && isExpanded)
@@ -192,18 +226,24 @@ public static class AllocationTreeRows
                     }
                 }
 
-                More(listKey, depth, ordered.Length, shown, ordered[shown..].Sum(c => total[c]), ordered[shown..].Sum(c => samples[c]));
-            }
+                long moreBytes = 0;
+                var moreSamples = 0;
+                for (var i = shown; i < ordered.Length; i++)
+                {
+                    moreBytes += total[ordered[i]];
+                    moreSamples += samples[ordered[i]];
+                }
 
-            List(RootKey, -1, 0);
+                More(listKey, depth, ordered.Length, shown, moreBytes, moreSamples);
+            }
         }
 
-        public void BackTraces(long[] own, int[] ownSamples)
+        public void BackTraces(long[] own, int[] ownSamples, int count)
         {
             // A back-trace row stands for positions in the stack tree: at the first level the nodes that allocated, one
             // level down their callers, and so on; each carries the bytes of the samples that allocated below it.
             var leaves = new List<Position>();
-            for (var n = 0; n < own.Length; n++)
+            for (var n = 0; n < count; n++)
             {
                 if (ownSamples[n] > 0)
                 {
@@ -232,7 +272,15 @@ public static class AllocationTreeRows
                 }
             }
 
-            More(listKey, depth, ordered.Length, shown, ordered[shown..].Sum(g => g.Bytes), ordered[shown..].Sum(g => g.Samples));
+            long moreBytes = 0;
+            var moreSamples = 0;
+            for (var i = shown; i < ordered.Length; i++)
+            {
+                moreBytes += ordered[i].Bytes;
+                moreSamples += ordered[i].Samples;
+            }
+
+            More(listKey, depth, ordered.Length, shown, moreBytes, moreSamples);
         }
 
         // The callers of a back-trace row, grouped by frame (stacks that start at this row's frame end here).

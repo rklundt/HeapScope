@@ -24,39 +24,42 @@
 using System.Globalization;
 using HeapScope.Analysis.Allocations;
 using HeapScope.Contracts;
-using HeapScope.Core.Allocations;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>The types allocated in an interval (sprint 2.5), most sampled bytes first (<see cref="AllocationTypeColumns"/>).</summary>
-internal sealed class AllocationTypesSource(AllocationTrace trace, AllocationTypeTotal[] rows, long totalBytes) : IResultSource
+/// <summary>
+/// The types allocated in an interval (sprint 2.5), most sampled bytes first, with the part counted on the large and
+/// pinned object heaps (<see cref="AllocationTypeColumns"/>). Holds the type names only, not the trace.
+/// </summary>
+internal sealed class AllocationTypesSource(IReadOnlyList<string> typeNames, AllocationTypeTotal[] rows, long totalBytes) : IResultSource
 {
     private static readonly ResultColumn[] s_columns =
     [
         new(AllocationTypeColumns.Type, ResultColumnKind.Text, IsKey: true),
         new(AllocationTypeColumns.Bytes, ResultColumnKind.Bytes, Bound: ValueBound.Estimate),
-        new(AllocationTypeColumns.Samples, ResultColumnKind.Integer),
         new(AllocationTypeColumns.Percent, ResultColumnKind.Percent),
+        new(AllocationTypeColumns.Samples, ResultColumnKind.Integer),
+        new(AllocationTypeColumns.LargeObjectHeap, ResultColumnKind.Bytes, Bound: ValueBound.Estimate),
+        new(AllocationTypeColumns.PinnedObjectHeap, ResultColumnKind.Bytes, Bound: ValueBound.Estimate),
     ];
 
     public IReadOnlyList<ResultColumn> Columns => s_columns;
 
     public int Count => rows.Length;
 
-    public long EstimatedBytes => rows.Length * 24L;
+    public long EstimatedBytes => rows.Length * 40L;
 
     public void FormatRow(int index, string?[] cells)
     {
         ArgumentNullException.ThrowIfNull(cells);
         var row = rows[index];
-        cells[0] = trace.Types[row.Type];
+        cells[0] = typeNames[row.Type];
         cells[1] = row.Bytes.ToString(CultureInfo.InvariantCulture);
-        cells[2] = row.Samples.ToString(CultureInfo.InvariantCulture);
-        cells[3] = Percent(row.Bytes, totalBytes);
+        cells[2] = AllocationShare.Of(row.Bytes, totalBytes);
+        cells[3] = row.Samples.ToString(CultureInfo.InvariantCulture);
+        cells[4] = row.LargeBytes.ToString(CultureInfo.InvariantCulture);
+        cells[5] = row.PinnedBytes.ToString(CultureInfo.InvariantCulture);
     }
-
-    public static string Percent(long bytes, long total) =>
-        total == 0 ? "0" : (100.0 * bytes / total).ToString("0.##", CultureInfo.InvariantCulture);
 }
 
 /// <summary>A flattened call tree or back traces (sprint 2.5), already in display order (<see cref="AllocationTreeColumns"/>).</summary>
@@ -95,8 +98,15 @@ internal sealed class AllocationTreeSource(AllocationTreeView view) : IResultSou
         cells[5] = row.Total.ToString(CultureInfo.InvariantCulture);
         cells[6] = row.Own >= 0 ? row.Own.ToString(CultureInfo.InvariantCulture) : null;
         cells[7] = row.Samples.ToString(CultureInfo.InvariantCulture);
-        cells[8] = AllocationTypesSource.Percent(row.Total, view.TotalBytes);
+        cells[8] = AllocationShare.Of(row.Total, view.TotalBytes);
         cells[9] = row.Children.ToString(CultureInfo.InvariantCulture);
         cells[10] = row.Expanded ? "1" : "0";
     }
+}
+
+/// <summary>A share of an interval's sampled bytes, as every allocation answer formats it (<see cref="AllocationTexts.ShareOf"/>).</summary>
+internal static class AllocationShare
+{
+    public static string Of(long bytes, long total) =>
+        total == 0 ? "0" : (100.0 * bytes / total).ToString("0.##", CultureInfo.InvariantCulture);
 }
