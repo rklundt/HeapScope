@@ -30,7 +30,7 @@ everything else.
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
 | 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
-| 2.6 | Smart leak detectors | In Progress | | |
+| 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
 | 2.7 | Navigation and polish | Planned | | |
 | 2.8 | Packaging and distribution | Planned | | |
 
@@ -2217,7 +2217,8 @@ LeakyApi run.
    (ADR-018). Protocol 14.
 3. The detectors, each with its threshold logged as its parameters (2.3.7 review M5):
    - `growing-static-collections`: collections a static field holds directly (List, Dictionary, HashSet, Queue,
-     Stack, ConcurrentDictionary, ConcurrentQueue, arrays), counted by their own fields. With a baseline: grown by at
+     Stack, ArrayList, Hashtable, ConcurrentDictionary, reference arrays; ConcurrentQueue and the others went to the
+     Backlog at review, M5), counted by their own fields. With a baseline: grown by at
      least 1,000 elements and 10 %. Without: at least 10,000 elements, said to be large, growth unknown.
    - `event-handler-leaks`: an event field (a delegate field of a publisher type) holding at least 1,000 subscribers
      across its publishers, named `Publisher.Event`, with the subscribers' types.
@@ -2245,8 +2246,16 @@ LeakyApi run.
    the baseline picker preselects the latest earlier open snapshot of the same process; without a baseline the
    static collections detector leaves out `System.*`, `Microsoft.*` and `Internal.*` statics (the runtime's own tables,
    such as `CastHelpers.s_table`, fired on the clean run), and arrays count only when they hold references; the event
-   handler detector reads a publisher type's field name once per delegate type; the tab shows one list with group
-   headings instead of two lists (one selection).
+   handler detector reads a publisher type's field name once per delegate type (replaced at review, H2); the tab shows
+   one list with group headings instead of two lists (one selection).
+9. Changed at review (decided autonomously, `docs/reviews/sprint-2.6.md`): byte totals are bytes (subscribers'
+   delegates and targets, timers' objects); the event detector counts field-like events only, names each delegate by
+   its publisher's own field, and leaves out unreachable publishers, self-held handlers, compiler-generated holders and
+   framework callback fields (a multicast in any field of the publisher's own is an event too); the timer detector counts periodic timers in the queue only and attributes static or
+   lambda callbacks to the timer's state; disposed flags may be integers or auto-property backing fields; HttpClient
+   counts distinct handlers owned by clients; the root scope is left out; reachability is computed once per snapshot
+   and leaves out the finalizer queue; detector rows open the type's reachable objects (`InstanceScope.Reachable`), so
+   the whole-type actions stay off; an unusable baseline is refused; a baseline chosen mid-run reruns the growth tile.
 
 **Task breakdown**:
 1. [x] Fixtures: `TimerLeak`, `DisposedReferencedLeak`, the clean workload in LeakyApi; known answers with
@@ -2257,10 +2266,22 @@ LeakyApi run.
 4. [x] Front ends: the Inspections tab's detector group and baseline picker; CLI `inspect --baseline`. Tests: view
    model and view tests, CLI integration.
 5. [x] Acceptance: every LeakyApi leak detected with its known answer; nothing on the clean run (integration).
-   Measurements on Medium. Docs: ARCHITECTURE (ADR-020 amendment, 4.4, 10, 11), DEVELOPER, CLAUDE.md, the known
+   Measurements on Medium (deferred: the sample dumps need a runtime no longer installed; measured on a 658 MB
+   LeakyApi dump instead). Docs: ARCHITECTURE (ADR-020 amendment, 4.4, 10, 11), DEVELOPER, CLAUDE.md, the known
    answers README.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary**: 8 High, 24 Moderate, 33 Low after dedupe (four reviewers: solution-architect, senior-dev,
+gc-specialist, support; `docs/reviews/sprint-2.6.md`). Highs fixed: counts reported as bytes; the event field name
+cached per type pair; any delegate field counted as an event; one-shot, paused and lambda-callback timers counted or
+misattributed; rows opening the whole type; a baseline change mid-run leaving tiles waiting; the disposed probe's
+O(types x objects) scan; a gcdump baseline silently ignored. Moderates fixed now: reachability once per snapshot,
+finalizer queue left out, delegate targets read as the runtime stores them, integer and backing-field disposed flags,
+HttpClient factory clients, the root scope, a clean workload with look-alike patterns, an upper bound in acceptance,
+rerun errors, every row and exclusion logged by name, elapsed time; from the re-review, native-int fields, clients
+sharing one handler, events in private fields, publisher reads limited to types that can fire. All Highs confirmed by
+the reviewers that raised them. Deferred: other collection types, leaky HttpClient and scope fixtures, in-flight scopes,
+the picker refresh (2.7), derived-input descriptions, the shared layout table, threshold edge tests, an exact object
+set for detector rows, the Medium measurement. Tests: 1,126 (3 skipped).
 
 ---
 
@@ -2275,6 +2296,9 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): an analysis pat
 
 From 2.3.5 (ADR-026): CSV export is the first form of the shared analysis export, analysis only by default (no string
 text or field values unless the person exporting opts in for that export).
+
+From the 2.6 review: the Inspections tab's baseline picker refreshes as snapshots open and close and matches the
+process by id and start time (M12); its group headings are not selectable (L13).
 
 **Acceptance criteria**: every grid exports to CSV; every view reachable by keyboard; history survives view
 switches.
@@ -2463,6 +2487,14 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
   alone suffices (timers and events need field values); a type growth detector across two snapshots (the diff ranked by
   growth, with retention of the grown objects); measuring the detectors on a Medium-sized dump of the current runtime
   (the sample dumps need a runtime no longer installed).
+- From the 2.6 review (decided autonomously): the growth detector counting `ConcurrentQueue` (its segments),
+  `ConcurrentBag`, `ConcurrentStack`, `LinkedList`, sorted collections and `Collection<T>`, with one collection layout
+  table shared with the oversized collections inspection and `InspectionRows.ByType` reused (M5, M17); leaky HttpClient
+  and undisposed scope fixtures with known answers (M9); leaving out scopes a request or a Blazor circuit holds, and a
+  row for the root scope's tracked disposables (M7); unit tests for growth exactly at the thresholds and a field missing
+  from the baseline (M10); an `InspectionNeeds` description with a cached derived-data accessor instead of one flag per
+  input (M16); the rule version and parameters on `InspectionInfo` and Kind, elapsed time and baseline in the CLI
+  summary output (L6, L7); detector rows opening exactly the objects they counted, with the object set queries (M24).
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first

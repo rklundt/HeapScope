@@ -111,6 +111,28 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_baseline_chosen_while_the_first_run_goes_on_reruns_the_growth_detector_and_no_tile_is_left_waiting()
+    {
+        _worker.Service.Inspections.Insert(0, new InspectionInfo("growing-static-collections", "Growing static collections", "Grows.", "Bound it.", null, InspectionKinds.Leak, UsesBaseline: true));
+        var earlier = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _worker.Service.CapturedAt = path => path.EndsWith("a.dmp", StringComparison.Ordinal) ? earlier : earlier.AddMinutes(2);
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        await _snapshots.OpenPathAsync(Dump("b.dmp"));
+        _worker.Service.InspectionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        Inspections.Baseline = Inspections.BaselineChoices[0];
+        _worker.Service.InspectionGate.SetResult();
+        await Inspections.RunTask;
+
+        Inspections.Tiles.ShouldAllBe(t => t.Status == null, "every tile finished (review H6)");
+        var growth = _worker.Service.InspectionRequests.Where(r => r.Name == "growing-static-collections").ToList();
+        growth.Count.ShouldBe(2, "run with the first baseline, then again with the one chosen meanwhile");
+        growth[^1].BaselineSnapshotId.ShouldBeNull();
+        Inspections.Tiles[0].Summary!.ShouldNotContain("growth since");
+    }
+
+    [Fact]
     public async Task A_row_naming_one_object_opens_that_object_and_a_tile_selected_while_running_fills_when_done()
     {
         await _snapshots.OpenPathAsync(Dump("a.dmp"));

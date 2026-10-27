@@ -73,6 +73,9 @@ public sealed partial class InspectionTileViewModel(InspectionInfo info) : Obser
     private bool _hasFindings;
 
     public InspectionRun? Run { get; internal set; }
+
+    /// <summary>The baseline <see cref="Run"/> used (sprint 2.6 review H6): a tile run with another one is run again.</summary>
+    internal SnapshotHandle? RanWith { get; set; }
 }
 
 /// <summary>A heap kind in the fragmentation bars: live and free bytes, and what is pinned there.</summary>
@@ -106,6 +109,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
     private readonly SnapshotSession _session;
     private readonly ILogger _logger;
     private CancellationTokenSource? _running;
+    private CancellationTokenSource? _rerun;
+    private Task _runAll = Task.CompletedTask;
     private bool _started;
 
     [ObservableProperty]
@@ -164,6 +169,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
         _running?.Cancel();
         _running?.Dispose();
         _running = null;
+        _rerun?.Dispose();
+        _rerun = null;
         foreach (var tile in Tiles)
         {
             Release(tile.Run);
@@ -273,7 +280,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
 
         _started = true;
         _running = new CancellationTokenSource();
-        RunTask = RunAllAsync(snapshot, _running.Token);
+        RunTask = _runAll = RunAllAsync(snapshot, _running.Token);
     }
 
     private async Task RunAllAsync(SnapshotHandle snapshot, CancellationToken cancellationToken)
@@ -316,6 +323,16 @@ public sealed partial class InspectionsViewModel : ObservableObject
             }
 
             Selected ??= Tiles.FirstOrDefault(t => t.Run is not null);
+
+            // A baseline chosen while the tiles ran (review H6): the growth tiles run with an older one run again, until
+            // no other was chosen meanwhile.
+            BaselineChoice? chosen;
+            do
+            {
+                chosen = Baseline;
+                await RerunAsync(snapshot, StaleTiles(), cancellationToken);
+            }
+            while (!cancellationToken.IsCancellationRequested && !ReferenceEquals(chosen, Baseline));
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -352,6 +369,7 @@ public sealed partial class InspectionsViewModel : ObservableObject
             }
 
             tile.Run = run;
+            tile.RanWith = baseline;
             var result = run.Result;
             tile.Summary = string.Create(CultureInfo.CurrentCulture,
                 $"{result.Count:N0} found, {Format.Bytes(result.Bytes)}{(result.WastedBytes is { } wasted ? $", {Format.Bytes(wasted)} wasted" : string.Empty)}{(baseline is not null && result.BaselineSnapshotId is not null ? $"; growth since {Path.GetFileName(baseline.Path)}" : string.Empty)}");
@@ -382,6 +400,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
+            // Not left "Running..." (review H6): a rerun or another snapshot replaces it.
+            tile.Status = tile.Run is null ? "Waiting" : null;
             throw;
         }
         catch (Exception ex) when (ex is WorkerOperationException or WorkerCrashedException)
@@ -439,12 +459,23 @@ public sealed partial class InspectionsViewModel : ObservableObject
         }
 
         _logger.LogInformation("Inspections: baseline {Baseline} chosen for {Snapshot}", value?.Snapshot?.Path ?? "none", snapshot.Path);
-        _running?.Cancel();
-        _running?.Dispose();
-        _running = new CancellationTokenSource();
-        var token = _running.Token;
-        RunTask = RerunAsync(snapshot, [.. Tiles.Where(t => t.Info.UsesBaseline && t.IsAvailable)], token);
+
+        // While the first run goes on, it reruns the stale growth tiles when it ends (review H6): it is not cancelled.
+        if (!_runAll.IsCompleted || _running is not { } running)
+        {
+            return;
+        }
+
+        // A rerun has its own token, linked to the snapshot's: another baseline cancels only the rerun.
+        _rerun?.Cancel();
+        _rerun?.Dispose();
+        _rerun = CancellationTokenSource.CreateLinkedTokenSource(running.Token);
+        RunTask = RerunAsync(snapshot, StaleTiles(), _rerun.Token);
     }
+
+    /// <summary>The growth tiles whose last run used another baseline than the chosen one.</summary>
+    private List<InspectionTileViewModel> StaleTiles() =>
+        [.. Tiles.Where(t => t.Info.UsesBaseline && t.IsAvailable && (t.Run is null || !ReferenceEquals(t.RanWith, Baseline?.Snapshot)))];
 
     private async Task RerunAsync(SnapshotHandle snapshot, List<InspectionTileViewModel> tiles, CancellationToken cancellationToken)
     {
@@ -453,16 +484,33 @@ public sealed partial class InspectionsViewModel : ObservableObject
             foreach (var tile in tiles)
             {
                 var previous = tile.Run;
-                await RunOneAsync(snapshot, tile, cancellationToken);
-                if (!ReferenceEquals(previous, tile.Run))
+                try
                 {
-                    Release(previous);
+                    await RunOneAsync(snapshot, tile, cancellationToken);
+                }
+                finally
+                {
+                    // The worker keeps a replaced result set and its lease until released (review M5).
+                    if (!ReferenceEquals(previous, tile.Run))
+                    {
+                        Release(previous);
+                    }
                 }
             }
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             // Another baseline or snapshot replaced this run.
+        }
+        catch (Exception ex) when (ex is WorkerException)
+        {
+            Status = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            // Not awaited by anyone (review M5): logged and shown, never lost.
+            _logger.LogError(ex, "Running the growth detectors again failed");
+            Status = "The growth detectors could not be run again. Details are in the log.";
         }
     }
 

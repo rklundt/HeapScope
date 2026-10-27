@@ -162,6 +162,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     {
         InstanceScope.LargeObjectHeap => " on the large object heap",
         InstanceScope.Finalizable => " to be finalized",
+        InstanceScope.Reachable => " reachable from a root",
         InstanceScope.SameValue => string.Create(CultureInfo.InvariantCulture, $" equal to 0x{SameValueAs:x}"),
         _ => string.Empty,
     };

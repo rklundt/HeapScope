@@ -172,6 +172,9 @@ public static class InspectionScopes
     public const string LargeObjectHeap = "LargeObjectHeap";
     public const string Finalizable = "Finalizable";
     public const string SameValue = "SameValue";
+
+    /// <summary>The objects a root reaches: what a leak detector's row opens (sprint 2.6 review H5).</summary>
+    public const string Reachable = "Reachable";
 }
 
 /// <summary>An inspection's rows, formatted per page like any result set (invariant culture).</summary>

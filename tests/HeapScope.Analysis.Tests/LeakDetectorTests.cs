@@ -87,7 +87,7 @@ public sealed class LeakDetectorTests
         {
             var publisher = builder.Object("App.Publisher");
             builder.Reference(holder, publisher);
-            var multicast = builder.Object("System.EventHandler", 64);
+            var multicast = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
             builder.Reference(publisher, multicast);
             reader.Paths[publisher.Address] = new Dictionary<ulong, string> { [multicast.Address] = "Changed" };
             var list = builder.Array("System.Object[]", 600, 8, references: true);
@@ -95,8 +95,8 @@ public sealed class LeakDetectorTests
             reader.Fields[(multicast.Address, "_invocationList")] = new ObjectValue(ObjectValueKind.Array) { Address = list.Address, TypeName = "System.Object[]" };
             for (var s = 0; s < 600; s++)
             {
-                var handler = builder.Object("System.EventHandler", 64);
-                var subscriber = builder.Object("App.Subscriber");
+                var handler = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
+                var subscriber = builder.Object("App.Subscriber", 24);
                 builder.Reference(list, handler).Reference(handler, subscriber);
                 reader.Fields[(handler.Address, "_target")] = Ref(subscriber, "App.Subscriber");
             }
@@ -107,15 +107,126 @@ public sealed class LeakDetectorTests
         builder.Root(callbacks, detail: "App.Jobs.s_callbacks");
         for (var i = 0; i < 2_000; i++)
         {
-            var action = builder.Object("System.Action", 64);
+            var action = builder.Object("System.Action", 64, typeKind: TypeKind.Delegate);
             builder.Reference(callbacks, action);
         }
 
         var graph = builder.Build();
         var result = Run("event-handler-leaks", graph, reader, referrers: ReverseReferences.Build(graph, cancellationToken: Ct));
 
-        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Publisher.Changed", "2", "1200", "App.Subscriber (1,200)"], Compare.Prefix);
+        // Bytes are the subscribers' delegates and targets (review H1): 1,200 x (64 + 24).
+        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Publisher.Changed", "2", "1200", "105600", "App.Subscriber (1,200)"], Compare.Prefix);
+        result.Bytes.ShouldBe(105_600);
         result.Basis!.ShouldContain("App.Publisher.Changed 1200 subscribers on 2 publishers");
+    }
+
+    [Fact]
+    public void Two_events_of_one_delegate_type_on_a_publisher_are_counted_apart()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var reader = new FakeReader();
+        var publisher = builder.Object("App.Service");
+        builder.Root(publisher, detail: "App.Service.s_instance");
+        var paths = new Dictionary<ulong, string>();
+        reader.Paths[publisher.Address] = paths;
+        foreach (var (field, count) in new[] { ("Started", 1_100), ("Stopped", 700) })
+        {
+            var multicast = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
+            builder.Reference(publisher, multicast);
+            paths[multicast.Address] = field;
+            var list = builder.Array("System.Object[]", count, 8, references: true);
+            builder.Reference(multicast, list);
+            reader.Fields[(multicast.Address, "_invocationList")] = new ObjectValue(ObjectValueKind.Array) { Address = list.Address, TypeName = "System.Object[]" };
+            for (var s = 0; s < count; s++)
+            {
+                var handler = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
+                builder.Reference(list, handler);
+
+                // A static handler: the runtime stores the delegate itself as its target (review M4).
+                reader.Fields[(handler.Address, "_target")] = Ref(handler, "System.EventHandler");
+            }
+        }
+
+        var graph = builder.Build();
+        var result = Run("event-handler-leaks", graph, reader, referrers: ReverseReferences.Build(graph, cancellationToken: Ct));
+
+        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Service.Started", "1", "1100", "70400", "(static method) (1,100)"], Compare.Prefix);
+        result.Basis!.ShouldContain("App.Service.Stopped 700 subscribers on 1 publishers");
+    }
+
+    [Fact]
+    public void A_hand_written_event_in_a_private_field_counts_through_its_invocation_list()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var reader = new FakeReader();
+        var publisher = builder.Object("App.Monitor");
+        builder.Root(publisher, detail: "App.Monitor.s_instance");
+        var multicast = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
+        builder.Reference(publisher, multicast);
+        reader.Paths[publisher.Address] = new Dictionary<ulong, string> { [multicast.Address] = "_changed" };
+        var list = builder.Array("System.Object[]", 1_000, 8, references: true);
+        builder.Reference(multicast, list);
+        reader.Fields[(multicast.Address, "_invocationList")] = new ObjectValue(ObjectValueKind.Array) { Address = list.Address, TypeName = "System.Object[]" };
+        for (var s = 0; s < 1_000; s++)
+        {
+            var handler = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
+            var subscriber = builder.Object("App.Listener", 24);
+            builder.Reference(list, handler).Reference(handler, subscriber);
+            reader.Fields[(handler.Address, "_target")] = Ref(subscriber, "App.Listener");
+
+            // A static method marked the runtime's way: a native int read back as a pointer (re-review N1).
+            reader.Fields[(handler.Address, "_methodPtrAux")] = new ObjectValue(ObjectValueKind.Pointer) { Unsigned = s % 2 == 0 ? 0UL : 0x7ff0_0000UL };
+        }
+
+        var graph = builder.Build();
+        var result = Run("event-handler-leaks", graph, reader, referrers: ReverseReferences.Build(graph, cancellationToken: Ct));
+
+        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Monitor._changed", "1", "1000"], Compare.Prefix);
+        Rows(result)[0][4].ShouldBe("(static method) (500), App.Listener (500)");
+    }
+
+    [Fact]
+    public void Delegates_in_callback_fields_lazies_and_their_own_targets_are_not_events()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var reader = new FakeReader();
+        var holder = builder.Array("System.Object[]", 4_800, 8, references: true);
+        builder.Root(holder, detail: "App.Holder.s_all");
+        for (var i = 0; i < 1_200; i++)
+        {
+            // Lazy<T>._factory: a framework object's callback, not an event.
+            var lazy = builder.Object("System.Lazy<App.Item>", 32);
+            var factory = builder.Object("System.Func<App.Item>", 64, typeKind: TypeKind.Delegate);
+            builder.Reference(holder, lazy).Reference(lazy, factory);
+            reader.Paths[lazy.Address] = new Dictionary<ulong, string> { [factory.Address] = "_factory" };
+
+            // An application object's callback field.
+            var job = builder.Object("App.Job", 32);
+            var callback = builder.Object("System.Action", 64, typeKind: TypeKind.Delegate);
+            builder.Reference(holder, job).Reference(job, callback);
+            reader.Paths[job.Address] = new Dictionary<ulong, string> { [callback.Address] = "_onDone" };
+
+            // A subscriber keeping its own handler in a field named like an event.
+            var owner = builder.Object("App.Owner", 32);
+            var handler = builder.Object("System.EventHandler", 64, typeKind: TypeKind.Delegate);
+            builder.Reference(holder, owner).Reference(owner, handler).Reference(handler, owner);
+            reader.Paths[owner.Address] = new Dictionary<ulong, string> { [handler.Address] = "Handler" };
+            reader.Fields[(handler.Address, "_target")] = Ref(owner, "App.Owner");
+
+            // A class named like a handler that is no delegate.
+            var notDelegate = builder.Object("App.OrderCreatedEventHandler", 32);
+            var order = builder.Object("App.Order", 32);
+            builder.Reference(holder, order).Reference(order, notDelegate);
+            reader.Paths[order.Address] = new Dictionary<ulong, string> { [notDelegate.Address] = "Created" };
+        }
+
+        var graph = builder.Build();
+        var result = Run("event-handler-leaks", graph, reader, referrers: ReverseReferences.Build(graph, cancellationToken: Ct));
+
+        result.Count.ShouldBe(0);
+        result.Basis!.ShouldContain("held by its own target 1200");
+        result.Basis!.ShouldContain("framework callback field 1200");
+        result.Basis!.ShouldContain("field not an event 1200");
     }
 
     [Fact]
@@ -125,23 +236,57 @@ public sealed class LeakDetectorTests
         var reader = new FakeReader();
         var queue = builder.Object("System.Threading.TimerQueue");
         builder.Root(queue, detail: "System.Threading.TimerQueue.<Instances>k__BackingField");
-        for (var i = 0; i < 501; i++)
+        for (var i = 0; i < 503; i++)
         {
             var timer = builder.Object("System.Threading.TimerQueueTimer", 96);
+            var callback = builder.Object("System.Threading.TimerCallback", 64, typeKind: TypeKind.Delegate);
             var outer = builder.Object("System.Timers.Timer", 88);
-            var elapsed = builder.Object("System.Timers.ElapsedEventHandler", 64);
+            var elapsed = builder.Object("System.Timers.ElapsedEventHandler", 64, typeKind: TypeKind.Delegate);
             var target = builder.Object("App.Poller", module: "App.dll");
-            builder.Reference(queue, timer).Reference(timer, outer).Reference(outer, elapsed).Reference(elapsed, target);
-            reader.Fields[(timer.Address, "_canceled")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = i == 0 };
-            reader.Fields[(timer.Address, "_timerCallback._target")] = Ref(outer, "System.Timers.Timer");
+            builder.Reference(queue, timer).Reference(timer, callback).Reference(callback, outer).Reference(outer, elapsed).Reference(elapsed, target);
+            Timer(reader, timer, canceled: i == 0, due: i == 1 ? uint.MaxValue : 1_000, period: i == 2 ? uint.MaxValue : 3_600_000);
+            reader.Fields[(timer.Address, "_timerCallback")] = Ref(callback, "System.Threading.TimerCallback");
+            reader.Fields[(callback.Address, "_target")] = Ref(outer, "System.Timers.Timer");
             reader.Fields[(outer.Address, "_onIntervalElapsed")] = Ref(elapsed, "System.Timers.ElapsedEventHandler");
             reader.Fields[(elapsed.Address, "_target")] = Ref(target, "App.Poller");
         }
 
         var result = Run("timer-leaks", builder.Build(), reader);
 
-        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Poller", "500", "System.Timers.Timer"], Compare.Prefix);
-        result.Basis!.ShouldContain("500 active timers, 1 canceled");
+        // Bytes are the timers' (review H1): 500 x (96 + 88).
+        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Poller", "500", "92000", "System.Timers.Timer"], Compare.Prefix);
+        result.Bytes.ShouldBe(92_000);
+        result.Basis!.ShouldContain("500 periodic timers in the queue, 1 canceled, 1 paused or fired, 1 one-shot");
+    }
+
+    [Fact]
+    public void A_timer_on_a_static_callback_belongs_to_its_state_and_one_shot_timers_are_not_counted()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var reader = new FakeReader();
+        var queue = builder.Object("System.Threading.TimerQueue");
+        builder.Root(queue, detail: "System.Threading.TimerQueue.<Instances>k__BackingField");
+        for (var i = 0; i < 1_000; i++)
+        {
+            var timer = builder.Object("System.Threading.TimerQueueTimer", 96);
+            var callback = builder.Object("System.Threading.TimerCallback", 64, typeKind: TypeKind.Delegate);
+            var cache = builder.Object("App.Connection+<>c", 24);
+            var state = builder.Object("App.Connection", 48, module: "App.dll");
+            builder.Reference(queue, timer).Reference(timer, callback).Reference(callback, cache).Reference(timer, state);
+
+            // Half are periodic heartbeats; half one-shot timeouts (Task.Delay, CancelAfter) that release themselves.
+            Timer(reader, timer, canceled: false, due: 1_000, period: i % 2 == 0 ? 30_000 : uint.MaxValue);
+            reader.Fields[(timer.Address, "_timerCallback")] = Ref(callback, "System.Threading.TimerCallback");
+            reader.Fields[(callback.Address, "_target")] = Ref(cache, "App.Connection+<>c");
+            reader.Fields[(timer.Address, "_state")] = Ref(state, "App.Connection");
+        }
+
+        var result = Run("timer-leaks", builder.Build(), reader);
+
+        var row = Rows(result).ShouldHaveSingleItem();
+        row.ShouldBe(["App.Connection", "500", "48000", "System.Threading.Timer", "App.Connection"], Compare.Prefix);
+        row[^1].ShouldBe("Reachable", "a row opens the reachable objects only (review H5)");
+        result.Basis!.ShouldContain("500 one-shot");
     }
 
     [Fact]
@@ -160,6 +305,18 @@ public sealed class LeakDetectorTests
             reader.Fields[(resource.Address, "_disposed")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = i < 150 };
         }
 
+        // An integer flag set with Interlocked, and an auto-property's backing field (review M10).
+        var connections = builder.Array("App.Connection[]", 240, 8, references: true);
+        builder.Root(connections, detail: "App.Pool.s_connections");
+        for (var i = 0; i < 240; i++)
+        {
+            var connection = builder.Object("App.Connection", 40);
+            var session = builder.Object("App.Session", 16);
+            builder.Reference(connections, connection).Reference(connection, session);
+            reader.Fields[(connection.Address, "_disposed")] = Integer(i < 120 ? 1 : 0);
+            reader.Fields[(session.Address, "<IsDisposed>k__BackingField")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = true };
+        }
+
         // Disposed garbage: no root reaches it.
         for (var i = 0; i < 500; i++)
         {
@@ -169,14 +326,38 @@ public sealed class LeakDetectorTests
 
         var result = Run("disposed-but-referenced", builder.Build(), reader);
 
-        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Resource", "150", "4800", "_disposed"], Compare.Prefix);
+        Rows(result).Select(r => (r[0], r[1], r[3])).ShouldBe([("App.Session", "240", "<IsDisposed>k__BackingField"), ("App.Resource", "150", "_disposed"), ("App.Connection", "120", "_disposed")]);
     }
 
     [Fact]
     public void Many_reachable_http_clients_are_named_and_a_few_are_not()
     {
-        Rows(Run("httpclient-instances", Clients(20), new FakeReader())).ShouldHaveSingleItem()[0].ShouldBe("System.Net.Http.HttpClient");
-        Run("httpclient-instances", Clients(19), new FakeReader()).Count.ShouldBe(0);
+        var (many, reader) = Clients(owning: 20, sharing: 0);
+        Rows(Run("httpclient-instances", many, reader)).ShouldHaveSingleItem()[0].ShouldBe("System.Net.Http.HttpClient");
+        var (few, fewReader) = Clients(owning: 19, sharing: 0);
+        Run("httpclient-instances", few, fewReader).Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Http_clients_sharing_a_handler_as_the_factory_makes_them_are_not_counted()
+    {
+        var (graph, reader) = Clients(owning: 5, sharing: 100);
+
+        var result = Run("httpclient-instances", graph, reader);
+
+        result.Count.ShouldBe(0);
+        result.Basis!.ShouldStartWith("5 reachable HttpClients owning their handler (5 distinct handlers), 100 sharing one, 0 unreadable");
+    }
+
+    [Fact]
+    public void Http_clients_owning_one_shared_handler_are_one_pool_and_not_counted()
+    {
+        var (graph, reader) = Clients(owning: 30, sharing: 0, sharedHandler: true);
+
+        var result = Run("httpclient-instances", graph, reader);
+
+        result.Count.ShouldBe(0);
+        result.Basis!.ShouldStartWith("30 reachable HttpClients owning their handler (1 distinct handlers)");
     }
 
     [Fact]
@@ -193,23 +374,44 @@ public sealed class LeakDetectorTests
             reader.Fields[(scope.Address, "_disposed")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = i >= 550 };
         }
 
+        var rootScope = builder.Object(ScopeType, 72);
+        builder.Reference(root, rootScope);
+        reader.Fields[(rootScope.Address, "<IsRootScope>k__BackingField")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = true };
+        reader.Fields[(rootScope.Address, "_disposed")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = false };
+
         var result = Run("undisposed-service-scopes", builder.Build(), reader);
 
-        Rows(result).ShouldHaveSingleItem().ShouldBe([ScopeType, "550"], Compare.Prefix);
-        result.Basis.ShouldBe("550 reachable scopes not disposed, 50 disposed");
+        Rows(result).ShouldHaveSingleItem().ShouldBe([ScopeType, "550", "39600"], Compare.Prefix);
+        result.Bytes.ShouldBe(550 * 72);
+        result.Basis!.ShouldStartWith("550 reachable scopes not disposed, 50 disposed, 1 root, 0 unreadable; ");
+        result.Note!.ShouldContain("requests in flight");
     }
 
-    private static HeapGraph Clients(int count)
+    private static (HeapGraph Graph, FakeReader Reader) Clients(int owning, int sharing, bool sharedHandler = false)
     {
         var builder = new SyntheticGraphBuilder();
+        var reader = new FakeReader();
         var holder = builder.Object("App.Service");
         builder.Root(holder, detail: "App.Service.s_instance");
-        for (var i = 0; i < count; i++)
+        var shared = builder.Object("System.Net.Http.SocketsHttpHandler", 128);
+        builder.Reference(holder, shared);
+        for (var i = 0; i < owning + sharing; i++)
         {
-            builder.Reference(holder, builder.Object("System.Net.Http.HttpClient", 64));
+            var client = builder.Object("System.Net.Http.HttpClient", 64);
+            var handler = sharedHandler ? shared : builder.Object("System.Net.Http.SocketsHttpHandler", 128);
+            builder.Reference(holder, client).Reference(client, handler);
+            reader.Fields[(client.Address, "_disposeHandler")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = i < owning };
+            reader.Fields[(client.Address, "_handler")] = Ref(handler, "System.Net.Http.SocketsHttpHandler");
         }
 
-        return builder.Build();
+        return (builder.Build(), reader);
+    }
+
+    private static void Timer(FakeReader reader, SyntheticObject timer, bool canceled, uint due, uint period)
+    {
+        reader.Fields[(timer.Address, "_canceled")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = canceled };
+        reader.Fields[(timer.Address, "_dueTime")] = new ObjectValue(ObjectValueKind.Unsigned) { Unsigned = due };
+        reader.Fields[(timer.Address, "_period")] = new ObjectValue(ObjectValueKind.Unsigned) { Unsigned = period };
     }
 
     // App.Cache.s_items is a List that grows; App.Lru.s_entries is a Dictionary bounded at its count.

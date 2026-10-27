@@ -342,7 +342,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `System.Timers.Timer`), `DisposedButReferencedDetector` (reachable objects whose disposed flag is set),
   `HttpClientInstancesDetector`, `UndisposedServiceScopesDetector`; `IInspection.Kind`, `UsesBaseline`,
   `UsesReferrers`; `InspectionBaseline` and `InspectionContext.Referrers`; `Retention/Reachability` (a bit per object
-  from the roots) and the shared `ChunkedStack`. Worker: `WorkerService.Inspections` leases the baseline and passes the
+  from the retaining roots other than the finalizer queue, computed once per graph by `Reachability.For`) and the
+  shared `ChunkedStack`; `InspectionScopes.Reachable`, the scope a detector row opens (Worker: `InstancesSource`). Worker: `WorkerService.Inspections` leases the baseline and passes the
   reverse index. Application: `RunInspectionAsync(..., baseline)`. UI.ViewModels: the Inspections tab's detector group
   and `BaselineChoice`. Cli: `inspect --baseline`. Fixtures: `DetectorLeaks.cs` (`TimerLeak`, `DisposedReferencedLeak`,
   `CleanWorkload`), LeakyApi's `Leaks:Detected` and `Clean:Enabled`, LeakyConsole's `--detected`.
@@ -578,8 +579,9 @@ Rules:
   `AllocationTreeLimits.MaxBuckets` (10,000) stretches; `AllocationTreeKeys.Node` and `BackTrace` form the tree keys.
   Version 14 (sprint 2.6) added the leak detectors: `InspectionInfo.Kind` (`InspectionKinds.Waste` or `Leak`) and
   `UsesBaseline`, `InspectionRequest.BaselineSnapshotId` (another open snapshot; used by the inspections that measure
-  growth, refused when it is the snapshot itself) and `InspectionResultDto.BaselineSnapshotId` (the baseline the answer
-  used).
+  growth, refused when it is the snapshot itself or lacks what the inspection reads) and
+  `InspectionResultDto.BaselineSnapshotId` (the baseline the answer used), and `InstanceScope.Reachable` (the objects a
+  root reaches, what a detector row opens).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1398,8 +1400,10 @@ run charts 1,800 samples (a full 30-minute window) in about 29 s with a longest 
 Leak detectors (sprint 2.6, Release CLI `inspect`, a fresh LeakyApi dump with every leak at 300,000 items each, 658 MB):
 growing static collections 0.1 s, event handler leaks 1.5 s (300,000 subscribers on 1,024 publishers), timer leaks
 0.4 s, disposed but referenced 0.3 s, HttpClient instances and service scopes 0.1 s each; all fourteen inspections
-5.7 s end to end. Each detector walks the reachable objects once (a bit per object). On the clean LeakyApi run none
-fires, with or without a baseline.
+5.7 s end to end (measured before the review; reachability is now computed once per snapshot and kept, 0.125 bytes per
+object, so later detectors skip that walk). The disposed probe reads each type's first reachable object, found in the
+counting pass. On the clean LeakyApi run, which holds look-alike patterns above every threshold, none fires, with or
+without a baseline.
 Allocation traces (sprint 2.5, Release, the `allocations` benchmark with the worker's GC settings, Server GC with 12
 heaps on the 24-thread machine; growth over private bytes before the read, the 2.5 review): a 54 s LeakyApi trace under
 LoadGen whose process was killed before the rundown (5.6 MB, 45,110 samples) reads in 1.1 s with 40 MB of growth; 150 s
@@ -1468,10 +1472,12 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
-  none), and the basis: what was scanned (static collections counted and in the baseline, delegate types and
-  subscribers read, active and canceled timers, types probed for a disposed flag) and the top keys with their counts,
-  so a disputed finding is traced to its rule and inputs; the front end logs each run with its snapshot and baseline,
-  and each baseline choice.
+  none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
+  types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
+  state), what was left out and why, counted by reason (unreachable publisher, held by its own target, framework
+  callback field, field not an event, one-shot or paused timer, unreadable field), every reported row with its counts,
+  and the largest below the threshold, so a disputed finding is traced to its rule and inputs; the front end logs each
+  run with its snapshot and baseline, and each baseline choice.
 - Allocation traces (sprint 2.5): opening a trace logs its file with its size and write time, the reader's version, the
   process (and that it came from the first allocation tick), the recording's start and duration, samples, frames, lost
   events, samples without a stack or with unresolved frames, whether the rundown arrived and TraceEvent's conversion
@@ -1751,9 +1757,14 @@ sprint 0.1.
   garbage not yet collected is no leak. The context grew as planned: an optional baseline snapshot (another open
   snapshot, matched by stable keys such as a static field's name, never by address, ADR-018) for the detectors that
   measure growth, and the incoming references for those that follow references back, both supplied by the worker only
-  to the inspections that declare them. Detectors that read fields are unavailable on gcdumps, with the reason. Each
-  threshold is a constant logged as the rule's parameters; the known answers name what each detector must report for
-  each leak fixture, and a clean LeakyApi run must report nothing.
+  to the inspections that declare them; a baseline the inspection cannot read is refused. Detectors that read fields
+  are unavailable on gcdumps, with the reason. Each threshold is a constant logged as the rule's parameters; the known
+  answers name what each detector must report for each leak fixture, and a clean LeakyApi run must report nothing.
+  Reachable means reached from a retaining root other than the finalizer queue (its objects are already dead), or
+  frozen. Precision over recall (review): an event is a multicast delegate in a field of the publisher's own, or a
+  single delegate in a field named as a field-like event; a timer is a periodic one in the queue; HttpClients count by
+  the distinct handlers they own; what is left out is logged by reason with its most common keys. A detector row opens the type's reachable objects (`InstanceScope.Reachable`), never the whole
+  type, so whole-type actions such as Retained by set stay with whole-type rows.
 
 ### ADR-021 Live monitoring reads EventCounters in the front end's process (added in sprint 1.7)
 - Context: the "load, snapshot, more load, snapshot" workflow needs the heap's size over time and snapshots taken by

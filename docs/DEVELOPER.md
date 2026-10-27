@@ -216,8 +216,8 @@ of debuggable code) and exit when the process given as parent exits.
   Prints `READY pid=<pid> url=<url>` when listening (use port 0 for a free port). `POST /work` grows every enabled
   leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
   `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
-- `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2 --count N
-  --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+- `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2
+  [--detected all|none|Timer,DisposedReferenced] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
   [--parent-pid P]`;
   prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
   embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and

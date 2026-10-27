@@ -30,17 +30,19 @@ namespace HeapScope.Analysis.Inspections;
 
 // The leak detectors (sprint 2.6, ADR-020 amended): inspections of kind Leak that name a leak pattern, its cause and its
 // fix. Each counts reachable objects only (garbage the GC has not collected is no leak), reads the fields it needs
-// through the typed reader, and logs its thresholds as parameters and what it scanned as its basis.
+// through the typed reader, and logs its thresholds as parameters and, as its basis, what it scanned, what it left out
+// and why, and every row it reports, so a disputed finding is traced to its rule and inputs.
 
 /// <summary>Reads the few runtime fields the detectors need, tolerating missing ones (another runtime version).</summary>
 internal static class Fields
 {
+    /// <summary>An integer field; native ints (<c>IntPtr</c>) arrive as pointers (re-review N1).</summary>
     public static long? Integer(IObjectReader reader, ulong address, string path) =>
         reader.ReadField(address, path) is { } value
             ? value.Kind switch
             {
                 ObjectValueKind.Integer => value.Integer,
-                ObjectValueKind.Unsigned => (long)value.Unsigned,
+                ObjectValueKind.Unsigned or ObjectValueKind.Pointer => (long)value.Unsigned,
                 _ => null,
             }
             : null;
@@ -48,59 +50,97 @@ internal static class Fields
     public static bool? Boolean(IObjectReader reader, ulong address, string path) =>
         reader.ReadField(address, path) is { Kind: ObjectValueKind.Boolean } value ? value.Boolean : null;
 
+    /// <summary>A flag stored as a bool, or as an integer set with Interlocked (non-zero is set; review M10); null when missing.</summary>
+    public static bool? Flag(IObjectReader reader, ulong address, string path) =>
+        reader.ReadField(address, path) is { } value
+            ? value.Kind switch
+            {
+                ObjectValueKind.Boolean => value.Boolean,
+                ObjectValueKind.Integer => value.Integer != 0,
+                ObjectValueKind.Unsigned => value.Unsigned != 0,
+                _ => null,
+            }
+            : null;
+
     /// <summary>The object a reference field points at: its address and runtime type; null for a null or missing field.</summary>
     public static (ulong Address, string Type)? Reference(IObjectReader reader, ulong address, string path) =>
         reader.ReadField(address, path) is { Kind: ObjectValueKind.Reference or ObjectValueKind.Array } value && value.Address != 0
             ? (value.Address, value.TypeName ?? "?")
             : null;
 
+    /// <summary>Whether the delegate at <paramref name="address"/> is a multicast one: its invocation list is an array.</summary>
+    public static bool IsMulticast(IObjectReader reader, ulong address) =>
+        Reference(reader, address, "_invocationList") is { Type: var list } && list.EndsWith("[]", StringComparison.Ordinal);
+
     /// <summary>
-    /// The targets of a delegate: its own <c>_target</c>, or each one of its invocation list's (a multicast delegate).
-    /// A static method's delegate has no target (null in the list).
+    /// The object a single delegate calls its method on; null for a static method (review M4): the runtime stores the
+    /// delegate itself in <c>_target</c> for a static or open delegate, and marks it in <c>_methodPtrAux</c>.
+    /// </summary>
+    public static (ulong Address, string Type)? DelegateTarget(IObjectReader reader, ulong address) =>
+        Reference(reader, address, "_target") is { } target && target.Address != address && (Integer(reader, address, "_methodPtrAux") ?? 0) == 0
+            ? target
+            : null;
+
+    /// <summary>
+    /// The targets of a delegate: each one of its invocation list's (a multicast delegate), the wrapped delegate's, or
+    /// its own. A static method's delegate has no target (null in the list).
     /// </summary>
     public static List<(ulong Address, string Type)?> DelegateTargets(IObjectReader reader, ulong address, int max, CancellationToken cancellationToken)
     {
         var targets = new List<(ulong Address, string Type)?>();
-        if (Reference(reader, address, "_invocationList") is { Type: var listType } list && listType.EndsWith("[]", StringComparison.Ordinal))
+        if (Reference(reader, address, "_invocationList") is { } list)
         {
-            var count = (int)Math.Min(Integer(reader, address, "_invocationCount") ?? max, max);
-            foreach (var element in reader.ReadFields(list.Address, count, 0, cancellationToken))
+            if (list.Type.EndsWith("[]", StringComparison.Ordinal))
             {
-                if (element.Value is { Kind: ObjectValueKind.Reference, Address: not 0 } item)
+                var count = (int)Math.Min(Integer(reader, address, "_invocationCount") ?? max, max);
+                foreach (var element in reader.ReadFields(list.Address, count, 0, cancellationToken))
                 {
-                    targets.Add(Reference(reader, item.Address, "_target"));
+                    if (element.Value is { Kind: ObjectValueKind.Reference, Address: not 0 } item)
+                    {
+                        targets.Add(DelegateTarget(reader, item.Address));
+                    }
                 }
+
+                return targets;
             }
 
+            // A wrapper delegate holds the delegate it calls in its invocation list.
+            targets.Add(DelegateTarget(reader, list.Address));
             return targets;
         }
 
-        targets.Add(Reference(reader, address, "_target"));
+        targets.Add(DelegateTarget(reader, address));
         return targets;
     }
 }
 
-/// <summary>Type lookups by name and reachable counts per type, shared by the detectors.</summary>
+/// <summary>Type masks, reachable objects per type and names, shared by the detectors.</summary>
 internal static class DetectorGraph
 {
-    public static HashSet<int> TypesNamed(HeapGraph graph, Func<string, bool> match)
+    /// <summary>A flag per type index: whether <paramref name="match"/> holds for it.</summary>
+    public static bool[] TypeMask(HeapGraph graph, Func<int, bool> match)
     {
-        var types = new HashSet<int>();
-        for (var t = 0; t < graph.Types.Count; t++)
+        var mask = new bool[graph.Types.Count];
+        for (var t = 0; t < mask.Length; t++)
         {
-            if (match(graph.Types.GetName(t)))
-            {
-                types.Add(t);
-            }
+            mask[t] = match(t);
         }
 
-        return types;
+        return mask;
     }
 
-    /// <summary>The reachable objects of <paramref name="types"/>, in index order.</summary>
-    public static List<int> ReachableOf(HeapGraph graph, Reachability reachable, HashSet<int> types, InspectionContext context, string phase)
+    public static bool[] TypesNamed(HeapGraph graph, params string[] names) =>
+        TypeMask(graph, t => names.Contains(graph.Types.GetName(t), StringComparer.Ordinal));
+
+    /// <summary>The reachable objects of the types in <paramref name="types"/>, in index order.</summary>
+    public static List<int> ReachableOf(HeapGraph graph, Reachability reachable, bool[] types, InspectionContext context, string phase)
     {
         var found = new List<int>();
+        if (!types.Contains(true))
+        {
+            return found;
+        }
+
         var typeIndices = graph.TypeIndices.Span;
         for (var i = 0; i < typeIndices.Length; i++)
         {
@@ -110,7 +150,7 @@ internal static class DetectorGraph
                 context.Report(phase, i, typeIndices.Length);
             }
 
-            if (types.Contains(typeIndices[i]) && reachable.IsReachable(i))
+            if (types[typeIndices[i]] && reachable.IsReachable(i))
             {
                 found.Add(i);
             }
@@ -126,10 +166,51 @@ internal static class DetectorGraph
         var text = string.Join(", ", top.Take(shown).Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Key} ({c.Value:N0})")));
         return top.Count > shown ? string.Create(CultureInfo.InvariantCulture, $"{text} and {top.Count - shown:N0} more types") : text;
     }
+
+    /// <summary>The framework's own types, by namespace.</summary>
+    public static bool IsFramework(string name) =>
+        name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Microsoft.", StringComparison.Ordinal) || name.StartsWith("Internal.", StringComparison.Ordinal);
+
+    /// <summary>A type the compiler generated: a closure, a lambda cache or a state machine.</summary>
+    public static bool IsCompilerGenerated(string name) =>
+        name.StartsWith('<') || name.Contains("+<", StringComparison.Ordinal) || name.Contains(".<", StringComparison.Ordinal);
+
+    public static string Module(HeapGraph graph, int type) => TypeGroups.ModuleKey(graph.Types.GetModule(type));
 }
 
-/// <summary>A row naming a type's objects: what it shows, and the hidden columns that open the type's objects.</summary>
-internal sealed record DetectorTypeRow(string Key, string Detail, long Objects, long Bytes, string TypeName, string Module, string? Growth = null);
+/// <summary>
+/// What a detector left out, by reason, with the most common keys for each (sprint 2.6 re-review): a disputed absence
+/// ("why was my event not reported?") is answered from the log by name, not only by a count.
+/// </summary>
+internal sealed class Exclusions
+{
+    private readonly List<string> _order = [];
+    private readonly Dictionary<string, Dictionary<string, long>> _byReason = new(StringComparer.Ordinal);
+
+    public void Add(string reason, string key)
+    {
+        if (!_byReason.TryGetValue(reason, out var keys))
+        {
+            keys = new Dictionary<string, long>(StringComparer.Ordinal);
+            _byReason[reason] = keys;
+            _order.Add(reason);
+        }
+
+        keys[key] = keys.GetValueOrDefault(key) + 1;
+    }
+
+    /// <summary>"left out: reason count (Key (n), Key (n), Key (n)), ..."; "none left out" when empty.</summary>
+    public override string ToString() =>
+        _order.Count == 0
+            ? "none left out"
+            : "left out: " + string.Join(", ", _order.Select(r => string.Create(CultureInfo.InvariantCulture, $"{r} {_byReason[r].Values.Sum()} ({DetectorGraph.Top(_byReason[r])})")));
+}
+
+/// <summary>
+/// A row naming a type's objects: what it shows, and the hidden columns that open them. Rows open the type's reachable
+/// objects (review H5), a part of the type, so the whole-type actions stay off; an empty <see cref="TypeName"/> opens nothing.
+/// </summary>
+internal sealed record DetectorTypeRow(string Key, string Detail, long Objects, long Bytes, string TypeName, string Module);
 
 /// <summary>
 /// Collections a static field holds directly that only grow (sprint 2.6): with a baseline snapshot, those that grew by at
@@ -167,19 +248,33 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
 
     public bool UsesBaseline => true;
 
-    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinGrowth={MinGrowth};MinGrowthShare={MinGrowthShare:P0};MinLargeWithoutBaseline={MinLarge}");
+    /// <summary>The collections counted, by their generic definition's name (the rest are listed as not counted).</summary>
+    internal const string Counted = "List,Queue,Stack,ArrayList,Dictionary,HashSet,Hashtable,ConcurrentDictionary,reference arrays";
+
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinGrowth={MinGrowth};MinGrowthShare={MinGrowthShare:P0};MinLargeWithoutBaseline={MinLarge};Counted={Counted}");
 
     public InspectionResult Run(InspectionContext context)
     {
-        var current = Collections(context.Graph, context.Reader!, context.CancellationToken);
-        var baseline = context.Baseline is { Reader: { } reader } b ? Collections(b.Graph, reader, context.CancellationToken) : null;
+        var ct = context.CancellationToken;
+        var skipped = new Exclusions();
+        var current = Collections(context.Graph, Readers.Of(context), ct, skipped);
+
+        // The worker refuses a baseline it cannot read (review H8): one without a reader here is a caller's mistake.
+        var baseline = context.Baseline is { } b
+            ? Collections(b.Graph, b.Reader ?? throw new InvalidOperationException("The baseline snapshot has no field values; choose a full dump."), ct, new Exclusions())
+            : null;
         var rows = new List<Row>();
+        var nearMisses = new List<Row>();
         foreach (var (field, found) in current)
         {
             if (baseline is null)
             {
                 // Without growth to go on, the runtime's and the framework's own large tables are by design.
-                if (found.Count >= MinLarge && !IsFramework(field))
+                if (found.Count >= MinLarge && DetectorGraph.IsFramework(field))
+                {
+                    skipped.Add("framework static without a baseline", field);
+                }
+                else if (found.Count >= MinLarge)
                 {
                     rows.Add(new Row(field, found, null, null));
                 }
@@ -193,16 +288,19 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
             {
                 rows.Add(new Row(field, found, before, growth));
             }
+            else if (growth > 0)
+            {
+                nearMisses.Add(new Row(field, found, before, growth));
+            }
         }
 
         var ordered = rows.OrderByDescending(r => r.Growth ?? r.Collection.Count).ThenBy(r => r.Field, StringComparer.Ordinal).ToArray();
         var note = baseline is null
-            ? "No baseline snapshot: these are the application's static collections of at least 10,000 elements (the framework's own are left out); whether they grow is unknown. Choose an earlier snapshot of the same process as the baseline to see growth."
-            : null;
+            ? string.Create(CultureInfo.InvariantCulture, $"No baseline snapshot: these are the application's static collections of at least {MinLarge:N0} elements (the framework's own are left out); whether they grow is unknown. Choose an earlier snapshot of the same process as the baseline (in the CLI, --baseline) to see growth.")
+            : BaselineWarning(context.Info, context.Baseline!.Info);
         var basis = string.Create(
             CultureInfo.InvariantCulture,
-            $"{current.Count} static collections counted{(baseline is null ? string.Empty : $", {baseline.Count} in the baseline")}; {string.Join("; ", ordered.Take(20).Select(r => $"{r.Field} {r.Collection.Type} {r.Collection.Count}{(r.Before is { } before ? $" (was {before})" : string.Empty)}"))}");
-        var graph = context.Graph;
+            $"{current.Count} static collections counted{(baseline is null ? string.Empty : $", {baseline.Count} in the baseline")}; {skipped}; reported: {Describe(ordered)}; largest growth below the thresholds: {Describe(nearMisses.OrderByDescending(r => r.Growth).Take(5))}");
         return new InspectionResult(
             ordered.Length,
             ordered.Sum(r => r.Collection.Bytes),
@@ -221,43 +319,89 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
             basis);
     }
 
-    private static bool IsFramework(string field) =>
-        field.StartsWith("System.", StringComparison.Ordinal) || field.StartsWith("Microsoft.", StringComparison.Ordinal) || field.StartsWith("Internal.", StringComparison.Ordinal);
+    /// <summary>Why a growth comparison may mislead (review M8): a baseline captured later, or from another process.</summary>
+    internal static string? BaselineWarning(SnapshotInfo current, SnapshotInfo baseline)
+    {
+        if (current.CapturedAtUtc is { } now && baseline.CapturedAtUtc is { } then && then > now)
+        {
+            return "The baseline was captured after this snapshot, so what grew shows as shrinking and is not reported. Choose an earlier snapshot as the baseline.";
+        }
+
+        if (current.ProcessId is { } pid && baseline.ProcessId is { } basePid && (pid != basePid || current.ProcessName != baseline.ProcessName))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"The baseline is from another process ({baseline.ProcessName} {basePid}; this one is {current.ProcessName} {pid}): growth compares two runs, not one process over time.");
+        }
+
+        return null;
+    }
+
+    private static string Describe(IEnumerable<Row> rows)
+    {
+        var text = string.Join("; ", rows.Select(r => string.Create(CultureInfo.InvariantCulture, $"{r.Field} {r.Collection.Type} {r.Collection.Count}{(r.Before is { } before ? $" (was {before})" : string.Empty)}")));
+        return text.Length == 0 ? "none" : text;
+    }
 
     /// <summary>The collections static fields hold, by "DeclaringType.field", with their element counts.</summary>
-    internal static Dictionary<string, Collection> Collections(HeapGraph graph, IObjectReader reader, CancellationToken cancellationToken)
+    internal static Dictionary<string, Collection> Collections(HeapGraph graph, IObjectReader reader, CancellationToken cancellationToken, Exclusions skipped)
     {
         var found = new Dictionary<string, Collection>(StringComparer.Ordinal);
         foreach (var root in graph.Roots.Roots.Span)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (root.Kind != RootKind.StaticField || graph.Strings[root.DetailId] is not { Length: > 0 } field || found.ContainsKey(field))
+            if (root.Kind != RootKind.StaticField || graph.Strings[root.DetailId] is not { Length: > 0 } field)
             {
                 continue;
             }
 
             var obj = root.ObjectIndex;
             var type = graph.Types.GetName(graph.TypeIndices[obj]);
-            if (Count(graph, reader, obj, type) is { } count)
+            if (found.ContainsKey(field))
             {
-                var bytes = (long)graph.GetSize(obj);
-                foreach (var child in graph.GetReferences(obj))
-                {
-                    if (InspectionRows.IsArray(graph, child))
-                    {
-                        bytes += (long)graph.GetSize(child);
-                    }
-                }
-
-                found[field] = new Collection(type, count, bytes, graph.Addresses[obj]);
+                skipped.Add("field name seen twice", field);
+            }
+            else if (Count(graph, reader, obj, type, cancellationToken) is { } count)
+            {
+                found[field] = new Collection(type, count, Bytes(graph, reader, obj, type), graph.Addresses[obj]);
+            }
+            else if (type.Contains("Collection", StringComparison.Ordinal) || type.Contains("Concurrent", StringComparison.Ordinal) || type.Contains("Linked", StringComparison.Ordinal) || type.Contains("Sorted", StringComparison.Ordinal))
+            {
+                // A collection the detector does not count (Backlog): named, so its absence is explained.
+                var open = type.IndexOf('<', StringComparison.Ordinal);
+                skipped.Add("collection type not counted", open < 0 ? type : type[..open]);
             }
         }
 
         return found;
     }
 
-    /// <summary>A collection's element count from its own fields; null for an object that is not a known collection.</summary>
-    private static long? Count(HeapGraph graph, IObjectReader reader, int obj, string type)
+    /// <summary>The collection object and the arrays it holds directly; a ConcurrentDictionary's through its tables (review M10).</summary>
+    private static long Bytes(HeapGraph graph, IObjectReader reader, int obj, string type)
+    {
+        var bytes = (long)graph.GetSize(obj);
+        foreach (var child in graph.GetReferences(obj))
+        {
+            if (InspectionRows.IsArray(graph, child))
+            {
+                bytes += (long)graph.GetSize(child);
+            }
+        }
+
+        if (type.StartsWith("System.Collections.Concurrent.ConcurrentDictionary<", StringComparison.Ordinal)
+            && Fields.Reference(reader, graph.Addresses[obj], "_tables._buckets") is { } buckets
+            && graph.TryGetIndex(buckets.Address, out var index))
+        {
+            bytes += (long)graph.GetSize(index);
+        }
+
+        return bytes;
+    }
+
+    /// <summary>
+    /// A collection's element count from its own fields; null for an object that is not a known collection. Lists,
+    /// queues, stacks, dictionaries, sets, hash tables, concurrent dictionaries and reference arrays are counted; the
+    /// other collections are not (Backlog).
+    /// </summary>
+    private static long? Count(HeapGraph graph, IObjectReader reader, int obj, string type, CancellationToken cancellationToken)
     {
         var address = graph.Addresses[obj];
         if (InspectionRows.IsArray(graph, obj))
@@ -287,7 +431,7 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
                 }
 
                 long total = 0;
-                foreach (var element in reader.ReadFields(counts.Address, 4096, 0, CancellationToken.None))
+                foreach (var element in reader.ReadFields(counts.Address, 4096, 0, cancellationToken))
                 {
                     total += element.Value.Kind == ObjectValueKind.Integer ? element.Value.Integer : 0;
                 }
@@ -303,11 +447,21 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
     private sealed record Row(string Field, Collection Collection, long? Before, long? Growth);
 }
 
+/// <summary>The typed reader of a run, for the detectors that read fields (they require FieldValues).</summary>
+internal static class Readers
+{
+    public static IObjectReader Of(InspectionContext context) =>
+        context.Reader ?? throw new InvalidOperationException("This detector reads fields: the snapshot needs field values.");
+}
+
 /// <summary>
-/// Event handler leaks (sprint 2.6): an event field of a publisher type holding at least <see cref="MinSubscribers"/>
+/// Event handler leaks (sprint 2.6): an event of a publisher type holding at least <see cref="MinSubscribers"/>
 /// subscribers across its publishers. A subscriber is a delegate whose target the event keeps alive; a multicast event
-/// holds its subscribers in an invocation list. Delegates held by arrays or collections are not events (the growing
-/// collections detector names those); timers' events are the timer detector's.
+/// holds its subscribers in an invocation list. Only field-like events count (review H3): the delegate is held by a field
+/// named like an event (the event's backing field), by a reachable publisher that is not the subscriber's own target, a
+/// compiler-generated type or, unless through a multicast, a framework type (their callback fields are not events).
+/// Delegates held by arrays or collections are not events (the growing collections detector names those); timers' events
+/// are the timer detector's.
 /// </summary>
 internal sealed class EventHandlerLeaksDetector : IInspection
 {
@@ -318,6 +472,7 @@ internal sealed class EventHandlerLeaksDetector : IInspection
         new(InspectionColumns.Event, InspectionColumnKind.Text, IsKey: true),
         new(InspectionColumns.Publishers, InspectionColumnKind.Integer),
         new(InspectionColumns.Subscribers, InspectionColumnKind.Integer),
+        new(InspectionColumns.Bytes, InspectionColumnKind.Bytes),
         new(InspectionColumns.SubscriberTypes, InspectionColumnKind.Text),
         new(InspectionColumns.TypeName, InspectionColumnKind.Text),
         new(InspectionColumns.Module, InspectionColumnKind.Text),
@@ -338,69 +493,144 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
     public bool UsesReferrers => true;
 
-    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinSubscribers={MinSubscribers}");
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinSubscribers={MinSubscribers};Events=field-like");
 
-    /// <summary>Delegate types events use: EventHandler and its kin, Action and Func.</summary>
-    internal static bool IsEventDelegate(string type) =>
-        type.EndsWith("EventHandler", StringComparison.Ordinal)
-        || type.StartsWith("System.EventHandler<", StringComparison.Ordinal)
-        || type.Contains("EventHandler<", StringComparison.Ordinal)
-        || type == "System.Action" || type.StartsWith("System.Action<", StringComparison.Ordinal)
-        || type.StartsWith("System.Func<", StringComparison.Ordinal);
+    /// <summary>
+    /// A field that holds an event: a field-like event's backing field, named as the event is (PascalCase, no prefix); or,
+    /// for a multicast delegate, any field of the publisher's own (a hand-written event's <c>_changed</c>; re-review).
+    /// </summary>
+    internal static bool IsEventField(string field, bool multicast) =>
+        field.Length > 0
+        && field.IndexOfAny(['.', ',', '[', ' ']) < 0
+        && (multicast || (char.IsUpper(field[0]) && !field.Contains('<', StringComparison.Ordinal)));
 
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
-        var reader = context.Reader!;
+        var reader = Readers.Of(context);
         var referrers = context.Referrers ?? throw new InvalidOperationException("The event handler detector needs the incoming references.");
         var ct = context.CancellationToken;
-        var delegateTypes = DetectorGraph.TypesNamed(graph, IsEventDelegate);
+        var delegates = DetectorGraph.TypeMask(graph, t => graph.Types.Kinds[t].HasFlag(TypeKind.Delegate));
 
         // Only delegate types with enough objects can reach the threshold: the rest are not read.
-        var perType = new Dictionary<int, long>();
+        var perType = new long[graph.Types.Count];
         var typeIndices = graph.TypeIndices.Span;
         for (var i = 0; i < typeIndices.Length; i++)
         {
-            if (delegateTypes.Contains(typeIndices[i]))
+            if ((i & 0xFFFF) == 0)
             {
-                perType[typeIndices[i]] = perType.GetValueOrDefault(typeIndices[i]) + 1;
+                ct.ThrowIfCancellationRequested();
+            }
+
+            if (delegates[typeIndices[i]])
+            {
+                perType[typeIndices[i]]++;
             }
         }
 
-        var candidates = perType.Where(p => p.Value >= MinSubscribers).Select(p => p.Key).ToHashSet();
-        var reachable = Reachability.Compute(graph, ct);
-        var events = new Dictionary<(int Publisher, string Field), Event>();
-        var fieldNames = new Dictionary<(int Publisher, int Value), string?>();
+        var candidates = DetectorGraph.TypeMask(graph, t => perType[t] >= MinSubscribers);
+        var reachable = Reachability.For(graph, ct);
+
+        // Subscribers by publisher: each publisher's fields are read once, so two events of one delegate type stay apart (review H2).
+        var pending = new Dictionary<int, List<Pending>>();
+        var holders = new List<(int Value, int Publisher, bool Multicast)>();
         long read = 0;
-        foreach (var obj in candidates.Count == 0 ? [] : DetectorGraph.ReachableOf(graph, reachable, candidates, context, "Finding event subscribers"))
+        var skipped = new Exclusions();
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, candidates, context, "Finding event subscribers"))
         {
             var address = graph.Addresses[obj];
 
             // A multicast delegate holding an invocation list is the event's value, not a subscriber.
-            if (Fields.Reference(reader, address, "_invocationList") is { Type: var list } && list.EndsWith("[]", StringComparison.Ordinal))
+            if (Fields.IsMulticast(reader, address))
             {
                 continue;
             }
 
             read++;
-            foreach (var (value, publisher) in Holders(graph, referrers, delegateTypes, obj))
+            var target = Fields.DelegateTarget(reader, address);
+            var targetIndex = target is { } t && graph.TryGetIndex(t.Address, out var index) ? index : -1;
+            var bytes = (long)graph.GetSize(obj) + (targetIndex >= 0 ? (long)graph.GetSize(targetIndex) : 0);
+            Holders(graph, referrers, delegates, obj, holders);
+            foreach (var (value, publisher, multicast) in holders)
             {
-                var publisherType = graph.TypeIndices[publisher];
-                if (graph.Types.GetName(publisherType) == "System.Timers.Timer")
+                var name = graph.Types.GetName(graph.TypeIndices[publisher]);
+                if (!reachable.IsReachable(publisher) || !reachable.IsReachable(value))
                 {
+                    skipped.Add("unreachable publisher", name);
+                }
+                else if (publisher == targetIndex)
+                {
+                    // A subscriber keeping its own handler to unsubscribe later is no event.
+                    skipped.Add("held by its own target", name);
+                }
+                else if (name == "System.Timers.Timer")
+                {
+                    skipped.Add("System.Timers.Timer", name);
+                }
+                else if (DetectorGraph.IsCompilerGenerated(name))
+                {
+                    skipped.Add("compiler-generated holder", name);
+                }
+                else if (!multicast && DetectorGraph.IsFramework(name))
+                {
+                    // Lazy's factory, a task's action, a cancellation callback: one delegate a framework object calls.
+                    skipped.Add("framework callback field", name);
+                }
+                else
+                {
+                    if (!pending.TryGetValue(publisher, out var list))
+                    {
+                        list = [];
+                        pending[publisher] = list;
+                    }
+
+                    list.Add(new Pending(value, targetIndex < 0 ? -1 : graph.TypeIndices[targetIndex], bytes, multicast));
+                }
+            }
+        }
+
+        // Only publishers of types whose subscribers can reach the threshold are read (re-review N3): each read is a full
+        // read of the publisher's fields.
+        var perPublisherType = new Dictionary<int, long>();
+        foreach (var (publisher, subscribers) in pending)
+        {
+            var type = graph.TypeIndices[publisher];
+            perPublisherType[type] = perPublisherType.GetValueOrDefault(type) + subscribers.Count;
+        }
+
+        var events = new Dictionary<(int Publisher, string Field), Event>();
+        long publishersRead = 0;
+        foreach (var (publisher, subscribers) in pending)
+        {
+            if (perPublisherType[graph.TypeIndices[publisher]] < MinSubscribers)
+            {
+                foreach (var _ in subscribers)
+                {
+                    skipped.Add("publisher type below the threshold", graph.Types.GetName(graph.TypeIndices[publisher]));
+                }
+
+                continue;
+            }
+
+            if ((++publishersRead & 0x3FF) == 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                context.Report("Naming events", publishersRead, pending.Count);
+            }
+
+            var paths = reader.ReadReferencePaths(graph.Addresses[publisher], 0, ct);
+            var publisherType = graph.TypeIndices[publisher];
+            foreach (var subscriber in subscribers)
+            {
+                if (paths.GetValueOrDefault(graph.Addresses[subscriber.Value]) is not { } field)
+                {
+                    skipped.Add("field not found", graph.Types.GetName(publisherType));
                     continue;
                 }
 
-                var key = (publisherType, graph.TypeIndices[value]);
-                if (!fieldNames.TryGetValue(key, out var field))
+                if (!IsEventField(field, subscriber.Multicast))
                 {
-                    // One read per publisher type and delegate type: its field names its events.
-                    field = reader.ReadReferencePaths(graph.Addresses[publisher], 0, ct).GetValueOrDefault(graph.Addresses[value]);
-                    fieldNames[key] = field;
-                }
-
-                if (field is null)
-                {
+                    skipped.Add("field not an event", graph.Types.GetName(publisherType) + "." + field);
                     continue;
                 }
 
@@ -412,76 +642,87 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
                 found.Publishers.Add(publisher);
                 found.Subscribers++;
-                var target = Fields.Reference(reader, address, "_target")?.Type ?? "(static method)";
-                found.TargetTypes[target] = found.TargetTypes.GetValueOrDefault(target) + 1;
+                found.Bytes += subscriber.Bytes;
+                var targetType = subscriber.TargetType < 0 ? "(static method)" : graph.Types.GetName(subscriber.TargetType);
+                found.TargetTypes[targetType] = found.TargetTypes.GetValueOrDefault(targetType) + 1;
             }
         }
 
         var rows = events
             .Where(e => e.Value.Subscribers >= MinSubscribers)
-            .Select(e => new DetectorTypeRow(
+            .Select(e => new EventRow(
                 graph.Types.GetName(e.Key.Publisher) + "." + e.Key.Field,
-                DetectorGraph.Top(e.Value.TargetTypes),
-                e.Value.Subscribers,
                 e.Value.Publishers.Count,
+                e.Value.Subscribers,
+                e.Value.Bytes,
+                DetectorGraph.Top(e.Value.TargetTypes),
                 graph.Types.GetName(e.Key.Publisher),
-                TypeGroups.ModuleKey(graph.Types.GetModule(e.Key.Publisher))))
-            .OrderByDescending(r => r.Objects).ThenBy(r => r.Key, StringComparer.Ordinal)
+                DetectorGraph.Module(graph, e.Key.Publisher)))
+            .OrderByDescending(r => r.Subscribers).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
+        string Describe(IEnumerable<KeyValuePair<(int Publisher, string Field), Event>> list) =>
+            string.Join("; ", list.Select(e => string.Create(CultureInfo.InvariantCulture, $"{graph.Types.GetName(e.Key.Publisher)}.{e.Key.Field} {e.Value.Subscribers} subscribers on {e.Value.Publishers.Count} publishers")));
         var basis = string.Create(
             CultureInfo.InvariantCulture,
-            $"{candidates.Count} delegate types with {MinSubscribers}+ objects, {read} subscribers read, {events.Count} events; {string.Join("; ", events.OrderByDescending(e => e.Value.Subscribers).Take(10).Select(e => $"{graph.Types.GetName(e.Key.Publisher)}.{e.Key.Field} {e.Value.Subscribers} subscribers on {e.Value.Publishers.Count} publishers"))}");
+            $"{candidates.Count(c => c)} delegate types with {MinSubscribers}+ objects, {read} subscribers read, {pending.Count} publishers, {events.Count} events; {skipped}; reported: {Describe(events.Where(e => e.Value.Subscribers >= MinSubscribers).OrderByDescending(e => e.Value.Subscribers))}; largest below the threshold: {Describe(events.Where(e => e.Value.Subscribers < MinSubscribers).OrderByDescending(e => e.Value.Subscribers).Take(5))}");
         return new InspectionResult(
             rows.Length,
-            rows.Sum(r => r.Objects),
+            rows.Sum(r => r.Bytes),
             null,
             null,
-            new RowTable<DetectorTypeRow>(s_columns, rows, 160, (row, cells) =>
+            new RowTable<EventRow>(s_columns, rows, 160, (row, cells) =>
             {
                 cells[0] = row.Key;
-                cells[1] = InspectionRows.Number(row.Bytes);
-                cells[2] = InspectionRows.Number(row.Objects);
-                cells[3] = row.Detail;
-                cells[4] = row.TypeName;
-                cells[5] = row.Module;
-                cells[6] = "All";
+                cells[1] = InspectionRows.Number(row.Publishers);
+                cells[2] = InspectionRows.Number(row.Subscribers);
+                cells[3] = InspectionRows.Number(row.Bytes);
+                cells[4] = row.TargetTypes;
+                cells[5] = row.TypeName;
+                cells[6] = row.Module;
+                cells[7] = InspectionScopes.Reachable;
             }),
             basis);
     }
 
     /// <summary>
-    /// The events holding a subscriber delegate: the delegate itself in a publisher's field, or the multicast delegate whose
-    /// invocation list holds it; each with the publisher (a referrer that is neither an array nor a delegate).
+    /// The events holding a subscriber delegate, into <paramref name="found"/>: the delegate itself in a publisher's field,
+    /// or the multicast delegate whose invocation list holds it; each with the publisher (a referrer that is neither an
+    /// array nor a delegate).
     /// </summary>
-    private static IEnumerable<(int Value, int Publisher)> Holders(HeapGraph graph, ReverseReferences referrers, HashSet<int> delegateTypes, int subscriber)
+    private static void Holders(HeapGraph graph, ReverseReferences referrers, bool[] delegates, int subscriber, List<(int Value, int Publisher, bool Multicast)> found)
     {
-        foreach (var holder in referrers.GetReferrers(subscriber).ToArray())
+        found.Clear();
+        foreach (var holder in referrers.GetReferrers(subscriber))
         {
             if (InspectionRows.IsArray(graph, holder))
             {
-                foreach (var multicast in referrers.GetReferrers(holder).ToArray())
+                foreach (var multicast in referrers.GetReferrers(holder))
                 {
-                    if (delegateTypes.Contains(graph.TypeIndices[multicast]))
+                    if (delegates[graph.TypeIndices[multicast]])
                     {
-                        foreach (var publisher in referrers.GetReferrers(multicast).ToArray())
+                        foreach (var publisher in referrers.GetReferrers(multicast))
                         {
-                            if (IsPublisher(graph, delegateTypes, publisher))
+                            if (IsPublisher(graph, delegates, publisher))
                             {
-                                yield return (multicast, publisher);
+                                found.Add((multicast, publisher, true));
                             }
                         }
                     }
                 }
             }
-            else if (IsPublisher(graph, delegateTypes, holder))
+            else if (IsPublisher(graph, delegates, holder))
             {
-                yield return (subscriber, holder);
+                found.Add((subscriber, holder, false));
             }
         }
     }
 
-    private static bool IsPublisher(HeapGraph graph, HashSet<int> delegateTypes, int obj) =>
-        !InspectionRows.IsArray(graph, obj) && !delegateTypes.Contains(graph.TypeIndices[obj]);
+    private static bool IsPublisher(HeapGraph graph, bool[] delegates, int obj) =>
+        !InspectionRows.IsArray(graph, obj) && !delegates[graph.TypeIndices[obj]];
+
+    private readonly record struct Pending(int Value, int TargetType, long Bytes, bool Multicast);
+
+    private sealed record EventRow(string Key, long Publishers, long Subscribers, long Bytes, string TargetTypes, string TypeName, string Module);
 
     private sealed class Event
     {
@@ -489,23 +730,34 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
         public long Subscribers { get; set; }
 
+        public long Bytes { get; set; }
+
         public Dictionary<string, long> TargetTypes { get; } = new(StringComparer.Ordinal);
     }
 }
 
 /// <summary>
-/// Timer leaks (sprint 2.6): at least <see cref="MinTimers"/> active timers whose callbacks target one type. The
-/// runtime's timer queue holds every started timer, so each keeps its callback's target alive until it is disposed. A
-/// <c>System.Timers.Timer</c>'s callback is the timer itself: its <c>Elapsed</c> handlers' targets are counted.
+/// Timer leaks (sprint 2.6): at least <see cref="MinTimers"/> periodic timers in the runtime's timer queue whose
+/// callbacks belong to one type. The queue holds every started timer, so each keeps its callback's target alive until it
+/// is disposed. Only periodic timers in the queue count (review H4): a one-shot timer (<c>Task.Delay</c>,
+/// <c>CancelAfter</c>) releases itself when it fires, and a paused or fired one is out of the queue. A
+/// <c>System.Timers.Timer</c>'s callback is the timer itself: its <c>Elapsed</c> handlers' targets are counted. A callback
+/// on a static method or a lambda cache belongs to the timer's state.
 /// </summary>
 internal sealed class TimerLeaksDetector : IInspection
 {
     public const long MinTimers = 500;
 
+    /// <summary>The runtime's "infinite" due time and period (<c>Timeout.UnsignedInfinite</c>).</summary>
+    private const long Infinite = uint.MaxValue;
+
+    private const string StaticMethod = "(static method)";
+
     private static readonly InspectionColumn[] s_columns =
     [
         new(InspectionColumns.Target, InspectionColumnKind.Text, IsKey: true),
         new(InspectionColumns.Timers, InspectionColumnKind.Integer),
+        new(InspectionColumns.Bytes, InspectionColumnKind.Bytes),
         new(InspectionColumns.Type, InspectionColumnKind.Text),
         new(InspectionColumns.TypeName, InspectionColumnKind.Text),
         new(InspectionColumns.Module, InspectionColumnKind.Text),
@@ -516,7 +768,7 @@ internal sealed class TimerLeaksDetector : IInspection
 
     public string Title => "Timer leaks";
 
-    public string Cause => "Started timers that are never stopped or disposed: the runtime's timer queue keeps each one, and the object its callback belongs to, alive.";
+    public string Cause => "Started periodic timers that are never stopped or disposed: the runtime's timer queue keeps each one, and the object its callback belongs to, alive.";
 
     public string Fix => "Dispose the timer (or stop it) when its owner is done, typically in the owner's Dispose.";
 
@@ -524,81 +776,136 @@ internal sealed class TimerLeaksDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
-    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinTimers={MinTimers}");
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinTimers={MinTimers};Timers=periodic,queued");
 
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
-        var reader = context.Reader!;
+        var reader = Readers.Of(context);
         var ct = context.CancellationToken;
-        var timerTypes = DetectorGraph.TypesNamed(graph, name => name == "System.Threading.TimerQueueTimer");
-        var reachable = Reachability.Compute(graph, ct);
-        var targets = new Dictionary<string, (long Timers, string Kind, string? Module)>(StringComparer.Ordinal);
-        long active = 0, canceled = 0;
-        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, timerTypes, context, "Reading timers"))
+        var reachable = Reachability.For(graph, ct);
+        var targets = new Dictionary<string, Target>(StringComparer.Ordinal);
+        long active = 0, canceled = 0, paused = 0, oneShot = 0, unreadable = 0;
+        var owners = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, DetectorGraph.TypesNamed(graph, "System.Threading.TimerQueueTimer"), context, "Reading timers"))
         {
             var address = graph.Addresses[obj];
-            if (Fields.Boolean(reader, address, "_canceled") == true)
+            var (isCanceled, due, period) = (Fields.Boolean(reader, address, "_canceled"), Fields.Integer(reader, address, "_dueTime"), Fields.Integer(reader, address, "_period"));
+            if (isCanceled is null || due is null || period is null)
+            {
+                unreadable++;
+                continue;
+            }
+
+            if (isCanceled.Value)
             {
                 canceled++;
                 continue;
             }
 
-            active++;
-            var callback = Fields.Reference(reader, address, "_timerCallback._target");
-            var (kind, owners) = callback is { Type: "System.Timers.Timer" } timer
-                ? ("System.Timers.Timer", Fields.Reference(reader, timer.Address, "_onIntervalElapsed") is { } elapsed
-                    ? Fields.DelegateTargets(reader, elapsed.Address, 64, ct)
-                    : [])
-                : ("System.Threading.Timer", [callback]);
-            foreach (var owner in owners)
+            if (due == Infinite)
             {
-                var type = owner?.Type ?? "(static method)";
-                var (timers, _, module) = targets.GetValueOrDefault(type);
-                targets[type] = (timers + 1, kind, module ?? ModuleOf(graph, owner));
+                paused++;
+                continue;
+            }
+
+            if (period == Infinite)
+            {
+                oneShot++;
+                continue;
+            }
+
+            active++;
+            var bytes = (long)graph.GetSize(obj);
+            var callback = Fields.Reference(reader, address, "_timerCallback") is { } c ? Fields.DelegateTarget(reader, c.Address) : null;
+            string kind;
+            List<(ulong Address, string Type)?> found;
+            if (callback is { Type: "System.Timers.Timer" } timer)
+            {
+                kind = "System.Timers.Timer";
+                found = Fields.Reference(reader, timer.Address, "_onIntervalElapsed") is { } elapsed ? Fields.DelegateTargets(reader, elapsed.Address, 64, ct) : [];
+                bytes += graph.TryGetIndex(timer.Address, out var outer) ? (long)graph.GetSize(outer) : 0;
+            }
+            else
+            {
+                // A static callback or a lambda cache names no owner: the state passed to the timer does (review H4).
+                kind = "System.Threading.Timer";
+                found = [callback is { } own && !DetectorGraph.IsCompilerGenerated(own.Type) ? own : Fields.Reference(reader, address, "_state") ?? callback];
+            }
+
+            // Each timer once per owner type, however many handlers it has.
+            owners.Clear();
+            foreach (var owner in found)
+            {
+                var type = owner?.Type ?? StaticMethod;
+                if (!owners.Add(type))
+                {
+                    continue;
+                }
+
+                var entry = targets.GetValueOrDefault(type) ?? new Target(kind, owner is null ? string.Empty : ModuleOf(graph, owner.Value));
+                entry.Timers++;
+                entry.Bytes += bytes;
+                targets[type] = entry;
             }
         }
 
         var rows = targets
             .Where(t => t.Value.Timers >= MinTimers)
-            .Select(t => new DetectorTypeRow(t.Key, t.Value.Kind, t.Value.Timers, 0, t.Key, t.Value.Module ?? string.Empty))
+            .Select(t => new DetectorTypeRow(t.Key, t.Value.Kind, t.Value.Timers, t.Value.Bytes, t.Key == StaticMethod ? string.Empty : t.Key, t.Value.Module))
             .OrderByDescending(r => r.Objects).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
         var basis = string.Create(
             CultureInfo.InvariantCulture,
-            $"{active} active timers, {canceled} canceled; by callback target: {string.Join("; ", targets.OrderByDescending(t => t.Value.Timers).Take(10).Select(t => $"{t.Key} {t.Value.Timers} ({t.Value.Kind})"))}");
+            $"{active} periodic timers in the queue, {canceled} canceled, {paused} paused or fired, {oneShot} one-shot, {unreadable} unreadable; by callback owner: {string.Join("; ", targets.OrderByDescending(t => t.Value.Timers).Take(Math.Max(10, rows.Length)).Select(t => $"{t.Key} {t.Value.Timers} ({t.Value.Kind})"))}");
         return new InspectionResult(
             rows.Length,
-            rows.Sum(r => r.Objects),
+            rows.Sum(r => r.Bytes),
             null,
             null,
             new RowTable<DetectorTypeRow>(s_columns, rows, 120, (row, cells) =>
             {
                 cells[0] = row.Key;
                 cells[1] = InspectionRows.Number(row.Objects);
-                cells[2] = row.Detail;
-                cells[3] = row.TypeName;
-                cells[4] = row.Module;
-                cells[5] = "All";
+                cells[2] = InspectionRows.Number(row.Bytes);
+                cells[3] = row.Detail;
+                cells[4] = row.TypeName;
+                cells[5] = row.Module;
+                cells[6] = InspectionScopes.Reachable;
             }),
             basis);
     }
 
-    private static string? ModuleOf(HeapGraph graph, (ulong Address, string Type)? owner) =>
-        owner is { } o && graph.TryGetIndex(o.Address, out var index) ? TypeGroups.ModuleKey(graph.Types.GetModule(graph.TypeIndices[index])) : null;
+    private static string ModuleOf(HeapGraph graph, (ulong Address, string Type) owner) =>
+        graph.TryGetIndex(owner.Address, out var index) ? DetectorGraph.Module(graph, graph.TypeIndices[index]) : string.Empty;
+
+    private sealed class Target(string kind, string module)
+    {
+        public string Kind { get; } = kind;
+
+        public string Module { get; } = module;
+
+        public long Timers { get; set; }
+
+        public long Bytes { get; set; }
+    }
 }
 
 /// <summary>
 /// Disposed but referenced (sprint 2.6): at least <see cref="MinObjects"/> reachable objects of one type whose disposed
-/// flag is set (the field names the .NET dispose pattern and its templates use). Something still holds objects that are
-/// done: a list never cleared, a cache, an event.
+/// flag is set (the field names the .NET dispose pattern, its templates and auto-properties use; a bool, or an integer
+/// set with Interlocked). Something still holds objects that are done: a list never cleared, a cache, an event.
 /// </summary>
 internal sealed class DisposedButReferencedDetector : IInspection
 {
     public const long MinObjects = 100;
 
-    /// <summary>Disposed flags, as the dispose pattern, its Visual Studio template and common code name them.</summary>
-    internal static readonly string[] FlagNames = ["_disposed", "disposed", "_disposedValue", "disposedValue", "_isDisposed", "isDisposed", "m_disposed", "IsDisposed", "Disposed"];
+    /// <summary>Disposed flags, as the dispose pattern, its Visual Studio template, auto-properties and common code name them.</summary>
+    internal static readonly string[] FlagNames =
+    [
+        "_disposed", "disposed", "_disposedValue", "disposedValue", "_isDisposed", "isDisposed", "m_disposed", "IsDisposed", "Disposed",
+        "<IsDisposed>k__BackingField", "<Disposed>k__BackingField",
+    ];
 
     public string Name => "disposed-but-referenced";
 
@@ -617,123 +924,149 @@ internal sealed class DisposedButReferencedDetector : IInspection
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
-        var reader = context.Reader!;
+        var reader = Readers.Of(context);
         var ct = context.CancellationToken;
-        var reachable = Reachability.Compute(graph, ct);
+        var reachable = Reachability.For(graph, ct);
 
-        // Reachable objects per type; only types with enough of them are probed for a flag.
+        // Reachable objects per type, and each type's first one: only types with enough of them are probed (review H7).
         var perType = new long[graph.Types.Count];
+        var first = new int[graph.Types.Count];
+        Array.Fill(first, -1);
         var typeIndices = graph.TypeIndices.Span;
         for (var i = 0; i < typeIndices.Length; i++)
         {
+            if ((i & 0xFFFF) == 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                context.Report("Counting reachable objects", i, typeIndices.Length);
+            }
+
             if (reachable.IsReachable(i))
             {
-                perType[typeIndices[i]]++;
+                var type = typeIndices[i];
+                if (perType[type]++ == 0)
+                {
+                    first[type] = i;
+                }
             }
         }
 
+        // One instance tells whether the type has a disposed flag.
         var candidates = new Dictionary<int, string>();
+        var noFlag = new Dictionary<string, long>(StringComparer.Ordinal);
         long probed = 0;
         for (var t = 0; t < perType.Length; t++)
         {
-            if (perType[t] < MinObjects || graph.Types.Kinds[t].HasFlag(TypeKind.Array) || graph.Types.GetName(t) == "System.String")
+            if (perType[t] < MinObjects || graph.Types.Kinds[t].HasFlag(TypeKind.Array) || graph.Types.Kinds[t].HasFlag(TypeKind.String))
             {
                 continue;
             }
 
-            // One instance tells whether the type has a disposed flag.
-            for (var i = 0; i < typeIndices.Length; i++)
+            if ((++probed & 0xFF) == 0)
             {
-                if (typeIndices[i] == t && reachable.IsReachable(i))
-                {
-                    probed++;
-                    if (FlagNames.FirstOrDefault(f => Fields.Boolean(reader, graph.Addresses[i], f) is not null) is { } flag)
-                    {
-                        candidates[t] = flag;
-                    }
-
-                    break;
-                }
+                ct.ThrowIfCancellationRequested();
             }
 
-            ct.ThrowIfCancellationRequested();
+            if (FlagNames.FirstOrDefault(f => Fields.Flag(reader, graph.Addresses[first[t]], f) is not null) is { } flag)
+            {
+                candidates[t] = flag;
+            }
+            else
+            {
+                noFlag[graph.Types.GetName(t)] = perType[t];
+            }
         }
 
         var disposed = new Dictionary<int, (long Objects, long Bytes)>();
-        if (candidates.Count > 0)
+        var mask = DetectorGraph.TypeMask(graph, candidates.ContainsKey);
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, mask, context, "Reading disposed flags"))
         {
-            foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, [.. candidates.Keys], context, "Reading disposed flags"))
+            var type = graph.TypeIndices[obj];
+            if (Fields.Flag(reader, graph.Addresses[obj], candidates[type]) == true)
             {
-                var type = graph.TypeIndices[obj];
-                if (Fields.Boolean(reader, graph.Addresses[obj], candidates[type]) == true)
-                {
-                    var (objects, bytes) = disposed.GetValueOrDefault(type);
-                    disposed[type] = (objects + 1, bytes + (long)graph.GetSize(obj));
-                }
+                var (objects, bytes) = disposed.GetValueOrDefault(type);
+                disposed[type] = (objects + 1, bytes + (long)graph.GetSize(obj));
             }
         }
 
         var rows = disposed
             .Where(d => d.Value.Objects >= MinObjects)
-            .Select(d => new DetectorTypeRow(graph.Types.GetName(d.Key), candidates[d.Key], d.Value.Objects, d.Value.Bytes, graph.Types.GetName(d.Key), TypeGroups.ModuleKey(graph.Types.GetModule(d.Key))))
+            .Select(d => new DetectorTypeRow(graph.Types.GetName(d.Key), candidates[d.Key], d.Value.Objects, d.Value.Bytes, graph.Types.GetName(d.Key), DetectorGraph.Module(graph, d.Key)))
             .OrderByDescending(r => r.Objects).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
         var basis = string.Create(
             CultureInfo.InvariantCulture,
-            $"{reachable.Count} reachable objects; {probed} types with {MinObjects}+ probed, {candidates.Count} with a disposed flag; disposed: {string.Join("; ", disposed.OrderByDescending(d => d.Value.Objects).Take(10).Select(d => $"{graph.Types.GetName(d.Key)} {d.Value.Objects} by {candidates[d.Key]}"))}");
+            $"{reachable.Count} reachable objects; {probed} types with {MinObjects}+ probed, {candidates.Count} with a disposed flag (most objects without one: {DetectorGraph.Top(noFlag, 5)}); disposed: {string.Join("; ", disposed.OrderByDescending(d => d.Value.Objects).Take(Math.Max(10, rows.Length)).Select(d => $"{graph.Types.GetName(d.Key)} {d.Value.Objects} by {candidates[d.Key]}"))}");
         return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, null, DetectorTables.Types(rows, "Flag"), basis);
     }
 }
 
 /// <summary>
-/// Many HttpClient instances (sprint 2.6): at least <see cref="MinInstances"/> reachable <c>HttpClient</c>s or message
-/// handlers of one type. Each handler keeps its own connection pool; creating clients per request exhausts sockets.
+/// Many HttpClient instances (sprint 2.6): reachable <c>HttpClient</c>s that own their handler, over at least
+/// <see cref="MinInstances"/> distinct handlers, and so as many connection pools. Clients sharing a handler (IHttpClientFactory, or a handler passed in
+/// with disposeHandler false) are the recommended pattern and are not counted (review M11).
 /// </summary>
 internal sealed class HttpClientInstancesDetector : IInspection
 {
     public const long MinInstances = 20;
 
-    private static readonly string[] s_types = ["System.Net.Http.HttpClient", "System.Net.Http.HttpClientHandler", "System.Net.Http.SocketsHttpHandler"];
+    private const string ClientType = "System.Net.Http.HttpClient";
 
     public string Name => "httpclient-instances";
 
     public string Title => "Many HttpClient instances";
 
-    public string Cause => "Many HttpClient or handler instances are alive: each handler has its own connection pool, so creating clients per use wastes memory and sockets.";
+    public string Cause => "Many HttpClients each own their handler: every handler has its own connection pool, so creating clients per use wastes memory and sockets.";
 
     public string Fix => "Create one HttpClient and reuse it, or use IHttpClientFactory (AddHttpClient) to share handlers.";
 
-    public SnapshotCapabilities Requires => SnapshotCapabilities.ObjectGraph;
+    public SnapshotCapabilities Requires => SnapshotCapabilities.FieldValues;
 
     public InspectionKind Kind => InspectionKind.Leak;
 
-    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinInstances={MinInstances}");
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinInstances={MinInstances};Counted=owns its handler");
 
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
-        var reachable = Reachability.Compute(graph, context.CancellationToken);
-        var types = DetectorGraph.TypesNamed(graph, name => s_types.Contains(name, StringComparer.Ordinal));
-        var counts = new Dictionary<int, (long Objects, long Bytes)>();
-        foreach (var obj in types.Count == 0 ? [] : DetectorGraph.ReachableOf(graph, reachable, types, context, "Counting HTTP clients"))
+        var reader = Readers.Of(context);
+        var reachable = Reachability.For(graph, context.CancellationToken);
+        long owning = 0, sharing = 0, unreadable = 0, bytes = 0;
+        var handlers = new HashSet<ulong>();
+        var type = -1;
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, DetectorGraph.TypesNamed(graph, ClientType), context, "Counting HTTP clients"))
         {
-            var (objects, bytes) = counts.GetValueOrDefault(graph.TypeIndices[obj]);
-            counts[graph.TypeIndices[obj]] = (objects + 1, bytes + (long)graph.GetSize(obj));
+            type = graph.TypeIndices[obj];
+            var address = graph.Addresses[obj];
+            switch (Fields.Boolean(reader, address, "_disposeHandler"))
+            {
+                case true:
+                    // new HttpClient(shared) owns a handler it shares: distinct handlers are the pools (re-review N2).
+                    owning++;
+                    bytes += (long)graph.GetSize(obj);
+                    handlers.Add(Fields.Reference(reader, address, "_handler")?.Address ?? address);
+                    break;
+                case false:
+                    sharing++;
+                    break;
+                default:
+                    unreadable++;
+                    break;
+            }
         }
 
-        var rows = counts
-            .Where(c => c.Value.Objects >= MinInstances)
-            .Select(c => new DetectorTypeRow(graph.Types.GetName(c.Key), string.Empty, c.Value.Objects, c.Value.Bytes, graph.Types.GetName(c.Key), TypeGroups.ModuleKey(graph.Types.GetModule(c.Key))))
-            .OrderByDescending(r => r.Objects).ThenBy(r => r.Key, StringComparer.Ordinal)
-            .ToArray();
-        var basis = string.Join("; ", counts.Select(c => string.Create(CultureInfo.InvariantCulture, $"{graph.Types.GetName(c.Key)} {c.Value.Objects} reachable")));
-        return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, null, DetectorTables.Types(rows, null), basis.Length == 0 ? "no HttpClient or handler objects" : basis);
+        DetectorTypeRow[] rows = handlers.Count >= MinInstances
+            ? [new DetectorTypeRow(ClientType, InspectionRows.Number(handlers.Count), owning, bytes, ClientType, DetectorGraph.Module(graph, type))]
+            : [];
+        var basis = string.Create(CultureInfo.InvariantCulture, $"{owning} reachable HttpClients owning their handler ({handlers.Count} distinct handlers), {sharing} sharing one, {unreadable} unreadable; {Reachability.Describe(reachable)}");
+        return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, null, DetectorTables.Types(rows, "Handlers"), basis);
     }
 }
 
 /// <summary>
 /// Undisposed service scopes (sprint 2.6, ASP.NET Core): at least <see cref="MinScopes"/> reachable dependency injection
-/// scopes not disposed. A scope created with CreateScope and never disposed keeps its scoped and disposable services.
+/// scopes not disposed, the root scope left out. A scope created with CreateScope and never disposed keeps its scoped and
+/// disposable services.
 /// </summary>
 internal sealed class UndisposedServiceScopesDetector : IInspection
 {
@@ -758,28 +1091,41 @@ internal sealed class UndisposedServiceScopesDetector : IInspection
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
-        var reader = context.Reader!;
-        var reachable = Reachability.Compute(graph, context.CancellationToken);
-        var types = DetectorGraph.TypesNamed(graph, name => name == ScopeType);
-        long open = 0, closed = 0, bytes = 0;
-        foreach (var obj in types.Count == 0 ? [] : DetectorGraph.ReachableOf(graph, reachable, types, context, "Reading service scopes"))
+        var reader = Readers.Of(context);
+        var reachable = Reachability.For(graph, context.CancellationToken);
+        long open = 0, closed = 0, roots = 0, unreadable = 0, bytes = 0;
+        var type = -1;
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, DetectorGraph.TypesNamed(graph, ScopeType), context, "Reading service scopes"))
         {
-            if (Fields.Boolean(reader, graph.Addresses[obj], "_disposed") == true)
+            type = graph.TypeIndices[obj];
+            var address = graph.Addresses[obj];
+            if (Fields.Boolean(reader, address, "<IsRootScope>k__BackingField") == true)
             {
-                closed++;
+                roots++;
+                continue;
             }
-            else
+
+            switch (Fields.Flag(reader, address, "_disposed"))
             {
-                open++;
-                bytes += (long)graph.GetSize(obj);
+                case true:
+                    closed++;
+                    break;
+                case false:
+                    open++;
+                    bytes += (long)graph.GetSize(obj);
+                    break;
+                default:
+                    unreadable++;
+                    break;
             }
         }
 
-        DetectorTypeRow[] rows = open >= MinScopes ? [new DetectorTypeRow(ScopeType, string.Empty, open, bytes, ScopeType, string.Empty)] : [];
-        var module = types.Count > 0 ? TypeGroups.ModuleKey(graph.Types.GetModule(types.First())) : string.Empty;
-        rows = [.. rows.Select(r => r with { Module = module })];
-        var basis = string.Create(CultureInfo.InvariantCulture, $"{open} reachable scopes not disposed, {closed} disposed");
-        return new InspectionResult(rows.Length, bytes, null, null, DetectorTables.Types(rows, null), basis);
+        DetectorTypeRow[] rows = open >= MinScopes ? [new DetectorTypeRow(ScopeType, string.Empty, open, bytes, ScopeType, DetectorGraph.Module(graph, type))] : [];
+        var note = rows.Length > 0
+            ? "Scopes of requests in flight, and of Blazor Server circuits, are open by design: compare this count with the requests in flight when the dump was taken."
+            : null;
+        var basis = string.Create(CultureInfo.InvariantCulture, $"{open} reachable scopes not disposed, {closed} disposed, {roots} root, {unreadable} unreadable; {Reachability.Describe(reachable)}");
+        return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, note, DetectorTables.Types(rows, null), basis);
     }
 }
 
@@ -812,7 +1158,7 @@ internal static class DetectorTables
 
             cells[at++] = row.TypeName;
             cells[at++] = row.Module;
-            cells[at] = "All";
+            cells[at] = InspectionScopes.Reachable;
         });
     }
 }

@@ -24,7 +24,8 @@
 namespace Fixtures.Leaks;
 
 // The leaks sprint 2.6's detectors name besides the classic five (fixtures/KnownAnswers): kept out of LeakCatalog.All,
-// whose exact census and paths the earlier sprints check, and enabled with "all" in LeakyApi and LeakyConsole.
+// whose exact census and paths the earlier sprints check, and enabled with LeakyApi's Leaks:Detected and LeakyConsole's
+// --detected (LeakCatalog.Detected).
 
 /// <summary>
 /// Leak 6: started <see cref="System.Timers.Timer"/>s never stopped or disposed. The runtime's timer queue holds every
@@ -116,11 +117,19 @@ public sealed class DisposedResource(byte[] buffer) : IDisposable
 /// <summary>
 /// The clean workload (sprint 2.6): the same kinds of work done right, for the run where no detector may fire. A cache
 /// bounded at <see cref="CacheLimit"/> entries that evicts the oldest, subscribers that unsubscribe, timers disposed,
-/// disposables disposed and released.
+/// disposables disposed and released. The first run also sets up, once and above each detector's threshold, what looks
+/// like a leak and is not (review M14): objects keeping their own handler, unevaluated lazies, pending one-shot timers
+/// (<c>Task.Delay</c>, <c>CancelAfter</c>) and HttpClients sharing one handler.
 /// </summary>
 public static class CleanWorkload
 {
-    public const int CacheLimit = 1_000;
+    /// <summary>Below the growth detector's 1,000 (review L24), so the bounded cache never looks like growth.</summary>
+    public const int CacheLimit = 500;
+
+    /// <summary>How many of each steady pattern the first run sets up: above every detector's threshold.</summary>
+    public const int SteadyCount = 1_500;
+
+    private static object[]? s_steady;
 
     private static readonly object s_gate = new();
     private static readonly Dictionary<int, byte[]> s_cache = [];
@@ -135,6 +144,7 @@ public static class CleanWorkload
     {
         lock (s_gate)
         {
+            s_steady ??= Steady(payloadBytes);
             for (var i = 0; i < items; i++)
             {
                 var key = s_next++;
@@ -164,5 +174,55 @@ public static class CleanWorkload
 
             Runs++;
         }
+    }
+
+    private static object[] Steady(int payloadBytes)
+    {
+        var steady = new List<object>();
+        var publisher = new LongLivedPublisher();
+        var handler = new System.Net.Http.HttpClientHandler();
+        for (var i = 0; i < SteadyCount; i++)
+        {
+            // Keeps its own handler to unsubscribe later: a delegate field, not an event holding it.
+            var owner = new HandlerOwner(new byte[payloadBytes]);
+            publisher.Changed += owner.Handler;
+            publisher.Changed -= owner.Handler;
+            steady.Add(owner);
+            steady.Add(new Lazy<byte[]>(() => new byte[payloadBytes]));
+            if (i < 600)
+            {
+                // One-shot timers pending for an hour: they release themselves when they fire.
+                steady.Add(Task.Delay(TimeSpan.FromHours(1)));
+                var source = new CancellationTokenSource();
+                source.CancelAfter(TimeSpan.FromHours(1));
+                steady.Add(source);
+            }
+
+            if (i < 25)
+            {
+                steady.Add(new System.Net.Http.HttpClient(handler, disposeHandler: false));
+            }
+        }
+
+        steady.Add(handler);
+        return [.. steady];
+    }
+}
+
+/// <summary>An object that keeps its handler in a field so it can unsubscribe the same delegate later.</summary>
+public sealed class HandlerOwner
+{
+    public readonly EventHandler Handler;
+
+    public HandlerOwner(byte[] state)
+    {
+        State = state;
+        Handler = OnChanged;
+    }
+
+    public byte[] State { get; }
+
+    private void OnChanged(object? sender, EventArgs e)
+    {
     }
 }

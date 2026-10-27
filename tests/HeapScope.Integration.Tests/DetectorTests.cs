@@ -134,13 +134,16 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
 
                 var row = rows.FirstOrDefault(r => r.Values.First() == detection.Key);
                 var minimum = (long)(detection.PerItem * DetectorRuns.GrownItems);
+
+                // Never more than every item leaked since the start (review M13): double counting or merged events fail.
+                var maximum = (long)(detection.PerItem * (DetectorRuns.WarmUpRequests + DetectorRuns.MoreRequests) * DetectorRuns.ItemsPerRequest);
                 if (row is null)
                 {
                     misses.Add($"{leak.Name}: {detection.Detector} has no row {detection.Key} (rows: {string.Join(", ", rows.Select(r => r.Values.First()))})");
                 }
-                else if (long.Parse(row[s_countColumn[detection.Detector]]!, CultureInfo.InvariantCulture) < minimum)
+                else if (long.Parse(row[s_countColumn[detection.Detector]]!, CultureInfo.InvariantCulture) is var count && (count < minimum || count > maximum))
                 {
-                    misses.Add($"{leak.Name}: {detection.Detector} counts {row[s_countColumn[detection.Detector]]} for {detection.Key}, under {minimum}");
+                    misses.Add($"{leak.Name}: {detection.Detector} counts {count} for {detection.Key}, outside {minimum} to {maximum}");
                 }
             }
         }

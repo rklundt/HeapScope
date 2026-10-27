@@ -78,6 +78,7 @@ internal sealed partial class WorkerService
 
                 // A baseline only for the inspections that use one (sprint 2.6), held for the run only.
                 InspectionBaseline? baseline = null;
+                string? baselineName = null;
                 var baselineId = inspection.UsesBaseline ? request.BaselineSnapshotId : null;
                 if (baselineId is { } id)
                 {
@@ -88,8 +89,16 @@ internal sealed partial class WorkerService
 
                     var (earlier, held) = Lease(id);
                     baselineLease = held;
+
+                    // A baseline the detector cannot read (a gcdump) is refused, never silently ignored (review H8).
+                    if (InspectionAvailability.Explain(inspection, earlier.Capabilities, earlier.Info) is { } unusable)
+                    {
+                        throw new ArgumentException($"The baseline {System.IO.Path.GetFileName(earlier.Info.SourcePath)} cannot be used: {unusable} Choose a full dump of the same process, captured earlier.");
+                    }
+
                     earlier.TryGetService<IObjectReader>(out var baselineReader);
                     baseline = new InspectionBaseline(earlier.Graph, earlier.Info, baselineReader);
+                    baselineName = $"{id} ({System.IO.Path.GetFileName(earlier.Info.SourcePath)}, captured {earlier.Info.CapturedAtUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture) ?? "at an unknown time"})";
                 }
 
                 // The incoming references for the inspections that follow references back (sprint 2.6).
@@ -123,16 +132,17 @@ internal sealed partial class WorkerService
 
                 // The rule and what the answer rests on (sprint 2.3.7 review H3, M5); the guard logs the totals too.
                 logger.LogInformation(
-                    "Inspection {Inspection} v{Version} ({Parameters}) on snapshot {Id} with baseline {Baseline}: {Count} findings, {Bytes} bytes, {Wasted} wasted, {Rows} rows; basis: {Basis}; note: {Note}",
+                    "Inspection {Inspection} v{Version} ({Parameters}) on snapshot {Id} with baseline {Baseline}: {Count} findings, {Bytes} bytes, {Wasted} wasted, {Rows} rows in {Seconds:F2} s; basis: {Basis}; note: {Note}",
                     inspection.Name,
                     inspection.Version,
                     inspection.Parameters.Length == 0 ? "no thresholds" : inspection.Parameters,
                     request.SnapshotId,
-                    baselineId?.ToString() ?? "none",
+                    baselineName ?? "none",
                     result.Count,
                     result.Bytes,
                     result.WastedBytes?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a",
                     result.Rows.Count,
+                    stopwatch.Elapsed.TotalSeconds,
                     result.Basis ?? "not recorded",
                     result.Note ?? "none");
                 var rows = resultSets.Add(new InspectionSource(result.Rows), lease);
