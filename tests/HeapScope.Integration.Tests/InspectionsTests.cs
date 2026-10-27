@@ -55,8 +55,12 @@ public sealed class InspectionsTests : IClassFixture<AllLeaksDump>, IAsyncDispos
         var handle = await _session.StartOpen(_dump).Result;
         var inspections = await _session.ListInspectionsAsync(handle, Ct);
         inspections.Select(i => i.Name).ShouldBe(
-            ["duplicate-strings", "empty-collections", "oversized-collections", "sparse-arrays", "large-arrays", "loh", "finalizable", "fragmentation"]);
+            [
+                "duplicate-strings", "empty-collections", "oversized-collections", "sparse-arrays", "large-arrays", "loh", "finalizable", "fragmentation",
+                "growing-static-collections", "event-handler-leaks", "timer-leaks", "disposed-but-referenced", "httpclient-instances", "undisposed-service-scopes",
+            ]);
         inspections.ShouldAllBe(i => i.Unavailable == null);
+        inspections.Where(i => i.Kind == InspectionKinds.Leak).Select(i => i.Name).ShouldBe(inspections.Skip(8).Select(i => i.Name), "the 2.6 detectors are the leak kind");
 
         var runs = new Dictionary<string, (InspectionResultDto Result, List<Dictionary<string, string?>> Rows)>();
         var mismatches = new List<string>();
