@@ -178,7 +178,8 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
         {
             if (baseline is null)
             {
-                if (found.Count >= MinLarge)
+                // Without growth to go on, the runtime's and the framework's own large tables are by design.
+                if (found.Count >= MinLarge && !IsFramework(field))
                 {
                     rows.Add(new Row(field, found, null, null));
                 }
@@ -196,7 +197,7 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
 
         var ordered = rows.OrderByDescending(r => r.Growth ?? r.Collection.Count).ThenBy(r => r.Field, StringComparer.Ordinal).ToArray();
         var note = baseline is null
-            ? "No baseline snapshot: these are static collections of at least 10,000 elements; whether they grow is unknown. Choose an earlier snapshot of the same process as the baseline to see growth."
+            ? "No baseline snapshot: these are the application's static collections of at least 10,000 elements (the framework's own are left out); whether they grow is unknown. Choose an earlier snapshot of the same process as the baseline to see growth."
             : null;
         var basis = string.Create(
             CultureInfo.InvariantCulture,
@@ -219,6 +220,9 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
             }),
             basis);
     }
+
+    private static bool IsFramework(string field) =>
+        field.StartsWith("System.", StringComparison.Ordinal) || field.StartsWith("Microsoft.", StringComparison.Ordinal) || field.StartsWith("Internal.", StringComparison.Ordinal);
 
     /// <summary>The collections static fields hold, by "DeclaringType.field", with their element counts.</summary>
     internal static Dictionary<string, Collection> Collections(HeapGraph graph, IObjectReader reader, CancellationToken cancellationToken)
@@ -258,7 +262,8 @@ internal sealed class GrowingStaticCollectionsDetector : IInspection
         var address = graph.Addresses[obj];
         if (InspectionRows.IsArray(graph, obj))
         {
-            return InspectionRows.ArrayLength(graph, obj);
+            // An array of values holds no objects: only reference arrays are collections that keep things alive.
+            return graph.Types.Kinds[graph.TypeIndices[obj]].HasFlag(TypeKind.ReferenceArray) ? InspectionRows.ArrayLength(graph, obj) : null;
         }
 
         var open = type.IndexOf('<', StringComparison.Ordinal);
