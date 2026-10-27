@@ -186,14 +186,16 @@ internal static partial class CliCommands
             return Success;
         }
 
-        await output.WriteLineAsync($"{"Inspection",-24} {"Time",7}  Finding").ConfigureAwait(false);
+        // The names column fits the longest name (the 2.6 detectors' names are long).
+        var width = Math.Max("Inspection".Length, lines.Max(l => l.Info.Name.Length));
+        await output.WriteLineAsync($"{"Inspection".PadRight(width)} {"Time",7}  Finding").ConfigureAwait(false);
         foreach (var (info, result) in lines)
         {
             var time = result is null ? string.Empty : result.ElapsedSeconds.ToString("N1", CultureInfo.InvariantCulture) + " s";
-            await output.WriteLineAsync($"{info.Name,-24} {time,7}  {(result is null ? "unavailable: " + info.Unavailable : SummaryText(result))}").ConfigureAwait(false);
+            await output.WriteLineAsync($"{info.Name.PadRight(width)} {time,7}  {(result is null ? "unavailable: " + info.Unavailable : SummaryText(result))}").ConfigureAwait(false);
             if (result?.Note is { } note)
             {
-                await output.WriteLineAsync($"{string.Empty,-24} {string.Empty,7}  Note: {note}").ConfigureAwait(false);
+                await output.WriteLineAsync($"{string.Empty.PadRight(width)} {string.Empty,7}  Note: {note}").ConfigureAwait(false);
             }
         }
 
