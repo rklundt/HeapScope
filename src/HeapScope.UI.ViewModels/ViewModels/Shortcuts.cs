@@ -84,7 +84,7 @@ public static class Shortcuts
             .. Enum.GetValues<SnapshotTabs>().Select(tab => new Shortcut(Show(TabGesture(tab)), $"Show the Snapshots page's {tab} tab")),
             new(Show(Gesture(ShortcutKeys.Back)), "Back along the analysis path (also the mouse's back button)"),
             new(Show(Gesture(ShortcutKeys.Forward)), "Forward along the analysis path (also the mouse's forward button)"),
-            new(Show(Gesture(ShortcutKeys.FocusPath)), "Go to the analysis path; Enter opens the chosen step"),
+            new(Show(Gesture(ShortcutKeys.FocusPath)), "Go to the analysis path; Up and Down move along it"),
             new(Show(Gesture(ShortcutKeys.Find)), "Go to the filter of the current view"),
             new(Show(Gesture(ShortcutKeys.Export)), "Export the grid with focus (or the view's grid) to CSV"),
             new(Show(Gesture(ShortcutKeys.Bookmark)), "Bookmark the shown object, or the selected row's object"),
@@ -93,7 +93,7 @@ public static class Shortcuts
             new("Enter", "Open the selected row (also a double-click)"),
             new("Right, Left", "Expand or collapse the selected tree row"),
             new("Tab, Shift+Tab", "Move between the controls of a view"),
-            new(Show(Gesture(ShortcutKeys.Help)), "Show this list"),
+            new(Show(Gesture(ShortcutKeys.Help)), "Show this list (the About page)"),
         ];
     }
 

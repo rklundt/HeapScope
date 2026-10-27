@@ -27,6 +27,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:pages="using:HeapScope.UI.Views.Pages"
              x:Class="HeapScope.UI.Views.Subjects.ObjectView"
              x:DataType="vm:ObjectViewModel">
   <DockPanel>
@@ -35,7 +36,7 @@
               ToolTip.Tip="What this object alone keeps alive, and what keeps it alive, on the Retainers tab" />
       <!-- Sprint 2.7: the Snapshots page holds the bookmarks of every open snapshot. -->
       <Button x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
-              Command="{Binding $parent[UserControl].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
+              Command="{Binding $parent[pages:SnapshotsPage].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
               ToolTip.Tip="Mark this object, or remove its mark (Ctrl+D or Cmd+D). Bookmarks are listed on the left and kept for the next time the snapshot is opened." />
       <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
     </DockPanel>

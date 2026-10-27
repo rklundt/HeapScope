@@ -77,6 +77,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ];
         Live = live;
         Allocations = allocations;
+        About = about;
+        about.Shortcuts = ShortcutList;
         if (allocations is not null)
         {
             // A trace opened or recorded shows the Allocations page.
@@ -118,6 +120,34 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>Exports grids to CSV (sprint 2.7); the window hands it every grid's export request.</summary>
     public GridExportService Exports { get; }
 
+    /// <summary>The About page, which lists the keyboard shortcuts (F1, sprint 2.7).</summary>
+    public AboutViewModel About { get; }
+
+    /// <summary>Shows the page at <paramref name="index"/> of the sidebar (Command+1 and on); false when there is none.</summary>
+    public bool ShowPage(int index)
+    {
+        if (index < 0 || index >= NavigationItems.Count)
+        {
+            return false;
+        }
+
+        SelectedItem = NavigationItems[index];
+        return true;
+    }
+
+    /// <summary>Shows a tab of the Snapshots page (Alt+1 to 4).</summary>
+    public void ShowSnapshotTab(SnapshotTabs tab)
+    {
+        SelectedItem = NavigationItems.First(i => i.Page == Snapshots);
+        Snapshots.Tab = tab;
+    }
+
+    /// <summary>Shows the keyboard shortcuts (F1): the About page lists them.</summary>
+    public void ShowHelp() => SelectedItem = NavigationItems.First(i => i.Page == About);
+
+    /// <summary>Refreshes the shown page (F5): the processes, the sessions or the live counters.</summary>
+    public void RefreshPage() => Refresh(SelectedItem?.Page);
+
     /// <summary>The keyboard shortcuts, for the shortcuts list (sprint 2.7).</summary>
     public IReadOnlyList<Shortcut> ShortcutList => Shortcuts.List([.. NavigationItems.Select(i => i.Title)]);
 
@@ -157,9 +187,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void DismissCrashBanner() => IsCrashBannerVisible = false;
 
     /// <summary>Pages that show live data refresh when they are shown.</summary>
-    partial void OnSelectedItemChanged(NavigationItem value)
+    partial void OnSelectedItemChanged(NavigationItem value) => Refresh(value?.Page);
+
+    private static void Refresh(ObservableObject? page)
     {
-        switch (value?.Page)
+        switch (page)
         {
             case ProcessesViewModel processes when processes.RefreshCommand.CanExecute(null):
                 processes.RefreshCommand.Execute(null);

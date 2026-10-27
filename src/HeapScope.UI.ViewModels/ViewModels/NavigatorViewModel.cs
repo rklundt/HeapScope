@@ -51,6 +51,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     private readonly Dictionary<SnapshotHandle, AnalysisPath> _paths = [];
     private readonly AnalysisPath _noSnapshot;
     private AnalysisPath _path;
+    private IReadOnlyList<AnalysisStep>? _steps;
 
     [ObservableProperty]
     private INavigationSubject _current;
@@ -119,8 +120,8 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>The steps from the root to the current one, for the breadcrumb.</summary>
     public IReadOnlyList<AnalysisStep> Trail => _path.Trail;
 
-    /// <summary>Every step of the path in tree order, for the sidebar.</summary>
-    public IReadOnlyList<AnalysisStep> Steps => _path.Steps;
+    /// <summary>Every step of the path in tree order, for the sidebar; the same list until the path's steps change.</summary>
+    public IReadOnlyList<AnalysisStep> Steps => _steps ??= _path.Steps;
 
     public bool CanGoBack => _path.CanGoBack;
 
@@ -329,7 +330,12 @@ public sealed partial class NavigatorViewModel : ObservableObject
         OnPropertyChanged(nameof(IsTypeReferrersShown));
         OnPropertyChanged(nameof(IsTypePathsShown));
         OnPropertyChanged(nameof(Trail));
-        OnPropertyChanged(nameof(Steps));
+        if (_steps is null || _steps.Count != _path.Count || !_steps.SequenceEqual(_path.Steps))
+        {
+            _steps = null;
+            OnPropertyChanged(nameof(Steps));
+        }
+
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
         BackCommand.NotifyCanExecuteChanged();

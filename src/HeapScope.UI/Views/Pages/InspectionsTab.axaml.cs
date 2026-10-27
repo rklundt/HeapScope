@@ -23,6 +23,9 @@
 
 
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 
 namespace HeapScope.UI.Views.Pages;
 
@@ -32,5 +35,16 @@ public partial class InspectionsTab : UserControl
     public InspectionsTab()
     {
         InitializeComponent();
+
+        // A group heading shares its tile's list item but is not part of it: a click on it selects nothing (2.6 review L13).
+        TileList.AddHandler(PointerPressedEvent, OnTilePointerPressed, RoutingStrategies.Tunnel);
+    }
+
+    private static void OnTilePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if ((e.Source as Avalonia.Visual)?.FindAncestorOfType<TextBlock>(includeSelf: true) is { } text && text.Classes.Contains("groupHeading"))
+        {
+            e.Handled = true;
+        }
     }
 }

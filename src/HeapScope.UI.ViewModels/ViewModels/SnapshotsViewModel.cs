@@ -343,6 +343,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         {
             Selected = Snapshots.FirstOrDefault();
         }
+
+        // Another snapshot opened or closed: the growth detectors' baseline choices follow (2.6 review M12).
+        Inspections.RefreshBaselines();
     }
 }
 

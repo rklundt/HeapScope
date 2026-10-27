@@ -22,9 +22,12 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using HeapScope.UI.Controls;
 using HeapScope.UI.ViewModels;
 
@@ -47,8 +50,8 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
 
-        // The mouse's back and forward buttons and Alt+Left and Alt+Right move through the Snapshot tab's history (sprint
-        // 1.5), seen before any control handles them.
+        // The mouse's back and forward buttons move along the analysis path (sprint 1.5); the keyboard shortcuts (sprint
+        // 2.7) are seen before any control handles them.
         AddHandler(PointerPressedEvent, OnPreviewPointerPressed, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
 
@@ -73,10 +76,131 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.KeyModifiers == KeyModifiers.Alt && e.Key is Key.Left or Key.Right)
+        if (_viewModel is null)
         {
-            e.Handled = Navigate(back: e.Key == Key.Left);
+            return;
         }
+
+        if (Shortcut(e) is { } action)
+        {
+            e.Handled = action();
+        }
+    }
+
+    /// <summary>The action of the shortcut <paramref name="e"/> matches (the one table, <see cref="Shortcuts"/>; sprint 2.7).</summary>
+    private Func<bool>? Shortcut(KeyEventArgs e)
+    {
+        var shell = _viewModel!;
+        if (Matches(e, ShortcutKeys.Back) || Matches(e, ShortcutKeys.Forward))
+        {
+            var back = Matches(e, ShortcutKeys.Back);
+            return () => Navigate(back);
+        }
+
+        for (var i = 0; i < Math.Min(shell.NavigationItems.Count, Shortcuts.MaxPages); i++)
+        {
+            if (Matches(e, Shortcuts.PageGesture(i)))
+            {
+                var index = i;
+                return () => shell.ShowPage(index);
+            }
+        }
+
+        foreach (var tab in Enum.GetValues<SnapshotTabs>())
+        {
+            if (Matches(e, Shortcuts.TabGesture(tab)))
+            {
+                return () =>
+                {
+                    shell.ShowSnapshotTab(tab);
+                    return true;
+                };
+            }
+        }
+
+        return true switch
+        {
+            _ when Matches(e, ShortcutKeys.Find) => FocusFilter,
+            _ when Matches(e, ShortcutKeys.Export) => Export,
+            _ when Matches(e, ShortcutKeys.Bookmark) => Bookmark,
+            _ when Matches(e, ShortcutKeys.FocusPath) => FocusPath,
+            _ when Matches(e, ShortcutKeys.OpenDump) => () => Run(shell.Snapshots.OpenDumpCommand),
+            _ when Matches(e, ShortcutKeys.Refresh) => () =>
+            {
+                shell.RefreshPage();
+                return true;
+            },
+            _ when Matches(e, ShortcutKeys.Help) => () =>
+            {
+                shell.ShowHelp();
+                return true;
+            },
+            _ => null,
+        };
+    }
+
+    private static bool Matches(KeyEventArgs e, ShortcutKeys key) => Matches(e, Shortcuts.Gesture(key));
+
+    private static bool Matches(KeyEventArgs e, string gesture) => s_gestures.GetOrAdd(gesture, KeyGesture.Parse).Matches(e);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, KeyGesture> s_gestures = new();
+
+    private static bool Run(System.Windows.Input.ICommand command)
+    {
+        if (!command.CanExecute(null))
+        {
+            return false;
+        }
+
+        command.Execute(null);
+        return true;
+    }
+
+    // The shown page's filter box (the types, diff and instances grids name theirs FilterBox).
+    private bool FocusFilter()
+    {
+        if (this.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(t => t.Name == "FilterBox" && t.IsEffectivelyVisible) is not { } box)
+        {
+            return false;
+        }
+
+        box.Focus(NavigationMethod.Tab);
+        box.SelectAll();
+        return true;
+    }
+
+    private bool Export() =>
+        GridExports.Target(FocusManager?.GetFocusedElement() as Visual, this) is { } grid && GridExports.RequestExport(grid);
+
+    private bool Bookmark()
+    {
+        var shell = _viewModel!;
+        if (shell.SelectedItem?.Page != shell.Snapshots)
+        {
+            return false;
+        }
+
+        var row = (FocusManager?.GetFocusedElement() as Visual)?.FindAncestorOfType<DataGrid>(includeSelf: true)?.SelectedItem as IObjectLink;
+        _ = shell.Snapshots.ToggleBookmarkAsync(row);
+        return true;
+    }
+
+    // The analysis path on the Snapshots page, its current step focused so Up and Down move along it.
+    private bool FocusPath()
+    {
+        var shell = _viewModel!;
+        shell.SelectedItem = shell.NavigationItems.First(i => i.Page == shell.Snapshots);
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (this.GetVisualDescendants().OfType<ListBox>().FirstOrDefault(l => l.Name == "PathList" && l.IsEffectivelyVisible) is { } list)
+                {
+                    var item = list.SelectedIndex >= 0 ? list.ContainerFromIndex(list.SelectedIndex) : null;
+                    (item ?? (Control)list).Focus(NavigationMethod.Tab);
+                }
+            },
+            DispatcherPriority.Loaded);
+        return true;
     }
 
     private bool Navigate(bool back)
