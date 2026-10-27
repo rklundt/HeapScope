@@ -36,7 +36,7 @@ namespace HeapScope.Application.Exports;
 public static class CsvExport
 {
     /// <summary>The first line of an export that includes values (ADR-026).</summary>
-    public const string ValuesNotice = "# This export includes string text and field values read from the snapshot. Share it with care.";
+    public const string ValuesNotice = "# This export includes the target's own data (string text, field values or command lines). Share it with care.";
 
     /// <summary>Rows fetched per worker call.</summary>
     public const int PageSize = WorkerProtocol.MaxPageSize;

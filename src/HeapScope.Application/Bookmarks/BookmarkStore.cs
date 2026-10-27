@@ -122,12 +122,17 @@ public sealed class BookmarkStore
     public BookmarkFileProblem Problem { get; private set; }
 
     /// <summary>The bookmarks of the snapshot file <paramref name="key"/>, oldest first.</summary>
-    public IReadOnlyList<Bookmark> For(SnapshotKey key)
+    public IReadOnlyList<Bookmark> For(SnapshotKey key) => For(key, out _);
+
+    /// <summary>The bookmarks of <paramref name="key"/>, and what this read found in the file (not another read's).</summary>
+    public IReadOnlyList<Bookmark> For(SnapshotKey key, out BookmarkFileProblem problem)
     {
         ArgumentNullException.ThrowIfNull(key);
         lock (_gate)
         {
-            return [.. Read().Where(b => b.Snapshot.Matches(key))];
+            var bookmarks = Read();
+            problem = Problem;
+            return [.. bookmarks.Where(b => b.Snapshot.Matches(key))];
         }
     }
 
@@ -190,11 +195,17 @@ public sealed class BookmarkStore
         {
             try
             {
-                return HeapScope.Core.PrivateFiles.Open(Path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+                // The lock file stays: deleting it on close would let two processes lock two files of one name on
+                // Linux and macOS, where the lock is on the open file (review).
+                return HeapScope.Core.PrivateFiles.Open(Path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1);
             }
             catch (IOException) when (DateTime.UtcNow < deadline)
             {
                 Thread.Sleep(50);
+            }
+            catch (IOException ex)
+            {
+                throw new IOException("Another HeapScope window is saving bookmarks; try again in a moment.", ex);
             }
         }
     }
@@ -252,7 +263,19 @@ public sealed class BookmarkStore
             stream.Flush(flushToDisk: true);
         }
 
-        File.Move(temporary, Path, overwrite: true);
+        // A reader in another window can hold the file for a moment (Windows refuses the replace then): try again briefly.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporary, Path, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 20)
+            {
+                Thread.Sleep(25);
+            }
+        }
     }
 
     private sealed record Document(int FormatVersion, List<Bookmark> Bookmarks);

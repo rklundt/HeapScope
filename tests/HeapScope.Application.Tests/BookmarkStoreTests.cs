@@ -111,7 +111,8 @@ public sealed class BookmarkStoreTests : IDisposable
 
         new BookmarkStore(_folder).For(key).Count.ShouldBe(39);
         Directory.GetFiles(_folder, "*.tmp").ShouldBeEmpty();
-        File.Exists(Path.Combine(_folder, BookmarkStore.FileName + ".lock")).ShouldBeFalse();
+        new BookmarkStore(_folder).For(key, out var problem).Count.ShouldBe(39);
+        problem.ShouldBe(BookmarkFileProblem.None);
     }
 
     [Fact]

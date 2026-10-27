@@ -31,7 +31,7 @@ everything else.
 | 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
 | 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
 | 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
-| 2.7 | Navigation and polish | In Progress | | |
+| 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
 | 2.8 | Packaging and distribution | Planned | | |
 
 ---
@@ -2366,7 +2366,7 @@ switches.
 9. [x] Docs: ARCHITECTURE (code map, protocol 15, ADR-029 for the analysis path and bookmarks, ADR-026 consequences),
    DEVELOPER, README (shortcuts, filter syntax, export), Backlog (analysis tabs).
 
-**Review summary**: 3 High, 14 Moderate, 16 Low after dedupe (four reviewers: solution-architect, senior-dev,
+**Review summary**: 3 High, 14 Moderate, 27 Low after dedupe (four reviewers: solution-architect, senior-dev,
 gc-specialist, support; `docs/reviews/sprint-2.7.md`). Highs fixed: in-memory grid exports wrote command lines without
 asking (columns now flag values in the view); overlapping filter terms drew wrong names (ranges merged); two windows
 overwrote each other's bookmarks (each change re-reads the file under a lock). Moderates fixed now: export cancel, no
@@ -2374,7 +2374,10 @@ partial files, errors shown, the export tied to its result set in the log; bound
 guard; the default baseline ignores file times; bookmark toggle races and file problems; in-memory exports keep the
 grid's sort; step and snapshot ids and filter shapes in the log; tests for the path's edges. Deferred: a column
 projection on page requests (values never read for an export without them), releasing and measuring the result sets of
-snapshots not shown, analysis tabs. Tests: 1,194 before the review fixes (3 skipped).
+snapshots not shown, analysis tabs. All Highs confirmed by the reviewers that raised them; seven Lows the re-review
+found in the fixes were fixed too (lock file kept, no path in the export's error line, neutral values wording).
+Tests: 1,205 (3 skipped). Timing tests of untouched areas (a synthetic job's cancellation, a monitoring capture, a
+session concurrency test) failed once each only in full parallel runs on a loaded machine and pass alone.
 
 ---
 
@@ -2513,7 +2516,8 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
   the branching analysis path covers coming back to an earlier analysis for now.
 - From the 2.7 review (decided autonomously): a column projection on page requests, so an export without values never
   reads or sends them (M2, a protocol change); releasing the worker result sets of snapshots not shown, and measuring
-  front end and worker memory with three Medium snapshots open, each with a full analysis path (M3).
+  front end and worker memory with three Medium snapshots open, each with a full analysis path, and trimming the row
+  lists of subjects not shown (M3); export marks for a gcdump's sampled counts (L17).
 - Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
   dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
   elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.

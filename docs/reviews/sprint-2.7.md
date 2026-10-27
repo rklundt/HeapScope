@@ -6,8 +6,8 @@ contests). Moderates follow the lead engineer's recommendation (product owner, 2
 recommendations"), marked "decided autonomously". None of the reviewers had a shell; each read the files of the change
 set directly.
 
-Totals after dedupe: 3 High, 14 Moderate, 16 Low. A finding raised by more than one reviewer is merged and keeps the
-highest severity.
+Totals after dedupe: 3 High, 14 Moderate, 27 Low (the re-review of the fixes added 11 Lows, 7 of them fixed). A
+finding raised by more than one reviewer is merged and keeps the highest severity.
 
 ## High / Urgent
 
@@ -93,7 +93,23 @@ All decided autonomously.
 
 ## Confirmations
 
-To be recorded when the reviewers have re-read the fixes.
+The fixes went back to the reviewers who raised them (2026-10-27), who re-read the code and tests:
+- solution-architect: H1, H2 and H3 confirmed; M1, M2, M3, M5, M6 and M7 accepted; M4 accepted in part (a gcdump's
+  sampled counts still export without a mark, L17). New Lows L18 and L19.
+- senior-dev: H1, H2 and H3 confirmed; its Moderates (M1, M8, M9, M14) confirmed. New Lows L20 to L23.
+- gc-specialist: H1 and M1 confirmed; the M2 and M3 deferrals acceptable (it suggests trimming the row lists of
+  subjects not shown, folded into the M3 Backlog item). New Lows L24 to L26.
+- support: H1 and M1, M10, M11, M12 and M13 confirmed; nothing sensitive newly logged. New Lows L27 and the residuals
+  noted under L12 and L13.
+- H1 to H3 are Fixed and confirmed.
+
+## Gate notes
+
+The final full runs passed everything but one timing test each time, a different one in each run, all in areas this
+sprint did not touch (`WorkerIpcTests.Cancellation_stops_a_large_synthetic_job_within_a_second` waiting 60 s for a
+first progress report, `CounterMonitorTests`' growth rule capture, `SessionLibraryTests`' concurrent records); each
+passes alone and in the integration project's own run. They are load-sensitive on this machine while several test
+projects run at once; the Backlog's dispatcher lag item covers the same cause.
 
 ## Low / Trivial
 
@@ -121,3 +137,27 @@ Listed, not fixed (a few were fixed in passing where the code was open, as noted
 - L15 The values notice comes before the CSV header, which tools reading the header from line 1 take as the header
   (support).
 - L16 The bookmarks file was not flushed before its move (support). Fixed with H3.
+
+Raised by the re-review of the fixes:
+- L17 A gcdump's sampled counts (`ExactCounts` false) export with nothing to say so (solution-architect); with M2 in the
+  Backlog.
+- L18 The lock file was deleted on close, which on Linux and macOS lets two processes lock two files of one name
+  (solution-architect). Fixed now: the lock file stays.
+- L19 A Cancel landing as the export ended could reach a disposed token source (solution-architect). Fixed now: the
+  source is cleared before it is disposed.
+- L20 The export's catch-all logged the exception's message, which can name the chosen path (senior-dev). Fixed now:
+  its type and HResult only.
+- L21 The values question and notice said "read from the snapshot", wrong for a command line (senior-dev, support).
+  Fixed now: "the target's own data (string text, field values or command lines)".
+- L22 A reader in another window could make the bookmarks file's replace fail on Windows (senior-dev). Fixed now: the
+  move is tried again briefly.
+- L23 The bookmarks file problem was read after the store's lock (senior-dev, support). Fixed now: `For` returns the
+  problem its own read found.
+- L24 An existing `<name>.csv.partial` is overwritten, and a killed export leaves one (gc-specialist).
+- L25 An export that ends short (an empty page) is moved into place as complete; the log says rows of expected
+  (gc-specialist).
+- L26 No progress during long exports (gc-specialist).
+- L27 A lock wait that timed out showed the system's message (support). Fixed now: "Another HeapScope window is saving
+  bookmarks; try again in a moment." Residuals: the export's end line does not repeat a re-run result set's id; a step
+  and its query are joined by order, not a trace id; removals at the step cap are not logged; a negated module term is
+  counted twice in the filter's shape (support).

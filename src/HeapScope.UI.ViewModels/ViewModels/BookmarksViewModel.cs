@@ -108,8 +108,9 @@ public sealed partial class BookmarksViewModel : ObservableObject
         var (key, bookmarks, problem) = await Task.Run(() =>
         {
             var key = SnapshotKey.Of(snapshot.Path);
-            var bookmarks = key is null || _store is null ? [] : _store.For(key);
-            return (key, bookmarks, _store?.Problem ?? BookmarkFileProblem.None);
+            var problem = BookmarkFileProblem.None;
+            var bookmarks = key is null || _store is null ? [] : _store.For(key, out problem);
+            return (key, bookmarks, problem);
         });
         if (!_loads.ContainsKey(snapshot))
         {

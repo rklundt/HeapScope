@@ -64,7 +64,7 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
 {
     /// <summary>The question asked before values are written.</summary>
     public const string ValuesQuestion =
-        "This grid has columns with string text or field values read from the snapshot. A shared analysis leaves them out.\n\nInclude them in this file?";
+        "This grid has columns with the target's own data (string text, field values or command lines), which can hold secrets. A shared analysis leaves them out.\n\nInclude them in this file?";
 
     private readonly IUserInteraction _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
     private readonly ILogger _logger = (ILogger?)logger ?? NullLogger.Instance;
@@ -164,8 +164,9 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
         }
         catch (Exception ex)
         {
-            // Anything else (an odd path from the picker, a dialog failing) is logged and shown, never lost.
-            _logger.LogError(ex, "Exporting the {Grid} grid failed unexpectedly", name);
+            // Anything else (an odd path from the picker, a dialog failing) is logged and shown, never lost; by its type
+            // and HResult only, since such messages can name the chosen path (ARCHITECTURE 11).
+            _logger.LogError("Exporting the {Grid} grid failed unexpectedly: {Error} (0x{HResult:x8})", name, ex.GetType().Name, ex.HResult);
             Status = "Export failed: " + ex.Message;
         }
         finally
@@ -175,9 +176,11 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
                 TryDelete(partial);
             }
 
-            _cancel.Dispose();
+            // Cleared before it is disposed, so a late Cancel finds nothing rather than a disposed source.
+            var cancel = _cancel;
             _cancel = null;
             IsExporting = false;
+            cancel.Dispose();
         }
 
         return null;

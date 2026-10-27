@@ -2035,8 +2035,8 @@ sprint 0.1.
   which the worker's result set store (32 sets, 256 MB in all) may evict: a step shown again then re-runs its query.
   Releasing the sets of snapshots not shown and measuring three Medium snapshots open are in the Backlog. The types
   grid is shared by the paths and re-queried for the selected snapshot. Every change to the bookmarks file re-reads it
-  under a lock file, so two HeapScope windows keep each other's marks (review H3). Several analyses side by side (analysis tabs) stay in the Backlog: the branching path covers coming
-  back to an earlier one without more result sets. Bookmarks are not matched to objects of another dump.
+  under a lock file, so two HeapScope windows keep each other's marks (review H3). Several analyses side by side
+  (analysis tabs) stay in the Backlog: the branching path covers coming back to an earlier one without more result sets. Bookmarks are not matched to objects of another dump.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
