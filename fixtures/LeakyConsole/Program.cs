@@ -24,7 +24,7 @@
 using System.Globalization;
 using Fixtures.Leaks;
 
-// Usage: LeakyConsole [--leak all|none|Name1,Name2] [--count N] [--payload BYTES] [--publishers N]
+// Usage: LeakyConsole [--leak all|none|Name1,Name2] [--detected all|none|Name] [--count N] [--payload BYTES] [--publishers N]
 //                     [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
 //                     [--parent-pid PID]
 // Leaks the requested items, prints "READY pid=<pid>" and waits until killed (or until the parent exits), so a test
@@ -42,6 +42,12 @@ if (Arg("--publishers") is { } publishers)
 }
 
 foreach (var leak in LeakCatalog.Resolve(leakNames))
+{
+    leak.Grow(count, payload);
+}
+
+// The 2.6 detector leaks (Timer, DisposedReferenced) only when asked for: --detected all|Name.
+foreach (var leak in LeakCatalog.Resolve(Arg("--detected"), LeakCatalog.Detected))
 {
     leak.Grow(count, payload);
 }

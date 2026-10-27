@@ -59,16 +59,44 @@ public interface IInspection
     /// <summary>The thresholds the rule uses, as <c>Name=value</c> pairs for the log; empty when it has none.</summary>
     string Parameters => string.Empty;
 
+    /// <summary>Memory waste (sprint 1.6) or a leak detector (sprint 2.6), which the front ends show in their own group.</summary>
+    InspectionKind Kind => InspectionKind.Waste;
+
+    /// <summary>Whether a baseline snapshot changes the answer (growth since it); the front ends offer one.</summary>
+    bool UsesBaseline => false;
+
+    /// <summary>Whether it needs the incoming references index (<see cref="InspectionContext.Referrers"/>).</summary>
+    bool UsesReferrers => false;
+
     InspectionResult Run(InspectionContext context);
 }
 
-/// <summary>What an inspection runs over. <see cref="Reader"/> is set when the snapshot has a typed reader.</summary>
+/// <summary>What an inspection finds (sprint 2.6).</summary>
+public enum InspectionKind
+{
+    /// <summary>Memory spent for little (duplicate strings, empty collections...).</summary>
+    Waste = 0,
+
+    /// <summary>A leak pattern named with its cause (event handlers, timers, growing static collections...).</summary>
+    Leak = 1,
+}
+
+/// <summary>An earlier snapshot of the same process, for growth (sprint 2.6); objects are matched by stable keys, never addresses (ADR-018).</summary>
+public sealed record InspectionBaseline(HeapGraph Graph, SnapshotInfo Info, IObjectReader? Reader);
+
+/// <summary>
+/// What an inspection runs over. <see cref="Reader"/> is set when the snapshot has a typed reader; <see cref="Baseline"/>
+/// when the user chose an earlier snapshot and the inspection uses one; <see cref="Referrers"/> when it asked for them
+/// (sprint 2.6, ADR-020's derived data).
+/// </summary>
 public sealed record InspectionContext(
     HeapGraph Graph,
     SnapshotInfo Info,
     IObjectReader? Reader,
     IProgress<InspectionProgress>? Progress,
-    CancellationToken CancellationToken)
+    CancellationToken CancellationToken,
+    InspectionBaseline? Baseline = null,
+    ReverseReferences? Referrers = null)
 {
     public void Report(string phase, long done, long total) => Progress?.Report(new InspectionProgress(phase, done, total));
 }
@@ -125,6 +153,17 @@ public static class InspectionColumns
     public const string TypeName = "TypeName";
     public const string Module = "Module";
     public const string Scope = "Scope";
+
+    // The leak detectors' columns (sprint 2.6).
+    public const string Field = "Field";
+    public const string Baseline = "Baseline";
+    public const string Growth = "Growth";
+    public const string Event = "Event";
+    public const string Publishers = "Publishers";
+    public const string Subscribers = "Subscribers";
+    public const string SubscriberTypes = "SubscriberTypes";
+    public const string Target = "Target";
+    public const string Timers = "Timers";
 }
 
 /// <summary>Values of the hidden <see cref="InspectionColumns.Scope"/> column (names of the worker's instance scopes).</summary>
@@ -173,6 +212,12 @@ public static class InspectionCatalog
         new LargeObjectHeapInspection(),
         new FinalizableObjectsInspection(),
         new FragmentationInspection(),
+        new GrowingStaticCollectionsDetector(),
+        new EventHandlerLeaksDetector(),
+        new TimerLeaksDetector(),
+        new DisposedButReferencedDetector(),
+        new HttpClientInstancesDetector(),
+        new UndisposedServiceScopesDetector(),
     ];
 
     public static IInspection? Find(string name) => All.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));

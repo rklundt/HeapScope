@@ -30,7 +30,7 @@ everything else.
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
 | 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
-| 2.6 | Smart leak detectors | Planned | | |
+| 2.6 | Smart leak detectors | In Progress | | |
 | 2.7 | Navigation and polish | Planned | | |
 | 2.8 | Packaging and distribution | Planned | | |
 
@@ -2208,7 +2208,49 @@ LeakyApi run.
 
 **Dependencies**: 2.2, 1.4, 2.3.6 (the detector cards are built in Avalonia, ADR-025).
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously at /start-sprint, 2026-10-26; the user said "go ahead with sprint 2.6"):
+1. Detectors are inspections (ADR-020) of a new kind, `Leak`: one card each on the Inspections tab, in their own group
+   ("Leak detectors"), with cause, fix and rows that open the objects; `inspect` on the CLI runs them. No new page.
+2. A baseline: the inspection request takes an optional baseline snapshot (another open snapshot, the earlier one), so
+   a detector can measure growth; the Inspections tab gets a baseline picker and the CLI `inspect --baseline <dump>`.
+   Matching across dumps uses stable keys (a static field's declaring type and name, a type name), never addresses
+   (ADR-018). Protocol 14.
+3. The detectors, each with its threshold logged as its parameters (2.3.7 review M5):
+   - `growing-static-collections`: collections a static field holds directly (List, Dictionary, HashSet, Queue,
+     Stack, ConcurrentDictionary, ConcurrentQueue, arrays), counted by their own fields. With a baseline: grown by at
+     least 1,000 elements and 10 %. Without: at least 10,000 elements, said to be large, growth unknown.
+   - `event-handler-leaks`: an event field (a delegate field of a publisher type) holding at least 1,000 subscribers
+     across its publishers, named `Publisher.Event`, with the subscribers' types.
+   - `timer-leaks`: at least 500 active timers whose callbacks target one type.
+   - `disposed-but-referenced`: at least 100 reachable objects of one type whose disposed flag is set (the field names
+     the .NET guidelines and templates use).
+   - `httpclient-instances`: at least 20 reachable `HttpClient` or handler instances (create one and reuse it).
+   - `undisposed-service-scopes`: at least 500 reachable dependency injection scopes not disposed (ASP.NET Core).
+   They read field values, so they need a full dump; on a gcdump they are unavailable with the reason (ADR-020).
+4. Fixtures first: two new leaks outside the classic five (so the five's exact known answers stay): `TimerLeak`
+   (timers with an instance callback never disposed, rooted by the runtime's timer queue) and
+   `DisposedReferencedLeak` (objects disposed and still held by a static list); LeakyApi's "all" includes them. A clean
+   workload (`Clean:Enabled`: a bounded cache with eviction, subscribe then unsubscribe, timers disposed, objects
+   disposed and released) for the "no detector fires" run. Known answers gain `detections` (detector, key, minimum
+   count); a `clean` known answer lists none.
+5. Acceptance runs on two LeakyApi dumps each: a baseline after a warm-up and a current one after more load, all leaks
+   enabled, then the clean workload alone.
+6. Logs (ARCHITECTURE 11): each detector logs its rule version, thresholds, what it scanned and each row's key and
+   counts, so a disputed finding is traced; the baseline used is part of the log line. Never field values.
+7. Not in this sprint: WPF binding, collection binding, dependency property and x:Name leaks (a WPF fixture app is
+   needed; Backlog); detectors on gcdumps (no field values).
+
+**Task breakdown**:
+1. [ ] Fixtures: `TimerLeak`, `DisposedReferencedLeak`, the clean workload in LeakyApi; known answers with
+   `detections` and `Clean.json`. Tests: known-answer checks for the new fixtures with ClrMD.
+2. [ ] Contracts and worker: inspection kind and baseline flag on `InspectionInfo`, `BaselineSnapshotId` on the
+   request, the baseline in `InspectionContext`; protocol 14. Tests: worker and contract mirror.
+3. [ ] Detectors in Analysis, each tested on synthetic graphs with a fake reader: the six of decision 3.
+4. [ ] Front ends: the Inspections tab's detector group and baseline picker; CLI `inspect --baseline`. Tests: view
+   model and view tests, CLI integration.
+5. [ ] Acceptance: every LeakyApi leak detected with its known answer; nothing on the clean run (integration).
+   Measurements on Medium. Docs: ARCHITECTURE (ADR-020 amendment, 4.4, 10, 11), DEVELOPER, CLAUDE.md, the known
+   answers README.
 
 **Review summary**: to be filled by /wrap-sprint.
 

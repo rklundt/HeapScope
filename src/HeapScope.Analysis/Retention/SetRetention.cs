@@ -139,50 +139,6 @@ public static class SetRetention
         return new SetRetentionResult(allObjects, setObjects, setBytes, retainedObjects, retainedBytes, objectsByType, bytesByType);
     }
 
-    /// <summary>
-    /// An int stack in fixed chunks below the large object heap's threshold; emptied chunks are dropped, but one is kept
-    /// spare, so a walk that sits on a chunk boundary does not allocate on every push.
-    /// </summary>
-    private sealed class ChunkedStack
-    {
-        private const int ChunkSize = 16 * 1024;
-
-        private readonly List<int[]> _chunks = [];
-        private int[]? _spare;
-        private int _top; // Items in the last chunk.
-
-        public void Push(int value)
-        {
-            if (_chunks.Count == 0 || _top == ChunkSize)
-            {
-                _chunks.Add(_spare ?? new int[ChunkSize]);
-                _spare = null;
-                _top = 0;
-            }
-
-            _chunks[^1][_top++] = value;
-        }
-
-        public bool TryPop(out int value)
-        {
-            if (_chunks.Count == 0)
-            {
-                value = 0;
-                return false;
-            }
-
-            value = _chunks[^1][--_top];
-            if (_top == 0)
-            {
-                _spare = _chunks[^1];
-                _chunks.RemoveAt(_chunks.Count - 1);
-                _top = ChunkSize;
-            }
-
-            return true;
-        }
-    }
-
     private static bool Mark(ulong[] visited, int index)
     {
         ref var word = ref visited[index >> 6];
