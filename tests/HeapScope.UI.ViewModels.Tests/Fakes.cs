@@ -708,9 +708,13 @@ internal sealed class FakeWorkerService : IWorkerService
     public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<InspectionInfo>>([.. Inspections]);
 
+    /// <summary>Inspection requests received, with their baselines (sprint 2.6).</summary>
+    public List<InspectionRequest> InspectionRequests { get; } = [];
+
     public async Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         InspectionRuns.Add(request.Name);
+        InspectionRequests.Add(request);
         if (InspectionGate is { } gate)
         {
             await gate.Task.WaitAsync(cancellationToken);
@@ -725,7 +729,7 @@ internal sealed class FakeWorkerService : IWorkerService
         var id = Guid.NewGuid();
         _sets[id] = [.. rows];
         var columns = InspectionColumnsFor(request.Name);
-        return new InspectionResultDto(request.Name, rows.Count, 1000, request.Name == "loh" ? null : 64, null, new ResultSetInfo(id, rows.Count, columns), 0.1);
+        return new InspectionResultDto(request.Name, rows.Count, 1000, request.Name == "loh" ? null : 64, null, new ResultSetInfo(id, rows.Count, columns), 0.1, request.BaselineSnapshotId);
     }
 
     /// <summary>The worker's columns for the fake's inspections.</summary>

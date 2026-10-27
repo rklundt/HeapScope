@@ -29,16 +29,32 @@ namespace HeapScope.Contracts;
 /// <summary>An inspection the worker offers for a snapshot (sprint 1.6).</summary>
 /// <param name="Name">The CLI name (<c>duplicate-strings</c>).</param>
 /// <param name="Unavailable">Why it cannot run on this snapshot (a missing capability), or null.</param>
-public sealed record InspectionInfo(string Name, string Title, string Cause, string Fix, string? Unavailable);
+/// <param name="Kind">One of <see cref="InspectionKinds"/>: memory waste or a leak detector (sprint 2.6).</param>
+/// <param name="UsesBaseline">Whether a baseline snapshot changes its answer (growth since it).</param>
+public sealed record InspectionInfo(string Name, string Title, string Cause, string Fix, string? Unavailable, string Kind = InspectionKinds.Waste, bool UsesBaseline = false);
 
-/// <summary>Runs one inspection on a snapshot (sprint 1.6).</summary>
-public sealed record InspectionRequest(Guid SnapshotId, string Name);
+/// <summary>
+/// Runs one inspection on a snapshot (sprint 1.6). <paramref name="BaselineSnapshotId"/> is an earlier open snapshot of
+/// the same process (sprint 2.6), used by inspections that measure growth and ignored by the others.
+/// </summary>
+public sealed record InspectionRequest(Guid SnapshotId, string Name, Guid? BaselineSnapshotId = null);
+
+/// <summary>The kinds of inspection (<see cref="InspectionInfo.Kind"/>, sprint 2.6); Analysis mirrors them.</summary>
+public static class InspectionKinds
+{
+    /// <summary>Memory spent for little: duplicate strings, empty collections, the large object heap...</summary>
+    public const string Waste = "Waste";
+
+    /// <summary>A leak detector: names the leak pattern, its cause and its fix.</summary>
+    public const string Leak = "Leak";
+}
 
 /// <summary>
 /// An inspection's answer: findings, the bytes they cover, the bytes they waste (null when waste does not apply or is
 /// unknown), a note on what could not be measured, and the rows (columns in <see cref="InspectionColumns"/>).
 /// </summary>
-public sealed record InspectionResultDto(string Name, long Count, long Bytes, long? WastedBytes, string? Note, ResultSetInfo Rows, double ElapsedSeconds);
+/// <param name="BaselineSnapshotId">The baseline the answer used (sprint 2.6), or null.</param>
+public sealed record InspectionResultDto(string Name, long Count, long Bytes, long? WastedBytes, string? Note, ResultSetInfo Rows, double ElapsedSeconds, Guid? BaselineSnapshotId = null);
 
 /// <summary>
 /// Column names of inspection rows. <see cref="TypeName"/>, <see cref="Module"/> and <see cref="Scope"/> are hidden: a

@@ -37,7 +37,14 @@ internal sealed partial class WorkerService
         {
             var (snapshot, lease) = Lease(snapshotId);
             using var _ = lease;
-            IReadOnlyList<InspectionInfo> list = [.. InspectionCatalog.All.Select(i => new InspectionInfo(i.Name, i.Title, i.Cause, i.Fix, InspectionAvailability.Explain(i, snapshot.Capabilities, snapshot.Info)))];
+            IReadOnlyList<InspectionInfo> list = [.. InspectionCatalog.All.Select(i => new InspectionInfo(
+                i.Name,
+                i.Title,
+                i.Cause,
+                i.Fix,
+                InspectionAvailability.Explain(i, snapshot.Capabilities, snapshot.Info),
+                i.Kind == InspectionKind.Leak ? InspectionKinds.Leak : InspectionKinds.Waste,
+                i.UsesBaseline))];
 
             // Why an inspection was not offered (sprint 2.3.7 review M2): decided from capabilities and facts.
             foreach (var unavailable in list.Where(i => i.Unavailable is not null))
@@ -58,6 +65,7 @@ internal sealed partial class WorkerService
 
             // The set keeps the lease: its rows read the graph while it lives.
             var (snapshot, lease) = Lease(request.SnapshotId);
+            SnapshotLease? baselineLease = null;
             try
             {
                 if (InspectionAvailability.Explain(inspection, snapshot.Capabilities, snapshot.Info) is { } why)
@@ -67,33 +75,82 @@ internal sealed partial class WorkerService
 
                 snapshot.TryGetService<IObjectReader>(out var reader);
                 var throttled = new ThrottledProgress<JobProgress>(progress);
+
+                // A baseline only for the inspections that use one (sprint 2.6), held for the run only.
+                InspectionBaseline? baseline = null;
+                string? baselineName = null;
+                var baselineId = inspection.UsesBaseline ? request.BaselineSnapshotId : null;
+                if (baselineId is { } id)
+                {
+                    if (id == request.SnapshotId)
+                    {
+                        throw new ArgumentException("The baseline must be another snapshot: an earlier one of the same process.");
+                    }
+
+                    var (earlier, held) = Lease(id);
+                    baselineLease = held;
+
+                    // A baseline the detector cannot read (a gcdump) is refused, never silently ignored (review H8).
+                    if (InspectionAvailability.Explain(inspection, earlier.Capabilities, earlier.Info) is { } unusable)
+                    {
+                        throw new ArgumentException($"The baseline {System.IO.Path.GetFileName(earlier.Info.SourcePath)} cannot be used: {unusable} Choose a full dump of the same process, captured earlier.");
+                    }
+
+                    earlier.TryGetService<IObjectReader>(out var baselineReader);
+                    baseline = new InspectionBaseline(earlier.Graph, earlier.Info, baselineReader);
+                    baselineName = $"{id} ({System.IO.Path.GetFileName(earlier.Info.SourcePath)}, captured {earlier.Info.CapturedAtUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture) ?? "at an unknown time"})";
+                }
+
+                // The incoming references for the inspections that follow references back (sprint 2.6).
+                HeapScope.Core.Graph.ReverseReferences? referrers = null;
+                if (inspection.UsesReferrers)
+                {
+                    var (index, _) = await GetReverseAsync(request.SnapshotId, throttled, cancellationToken).ConfigureAwait(false);
+                    referrers = index.References;
+                }
+
                 var context = new InspectionContext(
                     snapshot.Graph,
                     snapshot.Info,
                     reader,
                     new CallbackProgress<InspectionProgress>(p => throttled.Report(new JobProgress(p.Phase, p.Done, p.Total))),
-                    cancellationToken);
-                var result = await Task.Run(() => inspection.Run(context), cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    baseline,
+                    referrers);
+                InspectionResult result;
+                try
+                {
+                    result = await Task.Run(() => inspection.Run(context), cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    baselineLease?.Dispose();
+                    baselineLease = null;
+                }
+
                 throttled.Flush();
 
                 // The rule and what the answer rests on (sprint 2.3.7 review H3, M5); the guard logs the totals too.
                 logger.LogInformation(
-                    "Inspection {Inspection} v{Version} ({Parameters}) on snapshot {Id}: {Count} findings, {Bytes} bytes, {Wasted} wasted, {Rows} rows; basis: {Basis}; note: {Note}",
+                    "Inspection {Inspection} v{Version} ({Parameters}) on snapshot {Id} with baseline {Baseline}: {Count} findings, {Bytes} bytes, {Wasted} wasted, {Rows} rows in {Seconds:F2} s; basis: {Basis}; note: {Note}",
                     inspection.Name,
                     inspection.Version,
                     inspection.Parameters.Length == 0 ? "no thresholds" : inspection.Parameters,
                     request.SnapshotId,
+                    baselineName ?? "none",
                     result.Count,
                     result.Bytes,
                     result.WastedBytes?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a",
                     result.Rows.Count,
+                    stopwatch.Elapsed.TotalSeconds,
                     result.Basis ?? "not recorded",
                     result.Note ?? "none");
                 var rows = resultSets.Add(new InspectionSource(result.Rows), lease);
-                return new InspectionResultDto(inspection.Name, result.Count, result.Bytes, result.WastedBytes, result.Note, rows, stopwatch.Elapsed.TotalSeconds);
+                return new InspectionResultDto(inspection.Name, result.Count, result.Bytes, result.WastedBytes, result.Note, rows, stopwatch.Elapsed.TotalSeconds, baselineId);
             }
             catch
             {
+                baselineLease?.Dispose();
                 lease.Dispose();
                 throw;
             }

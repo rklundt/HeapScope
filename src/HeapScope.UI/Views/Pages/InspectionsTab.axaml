@@ -23,7 +23,8 @@
   Commercial licenses are available. See COMMERCIAL.md.
 -->
 <!-- Inspections of the selected snapshot (sprint 1.6, ADR-020): tiles with finding, cause and fix, fragmentation bars, and
-     the selected inspection's rows; double-click opens a row's objects on the Snapshot tab. -->
+     the selected inspection's rows; double-click opens a row's objects on the Snapshot tab. Since sprint 2.6 the leak
+     detectors come first, under their own heading, with a baseline snapshot for the ones that measure growth. -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
@@ -41,6 +42,11 @@
   </UserControl.Styles>
   <DockPanel DataContext="{Binding Inspections}" x:DataType="vm:InspectionsViewModel" Margin="0,8,0,0">
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,6" />
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6" IsVisible="{Binding UsesBaseline}">
+      <TextBlock Text="Baseline for growth" VerticalAlignment="Center" Margin="0,0,8,0" />
+      <ComboBox x:Name="BaselinePicker" MinWidth="320" ItemsSource="{Binding BaselineChoices}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
+                ToolTip.Tip="An earlier snapshot of the same process: the growth detectors compare with it (open both dumps). None: they report only what is large." />
+    </StackPanel>
     <ScrollViewer DockPanel.Dock="Left" Width="360" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
       <StackPanel>
         <ListBox ItemsSource="{Binding Tiles}" SelectedItem="{Binding Selected, Mode=TwoWay}" Background="Transparent"
@@ -54,6 +60,8 @@
           </ListBox.Styles>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InspectionTileViewModel">
+              <StackPanel>
+              <TextBlock Text="{Binding GroupHeader}" IsVisible="{Binding HasGroupHeader}" FontWeight="SemiBold" FontSize="14" Margin="0,4,0,4" />
               <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6">
                 <StackPanel>
                   <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
@@ -70,6 +78,7 @@
                   <ctl:NoteText Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Classes="subtle" />
                 </StackPanel>
               </Border>
+              </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>

@@ -212,6 +212,42 @@ public sealed class ViewTests(UiSession ui) : IDisposable
     }
 
     [Fact]
+    public async Task The_inspections_tab_groups_the_leak_detectors_and_offers_the_earlier_snapshot_as_baseline()
+    {
+        await ui.RunAsync(async () =>
+        {
+            var (shell, worker) = Shell();
+            worker.Service.Inspections.Insert(0, new InspectionInfo("growing-static-collections", "Growing static collections", "Grows.", "Bound it.", null, InspectionKinds.Leak, UsesBaseline: true));
+            var earlier = DateTimeOffset.UtcNow.AddMinutes(-5);
+            worker.Service.CapturedAt = path => path.EndsWith("a.dmp", StringComparison.Ordinal) ? earlier : earlier.AddMinutes(2);
+            var snapshots = shell.Snapshots;
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell) { Width = 1400, Height = 900 };
+            window.Show();
+            shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+            foreach (var name in new[] { "a.dmp", "b.dmp" })
+            {
+                var dump = Path.Combine(_folder, name);
+                await File.WriteAllBytesAsync(dump, [1]);
+                await snapshots.OpenPathAsync(dump);
+            }
+
+            snapshots.Tab = SnapshotTabs.Inspections;
+            await snapshots.Inspections.RunTask;
+            Dispatcher.UIThread.RunJobs();
+
+            var picker = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "BaselinePicker");
+            picker.IsEffectivelyVisible.ShouldBeTrue();
+            picker.SelectedItem.ShouldBeOfType<BaselineChoice>().Text.ShouldStartWith("a.dmp");
+            window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ShouldContain("Leak detectors");
+            window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ShouldContain("Memory waste");
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
+    [Fact]
     public async Task The_allocations_page_shows_a_trace_and_its_tree_expands_with_the_keys()
     {
         await ui.RunAsync(async () =>

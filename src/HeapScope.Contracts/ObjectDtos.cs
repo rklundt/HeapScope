@@ -72,6 +72,12 @@ public enum InstanceScope
 
     /// <summary>Strings whose text equals the string at <see cref="InstancesRequest.SameValueAs"/>.</summary>
     SameValue = 3,
+
+    /// <summary>
+    /// Objects a root reaches (sprint 2.6 review H5): what a leak detector's row opens. Only part of the type, so the
+    /// whole-type actions (Retained by set) stay off.
+    /// </summary>
+    Reachable = 4,
 }
 
 /// <summary>
