@@ -15,5 +15,6 @@
   "growingCollection": "System.Collections.Generic.List<Fixtures.Leaks.UndisposedResource>",
   "pathShape": [ "Fixtures.Leaks.UndisposedListLeak.s_resources", "System.Collections.Generic.List", "Fixtures.Leaks.UndisposedResource[]", "Fixtures.Leaks.UndisposedResource" ],
   "minRetainedBytesPerItem": { "base": 56, "payloadMultiplier": 1 },
+  "detections": [ { "detector": "growing-static-collections", "key": "Fixtures.Leaks.UndisposedListLeak.s_resources", "perItem": 1 } ],
   "notes": "Every resource has IsDisposed false; a disposed-but-referenced detector must not fire on them."
 }

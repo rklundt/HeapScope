@@ -239,7 +239,7 @@ internal sealed class InstancesSource : IResultSource
         return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes, dominators, note);
     }
 
-    /// <summary>The objects of the scope: on the large object heap, still to be finalized, or strings equal to one string.</summary>
+    /// <summary>The objects of the scope: on the large object heap, still to be finalized, strings equal to one string, or reachable from a root.</summary>
     private static int[] Scoped(HeapGraph graph, IObjectReader? reader, int[] objects, InstancesRequest request, CancellationToken cancellationToken)
     {
         switch (request.Scope)
@@ -249,6 +249,9 @@ internal sealed class InstancesSource : IResultSource
             case InstanceScope.Finalizable:
                 var ready = HeapScope.Analysis.Inspections.Finalization.ReadyObjects(graph);
                 return [.. objects.Where(o => graph.Flags[o].HasFlag(ObjectFlags.HasFinalizer) || ready.Contains(o))];
+            case InstanceScope.Reachable:
+                var reachable = HeapScope.Analysis.Retention.Reachability.For(graph, cancellationToken);
+                return [.. objects.Where(reachable.IsReachable)];
             case InstanceScope.SameValue:
                 if (reader is null)
                 {

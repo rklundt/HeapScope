@@ -105,10 +105,13 @@ dotnet test --solution HeapScope.sln
   Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
   `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
   that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.
-  `inspect <dump> [<name>] [--top N | --all] [--format table|csv|json]` runs the simple inspections (sprint 1.6):
-  without a name, every inspection with its time, finding and note (one line each); with a name
-  (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`, `large-arrays`, `loh`,
-  `finalizable`, `fragmentation`), its cause, fix and rows. An unknown or unavailable inspection exits 1. A dump opened
+  `inspect <dump> [<name>] [--baseline <dump>] [--top N | --all] [--format table|csv|json]` runs the simple inspections
+  (sprint 1.6) and the leak detectors (sprint 2.6): without a name, every inspection with its time, finding and note
+  (one line each); with a name (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`,
+  `large-arrays`, `loh`, `finalizable`, `fragmentation`, or a detector: `growing-static-collections`,
+  `event-handler-leaks`, `timer-leaks`, `disposed-but-referenced`, `httpclient-instances`,
+  `undisposed-service-scopes`), its cause, fix and rows. `--baseline` is an earlier dump of the same process: the
+  growth detector reports what grew since it. An unknown or unavailable inspection exits 1. A dump opened
   from an index cache written before 1.6 has no free space or reference-array marks: reopen it with `open --rebuild`.
   `monitor --pid <id> [--interval 1] [--duration N] [--every 5m] [--above 500MB] [--growth 100MB|50%]
   [--rearm once|below|step] [--max N] [--format table|csv] [--kind full|gcdump]` watches a process's GC heap (the heap now and after the
@@ -206,12 +209,15 @@ Leak names: `StaticCache`, `EventHandler`, `Closure`, `UndisposedList`, `Unbound
 projects are always compiled optimized (they stand in for production apps; see ARCHITECTURE.md 6.1 on stack roots
 of debuggable code) and exit when the process given as parent exits.
 - `fixtures/LeakyApi`: `dotnet run --project fixtures/LeakyApi -- --urls http://127.0.0.1:5080
-  --Leaks:Enabled=all --Leaks:ItemsPerRequest=100 --Leaks:PayloadBytes=64 [--Leaks:Publishers=N] [--ParentPid=P]`.
+  --Leaks:Enabled=all --Leaks:ItemsPerRequest=100 --Leaks:PayloadBytes=64 [--Leaks:Publishers=N]
+  [--Leaks:Detected=all|none|Timer,DisposedReferenced] [--Clean:Enabled=true] [--ParentPid=P]`. `Leaks:Detected` adds the
+  sprint 2.6 detector leaks (a started timer never disposed, disposed objects in a static list); `Clean:Enabled` runs the
+  clean workload on each `POST /work` (a bounded cache, unsubscribed handlers, disposed timers and objects).
   Prints `READY pid=<pid> url=<url>` when listening (use port 0 for a free port). `POST /work` grows every enabled
   leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
   `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
-- `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2 --count N
-  --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+- `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2
+  [--detected all|none|Timer,DisposedReferenced] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
   [--parent-pid P]`;
   prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
   embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and
