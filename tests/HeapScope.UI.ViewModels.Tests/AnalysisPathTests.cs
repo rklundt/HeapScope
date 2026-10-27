@@ -119,6 +119,42 @@ public sealed class AnalysisPathTests
         path.Open(NavigationTarget.RetainedBySet(null!, "App.Order", null)).Title.ShouldBe("Retained by the set of App.Order");
     }
 
+    [Fact]
+    public void A_spliced_retainers_step_hands_its_children_to_the_root_and_ids_stay()
+    {
+        var path = new AnalysisPath(new Subject("Types"));
+        var retainers = path.Open(NavigationTarget.Retainers(null!, address: 0x10));
+        for (var i = 0; i < AnalysisPath.MaxSteps; i++)
+        {
+            path.Open(new Subject("S" + i));
+        }
+
+        path.Steps.ShouldNotContain(retainers);
+        path.Root.Children.ShouldHaveSingleItem().Title.ShouldBe("S1", "S0 was spliced next; the root keeps the trail");
+        path.Steps.Select(s => s.Id).ShouldBeUnique();
+        path.Count.ShouldBe(AnalysisPath.MaxSteps);
+    }
+
+    [Fact]
+    public void Closing_the_branch_forward_would_take_moves_forward_to_another_and_close_all_keeps_the_root()
+    {
+        var path = new AnalysisPath(new Subject("Types"));
+        var a = path.Open(new Subject("A"));
+        path.Back();
+        var b = path.Open(new Subject("B"));
+        path.Back();
+
+        path.Close(b);
+        path.Forward().ShouldBe(a);
+
+        var subject = new Subject("C");
+        path.Open(subject);
+        path.CloseAll();
+        subject.Closed.ShouldBeTrue();
+        (path.Count, path.Current).ShouldBe((1, path.Root));
+        path.CanGoForward.ShouldBeFalse();
+    }
+
     private sealed class Subject(string title) : INavigationSubject
     {
         public string Title { get; } = title;

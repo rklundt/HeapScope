@@ -56,6 +56,9 @@ public sealed partial class ExportTests(UiSession ui)
             grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(Row.Name)) });
             grid.Columns.Add(new DataGridTextColumn { Header = "Bytes", Binding = new Binding(nameof(Row.Bytes)) });
             grid.Columns.Add(new DataGridTextColumn { Header = "Note", Binding = new Binding(nameof(Row.Note)), IsVisible = false });
+            var secret = new DataGridTextColumn { Header = "Secret", Binding = new Binding(nameof(Row.Note)) };
+            GridExports.SetHasValues(secret, true);
+            grid.Columns.Add(secret);
             GridExports.SetExportName(grid, "Sample");
             var window = new Window { Content = grid, Width = 600, Height = 400 };
             GridExportRequestedEventArgs? requested = null;
@@ -70,8 +73,24 @@ public sealed partial class ExportTests(UiSession ui)
             using var writer = new StringWriter();
             (await requested.Export.WriteCsvAsync(writer, includeValues: false, CancellationToken.None)).ShouldBe(2);
             writer.ToString().ShouldBe(string.Join(Environment.NewLine, "Name,Bytes", "App.Order,24", "'=cmd,1500", string.Empty));
+            requested.Export.Columns.Single(c => c.Name == "Secret").HasValues.ShouldBeTrue("the person is asked before it is written (review H1)");
+
+            // The grid's own sort is the export's order.
+            grid.Columns[1].Sort(System.ComponentModel.ListSortDirection.Descending);
+            Dispatcher.UIThread.RunJobs();
+            using var sorted = new StringWriter();
+            await GridExports.ExportOf(grid)!.WriteCsvAsync(sorted, includeValues: false, CancellationToken.None);
+            sorted.ToString().Split(Environment.NewLine)[1].ShouldBe("'=cmd,1500");
             window.Close();
         });
+    }
+
+    [Fact]
+    public void Columns_that_show_the_targets_data_are_flagged_in_every_view()
+    {
+        // Review H1: the Processes grid's command line goes through the values question.
+        var processes = File.ReadAllText(Path.Combine(RepoRoot.Path, "src", "HeapScope.UI", "Views", "Pages", "ProcessesPage.axaml"));
+        CommandLineColumn().Match(processes).Value.ShouldContain("GridExports.HasValues=\"True\"");
     }
 
     [Fact]
@@ -99,6 +118,9 @@ public sealed partial class ExportTests(UiSession ui)
 
     [GeneratedRegex(@"<DataGrid\s[^>]*>", RegexOptions.Singleline)]
     private static partial Regex GridTag();
+
+    [GeneratedRegex("<DataGridTextColumn Header=\"Command line\"[^>]*>")]
+    private static partial Regex CommandLineColumn();
 
     [GeneratedRegex("GridExports.ExportName=\"([^\"]+)\"")]
     private static partial Regex ExportName();

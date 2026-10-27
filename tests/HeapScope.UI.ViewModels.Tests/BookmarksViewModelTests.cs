@@ -114,6 +114,34 @@ public sealed class BookmarksViewModelTests : IDisposable
         snapshots.Bookmarks.Items.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task A_repeated_toggle_while_the_first_is_saving_makes_one_bookmark()
+    {
+        // Review: a held Command+D.
+        var snapshots = Create();
+        await OpenAsync(snapshots, "app.dmp");
+        var row = new Link(0x2000, "App.Customer");
+
+        await Task.WhenAll(snapshots.ToggleBookmarkAsync(row), snapshots.ToggleBookmarkAsync(row), snapshots.ToggleBookmarkAsync(row));
+
+        snapshots.Bookmarks.Items.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task A_damaged_bookmarks_file_is_said_when_the_snapshot_opens()
+    {
+        Directory.CreateDirectory(Path.Combine(_folder, "data"));
+        await File.WriteAllTextAsync(Path.Combine(_folder, "data", BookmarkStore.FileName), "{ damaged", Ct);
+        var snapshots = Create();
+
+        await OpenAsync(snapshots, "app.dmp");
+        await WaitUntilAsync(() => snapshots.Bookmarks.Status is not null);
+
+        snapshots.Bookmarks.Status!.ShouldContain("set aside");
+        _logger.Lines.ShouldContain(l => l.Contains("Damaged", StringComparison.Ordinal));
+        (await snapshots.ToggleBookmarkAsync(new Link(0x10, "App.Order"))).ShouldBeTrue("new bookmarks start a new file");
+    }
+
     private SnapshotsViewModel Create()
     {
         var operations = new WorkerOperations(_worker, new JobTracker(TimeProvider.System));

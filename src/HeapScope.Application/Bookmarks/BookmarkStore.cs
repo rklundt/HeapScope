@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -65,10 +66,26 @@ public sealed record SnapshotKey(string Path, long Length, DateTime WriteTimeUtc
 /// <summary>One marked object: where, which, and how it is shown. No field values or string text (ADR-026).</summary>
 public sealed record Bookmark(SnapshotKey Snapshot, ulong Address, string TypeName, BookmarkColor Color, DateTimeOffset CreatedUtc);
 
+/// <summary>What reading the bookmarks file found (2.7 review: problems are told, not silent).</summary>
+public enum BookmarkFileProblem
+{
+    None = 0,
+
+    /// <summary>Written by a newer HeapScope: read as empty and never overwritten.</summary>
+    NewerFormat = 1,
+
+    /// <summary>Not valid JSON: set aside as <c>bookmarks.json.damaged-*</c>; the next save starts a new file.</summary>
+    Damaged = 2,
+
+    /// <summary>Could not be read (locked, no access): never overwritten.</summary>
+    Unreadable = 3,
+}
+
 /// <summary>
 /// Object bookmarks kept across runs (sprint 2.7) in <c>bookmarks.json</c> in the app's data folder (beside the session
-/// library; tests pass their own folder). The file is read once and rewritten whole, through a temporary file, on each
-/// change. Thread-safe; callers keep file access off the dispatcher.
+/// library; tests pass their own folder). Every read reads the file; every change re-reads it, changes it and writes it
+/// whole through a temporary file under a lock file, so two HeapScope windows never overwrite each other's marks (review
+/// H3). Thread-safe; callers keep file access off the dispatcher.
 /// </summary>
 public sealed class BookmarkStore
 {
@@ -77,6 +94,9 @@ public sealed class BookmarkStore
     /// <summary>The format written; a newer format is read as empty and never overwritten.</summary>
     public const int FormatVersion = 1;
 
+    /// <summary>How long a change waits for another window's change to finish.</summary>
+    public static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(5);
+
     private static readonly JsonSerializerOptions s_json = new()
     {
         WriteIndented = true,
@@ -84,8 +104,6 @@ public sealed class BookmarkStore
     };
 
     private readonly object _gate = new();
-    private List<Bookmark>? _bookmarks;
-    private bool _readOnly;
 
     /// <param name="folder">The folder of the file; null for HeapScope's data folder.</param>
     public BookmarkStore(string? folder = null)
@@ -100,13 +118,16 @@ public sealed class BookmarkStore
 
     public string Path => System.IO.Path.Combine(Folder, FileName);
 
+    /// <summary>What the last read found.</summary>
+    public BookmarkFileProblem Problem { get; private set; }
+
     /// <summary>The bookmarks of the snapshot file <paramref name="key"/>, oldest first.</summary>
     public IReadOnlyList<Bookmark> For(SnapshotKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
         lock (_gate)
         {
-            return [.. Load().Where(b => b.Snapshot.Matches(key))];
+            return [.. Read().Where(b => b.Snapshot.Matches(key))];
         }
     }
 
@@ -114,9 +135,8 @@ public sealed class BookmarkStore
     public void Set(Bookmark bookmark)
     {
         ArgumentNullException.ThrowIfNull(bookmark);
-        lock (_gate)
+        Change(all =>
         {
-            var all = Load();
             var index = all.FindIndex(b => b.Address == bookmark.Address && b.Snapshot.Matches(bookmark.Snapshot));
             if (index >= 0)
             {
@@ -127,18 +147,33 @@ public sealed class BookmarkStore
                 all.Add(bookmark);
             }
 
-            Save(all);
-        }
+            return true;
+        });
     }
 
     /// <summary>Removes the bookmark of an object; false when there was none.</summary>
     public bool Remove(SnapshotKey key, ulong address)
     {
         ArgumentNullException.ThrowIfNull(key);
+        return Change(all => all.RemoveAll(b => b.Address == address && b.Snapshot.Matches(key)) > 0);
+    }
+
+    // Under the lock file: read what is on disk now, change it, write it back (nothing when the change changed nothing).
+    private bool Change(Func<List<Bookmark>, bool> change)
+    {
         lock (_gate)
         {
-            var all = Load();
-            if (all.RemoveAll(b => b.Address == address && b.Snapshot.Matches(key)) == 0)
+            HeapScope.Core.PrivateFiles.CreateDirectory(Folder);
+            using var fileLock = AcquireLock();
+            var all = Read();
+            if (Problem is BookmarkFileProblem.NewerFormat or BookmarkFileProblem.Unreadable)
+            {
+                throw new IOException(Problem == BookmarkFileProblem.NewerFormat
+                    ? "The bookmarks file was written by a newer HeapScope; update HeapScope to change bookmarks."
+                    : "The bookmarks file could not be read, so it is not overwritten; check that no other program holds it.");
+            }
+
+            if (!change(all))
             {
                 return false;
             }
@@ -148,60 +183,75 @@ public sealed class BookmarkStore
         }
     }
 
-    private List<Bookmark> Load()
+    private FileStream AcquireLock()
     {
-        if (_bookmarks is not null)
+        var deadline = DateTime.UtcNow + LockTimeout;
+        while (true)
         {
-            return _bookmarks;
+            try
+            {
+                return HeapScope.Core.PrivateFiles.Open(Path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(50);
+            }
         }
+    }
 
-        _bookmarks = [];
+    private List<Bookmark> Read()
+    {
+        Problem = BookmarkFileProblem.None;
+        var bookmarks = new List<Bookmark>();
         try
         {
-            if (File.Exists(Path))
+            if (!File.Exists(Path))
             {
-                var document = JsonSerializer.Deserialize<Document>(File.ReadAllText(Path), s_json);
-                if (document is { FormatVersion: > FormatVersion })
-                {
-                    _readOnly = true;
-                }
-                else if (document?.Bookmarks is { } bookmarks)
-                {
-                    _bookmarks.AddRange(bookmarks.Where(b => b?.Snapshot?.Path is not null && b.TypeName is not null));
-                }
+                return bookmarks;
+            }
+
+            var document = JsonSerializer.Deserialize<Document>(File.ReadAllText(Path), s_json);
+            if (document is { FormatVersion: > FormatVersion })
+            {
+                Problem = BookmarkFileProblem.NewerFormat;
+            }
+            else if (document?.Bookmarks is { } stored)
+            {
+                bookmarks.AddRange(stored.Where(b => b?.Snapshot?.Path is not null && b.TypeName is not null));
             }
         }
         catch (JsonException)
         {
-            // A damaged file is set aside rather than lost; the next save writes a new one.
+            // A damaged file is set aside, each with its own time, rather than lost; the next save writes a new one.
+            Problem = BookmarkFileProblem.Damaged;
             try
             {
-                File.Move(Path, Path + ".damaged", overwrite: true);
+                File.Move(Path, string.Create(CultureInfo.InvariantCulture, $"{Path}.damaged-{DateTime.UtcNow:yyyyMMddHHmmss}"), overwrite: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _readOnly = true;
+                Problem = BookmarkFileProblem.Unreadable;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Unreadable: never overwrite what could not be read.
-            _readOnly = true;
+            Problem = BookmarkFileProblem.Unreadable;
         }
 
-        return _bookmarks;
+        return bookmarks;
     }
 
     private void Save(List<Bookmark> all)
     {
-        if (_readOnly)
+        // Owner-only off Windows, like HeapScope's other files (it names dump paths); flushed before the move, so a crash
+        // leaves the old file or the new one, never a short one.
+        var temporary = string.Create(CultureInfo.InvariantCulture, $"{Path}.{Environment.ProcessId}.tmp");
+        using (var stream = HeapScope.Core.PrivateFiles.Open(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
         {
-            throw new IOException("The bookmarks file is from a newer HeapScope or could not be read; bookmarks are not saved.");
+            JsonSerializer.Serialize(stream, new Document(FormatVersion, all), s_json);
+            stream.Flush(flushToDisk: true);
         }
 
-        Directory.CreateDirectory(Folder);
-        var temporary = Path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(new Document(FormatVersion, all), s_json));
         File.Move(temporary, Path, overwrite: true);
     }
 

@@ -94,5 +94,10 @@ public sealed class NameFilterTests
         NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "entry leaks m:app").ShouldBe([(9, 5), (26, 5)]);
         NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "leaks -cache").ShouldBeNull();
         NameFilter.Terms("-m:App.dll cache").ShouldBe([("App.dll", true, true), ("cache", false, false)]);
+
+        // Review H2: terms over the same characters give one range each, never overlapping.
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "entry entry").ShouldBe([(26, 5)]);
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "Cache ach").ShouldBe([(21, 5)]);
+        NameFilter.Match("Fixtures.Leaks.StaticCacheEntry", "static cache").ShouldBe([(15, 11)], "touching ranges join");
     }
 }

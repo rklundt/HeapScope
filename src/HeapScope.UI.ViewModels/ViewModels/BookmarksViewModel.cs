@@ -72,6 +72,7 @@ public sealed partial class BookmarksViewModel : ObservableObject
     private readonly INavigator _navigator;
     private readonly ILogger _logger;
     private readonly Dictionary<SnapshotHandle, Task<SnapshotKey?>> _loads = [];
+    private readonly HashSet<(SnapshotHandle, ulong)> _pending = [];
 
     [ObservableProperty]
     private string? _status;
@@ -93,7 +94,8 @@ public sealed partial class BookmarksViewModel : ObservableObject
     private Task<SnapshotKey?> KeyAsync(SnapshotHandle snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (!_loads.TryGetValue(snapshot, out var load))
+        // A load that failed is tried again rather than failing every later toggle (review).
+        if (!_loads.TryGetValue(snapshot, out var load) || load.IsFaulted)
         {
             _loads[snapshot] = load = ReadAsync(snapshot);
         }
@@ -103,14 +105,27 @@ public sealed partial class BookmarksViewModel : ObservableObject
 
     private async Task<SnapshotKey?> ReadAsync(SnapshotHandle snapshot)
     {
-        var (key, bookmarks) = await Task.Run(() =>
+        var (key, bookmarks, problem) = await Task.Run(() =>
         {
             var key = SnapshotKey.Of(snapshot.Path);
-            return (key, key is null || _store is null ? [] : _store.For(key));
+            var bookmarks = key is null || _store is null ? [] : _store.For(key);
+            return (key, bookmarks, _store?.Problem ?? BookmarkFileProblem.None);
         });
         if (!_loads.ContainsKey(snapshot))
         {
             return key; // closed while reading
+        }
+
+        if (problem != BookmarkFileProblem.None)
+        {
+            // Said when it is found, with the next step, not at the next save (review).
+            _logger.LogWarning("Bookmarks: the bookmarks file {Problem}", problem);
+            Status = problem switch
+            {
+                BookmarkFileProblem.NewerFormat => "The bookmarks file was written by a newer HeapScope: update HeapScope to see and change bookmarks.",
+                BookmarkFileProblem.Damaged => "The bookmarks file was damaged and was set aside beside it (bookmarks.json.damaged-...); new bookmarks start a new file.",
+                _ => "The bookmarks file could not be read; check that no other program holds it, then reopen the snapshot.",
+            };
         }
 
         foreach (var bookmark in bookmarks)
@@ -152,29 +167,42 @@ public sealed partial class BookmarksViewModel : ObservableObject
             return false;
         }
 
-        var key = await KeyAsync(snapshot);
-        if (Find(snapshot, address) is { } existing)
+        // One toggle per object at a time: a held Command+D repeats while the first save runs (review).
+        if (!_pending.Add((snapshot, address)))
         {
-            await RemoveAsync(existing);
-            return false;
+            return Find(snapshot, address) is not null;
         }
 
-        if (key is null)
+        try
         {
-            Status = "This snapshot's file cannot be read, so its objects cannot be bookmarked.";
-            return false;
-        }
+            var key = await KeyAsync(snapshot);
+            if (Find(snapshot, address) is { } existing)
+            {
+                await RemoveAsync(existing);
+                return false;
+            }
 
-        var bookmark = new Bookmark(key, address, string.IsNullOrEmpty(typeName) ? "object" : typeName, NextColor(), DateTimeOffset.UtcNow);
-        if (!await SaveAsync(() => _store?.Set(bookmark)))
+            if (key is null)
+            {
+                Status = "This snapshot's file cannot be read, so its objects cannot be bookmarked.";
+                return false;
+            }
+
+            var bookmark = new Bookmark(key, address, string.IsNullOrEmpty(typeName) ? "object" : typeName, NextColor(), DateTimeOffset.UtcNow);
+            if (!await SaveAsync(() => _store?.Set(bookmark)) || !_loads.ContainsKey(snapshot))
+            {
+                return false; // not saved, or the snapshot closed meanwhile (the mark is stored for its next opening)
+            }
+
+            Items.Add(new BookmarkItem(snapshot, bookmark));
+            _logger.LogInformation("Bookmarks: added one ({Count} in the open snapshots)", Items.Count);
+            Status = null;
+            return true;
+        }
+        finally
         {
-            return false;
+            _pending.Remove((snapshot, address));
         }
-
-        Items.Add(new BookmarkItem(snapshot, bookmark));
-        _logger.LogInformation("Bookmarks: added one ({Count} in the open snapshots)", Items.Count);
-        Status = null;
-        return true;
     }
 
     [RelayCommand]
@@ -182,6 +210,7 @@ public sealed partial class BookmarksViewModel : ObservableObject
     {
         if (item is not null)
         {
+            _logger.LogInformation("Bookmarks: opened one");
             _navigator.Navigate(NavigationTarget.Object(item.Snapshot, item.Address));
         }
     }

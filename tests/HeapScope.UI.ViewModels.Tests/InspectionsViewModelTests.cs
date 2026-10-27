@@ -281,6 +281,8 @@ public sealed class InspectionsViewModelTests : IDisposable
         var now = DateTimeOffset.UtcNow;
         InspectionsViewModel.IsEarlierOfSameProcess(Descriptor(id, name, now.AddMinutes(-1)), Descriptor(myId, myName, now)).ShouldBe(expected);
         InspectionsViewModel.IsEarlierOfSameProcess(Descriptor(id, name, now.AddMinutes(1)), Descriptor(myId, myName, now)).ShouldBeFalse("a later capture never");
+        InspectionsViewModel.IsEarlierOfSameProcess(Descriptor(id, name, now.AddMinutes(-1)) with { CaptureTimeFromFile = true }, Descriptor(myId, myName, now))
+            .ShouldBeFalse("a file's time orders nothing");
 
         static SnapshotDescriptor Descriptor(int? id, string? name, DateTimeOffset at) =>
             new(Guid.NewGuid(), "x.dmp", SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, name, id, "10.0", at, 1, 1, 1, 1, 1, default, false, null, 0, []);

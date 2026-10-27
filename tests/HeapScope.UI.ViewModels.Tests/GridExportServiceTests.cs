@@ -84,12 +84,15 @@ public sealed class GridExportServiceTests : IDisposable
 
         await service.ExportAsync("Instances", new FakeGridExport(withValues: true), Ct);
 
-        var line = _logger.Lines.ShouldHaveSingleItem();
-        line.ShouldContain("Instances");
-        line.ShouldContain("2 rows, 3 columns, values True");
-        line.ShouldNotContain("private-name");
-        line.ShouldNotContain("secret");
-        line.ShouldNotContain("App.Order");
+        _logger.Lines.Count.ShouldBe(2);
+        _logger.Lines[0].ShouldContain("result set in memory, 2 rows, 3 columns, values True");
+        _logger.Lines[1].ShouldContain("Instances grid to CSV: 2 of 2 rows, 3 columns, values True");
+        foreach (var line in _logger.Lines)
+        {
+            line.ShouldNotContain("private-name");
+            line.ShouldNotContain("secret");
+            line.ShouldNotContain("App.Order");
+        }
     }
 
     [Fact]
@@ -114,8 +117,8 @@ public sealed class GridExportServiceTests : IDisposable
         (await service.ExportAsync("Types", new FakeGridExport(withValues: false), Ct)).ShouldBeNull();
 
         service.Status!.ShouldStartWith("Export failed: ");
-        _interaction.Messages.ShouldHaveSingleItem();
-        _logger.Lines.ShouldHaveSingleItem().ShouldNotContain("missing-folder");
+        _interaction.Messages.ShouldHaveSingleItem().ShouldContain("No file was written");
+        _logger.Lines.ShouldAllBe(l => !l.Contains("missing-folder", StringComparison.Ordinal));
         service.IsExporting.ShouldBeFalse();
     }
 
@@ -127,12 +130,57 @@ public sealed class GridExportServiceTests : IDisposable
 
         await service.ExportAsync("Types", new FakeGridExport(withValues: false) { Throw = new ObjectDisposedException("rows") }, Ct);
 
-        service.Status.ShouldBe("The grid changed during the export; export it again.");
+        service.Status.ShouldBe("The grid changed during the export, so no file was written; export it again.");
+        Directory.GetFiles(_folder).ShouldBeEmpty("no short file is left behind");
+    }
+
+    [Fact]
+    public async Task Cancel_stops_the_export_and_leaves_no_file()
+    {
+        _interaction.SaveFile = Path.Combine(_folder, "out.csv");
+        var service = new GridExportService(_interaction, _logger);
+        var started = new TaskCompletionSource();
+        var grid = new FakeGridExport(withValues: false) { Started = started };
+
+        var export = service.ExportAsync("Types", grid, Ct);
+        await started.Task;
+        service.IsExporting.ShouldBeTrue();
+        service.CancelCommand.Execute(null);
+
+        (await export).ShouldBeNull();
+        service.Status.ShouldBe("Export canceled; no file was written.");
+        Directory.GetFiles(_folder).ShouldBeEmpty();
+        service.CancelCommand.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_second_export_while_one_runs_is_refused_before_any_dialog()
+    {
+        _interaction.SaveFile = Path.Combine(_folder, "out.csv");
+        var service = new GridExportService(_interaction, _logger);
+        var started = new TaskCompletionSource();
+        var first = service.ExportAsync("Types", new FakeGridExport(withValues: false) { Started = started }, Ct);
+        await started.Task;
+
+        (await service.ExportAsync("Types", new FakeGridExport(withValues: false), Ct)).ShouldBeNull();
+
+        _interaction.SuggestedNames.Count.ShouldBe(1);
+        service.CancelCommand.Execute(null);
+        await first;
     }
 
     private sealed class FakeGridExport(bool withValues, bool empty = false) : IGridExport
     {
+        private static async Task<long> WaitForCancelAsync(CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
         public Exception? Throw { get; init; }
+
+        /// <summary>Set once writing has started; the write then waits for cancellation.</summary>
+        public TaskCompletionSource? Started { get; init; }
 
         public IReadOnlyList<ResultColumn> Columns { get; } = empty ? [] :
             withValues
@@ -146,6 +194,12 @@ public sealed class GridExportServiceTests : IDisposable
             if (Throw is not null)
             {
                 throw Throw;
+            }
+
+            if (Started is not null)
+            {
+                Started.TrySetResult();
+                return WaitForCancelAsync(cancellationToken);
             }
 
             IReadOnlyList<string?>[] rows = withValues ? [["App.Order", "24", "secret"], ["App.Line", "16", "secret"]] : [["App.Order", "24"], ["App.Line", "16"]];

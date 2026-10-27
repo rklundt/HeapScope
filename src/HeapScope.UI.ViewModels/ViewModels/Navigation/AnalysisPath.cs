@@ -42,6 +42,9 @@ public sealed class AnalysisStep
 
     public AnalysisStep? Parent { get; private set; }
 
+    /// <summary>The step's number on its path, in the order opened (the root is 0): the log names steps by it.</summary>
+    public int Id { get; internal set; }
+
     public IReadOnlyList<AnalysisStep> Children => _children;
 
     /// <summary>The Snapshot tab's subject; null for a Retainers step.</summary>
@@ -134,6 +137,7 @@ public sealed class AnalysisPath
     public const int MaxSteps = 30;
 
     private long _clock;
+    private int _nextId = 1;
 
     /// <param name="root">The types grid: the root step, never closed by the path (the grid is shared by every snapshot).</param>
     public AnalysisPath(INavigationSubject root)
@@ -256,6 +260,7 @@ public sealed class AnalysisPath
 
     private AnalysisStep Add(AnalysisStep step)
     {
+        step.Id = _nextId++;
         step.Parent!.Add(step);
         Count++;
         Select(step);

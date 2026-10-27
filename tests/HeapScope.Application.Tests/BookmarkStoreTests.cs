@@ -82,14 +82,36 @@ public sealed class BookmarkStoreTests : IDisposable
         var store = new BookmarkStore(_folder);
 
         store.For(key).ShouldBeEmpty();
+        store.Problem.ShouldBe(BookmarkFileProblem.Damaged);
         store.Set(Mark(key, 0x10));
-        File.Exists(file + ".damaged").ShouldBeTrue();
+        Directory.GetFiles(_folder, BookmarkStore.FileName + ".damaged-*").ShouldHaveSingleItem();
+        store.For(key).ShouldHaveSingleItem();
+        store.Problem.ShouldBe(BookmarkFileProblem.None);
 
         File.WriteAllText(file, "{\"FormatVersion\": 99, \"Bookmarks\": []}");
         var newer = new BookmarkStore(_folder);
         newer.For(key).ShouldBeEmpty();
-        Should.Throw<IOException>(() => newer.Set(Mark(key, 0x20)));
+        newer.Problem.ShouldBe(BookmarkFileProblem.NewerFormat);
+        Should.Throw<IOException>(() => newer.Set(Mark(key, 0x20))).Message.ShouldContain("newer HeapScope");
         File.ReadAllText(file).ShouldContain("99");
+    }
+
+    [Fact]
+    public void Two_windows_changing_bookmarks_keep_each_others_marks()
+    {
+        // Review H3: each change reads the file again under the lock, so neither window overwrites the other.
+        var key = KeyOf("app.dmp");
+        var first = new BookmarkStore(_folder);
+        var second = new BookmarkStore(_folder);
+        first.For(key).ShouldBeEmpty();
+        second.For(key).ShouldBeEmpty();
+
+        Parallel.For(0, 40, i => (i % 2 == 0 ? first : second).Set(Mark(key, (ulong)(0x100 + i))));
+        second.Remove(key, 0x100);
+
+        new BookmarkStore(_folder).For(key).Count.ShouldBe(39);
+        Directory.GetFiles(_folder, "*.tmp").ShouldBeEmpty();
+        File.Exists(Path.Combine(_folder, BookmarkStore.FileName + ".lock")).ShouldBeFalse();
     }
 
     [Fact]

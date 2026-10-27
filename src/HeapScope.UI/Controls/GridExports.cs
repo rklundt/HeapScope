@@ -49,6 +49,13 @@ public static class GridExports
     public static readonly AttachedProperty<string?> ExportNameProperty =
         AvaloniaProperty.RegisterAttached<DataGrid, string?>("ExportName", typeof(GridExports));
 
+    /// <summary>
+    /// A column of a grid of in-memory rows that shows the target's data (a process's command line): left out of an export
+    /// unless the person opts in, as a worker column with <see cref="ResultColumn.HasValues"/> is (review H1).
+    /// </summary>
+    public static readonly AttachedProperty<bool> HasValuesProperty =
+        AvaloniaProperty.RegisterAttached<DataGridColumn, bool>("HasValues", typeof(GridExports));
+
     public static readonly RoutedEvent<GridExportRequestedEventArgs> ExportRequestedEvent =
         RoutedEvent.Register<GridExportRequestedEventArgs>("ExportRequested", RoutingStrategies.Bubble, typeof(GridExports));
 
@@ -66,12 +73,16 @@ public static class GridExports
 
     public static void SetExportName(DataGrid grid, string? value) => grid?.SetValue(ExportNameProperty, value);
 
+    public static bool GetHasValues(DataGridColumn column) => column?.GetValue(HasValuesProperty) ?? false;
+
+    public static void SetHasValues(DataGridColumn column, bool value) => column?.SetValue(HasValuesProperty, value);
+
     /// <summary>The grid's rows as an export: its worker row list, or its in-memory rows; null when it shows nothing.</summary>
     public static IGridExport? ExportOf(DataGrid grid)
     {
         ArgumentNullException.ThrowIfNull(grid);
         return GridBehaviors.GetRows(grid) as IGridExport
-            ?? (grid.ItemsSource is { } items ? ItemsGridExport.From(grid, items) : null);
+            ?? (grid.ItemsSource is { } items ? ItemsGridExport.From(grid, (IEnumerable?)grid.CollectionView ?? items) : null);
     }
 
     /// <summary>Asks the window to export <paramref name="grid"/>; false when it has no export name.</summary>
@@ -130,7 +141,10 @@ public static class GridExports
         items.Add(item);
     }
 
-    /// <summary>The visible columns and rows of a grid of in-memory rows, read on the dispatcher when the export starts.</summary>
+    /// <summary>
+    /// The visible columns and rows of a grid of in-memory rows, read on the dispatcher when the export starts, in the
+    /// grid's current sort (its collection view; review).
+    /// </summary>
     private sealed class ItemsGridExport(IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows) : IGridExport
     {
         public IReadOnlyList<ResultColumn> Columns { get; } = columns;
@@ -141,7 +155,7 @@ public static class GridExports
         {
             var shown = grid.Columns
                 .Where(c => c.IsVisible)
-                .Select(c => (Header: c.Header?.ToString(), Path: PathOf(c)))
+                .Select(c => (Header: c.Header?.ToString(), Path: PathOf(c), HasValues: GetHasValues(c)))
                 .Where(c => c.Header is { Length: > 0 } && c.Path is { Length: > 0 })
                 .ToList();
             if (shown.Count == 0)
@@ -155,7 +169,7 @@ public static class GridExports
                 rows.Add([.. shown.Select(c => Format(Read(item, c.Path!)))]);
             }
 
-            return new ItemsGridExport([.. shown.Select(c => new ResultColumn(c.Header!, ResultColumnKind.Text))], rows);
+            return new ItemsGridExport([.. shown.Select(c => new ResultColumn(c.Header!, ResultColumnKind.Text, HasValues: c.HasValues))], rows);
         }
 
         public Task<long> WriteCsvAsync(TextWriter output, bool includeValues, CancellationToken cancellationToken) =>

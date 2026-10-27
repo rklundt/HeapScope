@@ -24,6 +24,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Exports;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -45,14 +46,19 @@ public interface IGridExport
     /// <summary>The rows the export writes.</summary>
     int RowCount { get; }
 
+    /// <summary>The worker result set the rows come from, which the worker's log names with its query; null for rows in memory.</summary>
+    Guid? ResultSetId => null;
+
     /// <summary>Writes the rows as CSV (<see cref="CsvExport"/>); returns the rows written.</summary>
     Task<long> WriteCsvAsync(TextWriter output, bool includeValues, CancellationToken cancellationToken);
 }
 
 /// <summary>
 /// Exports a grid to a CSV file the person picks (sprint 2.7, ADR-026): asks for the file, asks whether to include
-/// values when the grid has any (no unless they say yes), writes off the dispatcher and says how it went. The log names
-/// the grid, the rows and columns, the opt-in and the time; never the file's path or a cell.
+/// values when the grid has any (no unless they say yes), writes off the dispatcher into a temporary file moved into
+/// place only when complete, and says how it went; <see cref="CancelCommand"/> stops it. The log names the grid, its
+/// result set (the query that made it), the rows expected and written, the columns, the opt-in and the time; never the
+/// file's path or a cell.
 /// </summary>
 public sealed partial class GridExportService(IUserInteraction interaction, ILogger<GridExportService>? logger = null) : ObservableObject
 {
@@ -62,17 +68,20 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
 
     private readonly IUserInteraction _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
     private readonly ILogger _logger = (ILogger?)logger ?? NullLogger.Instance;
+    private CancellationTokenSource? _cancel;
 
     /// <summary>How the last export went, for the status bar; null before any.</summary>
     [ObservableProperty]
     private string? _status;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     private bool _isExporting;
 
     /// <summary>
     /// Exports <paramref name="grid"/>, named <paramref name="name"/> (a fixed grid name such as "Instances": the file's
-    /// suggested name and the log's). Returns the rows written, or null when nothing was written.
+    /// suggested name and the log's). Returns the rows written, or null when nothing was written. Never throws: an
+    /// unexpected failure is logged and shown (the window does not await it).
     /// </summary>
     public async Task<long?> ExportAsync(string name, IGridExport grid, CancellationToken cancellationToken = default)
     {
@@ -90,56 +99,103 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
             return null;
         }
 
-        var path = await _interaction.PickSaveFileAsync("Export to CSV", name + ".csv");
-        if (path is null)
-        {
-            return null;
-        }
-
-        var includeValues = CsvExport.HasValues(grid.Columns) && await _interaction.ConfirmAsync("Include values?", ValuesQuestion);
-        using var activity = new Activity("HeapScope.Export").SetTag("grid", name).Start();
-        var columns = CsvExport.Exported(grid.Columns, includeValues).Count;
-        var watch = Stopwatch.StartNew();
+        // Taken before the dialogs, so a second Command+E does not open a second picker (review).
         IsExporting = true;
-        Status = string.Create(CultureInfo.CurrentCulture, $"Exporting {grid.RowCount:N0} rows...");
+        _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        string? partial = null;
         try
         {
+            var path = await _interaction.PickSaveFileAsync("Export to CSV", name + ".csv");
+            if (path is null)
+            {
+                return null;
+            }
+
+            var includeValues = CsvExport.HasValues(grid.Columns) && await _interaction.ConfirmAsync("Include values?", ValuesQuestion);
+            using var activity = new Activity("HeapScope.Export").SetTag("grid", name).Start();
+            var columns = CsvExport.Exported(grid.Columns, includeValues).Count;
+            var expected = grid.RowCount;
+            var watch = Stopwatch.StartNew();
+            Status = string.Create(CultureInfo.CurrentCulture, $"Exporting {expected:N0} rows...");
+            _logger.LogInformation(
+                "Exporting the {Grid} grid to CSV: result set {ResultSet}, {Expected} rows, {Columns} columns, values {IncludeValues}",
+                name, grid.ResultSetId?.ToString() ?? "in memory", expected, columns, includeValues);
+
+            // Written beside the chosen file and moved into place when complete: a stopped export leaves no short file
+            // that looks whole (review).
+            partial = path + ".partial";
+            var token = _cancel.Token;
             var rows = await Task.Run(
                 async () =>
                 {
-                    await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16, useAsync: true);
-                    await using var writer = new StreamWriter(stream, CsvExport.Encoding);
-                    return await grid.WriteCsvAsync(writer, includeValues, cancellationToken).ConfigureAwait(false);
+                    await using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
+                    await using (var writer = new StreamWriter(stream, CsvExport.Encoding))
+                    {
+                        var written = await grid.WriteCsvAsync(writer, includeValues, token).ConfigureAwait(false);
+                        await writer.FlushAsync(token).ConfigureAwait(false);
+                        return written;
+                    }
                 },
-                cancellationToken);
+                token);
+            File.Move(partial, path, overwrite: true);
+            partial = null;
             _logger.LogInformation(
-                "Exported the {Grid} grid to CSV: {Rows} rows, {Columns} columns, values {IncludeValues}, in {Seconds:F2} s",
-                name, rows, columns, includeValues, watch.Elapsed.TotalSeconds);
+                "Exported the {Grid} grid to CSV: {Rows} of {Expected} rows, {Columns} columns, values {IncludeValues}, in {Seconds:F2} s",
+                name, rows, expected, columns, includeValues, watch.Elapsed.TotalSeconds);
             Status = string.Create(CultureInfo.CurrentCulture, $"Exported {rows:N0} rows to {Path.GetFileName(path)}{(includeValues ? ", with values" : string.Empty)}.");
             return rows;
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Exporting the {Grid} grid was canceled", name);
-            Status = "Export canceled.";
+            Status = "Export canceled; no file was written.";
         }
         catch (ObjectDisposedException)
         {
-            // The grid's query was replaced (a new filter or sort) while it was written.
+            // The grid's query was replaced (a new filter or sort) or its snapshot closed while it was written.
             _logger.LogInformation("Exporting the {Grid} grid stopped: the grid changed", name);
-            Status = "The grid changed during the export; export it again.";
+            Status = "The grid changed during the export, so no file was written; export it again.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or WorkerException)
         {
-            _logger.LogWarning("Exporting the {Grid} grid failed: {Error}", name, ex.GetType().Name);
+            _logger.LogWarning("Exporting the {Grid} grid failed: {Error} (0x{HResult:x8})", name, ex.GetType().Name, ex.HResult);
             Status = "Export failed: " + ex.Message;
-            await _interaction.ShowMessageAsync("Export failed", ex.Message);
+            await _interaction.ShowMessageAsync("Export failed", ex.Message + "\n\nNo file was written. Choose another folder or close the program holding the file, then export again.");
+        }
+        catch (Exception ex)
+        {
+            // Anything else (an odd path from the picker, a dialog failing) is logged and shown, never lost.
+            _logger.LogError(ex, "Exporting the {Grid} grid failed unexpectedly", name);
+            Status = "Export failed: " + ex.Message;
         }
         finally
         {
+            if (partial is not null)
+            {
+                TryDelete(partial);
+            }
+
+            _cancel.Dispose();
+            _cancel = null;
             IsExporting = false;
         }
 
         return null;
+    }
+
+    /// <summary>Stops the running export; nothing is written.</summary>
+    [RelayCommand(CanExecute = nameof(IsExporting))]
+    private void Cancel() => _cancel?.Cancel();
+
+    private void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("A stopped export's temporary file could not be deleted: {Error}", ex.GetType().Name);
+        }
     }
 }

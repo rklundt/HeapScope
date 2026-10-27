@@ -2327,7 +2327,8 @@ switches.
    Alt+1 to 4 the Snapshots tabs; Alt+Left and Alt+Right (and the mouse buttons) move along the path; Command+F
    focuses the current view's filter; Command+E exports the focused grid (else the view's main grid); Command+D
    bookmarks the shown object or the selected row's object; Command+O opens a dump; Command+L focuses the path; F5
-   refreshes the page; F1 lists the shortcuts. Enter, double-click, Right and Left keep their 1.5 and 2.4 meaning.
+   refreshes the page; F1 shows the shortcuts list on the About page. Enter, double-click, Right and Left keep their
+   1.5 and 2.4 meaning.
 6. CSV export (the first form of ADR-026's export): every grid has "Export to CSV..." in its context menu and
    Command+E. It writes all of the grid's rows in its current sort and filter (a tree as currently expanded), not only
    those loaded, with the result's columns other than hidden link columns. Columns that carry values (the instances'
@@ -2337,33 +2338,43 @@ switches.
    the time, never the path or values.
 7. `ResultColumn` gains `IsHidden` and `HasValues` (protocol 15), replacing the naming convention (Backlog: 1.5 L2,
    1.6 M2); the CLI's `--format csv|json` stays a local view and keeps its columns (ADR-026).
-8. The Inspections tab's baseline picker (2.6 review M12, L13) is taken as planned.
+8. The Inspections tab's baseline picker (2.6 review M12, L13) is taken as planned. Dumps record no process start time,
+   so an earlier capture of the same process matches by process id when both dumps record one, else by name; a
+   baseline the person chose stays chosen while it is open, and selecting a snapshot chooses its default again.
 
 **Task breakdown**:
-1. [ ] Result columns say what they are: `ResultColumn.IsHidden` and `HasValues`, protocol 15; every source sets them;
+1. [x] Result columns say what they are: `ResultColumn.IsHidden` and `HasValues`, protocol 15; every source sets them;
    the grids, the inspections tab and the CLI table use the flags. Tests: ContractMirrorTests, worker source column
    tests, InspectionsViewModelTests, CLI output tests.
-2. [ ] CSV writing in Application (`CsvExport`): streams a result set's pages (or in-memory rows), quoting, the formula
+2. [x] CSV writing in Application (`CsvExport`): streams a result set's pages (or in-memory rows), quoting, the formula
    guard, the values opt-in and its first line; the CLI shares the cell quoting. Tests: CsvExportTests (quoting,
    formulas, hidden and value columns, all pages fetched, cancellation).
-3. [ ] Export on every grid: `IGridExport` on each grid's view model, `GridExportService` (save picker, the values
+3. [x] Export on every grid: `IGridExport` on each grid's view model, `GridExportService` (save picker, the values
    question, writing off the dispatcher, logging), `GridBehaviors.Export` adding the context menu item. Tests: view
    model export tests per source kind; a view test that every DataGrid in every view has an export.
-4. [ ] Filter syntax: `NameFilter` terms, negation and `module:`; the worker's types and diff sources pass the module;
+4. [x] Filter syntax: `NameFilter` terms, negation and `module:`; the worker's types and diff sources pass the module;
    highlighting. Tests: NameFilterTests, worker filter tests.
-5. [ ] Analysis path: `AnalysisPath` (a tree of steps per snapshot) replacing the navigator's list; Retainers steps;
+5. [x] Analysis path: `AnalysisPath` (a tree of steps per snapshot) replacing the navigator's list; Retainers steps;
    the sidebar; closing a branch; the 30-step cap. Tests: AnalysisPathTests, NavigatorViewModelTests (history survives
    snapshot and tab switches), a view test of the sidebar.
-6. [ ] Bookmarks: `BookmarkStore` (file, keyed by snapshot identity), `BookmarksViewModel`, the list, Command+D and a
+6. [x] Bookmarks: `BookmarkStore` (file, keyed by snapshot identity), `BookmarksViewModel`, the list, Command+D and a
    context menu item on object rows. Tests: BookmarkStoreTests, BookmarksViewModelTests.
-7. [ ] Keyboard: the `Shortcuts` table, the window's handling (platform command key), focus of filters and the path,
+7. [x] Keyboard: the `Shortcuts` table, the window's handling (platform command key), focus of filters and the path,
    the F1 list. Tests: ShortcutsTests; a view test that reaches every page, tab and subject by keyboard only.
-8. [ ] Baseline picker: refreshes as snapshots open and close, matches the process by id and start time; headings
+8. [x] Baseline picker: refreshes as snapshots open and close, matches the process by id (else name); headings
    not selectable. Tests: InspectionsViewModelTests, a view test.
-9. [ ] Docs: ARCHITECTURE (code map, protocol 15, ADR-029 for the analysis path and bookmarks, ADR-026 consequences),
+9. [x] Docs: ARCHITECTURE (code map, protocol 15, ADR-029 for the analysis path and bookmarks, ADR-026 consequences),
    DEVELOPER, README (shortcuts, filter syntax, export), Backlog (analysis tabs).
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary**: 3 High, 14 Moderate, 16 Low after dedupe (four reviewers: solution-architect, senior-dev,
+gc-specialist, support; `docs/reviews/sprint-2.7.md`). Highs fixed: in-memory grid exports wrote command lines without
+asking (columns now flag values in the view); overlapping filter terms drew wrong names (ranges merged); two windows
+overwrote each other's bookmarks (each change re-reads the file under a lock). Moderates fixed now: export cancel, no
+partial files, errors shown, the export tied to its result set in the log; bounds in CSV headers; the CLI's formula
+guard; the default baseline ignores file times; bookmark toggle races and file problems; in-memory exports keep the
+grid's sort; step and snapshot ids and filter shapes in the log; tests for the path's edges. Deferred: a column
+projection on page requests (values never read for an export without them), releasing and measuring the result sets of
+snapshots not shown, analysis tabs. Tests: 1,194 before the review fixes (3 skipped).
 
 ---
 
@@ -2456,7 +2467,6 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
 - Collection inspections: field offsets resolved once per type, bulk reads under one lock, shapes shared by the empty
   and oversized inspections; a single string larger than the reader's lock budget read in several acquisitions (1.6
   M15, M18).
-- A hidden flag on result columns (`ResultColumn`), replacing the naming convention (1.5 L2, 1.6 M2).
 - A types row opens only its own method table's objects (from the 1.5 review M3): a hidden snapshot-local type index
   on summary rows and an optional index on `InstancesRequest`; diff rows keep the name and module key.
 - Slow the dispatcher watchdog's 25 ms probe while the window is idle or in the background outside smoke runs (from
@@ -2496,7 +2506,14 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
 - Fragmentation and pinned object analysis.
 - String content search and object set queries.
 - Shared analysis export (ADR-026, from 2.3.5; replaces "HTML report export"): one export model, analysis only by
-  default, written as HTML, JSON or CSV where the user asks; opening a JSON export in HeapScope without the dump.
+  default, written as HTML, JSON or CSV where the user asks; opening a JSON export in HeapScope without the dump. Sprint
+  2.7 wrote the first form, a grid as CSV; the export of a whole analysis (several views, the snapshot's metadata) and
+  JSON and HTML remain.
+- Analysis tabs (from 2.7, decided autonomously): several analyses of a snapshot side by side, each with its own path;
+  the branching analysis path covers coming back to an earlier analysis for now.
+- From the 2.7 review (decided autonomously): a column projection on page requests, so an export without values never
+  reads or sends them (M2, a protocol change); releasing the worker result sets of snapshots not shown, and measuring
+  front end and worker memory with three Medium snapshots open, each with a full analysis path (M3).
 - Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
   dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
   elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.

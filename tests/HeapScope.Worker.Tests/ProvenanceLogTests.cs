@@ -51,9 +51,20 @@ public sealed class ProvenanceLogTests
         var line = logger.Lines.ShouldHaveSingleItem();
         line.ShouldStartWith("QueryInstancesAsync answered in ");
         line.ShouldContain("SnapshotId=11111111-2222-3333-4444-555555555555");
-        line.ShouldContain("TypeName=App.Order, Module=App.dll, Filter=(15 chars)");
+        line.ShouldContain("TypeName=App.Order, Module=App.dll, Filter=(15 chars; 1 terms, 0 excluding, 0 on the module)");
         line.ShouldContain("TotalObjects=10, TotalBytes=400");
         line.ShouldNotContain("secret");
+    }
+
+    [Fact]
+    public void A_filter_is_logged_by_its_shape_never_its_text()
+    {
+        // 2.7 review: an exclusion or a module term explains a missing row.
+        var line = Provenance.Describe(new TypeSummaryRequest(s_snapshot, Filter: "order -secret m:App.dll"));
+
+        line.ShouldContain("Filter=(23 chars; 1 terms, 1 excluding, 1 on the module)");
+        line.ShouldNotContain("secret");
+        line.ShouldNotContain("order");
     }
 
     [Fact]

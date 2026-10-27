@@ -138,8 +138,23 @@ public static class CsvExport
             await output.WriteLineAsync(ValuesNotice).ConfigureAwait(false);
         }
 
-        await output.WriteLineAsync(string.Join(",", exported.Select(i => Quote(columns[i].Name)))).ConfigureAwait(false);
+        await output.WriteLineAsync(string.Join(",", exported.Select(i => Quote(Header(columns[i]))))).ConfigureAwait(false);
         return exported;
+    }
+
+    /// <summary>
+    /// A column's header: its name, and what its numbers are when not exact (a lower bound, an estimate), so a shared file
+    /// is not read as exact figures (2.7 review).
+    /// </summary>
+    public static string Header(ResultColumn column)
+    {
+        ArgumentNullException.ThrowIfNull(column);
+        return column.Bound switch
+        {
+            ValueBound.LowerBound => column.Name + " (at least)",
+            ValueBound.Estimate => column.Name + " (estimated)",
+            _ => column.Name,
+        };
     }
 
     private static Task WriteRowAsync(TextWriter output, IReadOnlyList<ResultColumn> columns, IReadOnlyList<int> exported, IReadOnlyList<string?> row) =>

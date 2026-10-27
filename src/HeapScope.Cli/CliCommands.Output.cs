@@ -36,11 +36,12 @@ internal static partial class CliCommands
 {
     private static async Task WriteCsvAsync(TextWriter output, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
-        // A local view for the person running the command (ADR-026): every column, values unchanged.
+        // A local view for the person running the command (ADR-026): every column. Text read from a dump that a
+        // spreadsheet would run as a formula is shown as text, as in the app's exports (2.7 review).
         await output.WriteLineAsync(string.Join(",", columns.Select(c => CsvExport.Quote(c.Name)))).ConfigureAwait(false);
         foreach (var row in rows)
         {
-            await output.WriteLineAsync(string.Join(",", row.Select(CsvExport.Quote))).ConfigureAwait(false);
+            await output.WriteLineAsync(string.Join(",", row.Select((cell, i) => CsvExport.Cell(cell, i < columns.Count ? columns[i].Kind : ResultColumnKind.Text)))).ConfigureAwait(false);
         }
     }
 

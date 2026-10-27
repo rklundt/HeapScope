@@ -14,6 +14,21 @@ never leave the machine.
 
 Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Finding your way
+
+- **Analysis path.** Each open snapshot keeps the steps you took (types, a type's objects, an object, referrers,
+  retention, links into the Retainers tab) in the Snapshots page's left column. Opening something from an earlier step
+  starts a branch; the later steps stay. Back and Forward (Alt+Left, Alt+Right, the mouse buttons) move along it.
+- **Bookmarks.** Ctrl+D (Cmd+D on macOS) marks the shown object, or the selected row's object, with a color. Bookmarks
+  of every open snapshot are listed together and come back when the same dump is opened again.
+- **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;
+  `module:name` (or `m:name`) matches the module. Each term is a substring, CamelHumps with capitals (`SCE` finds
+  `StaticCacheEntry`), or uses `*` for anything.
+- **CSV export.** Every grid has "Export to CSV..." in its context menu (Ctrl+E or Cmd+E). It writes all rows, not only
+  those on screen. String text and field values are left out unless you say yes for that export.
+- **Keyboard.** F1 lists every shortcut on the About page: Ctrl+1 to 7 for the pages, Alt+1 to 4 for the Snapshots
+  tabs, Ctrl+F for the filter, Ctrl+L for the analysis path, F5 to refresh.
+
 ## Logs and getting help
 
 HeapScope writes a log file per run, which records the versions, the snapshots opened and why each result was produced

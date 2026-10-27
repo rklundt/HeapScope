@@ -252,6 +252,12 @@ of debuggable code) and exit when the process given as parent exits.
   logic beyond view-only concerns. View models live in `HeapScope.UI.ViewModels`, which references no UI toolkit; they
   get services by constructor injection and never reference controls. Long work uses async relay commands with
   cancellation. Views use compiled bindings (`x:DataType`).
+- **Grids, keys and links** (sprint 2.7): every `DataGrid` sets `ctl:GridExports.ExportName` to a fixed name (a test
+  fails on one without), which gives it "Export to CSV..." and Command+E; a result column that names what a row opens
+  is `IsHidden`, and one that carries the target's data (string text, field values) is `HasValues`, so exports leave it
+  out unless the person opts in. Keyboard shortcuts live only in `Shortcuts` (the window and the About page read it).
+  A filter box is named `FilterBox` (Command+F). A row that opens an object implements `IObjectLink` (with
+  `LinkTypeName` when it knows the type), which also makes it bookmarkable with Command+D.
 - **Logging**: `ILogger<T>` via DI. Use structured templates, not string interpolation. Never log snapshot
   field values or string contents.
 - **Exceptions**: throw specific exception types; catch only at boundaries (RPC methods, commands, CLI

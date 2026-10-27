@@ -125,6 +125,27 @@ public sealed class TypeSummarySourceTests : IDisposable
     }
 
     [Fact]
+    public void Inspection_columns_carry_their_hidden_and_value_flags_onto_the_wire()
+    {
+        // 2.7 review: the inspection source's flags, which exports rely on.
+        HeapScope.Analysis.Inspections.InspectionColumn[] columns =
+        [
+            new(HeapScope.Analysis.Inspections.InspectionColumns.Value, HeapScope.Analysis.Inspections.InspectionColumnKind.Text, HasValues: true),
+            new(InspectionColumns.Address, HeapScope.Analysis.Inspections.InspectionColumnKind.Address, IsKey: true),
+            new(InspectionColumns.TypeName, HeapScope.Analysis.Inspections.InspectionColumnKind.Text),
+            new(InspectionColumns.Module, HeapScope.Analysis.Inspections.InspectionColumnKind.Text),
+            new(InspectionColumns.Scope, HeapScope.Analysis.Inspections.InspectionColumnKind.Text),
+        ];
+        var source = new InspectionSource(new HeapScope.Analysis.Inspections.RowTable<int>(columns, [], 0, (_, _) => { }));
+
+        source.Columns.Select(c => (c.Name, c.IsHidden, c.HasValues)).ShouldBe(
+        [
+            (HeapScope.Analysis.Inspections.InspectionColumns.Value, false, true), (InspectionColumns.Address, false, false), (InspectionColumns.TypeName, true, false),
+            (InspectionColumns.Module, true, false), (InspectionColumns.Scope, true, false),
+        ]);
+    }
+
+    [Fact]
     public void Link_columns_are_flagged_hidden_and_no_column_carries_values()
     {
         var columns = Create(new TypeSummaryRequest(Guid.Empty)).Columns;

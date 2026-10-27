@@ -234,8 +234,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   [0.3]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
   [1.9]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
-  identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]. Summary and diff rows in Type
-  grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's instances [1.5]. Referrers:
+  identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]; terms separated by spaces must
+  all match, `-term` leaves out, `module:` (or `m:`) tests the row's module, and a term still being typed filters nothing
+  [2.7]. Summary and diff rows in Type grouping carry hidden `TypeName` and `Module` columns, the key that opens a row's
+  instances [1.5]. `ResultColumn.IsHidden` marks such link columns and `HasValues` the columns that carry the target's
+  data (instances' `Value`, a duplicate string's text), for exports (ADR-026) [2.7]. Referrers:
   `ReferrerColumns`, `TypeReferrerColumns`, `ReverseIndexInfo` (sidecar or built, mode, time, size, saved), the
   requests and results (with `CompleteGraph`), and the descriptor's `CacheIdentity`, which a reopen after a worker
   restart compares (review M10) [2.1]. `RetentionDtos.cs`: `RootKindDto`, `PathRootDto`, `RetentionNodeDto`,
@@ -282,7 +285,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `AboveRule`, `GrowthRule`, `RearmMode`, `MonitorRules`, `SnapshotRuleEngine` with the GC pressure flag, on
   `HeapSample.RuleBytes`, the heap after the last GC) and `MonitorService` with `MonitorRun` (samples and captures as
   events, one capture at a time, the counters timeline in the session folder) [1.7]. `ICaptureService.StartCapture`
-  records a source (`SnapshotSource.Timed` for rules) and takes a `SnapshotKindDto` [1.7, 1.8].
+  records a source (`SnapshotSource.Timed` for rules) and takes a `SnapshotKindDto` [1.7, 1.8]. `Exports/CsvExport`:
+  a result set or in-memory rows as CSV, page by page, without hidden columns and, unless opted in, without value
+  columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
+  `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
+  `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). `Services/`: `IUiDispatcher` (post to the UI
   thread, `YieldToRenderAsync`) with `ImmediateUiDispatcher` for tests, `IUserInteraction` (asynchronous dialogs) with
   `AutomaticUserInteraction` for smoke runs. `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>`
@@ -308,6 +315,12 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   of the app is a target the Snapshots page routes), `RetainersViewModel` (the dominator tree grid with
   `DominatorRowItem`, the trail as `TrailItem`s, the icicle with `IcicleGeometry`), `RetainedBySetViewModel`,
   `ColumnGroups`, and `GridQueryViewModel.OnRowsApplied` (what refers to new rows runs after they are bound) [2.4].
+  Sprint 2.7: `Navigation/AnalysisPath` (a snapshot's steps as a tree, `AnalysisStep`) behind `NavigatorViewModel`,
+  which keeps one path per open snapshot (`Show`, `Forget`), records Retainers links as steps (`Record`) and raises
+  `StepShown` so the page picks the tab; `Exports/GridExport.cs` (`IGridExport`, which `VirtualRowList` implements, and
+  `GridExportService`: save picker, the values question, the write off the dispatcher, the status and the log);
+  `BookmarksViewModel` and `BookmarkItem`; `Shortcuts` (the one shortcut table) and the shell's `ShowPage`,
+  `ShowSnapshotTab`, `ShowHelp` and `RefreshPage`; `InspectionsViewModel.RefreshBaselines`.
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -324,7 +337,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   the same keys) and `Styles.axaml`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9, 2.3.6]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
   Retainers tab (`RetainersTab`), `Controls/IcicleChart` (drawn in one pass, geometry from the view models),
   `Controls/NoteText` (a status or note line that takes no space when empty), and `GridBehaviors`' `VisibleColumnGroups`,
-  `ExpandCommand`, `CollapseCommand` and `ScrollToSelection`.
+  `ExpandCommand`, `CollapseCommand` and `ScrollToSelection`. Sprint 2.7: `Controls/GridExports` (every grid's
+  `ExportName`, its "Export to CSV..." item, the export of in-memory rows through the columns' bindings, and the grid
+  Command+E targets), `ListBehaviors` (Enter and double-click on a list), `IndentConverter`; the window matches keys
+  against `Shortcuts` and hands export requests to the shell; the Snapshots page's left column holds the analysis path
+  and the bookmarks; the About page lists the shortcuts; filter boxes are named `FilterBox` (Command+F).
 - **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
   `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2], `--retained` on `summary`, `instances` and `object` with `StderrProgress` [2.3],
@@ -582,6 +599,9 @@ Rules:
   growth, refused when it is the snapshot itself or lacks what the inspection reads) and
   `InspectionResultDto.BaselineSnapshotId` (the baseline the answer used), and `InstanceScope.Reachable` (the objects a
   root reaches, what a detector row opens).
+  Version 15 (sprint 2.7): `ResultColumn.IsHidden` (link columns no front end shows: raw type names, modules, tree keys,
+  child counts) and `HasValues` (columns of the target's data), replacing the naming convention of 1.5 and 1.6
+  (`InspectionColumn.HasValues` marks them in Analysis).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1471,6 +1491,13 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   can show a precise message.
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.
+- Navigation and polish (sprint 2.7): the analysis path logs each step opened, shown or closed by kind (Types,
+  Instances, Object, TypeReferrers, TypePaths, Retainers, RetainedBySet), its id on the path, its parent's id, its depth,
+  the worker snapshot id and the step count, and each switch of snapshot, never a type name or an address; a CSV export
+  logs the grid's fixed name, the worker result set it reads (whose query the worker logged), the rows expected and
+  written, the columns, whether values were included and the time, never the file's path or a cell (a failure logs its
+  exception type and HResult); bookmarks log counts, opens and file problems only. Provenance logs a filter by its shape
+  (length and counts of terms, excluding terms and module terms), never its text.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -1518,7 +1545,11 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 - Shared results (ADR-026, sprint 2.3.5; built by the shared analysis export): what a team shares is an exported
   analysis, never a dump or an index cache. By default it holds type, field and module names, counts, sizes and paths;
   string text and field values only when the person exporting opts in for that export, which the export then states on
-  its first line. Exports are written where the user asks and never uploaded.
+  its first line. Exports are written where the user asks and never uploaded. Sprint 2.7's CSV export of a grid is the
+  first form: value columns (`ResultColumn.HasValues`) are left out unless the person answers yes for that export.
+- Bookmarks (sprint 2.7) are kept in `bookmarks.json` beside the session library (owner-only off Windows): the snapshot
+  file's full path, size and write time, the object's address and type name, a color and a time; no field values or
+  string text.
 - CI (sprint 2.3.5) dumps only the LeakyConsole fixture on GitHub's runners and never uploads the dump. The builds it
   uploads (sprint 2.3.6) hold build output only.
 - Off Windows, HeapScope's own folders and files are the user's alone (sprint 2.3.6, `PrivateFiles`): sessions, logs,
@@ -1935,6 +1966,12 @@ sprint 0.1.
     command line, the machine name.
   - The Backlog's "HTML report export" and 2.7's CSV export are forms of it: one export model, rendered as HTML, JSON
     or CSV. Opening a shared JSON export in HeapScope (without the dump) is part of the same item.
+  - Amended in sprint 2.7 (review M2): the CSV export of a grid is a front-end renderer of the grid's result set, paged
+    from the worker; it has no schema of its own and leaves out value columns on the front end side (pages still carry
+    them until page requests can name their columns, a Backlog item). The whole-analysis export, with its versioned
+    schema and the snapshot's metadata, runs in the worker as decided here and can feed the same renderer.
+    Numbers that are not exact say so in their header ("at least", "estimated"); in-memory grids flag their value
+    columns in the view (`GridExports.HasValues`, the Processes grid's command line).
   - A hosted or web view for teams is not planned; the export file is shared by the team's own means.
 
 ### ADR-027 Dominator children kept; the tree served flattened (added in sprint 2.4)
@@ -1980,6 +2017,26 @@ sprint 0.1.
   share a row, and joining trace types to a diff's rows (name and module) needs the tick's type id and the module, kept
   with the Compare item. TraceEvent's conversion cannot be canceled: a cancel takes effect when it returns (the job's
   status says so); reading the samples after it checks the token every 4,096 events.
+
+### ADR-029 Analysis path per snapshot; bookmarks by snapshot file (added in sprint 2.7)
+- Context: 2.7's acceptance asks that history survive view switches. Until 2.6 the Snapshot tab kept one linear
+  history of 30 subjects, reset whenever another snapshot was selected; going back and opening something dropped the
+  later subjects. dotMemory's Analysis Path lets a person branch from any earlier step. Objects have no identity across
+  dumps (ADR-018), so a mark on an object belongs to one dump file.
+- Decision: each open snapshot keeps an `AnalysisPath`, a tree of steps rooted at the types grid, while it is open.
+  Opening something adds a child of the current step; Back goes to the parent, Forward to the child shown last; a link
+  into the Retainers tab is a step that replays its target. At most 30 steps per snapshot: the least recently shown
+  leaf off the current trail is closed first; a trail longer than that loses its oldest step below the root. A step can
+  be closed with its branch. Closing a snapshot closes its path. Bookmarks mark objects of a snapshot file, keyed by its
+  full path, size and write time (a new capture at the same path starts clean), with one of five colors, and are kept in
+  `bookmarks.json` beside the session library.
+- Consequences: subjects of every open snapshot's path keep their row lists in the front end (up to 30 steps per
+  snapshot, so the front end's share grows with the open snapshots; the 2.7 review M3) and their worker result sets,
+  which the worker's result set store (32 sets, 256 MB in all) may evict: a step shown again then re-runs its query.
+  Releasing the sets of snapshots not shown and measuring three Medium snapshots open are in the Backlog. The types
+  grid is shared by the paths and re-queried for the selected snapshot. Every change to the bookmarks file re-reads it
+  under a lock file, so two HeapScope windows keep each other's marks (review H3). Several analyses side by side (analysis tabs) stay in the Backlog: the branching path covers coming
+  back to an earlier one without more result sets. Bookmarks are not matched to objects of another dump.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

@@ -112,6 +112,8 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged, IGri
 
     int IGridExport.RowCount => Count;
 
+    Guid? IGridExport.ResultSetId => _rows?.Info.Id;
+
     /// <summary>
     /// Writes every row of the result set, fetched from the worker apart from the grid's own pages (sprint 2.7). A newer
     /// query that releases the set ends the export with <see cref="ObjectDisposedException"/>.

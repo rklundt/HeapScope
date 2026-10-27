@@ -113,6 +113,17 @@ public sealed class CsvExportTests
     }
 
     [Fact]
+    public async Task Headers_say_when_numbers_are_lower_bounds_or_estimates()
+    {
+        ResultColumn[] columns = [new("Type", ResultColumnKind.Text), new("Retained", ResultColumnKind.Bytes, Bound: ValueBound.LowerBound), new("Bytes", ResultColumnKind.Bytes, Bound: ValueBound.Estimate)];
+        using var writer = new StringWriter();
+
+        await CsvExport.WriteAsync(writer, columns, [], includeValues: false, Ct);
+
+        Lines(writer.ToString())[0].ShouldBe("Type,Retained (at least),Bytes (estimated)");
+    }
+
+    [Fact]
     public async Task A_canceled_export_stops()
     {
         using var cancel = new CancellationTokenSource();

@@ -51,6 +51,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     private readonly Dictionary<SnapshotHandle, AnalysisPath> _paths = [];
     private readonly AnalysisPath _noSnapshot;
     private AnalysisPath _path;
+    private SnapshotHandle? _snapshot;
     private IReadOnlyList<AnalysisStep>? _steps;
 
     [ObservableProperty]
@@ -146,6 +147,8 @@ public sealed partial class NavigatorViewModel : ObservableObject
             _path = path;
         }
 
+        _snapshot = snapshot;
+        _logger.LogInformation("Analysis path: showing snapshot {Snapshot} ({Steps} steps)", SnapshotId, _path.Count);
         ClearShown();
         Move();
     }
@@ -246,7 +249,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         var wasShown = _path.Trail.Contains(step);
         var kind = KindOf(step);
         var closed = _path.Close(step);
-        _logger.LogInformation("Analysis path: closed a {Kind} step and {Below} below it ({Steps} steps)", kind, closed - 1, _path.Count);
+        _logger.LogInformation("Analysis path: closed {Kind} step {Step} and {Below} below it in snapshot {Snapshot} ({Steps} steps)", kind, step.Id, closed - 1, SnapshotId, _path.Count);
         if (wasShown)
         {
             ShowStep(_path.Current);
@@ -280,8 +283,13 @@ public sealed partial class NavigatorViewModel : ObservableObject
         Move();
     }
 
+    // The step's id, its parent's and the snapshot's tie a step to the subject's own query lines that follow (review).
     private void Log(string action, AnalysisStep step) =>
-        _logger.LogInformation("Analysis path: {Action} a {Kind} step at depth {Depth} ({Steps} steps)", action, KindOf(step), step.Depth, _path.Count);
+        _logger.LogInformation(
+            "Analysis path: {Action} {Kind} step {Step} (from step {Parent}, depth {Depth}) in snapshot {Snapshot} ({Steps} steps)",
+            action, KindOf(step), step.Id, step.Parent?.Id, step.Depth, SnapshotId, _path.Count);
+
+    private string SnapshotId => _snapshot?.Descriptor?.SnapshotId.ToString() ?? "none";
 
     // Kinds are allow-listed names, never a type name or an address (ARCHITECTURE 11).
     private static string KindOf(AnalysisStep step) => step.Subject switch

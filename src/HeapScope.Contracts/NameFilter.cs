@@ -90,8 +90,24 @@ public static class NameFilter
             ranges.AddRange(matched);
         }
 
+        // Terms may cover the same characters ("cache ach"): merge overlapping and touching ranges, so a highlighter that
+        // draws each range once shows the name as it is (2.7 review H2).
         ranges.Sort();
-        return ranges;
+        var merged = new List<(int Start, int Length)>(ranges.Count);
+        foreach (var (start, length) in ranges)
+        {
+            if (merged.Count > 0 && start <= merged[^1].Start + merged[^1].Length)
+            {
+                var last = merged[^1];
+                merged[^1] = (last.Start, Math.Max(last.Start + last.Length, start + length) - last.Start);
+            }
+            else
+            {
+                merged.Add((start, length));
+            }
+        }
+
+        return merged;
     }
 
     /// <summary>The filter's terms: text, whether it is negated, whether it tests the module.</summary>

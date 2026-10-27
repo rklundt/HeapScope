@@ -480,10 +480,12 @@ public sealed partial class InspectionsViewModel : ObservableObject
     /// <summary>
     /// Whether <paramref name="candidate"/> is an earlier capture of the process of <paramref name="mine"/>: the same
     /// process id when both dumps record one, else the same process name (2.6 review M12; dumps record no start time, and
-    /// an earlier capture time rules out most reused ids).
+    /// an earlier capture time rules out most reused ids). A time that is only a file's time (a copied dump) orders
+    /// nothing, as on the Compare tab, so no default is chosen then (2.7 review).
     /// </summary>
     internal static bool IsEarlierOfSameProcess(SnapshotDescriptor candidate, SnapshotDescriptor mine) =>
-        candidate.CapturedAtUtc is { } then && mine.CapturedAtUtc is { } now && then < now
+        !candidate.CaptureTimeFromFile && !mine.CaptureTimeFromFile
+        && candidate.CapturedAtUtc is { } then && mine.CapturedAtUtc is { } now && then < now
         && (candidate.ProcessId is { } id && mine.ProcessId is { } myId
             ? id == myId && (candidate.ProcessName is null || mine.ProcessName is null || candidate.ProcessName == mine.ProcessName)
             : candidate.ProcessName is not null && candidate.ProcessName == mine.ProcessName);
