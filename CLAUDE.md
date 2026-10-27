@@ -77,7 +77,7 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
   `paths <snapshot> --address <hex> | --type <name> [--module] [--max N] [--expand] [--format text|json]`,
   `retainers <snapshot> [--address <hex>] [--group none|type|namespace] [--depth N] [--top N] [--format]`,
   `retained-by <snapshot> <type> [--module] [--top|--all] [--format]`,
-  `inspect <dump> [<name>] [--top|--all] [--format]`, `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
+  `inspect <dump> [<name>] [--baseline <dump>] [--top|--all] [--format]` (the 2.6 leak detectors are inspections), `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
   [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]
   [--profile cpu|gc|allocations] [--out]`, `allocations <trace> [--from] [--to] [--type] [--types] [--stacks]

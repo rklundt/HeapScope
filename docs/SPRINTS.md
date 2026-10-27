@@ -2239,16 +2239,24 @@ LeakyApi run.
    counts, so a disputed finding is traced; the baseline used is part of the log line. Never field values.
 7. Not in this sprint: WPF binding, collection binding, dependency property and x:Name leaks (a WPF fixture app is
    needed; Backlog); detectors on gcdumps (no field values).
+8. Found while building (decided autonomously): a `System.Threading.Timer` nothing references is finalized and stops,
+   so the timer leak uses started `System.Timers.Timer`s, the pattern that leaks; the new leaks get their own switch
+   (`Leaks:Detected`, LeakyConsole `--detected`) so the five's exact census, paths and retention checks are untouched;
+   the baseline picker preselects the latest earlier open snapshot of the same process; without a baseline the
+   static collections detector leaves out `System.*`, `Microsoft.*` and `Internal.*` statics (the runtime's own tables,
+   such as `CastHelpers.s_table`, fired on the clean run), and arrays count only when they hold references; the event
+   handler detector reads a publisher type's field name once per delegate type; the tab shows one list with group
+   headings instead of two lists (one selection).
 
 **Task breakdown**:
-1. [ ] Fixtures: `TimerLeak`, `DisposedReferencedLeak`, the clean workload in LeakyApi; known answers with
+1. [x] Fixtures: `TimerLeak`, `DisposedReferencedLeak`, the clean workload in LeakyApi; known answers with
    `detections` and `Clean.json`. Tests: known-answer checks for the new fixtures with ClrMD.
-2. [ ] Contracts and worker: inspection kind and baseline flag on `InspectionInfo`, `BaselineSnapshotId` on the
+2. [x] Contracts and worker: inspection kind and baseline flag on `InspectionInfo`, `BaselineSnapshotId` on the
    request, the baseline in `InspectionContext`; protocol 14. Tests: worker and contract mirror.
-3. [ ] Detectors in Analysis, each tested on synthetic graphs with a fake reader: the six of decision 3.
-4. [ ] Front ends: the Inspections tab's detector group and baseline picker; CLI `inspect --baseline`. Tests: view
+3. [x] Detectors in Analysis, each tested on synthetic graphs with a fake reader: the six of decision 3.
+4. [x] Front ends: the Inspections tab's detector group and baseline picker; CLI `inspect --baseline`. Tests: view
    model and view tests, CLI integration.
-5. [ ] Acceptance: every LeakyApi leak detected with its known answer; nothing on the clean run (integration).
+5. [x] Acceptance: every LeakyApi leak detected with its known answer; nothing on the clean run (integration).
    Measurements on Medium. Docs: ARCHITECTURE (ADR-020 amendment, 4.4, 10, 11), DEVELOPER, CLAUDE.md, the known
    answers README.
 
@@ -2449,6 +2457,12 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
   types and stacks queries (a protocol change; milliseconds on the traces measured) (M4); a tick's type id and module
   for two types of one name (M6); the smoke step's interval and type checks (L17); the client logging which answers it
   applied (L27).
+
+- From 2.6 (decided autonomously): WPF leak detectors (binding to a non-INotifyPropertyChanged source, collection
+  bindings, dependency property descriptors, x:Name) with a WPF fixture app; leak detectors on gcdumps where the graph
+  alone suffices (timers and events need field values); a type growth detector across two snapshots (the diff ranked by
+  growth, with retention of the grown objects); measuring the detectors on a Medium-sized dump of the current runtime
+  (the sample dumps need a runtime no longer installed).
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first
