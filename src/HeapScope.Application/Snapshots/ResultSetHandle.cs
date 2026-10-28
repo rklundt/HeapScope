@@ -170,7 +170,8 @@ public sealed record InstancesQuery(
     bool Descending = true,
     InstanceScope Scope = InstanceScope.All,
     ulong SameValueAs = 0,
-    bool IncludeRetained = false);
+    bool IncludeRetained = false,
+    ObjectSetQuery? Set = null);
 
 /// <summary>An inspection that ran: its rows and its summary (sprint 1.6).</summary>
 public sealed record InspectionRun(ResultSetHandle Rows, InspectionResultDto Result);
@@ -189,3 +190,23 @@ public sealed record DominatorTreeAnswer(ResultSetHandle Rows, DominatorTreeResu
 
 /// <summary>What a set retains, by type, and the answer of the first run (sprint 2.4).</summary>
 public sealed record RetainedBySetAnswer(ResultSetHandle Rows, RetainedBySetResult Result);
+
+/// <summary>A set's top members and the answer of the first run (sprint 3.1).</summary>
+public sealed record SetDominatorsAnswer(ResultSetHandle Rows, SetDominatorsResult Result);
+
+/// <summary>
+/// An object set as the client keeps it (sprint 3.1, ADR-030): the spec, and the snapshot an inspection row's baseline is,
+/// held as a handle because the worker's snapshot ids change when it restarts. The session puts the baseline's current
+/// id into the spec at each call.
+/// </summary>
+public sealed record ObjectSetQuery(ObjectSetSpec Spec, SnapshotHandle? Baseline = null)
+{
+    /// <summary>The spec with <paramref name="baselineId"/> as every inspection row's baseline.</summary>
+    public ObjectSetSpec Bind(Guid? baselineId) => Bind(Spec, baselineId);
+
+    private static ObjectSetSpec Bind(ObjectSetSpec spec, Guid? baselineId) => spec with
+    {
+        Baseline = spec.Kind == ObjectSetKind.InspectionRow && baselineId is not null ? baselineId : spec.Baseline,
+        Inner = spec.Inner is null ? null : Bind(spec.Inner, baselineId),
+    };
+}

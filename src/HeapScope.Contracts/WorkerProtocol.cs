@@ -46,7 +46,8 @@ public static class WorkerProtocol
     /// estimate value bound and the trace error code.
     /// Version 14 (sprint 2.6): inspection kinds (the leak detectors) and a baseline snapshot on inspection requests.
     /// Version 15 (sprint 2.7): result columns say whether they are hidden and whether they carry values.
-    public const int Version = 15;
+    /// Version 16 (sprint 3.1): object sets (a set on instances, type summaries and set retention; a set's dominators).
+    public const int Version = 16;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

@@ -82,8 +82,10 @@
       <DockPanel Height="240">
         <DockPanel DockPanel.Dock="Top">
           <Button DockPanel.Dock="Right" Content="Close" Command="{Binding HideCommand}" />
+          <Button DockPanel.Dock="Right" Content="Open as a set" Margin="0,0,6,0" Command="{Binding OpenAsSetCommand}"
+                  ToolTip.Tip="The retained objects as a set, with every set view (types, instances, generations, dominators)." />
           <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-            <Run Text="{x:Static vm:RetainedBySetViewModel.Title}" /><Run Text=": all " /><Run Text="{Binding TypeName}" />
+            <Run Text="{x:Static vm:RetainedBySetViewModel.Title}" /><Run Text=": " /><Run Text="{Binding ShownTitle}" />
           </TextBlock>
         </DockPanel>
         <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,2,0,2" />
@@ -93,7 +95,7 @@
                   ctl:GridBehaviors.ResultColumns="{Binding Columns}"
                   ctl:GridBehaviors.Rows="{Binding Rows}"
                   ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-                  ToolTip.Tip="Double-click or Enter opens the type's objects on the Snapshot tab." />
+                  ToolTip.Tip="Double-click or Enter opens the type's retained objects on the Snapshot tab." />
       </DockPanel>
     </Border>
 

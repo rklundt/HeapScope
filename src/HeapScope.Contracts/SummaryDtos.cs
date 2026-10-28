@@ -86,13 +86,16 @@ public enum HeapKindDto
 /// Adds the <see cref="TypeSummaryColumns.Retained"/> column (sprint 2.3); the first such query of a snapshot computes its
 /// dominators, which takes seconds and is reported as progress.
 /// </param>
+/// <param name="Set">Summarizes the members of this set instead of the whole snapshot (sprint 3.1); the totals and heap
+/// kinds are then the set's (its Generations view). Not with <paramref name="IncludeRetained"/>.</param>
 public sealed record TypeSummaryRequest(
     Guid SnapshotId,
     TypeGrouping GroupBy = TypeGrouping.Type,
     string? Filter = null,
     string? SortColumn = null,
     bool Descending = true,
-    bool IncludeRetained = false);
+    bool IncludeRetained = false,
+    ObjectSetSpec? Set = null);
 
 /// <summary>Totals for one heap kind.</summary>
 public sealed record HeapKindTotal(HeapKindDto Kind, long Objects, long Bytes);
@@ -115,7 +118,8 @@ public sealed record TypeSummaryResult(
     IReadOnlyList<HeapKindTotal> HeapKinds,
     double ElapsedSeconds,
     int UnfilteredRows,
-    DominatorIndexInfo? Dominators = null);
+    DominatorIndexInfo? Dominators = null,
+    ObjectSetInfo? Set = null);
 
 /// <summary>A snapshot comparison query (sprint 1.4, ADR-018).</summary>
 /// <param name="BaselineId">The earlier snapshot; deltas are current minus baseline.</param>

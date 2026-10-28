@@ -56,10 +56,27 @@ internal sealed partial class WorkerService
             using var _ = lease;
             var throttled = new ThrottledProgress<JobProgress>(progress);
             var total = snapshot.Graph.ObjectCount;
-            var aggregation = await snapshots.GetAggregationAsync(
-                request.SnapshotId,
-                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
-                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
+            Analysis.Sets.ObjectSet? set = null;
+            Analysis.TypeAggregation aggregation;
+            if (request.Set is { } spec)
+            {
+                // A set's Types and Generations views (sprint 3.1): its members only, aggregated per query.
+                if (request.IncludeRetained)
+                {
+                    throw new ArgumentException("A set's types have no retained column; its Retained view gives the exact figure.");
+                }
+
+                set = await ResolveSetAsync(request.SnapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false);
+                var members = set;
+                aggregation = await Task.Run(() => Analysis.TypeAggregation.Compute(snapshot.Graph, members, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                aggregation = await snapshots.GetAggregationAsync(
+                    request.SnapshotId,
+                    new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
+                    cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
+            }
             var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
             ulong[]? retained = null;
             DominatorIndexInfo? dominators = null;
@@ -92,7 +109,8 @@ internal sealed partial class WorkerService
                 kinds,
                 stopwatch.Elapsed.TotalSeconds,
                 source.UnfilteredCount,
-                dominators);
+                dominators,
+                set is null ? null : new ObjectSetInfo(set.Count, (long)set.Bytes, set.TypeCount));
         });
 
     public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>

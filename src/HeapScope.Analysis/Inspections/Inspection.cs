@@ -189,18 +189,33 @@ public abstract class InspectionTable
     public abstract long EstimatedBytes { get; }
 
     public abstract void FormatRow(int index, string?[] cells);
+
+    /// <summary>
+    /// The objects a row counted (sprint 3.1, a leak detector's row opened as a set), as object indices; null when the
+    /// row's hidden columns say what it opens (a type in a scope, or one object).
+    /// </summary>
+    public virtual IReadOnlyList<int>? MembersOf(int index) => null;
+
+    /// <summary>Whether <see cref="MembersOf"/> lists rows' objects (a leak detector); worth keeping for sets.</summary>
+    public virtual bool HasMembers => false;
 }
 
-/// <summary>Rows kept as compact records and formatted on demand.</summary>
-public sealed class RowTable<TRow>(IReadOnlyList<InspectionColumn> columns, TRow[] rows, int bytesPerRow, Action<TRow, string?[]> format) : InspectionTable
+/// <summary>Rows kept as compact records and formatted on demand; <paramref name="members"/> lists a row's objects when it counts specific ones.</summary>
+public sealed class RowTable<TRow>(IReadOnlyList<InspectionColumn> columns, TRow[] rows, int bytesPerRow, Action<TRow, string?[]> format, Func<TRow, IReadOnlyList<int>?>? members = null) : InspectionTable
 {
     public override IReadOnlyList<InspectionColumn> Columns => columns;
 
     public override int Count => rows.Length;
 
-    public override long EstimatedBytes => (long)rows.Length * bytesPerRow;
+    /// <summary>The rows, and the member lists of rows that keep them (the 3.1 review: counted, so caches see them).</summary>
+    public override long EstimatedBytes => ((long)rows.Length * bytesPerRow) + (members is null ? 0 : rows.Sum(r => 4L * (members(r)?.Count ?? 0)));
+
+    /// <summary>Whether rows list the objects they counted.</summary>
+    public override bool HasMembers => members is not null;
 
     public override void FormatRow(int index, string?[] cells) => format(rows[index], cells);
+
+    public override IReadOnlyList<int>? MembersOf(int index) => members?.Invoke(rows[index]);
 }
 
 /// <summary>Every inspection, in the order the overview shows them.</summary>

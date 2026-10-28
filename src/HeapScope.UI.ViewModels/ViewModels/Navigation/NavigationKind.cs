@@ -41,6 +41,9 @@ public enum NavigationKind
     /// <summary>The dominator tree, at a node (or its root), on the Retainers tab.</summary>
     Retainers = 4,
 
-    /// <summary>The objects a type's objects retain together (exact set retention), on the Retainers tab.</summary>
+    /// <summary>The objects a type's objects (or any set's members) retain together (exact set retention), on the Retainers tab.</summary>
     RetainedBySet = 5,
+
+    /// <summary>An object set with its views (sprint 3.1, ADR-030), on the Snapshot tab.</summary>
+    Set = 6,
 }

@@ -27,6 +27,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Bookmarks;
 using HeapScope.Application.Snapshots;
+using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -214,6 +215,29 @@ public sealed partial class BookmarksViewModel : ObservableObject
             _logger.LogInformation("Bookmarks: opened one");
             _navigator.Navigate(NavigationTarget.Object(item.Snapshot, item.Address));
         }
+    }
+
+    /// <summary>
+    /// Opens the bookmarks of a snapshot as one object set (sprint 3.1): those of <paramref name="item"/>'s snapshot, or
+    /// of the only snapshot with bookmarks.
+    /// </summary>
+    [RelayCommand]
+    private void OpenAsSet(BookmarkItem? item)
+    {
+        var snapshot = item?.Snapshot ?? (Items.Select(i => i.Snapshot).Distinct().ToList() is [var only] ? only : null);
+        if (snapshot is null)
+        {
+            Status = Items.Count == 0 ? "Bookmark objects first (Ctrl+D)." : "Choose a bookmark of the snapshot whose bookmarks to open.";
+            return;
+        }
+
+        var addresses = Items.Where(i => i.Snapshot == snapshot).Select(i => i.Address).ToList();
+        var set = ObjectSetSpec.OfObjects(addresses);
+        _logger.LogInformation("Bookmarks: opened {Count} of snapshot {Snapshot} as a set {Shape}", addresses.Count, snapshot.Descriptor.SnapshotId, set.Shape);
+        _navigator.Navigate(NavigationTarget.ObjectSet(
+            snapshot,
+            new ObjectSetQuery(set),
+            string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Bookmarks ({addresses.Count:N0})")));
     }
 
     [RelayCommand]

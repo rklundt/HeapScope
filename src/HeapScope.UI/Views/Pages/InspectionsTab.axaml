@@ -112,6 +112,7 @@
               ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab; right-click for what they retain.">
       <DataGrid.ContextMenu>
         <ContextMenu>
+          <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
           <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
           <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
         </ContextMenu>

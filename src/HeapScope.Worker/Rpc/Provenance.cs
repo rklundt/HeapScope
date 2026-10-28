@@ -85,6 +85,10 @@ internal static class Provenance
             case IFormattable formattable:
                 text.Append(formattable.ToString(null, CultureInfo.InvariantCulture));
                 return;
+            case ObjectSetSpec set:
+                // A set by its shape (sprint 3.1 review): kind, names and counts, never addresses or its cache key.
+                text.Append("ObjectSetSpec {").Append(set.Shape).Append('}');
+                return;
             case ICollection collection:
                 text.Append('[').Append(collection.Count.ToString(CultureInfo.InvariantCulture)).Append(']');
                 return;

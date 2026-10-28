@@ -57,6 +57,40 @@ public sealed class ProvenanceLogTests
     }
 
     [Fact]
+    public void A_set_is_logged_by_its_shape_with_its_names_and_never_its_addresses()
+    {
+        // The 3.1 review: a disputed set view traces to which types, namespace or row the set was, never to addresses.
+        var types = Provenance.Describe(new InstancesRequest(s_snapshot, string.Empty, null, Set: ObjectSetSpec.OfTypes([new("App.Order", "App.dll"), new("App.Line", "App.dll")])));
+        var retained = Provenance.Describe(new RetainedBySetRequest(s_snapshot, string.Empty, null, ObjectSetSpec.RetainedByOf(ObjectSetSpec.OfInspectionRow("event-handler-leaks", 3))));
+        var objects = Provenance.Describe(new SetDominatorsRequest(s_snapshot, ObjectSetSpec.OfObjects([0xdead0001, 0xdead0002])));
+
+        types.ShouldContain("Set=ObjectSetSpec {types (2): App.Order [App.dll], App.Line [App.dll]}");
+        retained.ShouldContain("Set=ObjectSetSpec {retained by inspection event-handler-leaks row 3}");
+        objects.ShouldContain("Set=ObjectSetSpec {objects (2 addresses, #");
+        objects.ShouldNotContain("dead", Case.Insensitive);
+        types.ShouldNotContain("CacheKey");
+    }
+
+    [Fact]
+    public void A_specs_texts_are_not_sent_and_every_kind_has_its_own_cache_key()
+    {
+        // The 3.1 review (ADR-016): the shape and the cache key are computed where they are used, never serialized.
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(ObjectSetSpec.OfObjects([1, 2]));
+        json.ShouldNotContain("Shape");
+        json.ShouldNotContain("CacheKey");
+        json.ShouldNotContain("AddressHash");
+
+        ObjectSetSpec[] specs =
+        [
+            ObjectSetSpec.OfType("A", null), ObjectSetSpec.OfNamespace("A"), ObjectSetSpec.OfAssembly("A"), ObjectSetSpec.OfObjects([1]),
+            ObjectSetSpec.OfInspectionRow("A", 0), ObjectSetSpec.RetainedByOf(ObjectSetSpec.OfNamespace("A")),
+        ];
+        specs.Select(s => s.Kind).Distinct().Count().ShouldBe(Enum.GetValues<ObjectSetKind>().Length, "every kind is covered here");
+        specs.Select(s => s.CacheKey).Distinct().Count().ShouldBe(specs.Length);
+        Should.Throw<ArgumentException>(() => new ObjectSetSpec((ObjectSetKind)99).CacheKey);
+    }
+
+    [Fact]
     public void A_filter_is_logged_by_its_shape_never_its_text()
     {
         // 2.7 review: an exclusion or a module term explains a missing row.

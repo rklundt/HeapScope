@@ -249,6 +249,34 @@ public static class TypeGroups
         return matches;
     }
 
+    /// <summary>
+    /// The types of the namespace or assembly row named <paramref name="name"/> (sprint 3.1, a group opened as a set), matched
+    /// as the rows name them. Sets <paramref name="matched"/> to how many types match.
+    /// </summary>
+    public static bool[] MatchGroup(HeapGraph graph, GroupKey groupBy, string name, out int matched)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(name);
+        if (groupBy == GroupKey.Type)
+        {
+            throw new ArgumentException("A group is a namespace or an assembly.", nameof(groupBy));
+        }
+
+        var comparer = Comparer(groupBy);
+        var matches = new bool[graph.Types.Count];
+        matched = 0;
+        for (var t = 0; t < matches.Length; t++)
+        {
+            if (comparer.Equals(KeyOf(graph, t, groupBy), name))
+            {
+                matches[t] = true;
+                matched++;
+            }
+        }
+
+        return matches;
+    }
+
     /// <summary>The module part of a type key (ADR-018): the file name, or empty when the type has no module.</summary>
     public static string ModuleKey(string? module) => string.IsNullOrEmpty(module) ? string.Empty : RecordedPath.FileName(module);
 

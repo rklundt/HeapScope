@@ -231,7 +231,7 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_namespace_row_asks_for_type_grouping_and_another_snapshot_starts_a_new_history()
+    public async Task A_namespace_row_opens_as_a_set_and_another_snapshot_starts_a_new_history()
     {
         await OpenInstancesAsync();
         Navigator.BackCommand.Execute(null);
@@ -239,9 +239,9 @@ public sealed class NavigatorViewModelTests : IDisposable
         types.GroupBy = TypeGrouping.Namespace;
         await types.QueryTask;
 
+        // Sprint 3.1: a namespace row is a set of its types' objects (before, it asked to group by type).
         types.OpenRowCommand!.Execute(await FirstRowAsync(types.Rows));
-        types.Status.ShouldNotBeNull().ShouldContain("Group by type");
-        Navigator.Current.ShouldBeSameAs(types);
+        Navigator.Current.ShouldBeOfType<SetViewModel>().Set.Spec.Kind.ShouldBe(ObjectSetKind.Namespace);
 
         await OpenAsync("other.dmp");
         Navigator.Trail.Count.ShouldBe(1);

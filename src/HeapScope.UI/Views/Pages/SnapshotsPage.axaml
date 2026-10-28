@@ -70,6 +70,9 @@
       <DockPanel Grid.Row="5" DataContext="{Binding Bookmarks}" x:DataType="vm:BookmarksViewModel">
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" Classes="subtle" TextWrapping="Wrap"
                    IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Button DockPanel.Dock="Bottom" Content="Open as a set" Margin="0,4,0,0" HorizontalAlignment="Left"
+                Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #BookmarkList.SelectedItem}" IsVisible="{Binding !!Items.Count}"
+                ToolTip.Tip="The bookmarks of the selected bookmark's snapshot as one set of objects, with every set view." />
         <TextBlock DockPanel.Dock="Top" Text="None yet. Ctrl+D (Cmd+D) marks the shown object or the selected row's object." Classes="subtle" TextWrapping="Wrap"
                    IsVisible="{Binding !Items.Count}" />
         <ListBox x:Name="BookmarkList" ItemsSource="{Binding Items}" AutomationProperties.Name="Bookmarks"

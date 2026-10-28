@@ -161,6 +161,14 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
             Show(target.Snapshot);
         }
 
+        if (target.Kind == NavigationKind.RetainedBySet && target.Set is { } members)
+        {
+            Set.ShowSet(target.Snapshot, members, target.SetTitle ?? "the set");
+            Set.Start();
+            Start();
+            return;
+        }
+
         if (target.Kind == NavigationKind.RetainedBySet && target.TypeName is { } setType)
         {
             Set.Show(target.Snapshot, setType, target.Module);
