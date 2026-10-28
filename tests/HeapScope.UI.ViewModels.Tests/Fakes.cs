@@ -456,6 +456,8 @@ internal sealed class FakeWorkerService : IWorkerService
     /// The fake's icicle: below the focus (or the top level), each <see cref="TreeNodes"/> child side by side, as wide as its
     /// retained bytes, down to <see cref="IcicleRequest.Levels"/>.
     /// </summary>
+    public Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+
     public Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         IcicleQueries.Add(request);

@@ -195,15 +195,17 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         bool descending,
         bool includeRetained,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ObjectSetQuery? set = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
         TypeSummaryResult? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
-            latest = await UseAsync(
+            latest = await UseWithSetAsync(
                 handle,
-                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending, includeRetained), progress, innerCt),
+                set,
+                (service, id, spec, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending, includeRetained, spec), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -275,10 +277,11 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         InstancesResult? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
-            latest = await UseAsync(
+            latest = await UseWithSetAsync(
                 handle,
-                (service, id, innerCt) => service.QueryInstancesAsync(
-                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs, query.IncludeRetained),
+                query.Set,
+                (service, id, spec, innerCt) => service.QueryInstancesAsync(
+                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs, query.IncludeRetained, spec),
                     progress,
                     innerCt),
                 ct).ConfigureAwait(false);
@@ -437,6 +440,55 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
         return new RetainedBySetAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
+
+    /// <summary>What the members of any object set retain together, exactly (sprint 3.1), by type.</summary>
+    public async Task<RetainedBySetAnswer> QueryRetainedBySetAsync(SnapshotHandle handle, ObjectSetQuery set, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(set);
+        RetainedBySetResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseWithSetAsync(
+                handle,
+                set,
+                (service, id, spec, innerCt) => service.QueryRetainedBySetAsync(new RetainedBySetRequest(id, string.Empty, null, spec), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Types;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new RetainedBySetAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>The members of a set that no other member dominates, with what each retains (sprint 3.1).</summary>
+    public async Task<SetDominatorsAnswer> QuerySetDominatorsAsync(SnapshotHandle handle, ObjectSetQuery set, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(set);
+        SetDominatorsResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseWithSetAsync(
+                handle,
+                set,
+                (service, id, spec, innerCt) => service.QuerySetDominatorsAsync(new SetDominatorsRequest(id, spec!), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new SetDominatorsAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="call"/> with the snapshot's id and the set's spec bound to the current ids (sprint 3.1): a set
+    /// with an inspection baseline uses both snapshots, so either one is reopened after a worker restart.
+    /// </summary>
+    private Task<T> UseWithSetAsync<T>(SnapshotHandle handle, ObjectSetQuery? set, Func<IWorkerService, Guid, ObjectSetSpec?, CancellationToken, Task<T>> call, CancellationToken cancellationToken) =>
+        set?.Baseline is { } baseline
+            ? UseBothAsync(handle, baseline, (service, id, baselineId, ct) => call(service, id, set.Bind(baselineId), ct), cancellationToken)
+            : UseAsync(handle, (service, id, ct) => call(service, id, set?.Spec, ct), cancellationToken);
 
     /// <summary>
     /// Why one object is alive (sprint 2.2): its shortest paths from up to <paramref name="maxRoots"/> roots. The first such

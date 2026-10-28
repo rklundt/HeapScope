@@ -145,6 +145,8 @@ internal sealed partial class WorkerService
                     stopwatch.Elapsed.TotalSeconds,
                     result.Basis ?? "not recorded",
                     result.Note ?? "none");
+                // Kept so a row opens as a set (sprint 3.1) without running the inspection again.
+                _sets.AddTable(request.SnapshotId, inspection.Name, baselineId, result.Rows);
                 var rows = resultSets.Add(new InspectionSource(result.Rows), lease);
                 return new InspectionResultDto(inspection.Name, result.Count, result.Bytes, result.WastedBytes, result.Note, rows, stopwatch.Elapsed.TotalSeconds, baselineId);
             }

@@ -201,9 +201,10 @@ public static class RetainedBySetColumns
 
 /// <summary>
 /// "Objects retained by this set" (sprint 2.4): what every object of a type (by name and module, as in
-/// <see cref="InstancesRequest"/>) keeps alive together, exactly.
+/// <see cref="InstancesRequest"/>) keeps alive together, exactly; or, with <paramref name="Set"/> (sprint 3.1), what the
+/// members of any object set keep alive together (the type name is then ignored).
 /// </summary>
-public sealed record RetainedBySetRequest(Guid SnapshotId, string TypeName, string? Module);
+public sealed record RetainedBySetRequest(Guid SnapshotId, string TypeName, string? Module, ObjectSetSpec? Set = null);
 
 /// <summary>
 /// The answer to <see cref="RetainedBySetRequest"/>: the retained objects by type, largest first (<see cref="RetainedBySetColumns"/>);

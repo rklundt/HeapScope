@@ -1,7 +1,7 @@
 # HeapScope Sprints
 
-Phases: **0.x** architecture, framework and skeleton; **1.x** quick wins; **2.x** heavy hitters; **Backlog**
-everything else.
+Phases: **0.x** architecture, framework and skeleton; **1.x** quick wins; **2.x** heavy hitters; **3.x** depth to
+match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves out; **Backlog** everything else.
 
 ## Status
 
@@ -33,6 +33,11 @@ everything else.
 | 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
 | 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
 | 2.8 | Packaging and distribution | Planned | | |
+| 3.1 | Object sets | In Progress | | |
+| 3.2 | Retention views | Planned | | |
+| 3.3 | Comparison depth | Planned | | |
+| 3.4 | Live workflow and housekeeping | Planned | | |
+| 3.5 | Leak detection depth | Planned | | |
 
 ---
 
@@ -2410,6 +2415,173 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
 **Task breakdown**: to be filled by /start-sprint.
 
 **Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Phase 3: depth to match dotMemory
+
+Planned 2026-10-28. The product owner found HeapScope "well under powered for what dotMemory offers" after Phase 2.
+Phase 2 covered most of dotMemory's feature list (`docs/research/dotmemory-ux.md` 7) but each feature shallower. Phase 3
+deepens the analysis in five sprints, ahead of 2.8 Packaging (which still waits for the audiences and channels). The
+product owner agreed to this plan ("lets do your phase 3"); anything it leaves out is listed under Phase 4 candidates.
+Phase 3 runs like Phase 2: autonomously, one sprint at a time, stopping after each close.
+
+---
+
+## Sprint 3.1: Object sets
+
+**Goal**: any selection is a subject with every view, as in dotMemory's object set model.
+
+**Scope**: an object set as the analysis subject: several types (multi-select in the types grid), a namespace or an
+assembly, Compare's New, Dead and Survived counts of a row, an inspection's or a leak detector's row (exactly the objects
+it counted), the bookmarked objects, and the objects retained by a set. Each set shows the views that apply: Types (with
+the groupings), Instances, Dominators (the set's top-level dominators), Generations, and "objects retained by this set".
+Sets join the analysis path as steps.
+
+From the backlog: object set queries; set retention of a namespace or an assembly (2.4); sets narrower than a type (2.4
+M14); detector rows opening exactly the objects they counted (2.6 M24); a types row opening only its own method table's
+objects (1.5 M3); placing a type's objects in the dominator tree (2.4 M1).
+
+**Acceptance criteria**:
+- Each selection above opens as a set: several types, a namespace, an assembly, a Compare row, an inspection row, a leak
+  detector row (exactly the objects it counted), the bookmarks of a snapshot, and what a set retains.
+- On the LeakyConsole fixture each kind of set has known counts and bytes, and the Types, Instances, Generations,
+  Dominators and Retained views of a set agree with the same numbers computed by hand from the graph.
+- A set is a step of the analysis path and replays after its result sets are evicted or the worker restarts.
+- The CLI's `set` command answers the same views as the app.
+
+**Dependencies**: 2.4, 2.6, 2.7.
+
+**Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
+1. A set is described by an `ObjectSetSpec` that the client keeps and the worker resolves into its member objects (ADR-030).
+   There is no set handle on the wire: a spec survives result set eviction and worker restarts, and the analysis path
+   replays it. The worker caches resolved sets per snapshot (a few, memory reserved like other large computations).
+2. Spec kinds: types (one or more name and module keys), a namespace, an assembly, objects (addresses, up to 100,000), an
+   inspection row (inspection, baseline, row), and the objects another set retains. The single-type scopes of 1.6
+   (large object heap, finalizable, same text) stay on Instances; inspection rows reach them through the row kind.
+3. A set's views: Types (by type, namespace or assembly, with filter and sort), Instances (every member, any type),
+   Generations (objects and bytes per heap kind), Dominators (the members no other member dominates, with retained
+   bytes; a row opens the Retainers tab at that object) and Retained (the exact "objects retained by this set").
+   The Types view of a set has no retained lower bound column: per-group bounds need per-object groups, and the
+   Retained view gives the exact figure. A Types row opens the set's members of that type.
+4. Leak detector rows open exactly the objects they counted: inspections can list a row's members; the other
+   inspection rows keep their exact scopes (same text, large object heap, finalizable).
+5. Compare's New, Dead and Survived counts stay in 3.3: telling them apart needs object identity across snapshots,
+   and addresses move (ADR-018). In 3.1 Compare rows open the type keys as a set.
+6. 1.5 M3 (a types row opening only its own method table) stays in the backlog: sets match types by name and module
+   like every other query. 2.4 M1 (placing a type's objects in the dominator tree) is answered by the set's Dominators view.
+7. Logging: every set query logs the spec's shape (kind, key or address count, inspection and row) and the resolved
+   members and bytes, so a disputed number traces to what was counted; never addresses' contents or string values.
+8. Protocol 16.
+
+**Task breakdown**:
+1. [ ] Contracts: `ObjectSetSpec` and its kinds, `Set` on `InstancesRequest`, `TypeSummaryRequest` and
+   `RetainedBySetRequest`, a set dominators query, ADR-030, protocol 16. Tests: DTO round trips, protocol version.
+2. [ ] Analysis: `ObjectSet` (sorted member indices and a bit mask), aggregation over a set, set retention over an object
+   mask, the set's top dominators. Tests: synthetic graphs with known answers for each.
+3. [ ] Inspections: a row's members (`InspectionTable.MembersOf`) for the leak detectors. Tests: each detector's rows
+   list exactly the counted objects on the fixture.
+4. [ ] Worker: spec resolution with a per-snapshot cache and reservation, the four queries over a set, logging. Tests:
+   each spec kind on the fixture, cache reuse, bounds (too many addresses, unknown types, unknown inspection row).
+5. [ ] Application and CLI: session methods and a `set` command (`--types`, `--namespace`, `--assembly`,
+   `--addresses`, `--inspection` with `--row`, `--retained`; views `types`, `instances`, `generations`, `dominators`,
+   `retained`). Tests: CLI output on the fixture.
+6. [ ] View models: a Set subject with its views, the path step and its replay, and the entry points (types grid multi
+   select and group rows, Compare rows, inspection and detector rows, bookmarks, the retained result). Tests: each entry
+   point opens the expected spec; replay after eviction.
+7. [ ] UI: the Set subject view, multi select in the types and Compare grids, the new commands and shortcuts. Tests: view
+   tests by keyboard, no binding errors.
+8. [ ] Docs: ARCHITECTURE (code map, protocol, ADR-030, privacy of logs), DEVELOPER, README, this section.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 3.2: Retention views
+
+**Goal**: see why many objects are kept alive at once, not only one path at a time.
+
+**Scope**: Similar Retention (a set's objects grouped by retention pattern, each group with its most different paths to
+roots); key retention paths drawn as a diagram (the distinct paths merged into a graph); group by interface in the types
+grid and Compare.
+
+**Acceptance criteria**: to be set at /start-sprint; fixture objects held by known distinct patterns form the expected
+groups.
+
+**Dependencies**: 3.1 (groups open as sets), 2.2.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 3.3: Comparison depth
+
+**Goal**: comparing snapshots answers what grew and what keeps it, across more than two snapshots.
+
+**Scope**: Compare's counts open their objects as sets (from 3.1, with the snapshot asked where it matters: dead objects
+only exist in the baseline); retained bytes in diffs (a type's retained lower bound in each snapshot and the delta, from
+2.3 decision 7); trends across several snapshots of a session (from the backlog's trend analysis); comparing snapshots of
+different sessions; diff growth by generation (from 1.4).
+
+**Acceptance criteria**: to be set at /start-sprint.
+
+**Dependencies**: 3.1.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 3.4: Live workflow and housekeeping
+
+**Goal**: the Live page is where a leak hunt starts and ends, and the session library stays tidy.
+
+**Scope**: a Get snapshot button and Force GC on the Live page (where the runtime allows it); recording allocations
+while monitoring (from 2.5); timelines recorded in `session.json` and reopening a past run (from 1.7 M3); deleting
+snapshots and sessions with their index caches, refused while open, and a retention rule for old sessions (from 1.1);
+one capture per target at a time across pages (1.7 M4).
+
+**Acceptance criteria**: to be set at /start-sprint.
+
+**Dependencies**: 1.7, 2.5.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 3.5: Leak detection depth
+
+**Goal**: the detectors find the leaks dotMemory's inspections find, and the ones .NET apps commonly have next.
+
+**Scope**: finalizable objects (the finalizer queue, and objects finalized between two snapshots); async state machine
+and `Task` leaks; the objects a raw dump holds that the GC has not collected (unreachable from roots) as a set; a type
+growth detector across two snapshots (from 2.6).
+
+**Acceptance criteria**: to be set at /start-sprint; fixture leaks of each kind found with known counts.
+
+**Dependencies**: 3.1 (findings open as sets), 2.6.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Phase 4 candidates
+
+Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Phase 3 does not address).
+- A profiler-style live session: allocation data streamed beside the timeline, and snapshots faster than a full dump.
+- What was allocated between two snapshots in Compare, from a trace recorded between them (from 2.5; needs traces in
+  `session.json` on the snapshots' clock).
+- A sunburst view beside the icicle chart for dominators and call trees.
+- Analysis tabs: several analyses of a snapshot side by side (from 2.7).
+- Capture on Linux and macOS (from 2.3.5, ADR-025).
+- WPF leak detectors with a WPF fixture app (from 2.6).
 
 ---
 

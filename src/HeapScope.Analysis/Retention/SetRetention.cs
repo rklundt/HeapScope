@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Analysis.Sets;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Analysis.Retention;
@@ -54,9 +55,52 @@ public static class SetRetention
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        ArgumentNullException.ThrowIfNull(dominators);
         ArgumentNullException.ThrowIfNull(typeInSet);
-        if (typeInSet.Length != graph.Types.Count || dominators.ObjectCount != graph.ObjectCount)
+        if (typeInSet.Length != graph.Types.Count)
+        {
+            throw new ArgumentException("The set or the dominators do not match the graph.");
+        }
+
+        var types = graph.TypeIndices.Span;
+        var members = new ulong[(graph.ObjectCount + 63) / 64];
+        for (var i = 0; i < types.Length; i++)
+        {
+            if (typeInSet[types[i]])
+            {
+                members[i >> 6] |= 1UL << (i & 63);
+            }
+        }
+
+        return Compute(graph, dominators, members, collectRetained: false, progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// The objects the members of <paramref name="set"/> retain, by type (sprint 3.1). With
+    /// <paramref name="collectRetained"/> the result also holds the retained objects as a set (a "retained by" set).
+    /// </summary>
+    public static SetRetentionResult Compute(
+        HeapGraph graph,
+        Dominators dominators,
+        ObjectSet set,
+        bool collectRetained = false,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        return Compute(graph, dominators, set.Mask, collectRetained, progress, cancellationToken);
+    }
+
+    private static SetRetentionResult Compute(
+        HeapGraph graph,
+        Dominators dominators,
+        ulong[] members,
+        bool collectRetained,
+        IProgress<long>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(dominators);
+        if (members.Length != (graph.ObjectCount + 63) / 64 || dominators.ObjectCount != graph.ObjectCount)
         {
             throw new ArgumentException("The set or the dominators do not match the graph.");
         }
@@ -71,7 +115,7 @@ public static class SetRetention
 
         foreach (var source in PathRoots.Sources(graph))
         {
-            if (!typeInSet[types[source]] && Mark(visited, source))
+            if (!IsSet(members, source) && Mark(visited, source))
             {
                 stack.Push(source);
             }
@@ -82,7 +126,7 @@ public static class SetRetention
             for (var e = starts[current]; e < starts[current + 1]; e++)
             {
                 var target = edges[e];
-                if (!typeInSet[types[target]] && Mark(visited, target))
+                if (!IsSet(members, target) && Mark(visited, target))
                 {
                     stack.Push(target);
                 }
@@ -104,29 +148,39 @@ public static class SetRetention
         ulong retainedBytes = 0;
         for (var i = 0; i < n; i++)
         {
-            if (typeInSet[types[i]])
+            var member = IsSet(members, i);
+            if (member)
             {
                 allObjects++;
             }
 
+            // The retained objects are what the dominators reach and the pass did not; the visited bits are reused for them.
+            ref var word = ref visited[i >> 6];
+            var bit = 1UL << (i & 63);
             if (!dominators.IsReachable(i))
             {
+                word &= ~bit;
                 continue;
             }
 
             var size = graph.GetSize(i);
-            if (typeInSet[types[i]])
+            if (member)
             {
                 setObjects++;
                 setBytes += size;
             }
 
-            if ((visited[i >> 6] & (1UL << (i & 63))) == 0)
+            if ((word & bit) == 0)
             {
                 retainedObjects++;
                 retainedBytes += size;
                 objectsByType[types[i]]++;
                 bytesByType[types[i]] += size;
+                word |= bit;
+            }
+            else
+            {
+                word &= ~bit;
             }
 
             if ((i & (Chunk - 1)) == 0)
@@ -136,8 +190,11 @@ public static class SetRetention
         }
 
         progress?.Report(done);
-        return new SetRetentionResult(allObjects, setObjects, setBytes, retainedObjects, retainedBytes, objectsByType, bytesByType);
+        var retained = collectRetained ? ObjectSet.FromMask(graph, visited) : null;
+        return new SetRetentionResult(allObjects, setObjects, setBytes, retainedObjects, retainedBytes, objectsByType, bytesByType, retained);
     }
+
+    private static bool IsSet(ulong[] bits, int index) => (bits[index >> 6] & (1UL << (index & 63))) != 0;
 
     private static bool Mark(ulong[] visited, int index)
     {
@@ -156,6 +213,6 @@ public static class SetRetention
 /// <summary>
 /// What a set retains (sprint 2.4): all of the set's members (no root reaches the others, so they retain nothing), its
 /// reachable members and their bytes, the objects it retains (members included) and their bytes, and the retained
-/// objects and bytes per type table entry.
+/// objects and bytes per type table entry; with collectRetained, the retained objects as a set (sprint 3.1).
 /// </summary>
-public sealed record SetRetentionResult(long AllObjects, long SetObjects, ulong SetBytes, long RetainedObjects, ulong RetainedBytes, long[] ObjectsByType, ulong[] BytesByType);
+public sealed record SetRetentionResult(long AllObjects, long SetObjects, ulong SetBytes, long RetainedObjects, ulong RetainedBytes, long[] ObjectsByType, ulong[] BytesByType, ObjectSet? Retained = null);

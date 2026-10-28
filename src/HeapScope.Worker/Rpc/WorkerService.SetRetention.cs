@@ -32,25 +32,29 @@ namespace HeapScope.Worker.Rpc;
 /// <summary>Exact retention of a set (sprint 2.4).</summary>
 internal sealed partial class WorkerService
 {
+    /// <summary>A set for the log: a one-type set by its type and module (as before 3.1), any other by its shape.</summary>
+    private static string Describe(ObjectSetSpec spec) =>
+        spec.Kind == ObjectSetKind.Types && spec.Types is [var only]
+            ? "type " + only.Name + " (" + (string.IsNullOrEmpty(only.Module) ? "no module" : only.Module) + ")"
+            : spec.Shape;
+
     public Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (string.IsNullOrEmpty(request.TypeName))
-            {
-                throw new ArgumentException("A type name is required.", nameof(request));
-            }
 
+            // Any object set since sprint 3.1; a type name stays the short form of a one-type set.
+            var spec = request.Set ?? (string.IsNullOrEmpty(request.TypeName)
+                ? throw new ArgumentException("A type name or a set is required.", nameof(request))
+                : ObjectSetSpec.OfType(request.TypeName, request.Module));
             var (snapshot, lease) = Lease(request.SnapshotId);
             using var _ = lease;
             var graph = snapshot.Graph;
-            var set = TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matched);
-            if (matched == 0)
-            {
-                // Checked before anything is computed (2.3 review M7; the 2.4 review). The name is the user's, so it is not
-                // repeated in a message the log keeps.
-                throw new ArgumentException("No type of that name and module is in this snapshot. Names are case sensitive and include the namespace.");
-            }
+
+            // Resolved, and checked for members, before anything is computed (2.3 review M7; the 2.4 review).
+            var set = await ResolveSetAsync(request.SnapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false);
+            RequireMembers(set);
+            var matched = set.TypeCount;
 
             var (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
             var tree = dominators.Dominators;
@@ -71,10 +75,21 @@ internal sealed partial class WorkerService
                         phase) ?? throw SnapshotNotLoaded(request.SnapshotId);
                     try
                     {
-                        var exact = SetRetention.Compute(graph, tree, set, new CallbackProgress(done => throttled.Report(new JobProgress(phase, done, reachable))), cancellationToken);
+                        var exact = SetRetention.Compute(graph, tree, set, progress: new CallbackProgress(done => throttled.Report(new JobProgress(phase, done, reachable))), cancellationToken: cancellationToken);
 
-                        // The type summary's lower bound for the same objects, side by side with the exact answer.
-                        var groups = Array.ConvertAll(set, inSet => inSet ? 0 : -1);
+                        // The type summary's lower bound for the same types, beside the exact answer (whole-type sets only).
+                        if (spec.Kind != ObjectSetKind.Types)
+                        {
+                            return (exact, 0UL);
+                        }
+
+                        var inSet = new bool[graph.Types.Count];
+                        foreach (var member in set.Members)
+                        {
+                            inSet[graph.TypeIndices[member]] = true;
+                        }
+
+                        var groups = Array.ConvertAll(inSet, member => member ? 0 : -1);
                         return (exact, GroupRetention.Compute(graph, tree, groups, 1, cancellationToken: cancellationToken)[0]);
                     }
                     finally
@@ -90,9 +105,8 @@ internal sealed partial class WorkerService
 
             // The totals and the first rows as shown (sprint 2.3.7 review H3): a disputed "this set retains" is answered from the log.
             logger.LogInformation(
-                "Retained by set: type {Type} ({Module}) in snapshot {Id}, {Matched} type entries, {AllObjects} objects of which {SetObjects} reachable, of {SetBytes} bytes, retain {Objects} objects of {Bytes} bytes (lower bound {LowerBound}, heap {Total}) in {Seconds:0.00} s; first rows {First}",
-                request.TypeName,
-                request.Module ?? "no module",
+                "Retained by set: {Shape} in snapshot {Id}, {Matched} type entries, {AllObjects} objects of which {SetObjects} reachable, of {SetBytes} bytes, retain {Objects} objects of {Bytes} bytes (lower bound {LowerBound}, heap {Total}) in {Seconds:0.00} s; first rows {First}",
+                Describe(spec),
                 request.SnapshotId,
                 matched,
                 result.AllObjects,

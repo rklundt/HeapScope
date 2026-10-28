@@ -210,7 +210,8 @@ internal sealed class Exclusions
 /// A row naming a type's objects: what it shows, and the hidden columns that open them. Rows open the type's reachable
 /// objects (review H5), a part of the type, so the whole-type actions stay off; an empty <see cref="TypeName"/> opens nothing.
 /// </summary>
-internal sealed record DetectorTypeRow(string Key, string Detail, long Objects, long Bytes, string TypeName, string Module);
+/// <param name="Members">The objects the row counted (sprint 3.1): what the row opens as a set.</param>
+internal sealed record DetectorTypeRow(string Key, string Detail, long Objects, long Bytes, string TypeName, string Module, int[]? Members = null);
 
 /// <summary>
 /// Collections a static field holds directly that only grow (sprint 2.6): with a baseline snapshot, those that grew by at
@@ -642,6 +643,7 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
                 found.Publishers.Add(publisher);
                 found.Subscribers++;
+                found.Delegates.Add(subscriber.Value);
                 found.Bytes += subscriber.Bytes;
                 var targetType = subscriber.TargetType < 0 ? "(static method)" : graph.Types.GetName(subscriber.TargetType);
                 found.TargetTypes[targetType] = found.TargetTypes.GetValueOrDefault(targetType) + 1;
@@ -657,7 +659,8 @@ internal sealed class EventHandlerLeaksDetector : IInspection
                 e.Value.Bytes,
                 DetectorGraph.Top(e.Value.TargetTypes),
                 graph.Types.GetName(e.Key.Publisher),
-                DetectorGraph.Module(graph, e.Key.Publisher)))
+                DetectorGraph.Module(graph, e.Key.Publisher),
+                [.. e.Value.Delegates]))
             .OrderByDescending(r => r.Subscribers).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
         string Describe(IEnumerable<KeyValuePair<(int Publisher, string Field), Event>> list) =>
@@ -680,7 +683,8 @@ internal sealed class EventHandlerLeaksDetector : IInspection
                 cells[5] = row.TypeName;
                 cells[6] = row.Module;
                 cells[7] = InspectionScopes.Reachable;
-            }),
+            },
+            row => row.Members),
             basis);
     }
 
@@ -722,7 +726,7 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
     private readonly record struct Pending(int Value, int TargetType, long Bytes, bool Multicast);
 
-    private sealed record EventRow(string Key, long Publishers, long Subscribers, long Bytes, string TargetTypes, string TypeName, string Module);
+    private sealed record EventRow(string Key, long Publishers, long Subscribers, long Bytes, string TargetTypes, string TypeName, string Module, int[] Members);
 
     private sealed class Event
     {
@@ -733,6 +737,9 @@ internal sealed class EventHandlerLeaksDetector : IInspection
         public long Bytes { get; set; }
 
         public Dictionary<string, long> TargetTypes { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The subscriber delegates counted (sprint 3.1): what the row opens as a set.</summary>
+        public List<int> Delegates { get; } = [];
     }
 }
 
@@ -820,11 +827,16 @@ internal sealed class TimerLeaksDetector : IInspection
             var callback = Fields.Reference(reader, address, "_timerCallback") is { } c ? Fields.DelegateTarget(reader, c.Address) : null;
             string kind;
             List<(ulong Address, string Type)?> found;
+            var outerTimer = -1;
             if (callback is { Type: "System.Timers.Timer" } timer)
             {
                 kind = "System.Timers.Timer";
                 found = Fields.Reference(reader, timer.Address, "_onIntervalElapsed") is { } elapsed ? Fields.DelegateTargets(reader, elapsed.Address, 64, ct) : [];
-                bytes += graph.TryGetIndex(timer.Address, out var outer) ? (long)graph.GetSize(outer) : 0;
+                if (graph.TryGetIndex(timer.Address, out var outer))
+                {
+                    bytes += (long)graph.GetSize(outer);
+                    outerTimer = outer;
+                }
             }
             else
             {
@@ -846,13 +858,18 @@ internal sealed class TimerLeaksDetector : IInspection
                 var entry = targets.GetValueOrDefault(type) ?? new Target(kind, owner is null ? string.Empty : ModuleOf(graph, owner.Value));
                 entry.Timers++;
                 entry.Bytes += bytes;
+                entry.Members.Add(obj);
+                if (outerTimer >= 0)
+                {
+                    entry.Members.Add(outerTimer);
+                }
                 targets[type] = entry;
             }
         }
 
         var rows = targets
             .Where(t => t.Value.Timers >= MinTimers)
-            .Select(t => new DetectorTypeRow(t.Key, t.Value.Kind, t.Value.Timers, t.Value.Bytes, t.Key == StaticMethod ? string.Empty : t.Key, t.Value.Module))
+            .Select(t => new DetectorTypeRow(t.Key, t.Value.Kind, t.Value.Timers, t.Value.Bytes, t.Key == StaticMethod ? string.Empty : t.Key, t.Value.Module, [.. t.Value.Members]))
             .OrderByDescending(r => r.Objects).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
         var basis = string.Create(
@@ -872,7 +889,8 @@ internal sealed class TimerLeaksDetector : IInspection
                 cells[4] = row.TypeName;
                 cells[5] = row.Module;
                 cells[6] = InspectionScopes.Reachable;
-            }),
+            },
+            row => row.Members),
             basis);
     }
 
@@ -888,6 +906,9 @@ internal sealed class TimerLeaksDetector : IInspection
         public long Timers { get; set; }
 
         public long Bytes { get; set; }
+
+        /// <summary>The timers counted (the queue entry and, for a System.Timers.Timer, the timer): what the row opens.</summary>
+        public List<int> Members { get; } = [];
     }
 }
 
@@ -978,6 +999,7 @@ internal sealed class DisposedButReferencedDetector : IInspection
         }
 
         var disposed = new Dictionary<int, (long Objects, long Bytes)>();
+        var disposedObjects = new Dictionary<int, List<int>>();
         var mask = DetectorGraph.TypeMask(graph, candidates.ContainsKey);
         foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, mask, context, "Reading disposed flags"))
         {
@@ -986,12 +1008,18 @@ internal sealed class DisposedButReferencedDetector : IInspection
             {
                 var (objects, bytes) = disposed.GetValueOrDefault(type);
                 disposed[type] = (objects + 1, bytes + (long)graph.GetSize(obj));
+                if (!disposedObjects.TryGetValue(type, out var list))
+                {
+                    disposedObjects[type] = list = [];
+                }
+
+                list.Add(obj);
             }
         }
 
         var rows = disposed
             .Where(d => d.Value.Objects >= MinObjects)
-            .Select(d => new DetectorTypeRow(graph.Types.GetName(d.Key), candidates[d.Key], d.Value.Objects, d.Value.Bytes, graph.Types.GetName(d.Key), DetectorGraph.Module(graph, d.Key)))
+            .Select(d => new DetectorTypeRow(graph.Types.GetName(d.Key), candidates[d.Key], d.Value.Objects, d.Value.Bytes, graph.Types.GetName(d.Key), DetectorGraph.Module(graph, d.Key), [.. disposedObjects[d.Key]]))
             .OrderByDescending(r => r.Objects).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
         var basis = string.Create(
@@ -1033,6 +1061,7 @@ internal sealed class HttpClientInstancesDetector : IInspection
         var reachable = Reachability.For(graph, context.CancellationToken);
         long owning = 0, sharing = 0, unreadable = 0, bytes = 0;
         var handlers = new HashSet<ulong>();
+        var clients = new List<int>();
         var type = -1;
         foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, DetectorGraph.TypesNamed(graph, ClientType), context, "Counting HTTP clients"))
         {
@@ -1043,6 +1072,7 @@ internal sealed class HttpClientInstancesDetector : IInspection
                 case true:
                     // new HttpClient(shared) owns a handler it shares: distinct handlers are the pools (re-review N2).
                     owning++;
+                    clients.Add(obj);
                     bytes += (long)graph.GetSize(obj);
                     handlers.Add(Fields.Reference(reader, address, "_handler")?.Address ?? address);
                     break;
@@ -1056,7 +1086,7 @@ internal sealed class HttpClientInstancesDetector : IInspection
         }
 
         DetectorTypeRow[] rows = handlers.Count >= MinInstances
-            ? [new DetectorTypeRow(ClientType, InspectionRows.Number(handlers.Count), owning, bytes, ClientType, DetectorGraph.Module(graph, type))]
+            ? [new DetectorTypeRow(ClientType, InspectionRows.Number(handlers.Count), owning, bytes, ClientType, DetectorGraph.Module(graph, type), [.. clients])]
             : [];
         var basis = string.Create(CultureInfo.InvariantCulture, $"{owning} reachable HttpClients owning their handler ({handlers.Count} distinct handlers), {sharing} sharing one, {unreadable} unreadable; {Reachability.Describe(reachable)}");
         return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, null, DetectorTables.Types(rows, "Handlers"), basis);
@@ -1094,6 +1124,7 @@ internal sealed class UndisposedServiceScopesDetector : IInspection
         var reader = Readers.Of(context);
         var reachable = Reachability.For(graph, context.CancellationToken);
         long open = 0, closed = 0, roots = 0, unreadable = 0, bytes = 0;
+        var openScopes = new List<int>();
         var type = -1;
         foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, DetectorGraph.TypesNamed(graph, ScopeType), context, "Reading service scopes"))
         {
@@ -1112,6 +1143,7 @@ internal sealed class UndisposedServiceScopesDetector : IInspection
                     break;
                 case false:
                     open++;
+                    openScopes.Add(obj);
                     bytes += (long)graph.GetSize(obj);
                     break;
                 default:
@@ -1120,7 +1152,7 @@ internal sealed class UndisposedServiceScopesDetector : IInspection
             }
         }
 
-        DetectorTypeRow[] rows = open >= MinScopes ? [new DetectorTypeRow(ScopeType, string.Empty, open, bytes, ScopeType, DetectorGraph.Module(graph, type))] : [];
+        DetectorTypeRow[] rows = open >= MinScopes ? [new DetectorTypeRow(ScopeType, string.Empty, open, bytes, ScopeType, DetectorGraph.Module(graph, type), [.. openScopes])] : [];
         var note = rows.Length > 0
             ? "Scopes of requests in flight, and of Blazor Server circuits, are open by design: compare this count with the requests in flight when the dump was taken."
             : null;
@@ -1145,7 +1177,9 @@ internal static class DetectorTables
             new(InspectionColumns.Scope, InspectionColumnKind.Text),
         ];
         var withDetail = detailColumn is not null;
-        return new RowTable<DetectorTypeRow>(columns, rows, 120, (row, cells) =>
+        return new RowTable<DetectorTypeRow>(columns, rows, 120, Format, row => row.Members);
+
+        void Format(DetectorTypeRow row, string?[] cells)
         {
             var at = 0;
             cells[at++] = row.Key;
@@ -1159,6 +1193,6 @@ internal static class DetectorTables
             cells[at++] = row.TypeName;
             cells[at++] = row.Module;
             cells[at] = InspectionScopes.Reachable;
-        });
+        }
     }
 }
