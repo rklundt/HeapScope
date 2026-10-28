@@ -162,10 +162,30 @@ public sealed class ObjectSetsTests : IClassFixture<AllLeaksDump>, IAsyncDisposa
     }
 
     [Fact]
+    public async Task Sets_over_their_limits_or_selecting_nothing_are_refused_before_any_work()
+    {
+        var handle = await _session.StartOpen(_dump).Result;
+        async Task<HeapScopeErrorCode> RefusalAsync(ObjectSetSpec spec) =>
+            (await Should.ThrowAsync<WorkerOperationException>(() => _session.QueryInstancesAsync(handle, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(spec)), null, Ct))).ErrorCode;
+
+        (await RefusalAsync(ObjectSetSpec.OfObjects(Enumerable.Range(1, ObjectSetLimits.MaxAddresses + 1).Select(i => (ulong)i)))).ShouldBe(HeapScopeErrorCode.InvalidArgument);
+        (await RefusalAsync(ObjectSetSpec.OfTypes([]))).ShouldBe(HeapScopeErrorCode.InvalidArgument);
+        (await RefusalAsync(ObjectSetSpec.OfType("Fixtures.Leaks.NoSuchType", Module))).ShouldBe(HeapScopeErrorCode.InvalidArgument);
+        var deep = ObjectSetSpec.OfType(LeakTypes[0], Module);
+        for (var i = 0; i <= ObjectSetLimits.MaxDepth + 1; i++)
+        {
+            deep = ObjectSetSpec.RetainedByOf(deep);
+        }
+
+        (await RefusalAsync(deep)).ShouldBe(HeapScopeErrorCode.InvalidArgument);
+        var none = await _session.QueryInstancesAsync(handle, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfObjects([8UL]))), null, Ct);
+        none.Result.TotalObjects.ShouldBe(0, "an address with no object selects nothing");
+    }
+
+    [Fact]
     public async Task The_cli_set_command_shows_the_views_the_app_shows()
     {
-        var types = string.Join(",", LeakTypes);
-        using var cli = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--type", types, "--module", Module, "--view", "generations");
+        using var cli = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--type", LeakTypes[0], "--type", LeakTypes[1], "--module", Module, "--view", "generations");
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(cli.Output);
         cli.Process.ExitCode.ShouldBe(0, cli.Output);
         cli.Output.ShouldContain("Gen");

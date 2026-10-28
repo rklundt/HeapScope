@@ -27,6 +27,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Bookmarks;
 using HeapScope.Application.Snapshots;
+using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -231,10 +232,11 @@ public sealed partial class BookmarksViewModel : ObservableObject
         }
 
         var addresses = Items.Where(i => i.Snapshot == snapshot).Select(i => i.Address).ToList();
-        _logger.LogInformation("Bookmarks: opened {Count} as a set", addresses.Count);
+        var set = ObjectSetSpec.OfObjects(addresses);
+        _logger.LogInformation("Bookmarks: opened {Count} of snapshot {Snapshot} as a set {Shape}", addresses.Count, snapshot.Descriptor.SnapshotId, set.Shape);
         _navigator.Navigate(NavigationTarget.ObjectSet(
             snapshot,
-            new ObjectSetQuery(HeapScope.Contracts.ObjectSetSpec.OfObjects(addresses)),
+            new ObjectSetQuery(set),
             string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Bookmarks ({addresses.Count:N0})")));
     }
 

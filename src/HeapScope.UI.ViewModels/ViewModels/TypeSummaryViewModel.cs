@@ -268,9 +268,23 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     public (ObjectSetSpec Spec, string Title)? SetOf(IEnumerable<TypeRowItem> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
-        var loaded = rows.Where(r => r.IsLoaded).ToList();
+        var selected = rows.ToList();
+        var loaded = selected.Where(r => r.IsLoaded).ToList();
         if (loaded.Count == 0)
         {
+            return null;
+        }
+
+        // A set never quietly leaves rows out (the 3.1 review): rows not loaded yet, or more types than a set takes.
+        if (loaded.Count < selected.Count)
+        {
+            Status = string.Create(CultureInfo.CurrentCulture, $"{selected.Count - loaded.Count:N0} of the selected rows are not loaded yet. Scroll through them, or filter the grid, and open the set again.");
+            return null;
+        }
+
+        if (loaded.Count > ObjectSetLimits.MaxTypes)
+        {
+            Status = string.Create(CultureInfo.CurrentCulture, $"A set takes at most {ObjectSetLimits.MaxTypes:N0} types; {loaded.Count:N0} are selected. Group by namespace or assembly to open a larger group.");
             return null;
         }
 
@@ -415,7 +429,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
             // Review M8: retained sizes are optional, so the rows load without them and the note says why.
             retainedFailure = ex.Message;
             var bytes = SortColumn == TypeSummaryColumns.Retained;
-            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, bytes ? TypeSummaryColumns.Bytes : SortColumn, bytes || Descending, false, null, cancellationToken);
+            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, bytes ? TypeSummaryColumns.Bytes : SortColumn, bytes || Descending, false, null, cancellationToken, Set);
         }
 
         finished = true;

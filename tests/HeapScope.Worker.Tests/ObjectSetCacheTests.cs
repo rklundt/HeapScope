@@ -72,13 +72,35 @@ public sealed class ObjectSetCacheTests
     }
 
     [Fact]
+    public void Adding_a_key_again_replaces_it_and_tables_without_room_are_not_kept()
+    {
+        var cache = new ObjectSetCache();
+        var snapshot = Guid.NewGuid();
+        var (first, second) = (Set(), Set());
+        cache.Add(snapshot, "k", first);
+        cache.Add(snapshot, "k", second);
+        cache.TryGet(snapshot, "k").ShouldBeSameAs(second);
+        for (var i = 0; i < ObjectSetCache.MaxSets - 1; i++)
+        {
+            cache.Add(snapshot, "other" + i, first);
+        }
+
+        cache.TryGet(snapshot, "k").ShouldBeSameAs(second, "one entry per key, so all the others still fit");
+
+        var huge = new RowTable<int>([], [1], (int)(ObjectSetCache.MaxTableBytes / 2) + 1, (_, _) => { });
+        cache.AddTable(snapshot, "loh", null, huge);
+        cache.TryGetTable(snapshot, "loh", null).ShouldBeNull("a table over half the budget is not kept");
+    }
+
+    [Fact]
     public void Equal_specs_have_equal_cache_keys_whatever_the_order_of_their_lists()
     {
         ObjectSetSpec.OfTypes([new("A", "a.dll"), new("B", null)]).CacheKey.ShouldBe(ObjectSetSpec.OfTypes([new("B", ""), new("A", "a.dll")]).CacheKey);
         ObjectSetSpec.OfObjects([3, 1, 3]).CacheKey.ShouldBe(ObjectSetSpec.OfObjects([1, 3]).CacheKey);
         ObjectSetSpec.OfNamespace("A").CacheKey.ShouldNotBe(ObjectSetSpec.OfAssembly("A").CacheKey);
-        ObjectSetSpec.RetainedByOf(ObjectSetSpec.OfNamespace("A")).Shape.ShouldBe("retained by namespace");
-        ObjectSetSpec.OfObjects([1, 2]).Shape.ShouldBe("objects (2 addresses)", "the log never sees the addresses");
+        ObjectSetSpec.RetainedByOf(ObjectSetSpec.OfNamespace("A")).Shape.ShouldBe("retained by namespace A");
+        ObjectSetSpec.OfObjects([1, 2]).Shape.ShouldStartWith("objects (2 addresses, #", Case.Sensitive, "the log never sees the addresses");
+        ObjectSetSpec.OfObjects([2, 1]).AddressHash.ShouldBe(ObjectSetSpec.OfObjects([1, 2, 2]).AddressHash);
     }
 
     private static ObjectSet Set()

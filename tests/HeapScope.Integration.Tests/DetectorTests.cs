@@ -203,6 +203,15 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
 
         set.Result.TotalObjects.ShouldBe(counted);
         set.Result.MatchedTypes.ShouldBe(1);
+
+        // An event row opens its subscriber delegates and their targets (the 3.1 review H1): the row's bytes, not the
+        // shared multicast delegates.
+        var events = await RowsAsync(current, "event-handler-leaks", null);
+        var eventRow = events.FindIndex(r => long.Parse(r["Subscribers"]!, CultureInfo.InvariantCulture) > 0);
+        eventRow.ShouldBeGreaterThanOrEqualTo(0);
+        var eventSet = await _session.QueryInstancesAsync(current, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfInspectionRow("event-handler-leaks", eventRow))), null, Ct);
+        eventSet.Result.TotalObjects.ShouldBeGreaterThanOrEqualTo(long.Parse(events[eventRow]["Subscribers"]!, CultureInfo.InvariantCulture), "at least one delegate per subscriber");
+        eventSet.Result.TotalBytes.ShouldBeLessThanOrEqualTo(long.Parse(events[eventRow]["Bytes"]!, CultureInfo.InvariantCulture), "targets shared by several subscribers count once in the set");
     }
 
     private async Task<List<Dictionary<string, string?>>> RowsAsync(SnapshotHandle snapshot, string detector, SnapshotHandle? baseline)

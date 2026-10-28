@@ -223,16 +223,38 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
             return;
         }
 
-        var keyed = rows.OfType<DiffRowItem>().Where(r => r.IsLoaded && r.TypeName is not null).ToList();
+        var selected = rows.OfType<DiffRowItem>().ToList();
+        if (selected.Any(r => !r.IsLoaded))
+        {
+            Status = "Some of the selected rows are not loaded yet. Scroll through them, or filter the grid, and open the set again.";
+            return;
+        }
+
+        var keyed = selected.Where(r => r.TypeName is not null).ToList();
         if (keyed.Count == 0)
         {
             Status = GroupBy == TypeGrouping.Type ? "Select the rows of types to open them as a set." : "Group by type to open rows as a set.";
             return;
         }
 
-        var side = keyed.All(r => r.CurrentObjects == 0) && Baseline is { } baseline ? baseline : current;
-        var title = keyed.Count == 1 ? keyed[0].Name : string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{keyed.Count:N0} compared types");
-        navigator?.Navigate(NavigationTarget.ObjectSet(side.Handle, new ObjectSetQuery(ObjectSetSpec.OfTypes(keyed.Select(r => new TypeKeyDto(r.TypeName!, r.Module)))), title));
+        if (keyed.Count > ObjectSetLimits.MaxTypes)
+        {
+            Status = string.Create(System.Globalization.CultureInfo.CurrentCulture, $"A set takes at most {ObjectSetLimits.MaxTypes:N0} types; {keyed.Count:N0} are selected.");
+            return;
+        }
+
+        // One snapshot's objects: the current one's, or the baseline's when none of the types is left (the 3.1 review: types
+        // only in the baseline are left out of a current set, and the status says so).
+        var inBaselineOnly = Baseline is { } baseline && keyed.All(r => r.CurrentObjects == 0);
+        var side = inBaselineOnly ? Baseline! : current;
+        var used = inBaselineOnly ? keyed : [.. keyed.Where(r => r.CurrentObjects > 0)];
+        var title = used.Count == 1 ? used[0].Name : string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{used.Count:N0} compared types");
+        Logger.LogInformation("Compare: opened {Count} types as a set in the {Side} snapshot ({Left} only in the baseline left out)", used.Count, inBaselineOnly ? "baseline" : "current", keyed.Count - used.Count);
+        navigator?.Navigate(NavigationTarget.ObjectSet(side.Handle, new ObjectSetQuery(ObjectSetSpec.OfTypes(used.Select(r => new TypeKeyDto(r.TypeName!, r.Module)))), title));
+        if (used.Count < keyed.Count)
+        {
+            Status = string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{keyed.Count - used.Count:N0} of the selected types are only in the baseline, so the current snapshot's set leaves them out.");
+        }
     }
 
     // Retention is the current snapshot's: a type it no longer has retains nothing there.

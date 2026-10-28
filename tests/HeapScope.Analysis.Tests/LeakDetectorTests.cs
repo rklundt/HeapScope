@@ -119,11 +119,14 @@ public sealed class LeakDetectorTests
         result.Bytes.ShouldBe(105_600);
         result.Basis!.ShouldContain("App.Publisher.Changed 1200 subscribers on 2 publishers");
 
-        // The row opens exactly the subscriber delegates it counted (sprint 3.1).
-        var members = result.Rows.MembersOf(0).ShouldNotBeNull();
-        members.Count.ShouldBe(1_200);
-        members.Select(m => graph.Types.GetName(graph.TypeIndices[m])).Distinct().ShouldBe(["System.EventHandler"]);
-        members.Sum(m => (long)graph.GetSize(m)).ShouldBe(1_200 * 64);
+        // The row opens exactly the objects whose bytes it counts (sprint 3.1, review H1): each subscriber delegate (never the
+        // multicast delegate holding the list) and its target, so the set's bytes are the row's.
+        var members = result.Rows.MembersOf(0).ShouldNotBeNull().Distinct().ToList();
+        members.Count.ShouldBe(2_400);
+        members.Select(m => graph.Types.GetName(graph.TypeIndices[m])).Distinct().Order().ShouldBe(["App.Subscriber", "System.EventHandler"]);
+        members.Sum(m => (long)graph.GetSize(m)).ShouldBe(result.Bytes);
+        members.Where(m => graph.Types.GetName(graph.TypeIndices[m]) == "System.EventHandler").Count(m => graph.GetReferences(m).Length != 1)
+            .ShouldBe(0, "each member delegate references only its target: a multicast delegate holding the list is not a member");
     }
 
     [Fact]

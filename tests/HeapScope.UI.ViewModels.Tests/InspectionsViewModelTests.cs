@@ -207,16 +207,18 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_scoped_row_does_not_offer_its_whole_types_set_and_a_row_with_an_address_shows_its_object_in_the_tree()
+    public async Task A_scoped_rows_retention_is_its_own_set_and_a_row_with_an_address_shows_its_object_in_the_tree()
     {
-        // The 2.4 review: "Objects retained by this set" on a scoped row would answer for every object of the type.
+        // The 2.4 review M14, done in 3.1: a scoped row's "Objects retained by this set" is its own objects, never the type's.
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
         _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
         var scoped = Inspections.Rows.GetRow(0);
         await Inspections.Rows.WhenLoadedAsync();
 
-        Inspections.RetainedBySetCommand.CanExecute(scoped).ShouldBeFalse("a duplicate string row stands for some strings, not all");
+        Inspections.RetainedBySetCommand.Execute(scoped);
+        _snapshots.Retainers.Set.SetQuery.ShouldNotBeNull().Spec.Kind.ShouldBe(ObjectSetKind.InspectionRow, "the row's strings, not every string");
+        _snapshots.Tab = SnapshotTabs.Inspections;
         Inspections.ShowInRetainersCommand.Execute(scoped);
 
         _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);

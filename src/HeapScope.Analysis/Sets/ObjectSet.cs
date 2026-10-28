@@ -112,8 +112,19 @@ public sealed class ObjectSet
     /// <summary>The objects at <paramref name="indices"/> (any order, repeats allowed).</summary>
     public static ObjectSet OfIndices(HeapGraph graph, IEnumerable<int> indices)
     {
-        ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(indices);
+        return indices switch
+        {
+            int[] array => OfIndices(graph, array.AsSpan()),
+            List<int> list => OfIndices(graph, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list)),
+            _ => OfIndices(graph, indices.ToArray().AsSpan()),
+        };
+    }
+
+    /// <summary>The objects at <paramref name="indices"/> (any order, repeats allowed), without copying them (the 3.1 review).</summary>
+    public static ObjectSet OfIndices(HeapGraph graph, ReadOnlySpan<int> indices)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
         var mask = new ulong[(graph.ObjectCount + 63) / 64];
         foreach (var index in indices)
         {

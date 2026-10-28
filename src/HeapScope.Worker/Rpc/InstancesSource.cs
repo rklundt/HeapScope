@@ -145,7 +145,9 @@ internal sealed class InstancesSource : IResultSource
         ArgumentNullException.ThrowIfNull(graph);
         var matches = TypeGroups.MatchTypes(graph, typeName, module, out _);
         var types = graph.TypeIndices.Span;
-        var objects = new List<int>();
+
+        // Count first, then fill an exact array (the 3.1 review: no doubling list of per-object data).
+        var count = 0;
         for (var i = 0; i < types.Length; i++)
         {
             if ((i & 0xFFFF) == 0)
@@ -153,15 +155,21 @@ internal sealed class InstancesSource : IResultSource
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
+            count += matches[types[i]] ? 1 : 0;
+        }
+
+        var objects = new int[count];
+        for (int i = 0, filled = 0; filled < count; i++)
+        {
             if (matches[types[i]])
             {
-                objects.Add(i);
+                objects[filled++] = i;
             }
         }
 
         return scope == InstanceScope.All
-            ? [.. objects]
-            : Scoped(graph, reader, [.. objects], new InstancesRequest(Guid.Empty, typeName, module, Scope: scope, SameValueAs: sameValueAs), cancellationToken);
+            ? objects
+            : Scoped(graph, reader, objects, new InstancesRequest(Guid.Empty, typeName, module, Scope: scope, SameValueAs: sameValueAs), cancellationToken);
     }
 
     /// <param name="dominators">The snapshot's dominators, for the retained bytes column (sprint 2.3); null without it.</param>

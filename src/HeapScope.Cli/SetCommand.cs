@@ -81,6 +81,10 @@ internal static partial class CliCommands
             {
                 result.AddError("--inspection needs --row (from 0).");
             }
+            else if (result.GetValue(baseline) is not null && result.GetValue(inspection) is null)
+            {
+                result.AddError("--baseline goes with --inspection: the earlier dump a growth detector compares against.");
+            }
         });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
@@ -106,7 +110,8 @@ internal static partial class CliCommands
             if (parseResult.GetValue(types) is { Length: > 0 } names)
             {
                 var keys = new List<TypeKeyDto>();
-                foreach (var name in names.SelectMany(n => n.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
+                // Repeat --type for several types: generic names hold commas (the 3.1 review).
+                foreach (var name in names)
                 {
                     var found = parseResult.GetValue(module) ?? await FindModuleAsync(session, handle, name, error, ct).ConfigureAwait(false);
                     if (found is null)
@@ -179,6 +184,13 @@ internal static partial class CliCommands
                     if (parseResult.GetValue(view) == "generations")
                     {
                         await ReleaseQuietlyAsync(summary.Rows, ct).ConfigureAwait(false);
+                        if (!s.HasGenerations)
+                        {
+                            // As every capability gap is said (ARCHITECTURE.md 5.2): the reason, and a failing exit code.
+                            await error.WriteLineAsync("Error: " + CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, handle.Descriptor.Kind)).ConfigureAwait(false);
+                            return Failure;
+                        }
+
                         await WriteGenerationsAsync(output, fmt, s).ConfigureAwait(false);
                         break;
                     }
@@ -226,12 +238,6 @@ internal static partial class CliCommands
         if (format == "json")
         {
             await WriteJsonAsync(output, new { result.TotalObjects, result.TotalBytes, result.HasGenerations, result.HeapKinds }).ConfigureAwait(false);
-            return;
-        }
-
-        if (!result.HasGenerations)
-        {
-            await output.WriteLineAsync("This snapshot does not record generations.").ConfigureAwait(false);
             return;
         }
 

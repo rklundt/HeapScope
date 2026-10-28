@@ -195,6 +195,9 @@ public abstract class InspectionTable
     /// row's hidden columns say what it opens (a type in a scope, or one object).
     /// </summary>
     public virtual IReadOnlyList<int>? MembersOf(int index) => null;
+
+    /// <summary>Whether <see cref="MembersOf"/> lists rows' objects (a leak detector); worth keeping for sets.</summary>
+    public virtual bool HasMembers => false;
 }
 
 /// <summary>Rows kept as compact records and formatted on demand; <paramref name="members"/> lists a row's objects when it counts specific ones.</summary>
@@ -204,7 +207,11 @@ public sealed class RowTable<TRow>(IReadOnlyList<InspectionColumn> columns, TRow
 
     public override int Count => rows.Length;
 
-    public override long EstimatedBytes => (long)rows.Length * bytesPerRow;
+    /// <summary>The rows, and the member lists of rows that keep them (the 3.1 review: counted, so caches see them).</summary>
+    public override long EstimatedBytes => ((long)rows.Length * bytesPerRow) + (members is null ? 0 : rows.Sum(r => 4L * (members(r)?.Count ?? 0)));
+
+    /// <summary>Whether rows list the objects they counted.</summary>
+    public override bool HasMembers => members is not null;
 
     public override void FormatRow(int index, string?[] cells) => format(rows[index], cells);
 

@@ -326,6 +326,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
     {
         null => step.Target!.Kind.ToString(),
         TypeSummaryViewModel => "Types",
+        InstancesViewModel { Set: not null } => "SetInstances",
         InstancesViewModel => "Instances",
         ObjectViewModel => "Object",
         TypeReferrersViewModel => "TypeReferrers",

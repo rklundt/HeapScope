@@ -585,7 +585,7 @@ internal sealed class EventHandlerLeaksDetector : IInspection
                         pending[publisher] = list;
                     }
 
-                    list.Add(new Pending(value, targetIndex < 0 ? -1 : graph.TypeIndices[targetIndex], bytes, multicast));
+                    list.Add(new Pending(value, targetIndex < 0 ? -1 : graph.TypeIndices[targetIndex], bytes, multicast, obj, targetIndex));
                 }
             }
         }
@@ -643,7 +643,13 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
                 found.Publishers.Add(publisher);
                 found.Subscribers++;
-                found.Delegates.Add(subscriber.Value);
+                // The objects whose bytes the row counts (sprint 3.1 review H1): the subscriber delegate (never the shared
+                // multicast delegate holding it) and its target.
+                found.Members.Add(subscriber.Subscriber);
+                if (subscriber.Target >= 0)
+                {
+                    found.Members.Add(subscriber.Target);
+                }
                 found.Bytes += subscriber.Bytes;
                 var targetType = subscriber.TargetType < 0 ? "(static method)" : graph.Types.GetName(subscriber.TargetType);
                 found.TargetTypes[targetType] = found.TargetTypes.GetValueOrDefault(targetType) + 1;
@@ -660,7 +666,7 @@ internal sealed class EventHandlerLeaksDetector : IInspection
                 DetectorGraph.Top(e.Value.TargetTypes),
                 graph.Types.GetName(e.Key.Publisher),
                 DetectorGraph.Module(graph, e.Key.Publisher),
-                [.. e.Value.Delegates]))
+                [.. e.Value.Members]))
             .OrderByDescending(r => r.Subscribers).ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
         string Describe(IEnumerable<KeyValuePair<(int Publisher, string Field), Event>> list) =>
@@ -724,7 +730,10 @@ internal sealed class EventHandlerLeaksDetector : IInspection
     private static bool IsPublisher(HeapGraph graph, bool[] delegates, int obj) =>
         !InspectionRows.IsArray(graph, obj) && !delegates[graph.TypeIndices[obj]];
 
-    private readonly record struct Pending(int Value, int TargetType, long Bytes, bool Multicast);
+    /// <param name="Value">What the publisher's field holds: the subscriber, or the multicast delegate whose list holds it.</param>
+    /// <param name="Subscriber">The subscriber delegate itself.</param>
+    /// <param name="Target">The subscriber's target object, or -1 for a static method.</param>
+    private readonly record struct Pending(int Value, int TargetType, long Bytes, bool Multicast, int Subscriber, int Target);
 
     private sealed record EventRow(string Key, long Publishers, long Subscribers, long Bytes, string TargetTypes, string TypeName, string Module, int[] Members);
 
@@ -738,8 +747,8 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
         public Dictionary<string, long> TargetTypes { get; } = new(StringComparer.Ordinal);
 
-        /// <summary>The subscriber delegates counted (sprint 3.1): what the row opens as a set.</summary>
-        public List<int> Delegates { get; } = [];
+        /// <summary>The subscriber delegates and their targets counted (sprint 3.1): what the row opens as a set.</summary>
+        public List<int> Members { get; } = [];
     }
 }
 

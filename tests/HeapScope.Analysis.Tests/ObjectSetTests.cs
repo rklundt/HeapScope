@@ -148,12 +148,12 @@ public sealed class ObjectSetTests
         mask[TypeIndex(graph, "App.Node")] = true;
         var set = ObjectSet.OfTypes(graph, mask, Ct);
 
-        var tops = SetDominators.Top(dominators, set, out var unreachable, Ct);
+        var tops = SetDominators.Top(dominators, set, Ct);
 
-        tops.Select(t => (t.ObjectIndex, t.MembersBelow)).OrderBy(t => t.ObjectIndex).ShouldBe([(outer.Id, 1), (lone.Id, 0)]);
-        unreachable.ShouldBe(1);
+        tops.Tops.Zip(tops.Below).ShouldBe([(outer.Id, 1), (lone.Id, 0)], "most retained first, with the members below");
+        tops.UnreachableMembers.ShouldBe(1);
         set.Contains(garbage.Id).ShouldBeTrue();
-        tops.Sum(t => (long)dominators.RetainedSize(t.ObjectIndex)).ShouldBe(130, "outer retains inner and the leaf; lone itself");
+        tops.Tops.Sum(t => (long)dominators.RetainedSize(t)).ShouldBe(130, "outer retains inner and the leaf; lone itself");
     }
 
     [Fact]

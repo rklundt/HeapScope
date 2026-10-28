@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 using System.Diagnostics;
+using System.Globalization;
 using HeapScope.Analysis;
 using HeapScope.Analysis.Retention;
 using HeapScope.Contracts;
@@ -105,7 +106,7 @@ internal sealed partial class WorkerService
 
             // The totals and the first rows as shown (sprint 2.3.7 review H3): a disputed "this set retains" is answered from the log.
             logger.LogInformation(
-                "Retained by set: {Shape} in snapshot {Id}, {Matched} type entries, {AllObjects} objects of which {SetObjects} reachable, of {SetBytes} bytes, retain {Objects} objects of {Bytes} bytes (lower bound {LowerBound}, heap {Total}) in {Seconds:0.00} s; first rows {First}",
+                "Retained by set: {Shape} in snapshot {Id}, {Matched} types among the members, {AllObjects} objects of which {SetObjects} reachable, of {SetBytes} bytes, retain {Objects} objects of {Bytes} bytes (lower bound {LowerBound}, heap {Total}) in {Seconds:0.00} s; first rows {First}",
                 Describe(spec),
                 request.SnapshotId,
                 matched,
@@ -114,7 +115,7 @@ internal sealed partial class WorkerService
                 result.SetBytes,
                 result.RetainedObjects,
                 result.RetainedBytes,
-                lowerBound,
+                spec.Kind == ObjectSetKind.Types ? lowerBound.ToString(CultureInfo.InvariantCulture) : "n/a",
                 total,
                 seconds,
                 string.Join("; ", source.Describe(10)));

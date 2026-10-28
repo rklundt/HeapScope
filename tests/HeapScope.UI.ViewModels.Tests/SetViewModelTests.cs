@@ -178,6 +178,8 @@ public sealed class SetViewModelTests : IDisposable
 
         await WaitUntilAsync(() => _worker.Service.LiveSets.Count == live);
         Navigator.Current.ShouldBeSameAs(types);
+        set.View = SetViews.Dominators;
+        set.Dominators.ShouldBeNull("a closed set opens no new views (the 3.1 review)");
     }
 
     public void Dispose()

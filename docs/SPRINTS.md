@@ -2475,23 +2475,23 @@ objects (1.5 M3); placing a type's objects in the dominator tree (2.4 M1).
 8. Protocol 16.
 
 **Task breakdown**:
-1. [ ] Contracts: `ObjectSetSpec` and its kinds, `Set` on `InstancesRequest`, `TypeSummaryRequest` and
+1. [x] Contracts: `ObjectSetSpec` and its kinds, `Set` on `InstancesRequest`, `TypeSummaryRequest` and
    `RetainedBySetRequest`, a set dominators query, ADR-030, protocol 16. Tests: DTO round trips, protocol version.
-2. [ ] Analysis: `ObjectSet` (sorted member indices and a bit mask), aggregation over a set, set retention over an object
+2. [x] Analysis: `ObjectSet` (sorted member indices and a bit mask), aggregation over a set, set retention over an object
    mask, the set's top dominators. Tests: synthetic graphs with known answers for each.
-3. [ ] Inspections: a row's members (`InspectionTable.MembersOf`) for the leak detectors. Tests: each detector's rows
+3. [x] Inspections: a row's members (`InspectionTable.MembersOf`) for the leak detectors. Tests: each detector's rows
    list exactly the counted objects on the fixture.
-4. [ ] Worker: spec resolution with a per-snapshot cache and reservation, the four queries over a set, logging. Tests:
+4. [x] Worker: spec resolution with a per-snapshot cache and reservation, the four queries over a set, logging. Tests:
    each spec kind on the fixture, cache reuse, bounds (too many addresses, unknown types, unknown inspection row).
-5. [ ] Application and CLI: session methods and a `set` command (`--types`, `--namespace`, `--assembly`,
-   `--addresses`, `--inspection` with `--row`, `--retained`; views `types`, `instances`, `generations`, `dominators`,
+5. [x] Application and CLI: session methods and a `set` command (`--type`, `--namespace`, `--assembly`,
+   `--address`, `--inspection` with `--row`, `--retained`; views `types`, `instances`, `generations`, `dominators`,
    `retained`). Tests: CLI output on the fixture.
-6. [ ] View models: a Set subject with its views, the path step and its replay, and the entry points (types grid multi
+6. [x] View models: a Set subject with its views, the path step and its replay, and the entry points (types grid multi
    select and group rows, Compare rows, inspection and detector rows, bookmarks, the retained result). Tests: each entry
    point opens the expected spec; replay after eviction.
-7. [ ] UI: the Set subject view, multi select in the types and Compare grids, the new commands and shortcuts. Tests: view
+7. [x] UI: the Set subject view, multi select in the types and Compare grids, the new commands and shortcuts. Tests: view
    tests by keyboard, no binding errors.
-8. [ ] Docs: ARCHITECTURE (code map, protocol, ADR-030, privacy of logs), DEVELOPER, README, this section.
+8. [x] Docs: ARCHITECTURE (code map, protocol, ADR-030, privacy of logs), DEVELOPER, README, this section.
 
 **Review summary**: to be filled by /wrap-sprint.
 

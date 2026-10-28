@@ -32,7 +32,7 @@ public enum ObjectSetKind
     /// <summary>Every object of one or more types, each by name and module (<see cref="ObjectSetSpec.Types"/>).</summary>
     Types = 0,
 
-    /// <summary>Every object of the types of a namespace (<see cref="ObjectSetSpec.Name"/>; empty for none).</summary>
+    /// <summary>Every object of the types of a namespace (<see cref="ObjectSetSpec.Name"/>, as the namespace rows name it).</summary>
     Namespace = 1,
 
     /// <summary>Every object of the types of an assembly, by module file name (<see cref="ObjectSetSpec.Name"/>).</summary>
@@ -57,7 +57,10 @@ public sealed record TypeKeyDto(string Name, string? Module);
 /// factory methods.
 /// </summary>
 /// <param name="Types">The type keys of <see cref="ObjectSetKind.Types"/>.</param>
-/// <param name="Name">The namespace, the assembly's module, or the inspection's name.</param>
+/// <param name="Name">
+/// The namespace as the summary's namespace rows name it ("(global)" for types without one), the assembly's module file
+/// name, or the inspection's name.
+/// </param>
 /// <param name="Addresses">The objects of <see cref="ObjectSetKind.Objects"/>, at most <see cref="ObjectSetLimits.MaxAddresses"/>.</param>
 /// <param name="Row">The inspection row's index, in the order the inspection lists its rows.</param>
 /// <param name="Baseline">The inspection's baseline snapshot, for the rows of a detector that uses one.</param>
@@ -86,27 +89,69 @@ public sealed record ObjectSetSpec(
 
     public static ObjectSetSpec RetainedByOf(ObjectSetSpec inner) => new(ObjectSetKind.RetainedBy, Inner: inner);
 
-    /// <summary>The spec's shape for the log (kind, how many keys or addresses, the inspection and row), never addresses.</summary>
-    public string Shape => Kind switch
-    {
-        ObjectSetKind.Types => $"types ({Types?.Count ?? 0})",
-        ObjectSetKind.Namespace => "namespace",
-        ObjectSetKind.Assembly => "assembly",
-        ObjectSetKind.Objects => $"objects ({Addresses?.Count ?? 0} addresses)",
-        ObjectSetKind.InspectionRow => $"inspection {Name} row {Row}{(Baseline is null ? string.Empty : " with a baseline")}",
-        ObjectSetKind.RetainedBy => $"retained by {Inner?.Shape}",
-        _ => Kind.ToString(),
-    };
+}
 
-    /// <summary>A key equal for equal specs (lists compare by value), for caches.</summary>
-    public string CacheKey => Kind switch
+/// <summary>
+/// Texts computed from an <see cref="ObjectSetSpec"/> (sprint 3.1 review): kept off the record, as extension members, so
+/// the JSON-RPC formatter never sends them (ADR-016: DTOs are plain data).
+/// </summary>
+public static class ObjectSetSpecs
+{
+    /// <summary>Type keys the log names before it counts the rest.</summary>
+    public const int ShapeTypes = 20;
+
+    extension(ObjectSetSpec spec)
     {
-        ObjectSetKind.Types => "T|" + string.Join("|", (Types ?? []).Select(t => t.Name + "\u0001" + (t.Module ?? string.Empty)).Order(StringComparer.Ordinal)),
-        ObjectSetKind.Objects => "O|" + string.Join(",", (Addresses ?? []).Order().Distinct()),
-        ObjectSetKind.InspectionRow => $"I|{Name}|{Row}|{Baseline}",
-        ObjectSetKind.RetainedBy => "R|" + Inner?.CacheKey,
-        _ => $"{(int)Kind}|{Name}",
-    };
+        /// <summary>
+        /// The spec for the log: its kind, the type keys (the first <see cref="ShapeTypes"/>), the namespace or assembly,
+        /// the inspection and row, and for objects their count and address hash. Type, namespace, assembly
+        /// and inspection names are metadata (ARCHITECTURE.md 11); addresses are never written.
+        /// </summary>
+        public string Shape => spec.Kind switch
+        {
+            ObjectSetKind.Types => $"types ({spec.Types?.Count ?? 0}): {string.Join(", ", (spec.Types ?? []).Take(ShapeTypes).Select(t => string.IsNullOrEmpty(t.Module) ? t.Name : $"{t.Name} [{t.Module}]"))}{((spec.Types?.Count ?? 0) > ShapeTypes ? $" and {spec.Types!.Count - ShapeTypes} more" : string.Empty)}",
+            ObjectSetKind.Namespace => $"namespace {spec.Name}",
+            ObjectSetKind.Assembly => $"assembly {spec.Name}",
+            ObjectSetKind.Objects => $"objects ({spec.Addresses?.Count ?? 0} addresses, #{spec.AddressHash})",
+            ObjectSetKind.InspectionRow => $"inspection {spec.Name} row {spec.Row}{(spec.Baseline is null ? string.Empty : " with baseline " + spec.Baseline)}",
+            ObjectSetKind.RetainedBy => $"retained by {spec.Inner?.Shape}",
+            _ => spec.Kind.ToString(),
+        };
+
+        /// <summary>
+        /// A short hash of the distinct addresses in order: the log and the cache name an objects set by it, so support can
+        /// match it to the bookmarks it came from without the addresses in the log.
+        /// </summary>
+        public string AddressHash
+        {
+            get
+            {
+                var sorted = (spec.Addresses ?? []).Distinct().Order().ToArray();
+                var bytes = new byte[sorted.Length * sizeof(ulong)];
+                for (var i = 0; i < sorted.Length; i++)
+                {
+                    BitConverter.TryWriteBytes(bytes.AsSpan(i * sizeof(ulong)), sorted[i]);
+                }
+
+                return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes), 0, 8);
+            }
+        }
+
+        /// <summary>
+        /// A key equal for equal specs (lists compare by value), for caches. Every kind has its own arm: a kind without one
+        /// is refused, so two sets of a new kind never share a key (the 3.1 review).
+        /// </summary>
+        public string CacheKey => spec.Kind switch
+        {
+            ObjectSetKind.Types => "T|" + string.Join("|", (spec.Types ?? []).Select(t => t.Name + "\u0001" + (t.Module ?? string.Empty)).Order(StringComparer.Ordinal)),
+            ObjectSetKind.Namespace => "N|" + spec.Name,
+            ObjectSetKind.Assembly => "A|" + spec.Name?.ToUpperInvariant(),
+            ObjectSetKind.Objects => $"O|{spec.Addresses?.Distinct().Count() ?? 0}|{spec.AddressHash}",
+            ObjectSetKind.InspectionRow => $"I|{spec.Name?.ToLowerInvariant()}|{spec.Row}|{spec.Baseline}",
+            ObjectSetKind.RetainedBy => "R|" + spec.Inner?.CacheKey,
+            _ => throw new ArgumentException($"Unknown set kind {(int)spec.Kind}."),
+        };
+    }
 }
 
 /// <summary>Bounds on object sets.</summary>
