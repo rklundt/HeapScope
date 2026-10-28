@@ -161,6 +161,34 @@ public sealed class ObjectSetsTests : IClassFixture<AllLeaksDump>, IAsyncDisposa
             .ErrorCode.ShouldBe(HeapScopeErrorCode.InvalidArgument);
     }
 
+    [Fact]
+    public async Task The_cli_set_command_shows_the_views_the_app_shows()
+    {
+        var types = string.Join(",", LeakTypes);
+        using var cli = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--type", types, "--module", Module, "--view", "generations");
+        (await cli.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(cli.Output);
+        cli.Process.ExitCode.ShouldBe(0, cli.Output);
+        cli.Output.ShouldContain("Gen");
+
+        using var instances = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--namespace", "Fixtures.Leaks", "--view", "types", "--format", "csv", "--all");
+        (await instances.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(instances.Output);
+        instances.Process.ExitCode.ShouldBe(0, instances.Output);
+        instances.Output.ShouldContain(LeakTypes[0]);
+
+        using var dominators = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--type", LeakTypes[0], "--view", "dominators", "--top", "3");
+        (await dominators.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(dominators.Output);
+        dominators.Process.ExitCode.ShouldBe(0, dominators.Output);
+        dominators.Output.ShouldContain("no other member dominates");
+
+        using var none = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--namespace", "No.Such", "--view", "types");
+        (await none.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(none.Output);
+        none.Process.ExitCode.ShouldBe(1, none.Output);
+
+        using var usage = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--namespace", "A", "--assembly", "B");
+        (await usage.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(usage.Output);
+        usage.Process.ExitCode.ShouldBe(64, usage.Output);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _host.DisposeAsync();
