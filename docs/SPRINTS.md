@@ -33,7 +33,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
 | 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
 | 2.8 | Packaging and distribution | Planned | | |
-| 3.1 | Object sets | Wrapping | | |
+| 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Planned | | |
 | 3.3 | Comparison depth | Planned | | |
 | 3.4 | Live workflow and housekeeping | Planned | | |

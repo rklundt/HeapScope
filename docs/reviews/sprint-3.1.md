@@ -155,4 +155,7 @@ New Lows from the re-review (listed, not raised):
 
 ## Gate
 
-To be recorded at the close.
+2026-10-28: Debug and Release builds with zero warnings; 1,238 tests, 3 skipped. In full parallel runs on this machine,
+one or two timing tests of areas the sprint did not touch failed, different ones each run (a synthetic job's
+cancellation, a hanging call's cancellation, the session library's concurrent records); each passes alone, as in 2.7.
+The object set integration tests (8, on the leaks fixture and the LeakyApi detector run) pass.
