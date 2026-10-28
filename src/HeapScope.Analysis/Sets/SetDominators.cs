@@ -51,10 +51,11 @@ public sealed class SetDominatorList(int[] tops, int[] below, long unreachable)
 public static class SetDominators
 {
     /// <summary>
-    /// Working memory per object at worst: the walk's stack (a vertex and a slot per entry, in 64 KB chunks), a bit per
-    /// object for the tops, and the tops' arrays and sort keys (20 bytes per top).
+    /// Working memory per object at worst (every object a top): the tops, the members below each, the sort's 16-byte keys
+    /// and its order, and the two sorted arrays (36 bytes per top, alive together at the sort), with a bit per object for
+    /// the tops; the walk's chunked stack (8 bytes per entry) is gone by then.
     /// </summary>
-    public const int WorkingBytesPerObject = 28;
+    public const int WorkingBytesPerObject = 37;
 
     private const int NoTop = -1;
 

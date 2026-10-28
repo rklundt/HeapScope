@@ -236,7 +236,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   dumper), MIT, with its four changes listed in its `CHANGES.md` [1.8, 1.9].
 - **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
   [0.3]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
-  [1.9]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
+  [1.9], and `SetDtos` (`ObjectSetSpec`, with its shape, address hash and cache key as extension members in
+  `ObjectSetSpecs`, so they are never serialized) [3.1]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
   identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]; terms separated by spaces must
   all match, `-term` leaves out, `module:` (or `m:`) tests the row's module, and a term still being typed filters nothing
@@ -1342,6 +1343,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Large arrays are allocated once at their final size. No `List<T>` doubling for per-object data; chunked
   buffers during building, exact arrays after.
 - Hot loops avoid LINQ, closures, boxing and per-item allocations. `ArrayPool<T>` for temporary buffers.
+- Object sets (sprint 3.1, ADR-030) are built inside a reservation and cached within 256 MB of sets and 128 MB of
+  detector tables, outside the reservations' total; letting the reservations evict that cache before refusing is in the
+  Backlog.
 
 ## 10. Scale targets and budgets
 
@@ -1511,17 +1515,22 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.
 - Navigation and polish (sprint 2.7): the analysis path logs each step opened, shown or closed by kind (Types,
-  Instances, Object, TypeReferrers, TypePaths, Retainers, RetainedBySet, and Set since 3.1), its id on the path, its parent's id, its depth,
+  Instances, Object, TypeReferrers, TypePaths, Retainers, RetainedBySet, and Set and SetInstances since 3.1), its id on the path, its parent's id, its depth,
   the worker snapshot id and the step count, and each switch of snapshot, never a type name or an address; a CSV export
   logs the grid's fixed name, the worker result set it reads (whose query the worker logged), the rows expected and
   written, the columns, whether values were included and the time, never the file's path or a cell (a failure logs its
   exception type and HResult); bookmarks log counts, opens and file problems only. Provenance logs a filter by its shape
   (length and counts of terms, excluding terms and module terms), never its text.
-- Object sets (sprint 3.1): every set the worker resolves is logged once with its shape (`ObjectSetSpec.Shape`: the
-  kind, how many type keys or addresses, the inspection and row, never the addresses themselves), the snapshot id, its
-  objects, bytes and types and the time; a set's dominators log the top members' count, what they retain, the members
-  no root reaches and the five largest by type; set retention logs the shape in place of the type. The front end logs
-  a set opened and each view shown by the spec's shape. A disputed set view is traced to what the set held.
+- Object sets (sprint 3.1): a set is logged by its shape (`ObjectSetSpecs.Shape`: the kind, the first 20 type keys with
+  their modules, the namespace or assembly, the inspection, row and baseline, and for objects their count and a short
+  hash of the sorted addresses, never the addresses), in every request's provenance too. A resolution logs the
+  snapshot id, objects, bytes, types, time and how it matched (the type entries matched for the keys, and the keys that
+  matched nothing, with their modules; for an inspection row the rule version and whether its own objects or its hidden type, module and scope were
+  used, and a re-run of the inspection with its reason); a cache hit logs the set and its size; evictions log at Debug.
+  A set's dominators log the top members' count, what they retain, the members no root reaches and the five largest by
+  type; set retention logs the shape and "n/a" as the lower bound of a set that is not whole types. The front end opens
+  a set and switches its views in a `HeapScope.Sets` activity (the view's query and its worker lines share its trace
+  id), logging the snapshot and the shape. A disputed set view is traced to what the set held.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -2074,9 +2083,13 @@ sprint 0.1.
   inspection rows resolve through their hidden columns (a type in a scope, or one object). A set's views are Types (no
   retained column: the Retained view is exact), Instances, Generations, Dominators (the members no other member
   dominates) and Retained.
-- Consequences: specs are small, but a resolved set costs 4 bytes per member and a bit per object of the graph while
-  cached (at most 8 sets and 512 MB of them, least recently used out); what a set retains is computed with the same
-  memory reservation as set retention. Compare's New, Dead and Survived objects need object identity across dumps
+- Consequences: specs are small, but a resolved set costs 4 bytes per member and a bit per object of the graph; it is
+  built inside a reservation of that much and cached (at most 8 sets and 256 MB of them, never one over half, least
+  recently used out); only leak detector tables are cached for their rows (128 MB, member arrays counted). One
+  resolution per set runs at a time. What a set retains is computed with the same memory reservation as set retention;
+  a set's dominators reserve 37 bytes per object (two chunked walks, exact arrays, the sort). A detector row's members
+  are the objects whose bytes it counts (an event's subscriber delegates and their targets; a timer's queue entry and
+  its `System.Timers.Timer`). Compare's New, Dead and Survived objects need object identity across dumps
   (ADR-018) and stay in 3.3. Sets match types by name and module like every other query (1.5 M3 stays in the Backlog).
   An `InspectionRow` spec depends on the inspection's row order, which is deterministic for one snapshot and rule version.
 

@@ -33,7 +33,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
 | 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
 | 2.8 | Packaging and distribution | Planned | | |
-| 3.1 | Object sets | In Progress | | |
+| 3.1 | Object sets | Wrapping | | |
 | 3.2 | Retention views | Planned | | |
 | 3.3 | Comparison depth | Planned | | |
 | 3.4 | Live workflow and housekeeping | Planned | | |
@@ -2493,7 +2493,21 @@ objects (1.5 M3); placing a type's objects in the dominator tree (2.4 M1).
    tests by keyboard, no binding errors.
 8. [x] Docs: ARCHITECTURE (code map, protocol, ADR-030, privacy of logs), DEVELOPER, README, this section.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (`docs/reviews/sprint-3.1.md`; four reviewers: solution-architect, senior-dev, gc-specialist and a
+support engineer): 4 High, 15 Moderate, 26 Low (7 from the re-review).
+- High, all fixed: an event row of a multicast event opened the shared multicast delegates instead of its subscribers
+  (H1); the set's Dominators view could use several times the memory it reserved (H2); its rows read the graph without a
+  lease (H3); a disputed set view could not be traced in the logs (H4: sets are now logged by their names, matches and
+  sizes in every query, cache hits included).
+- Moderate, decided autonomously: 12 fixed (specs' texts kept off the wire, reservations and byte budgets for sets and
+  detector tables, one rule for a detector row's members, single resolution per set, client-side limits and unloaded
+  rows, the CLI's `--type`, one pass over the type table, the inspection replay core, the logging of replays, activities
+  for set actions); 3 fixed in part with the rest deferred (the cache evicted by reservations, the "other snapshot"
+  binding for 3.3, three tests).
+- Low: 16 fixed in passing (scoped inspection rows now offer what they retain through their own set, 2.4 M14), 10 to the
+  Backlog. Every High was confirmed by the reviewer that raised it.
+- Deferred to the Backlog: below.
+
 
 ---
 
@@ -2523,7 +2537,8 @@ groups.
 **Scope**: Compare's counts open their objects as sets (from 3.1, with the snapshot asked where it matters: dead objects
 only exist in the baseline); retained bytes in diffs (a type's retained lower bound in each snapshot and the delta, from
 2.3 decision 7); trends across several snapshots of a session (from the backlog's trend analysis); comparing snapshots of
-different sessions; diff growth by generation (from 1.4).
+different sessions; diff growth by generation (from 1.4). From the 3.1 review (M6): a set's baseline generalized into "the
+other snapshot" (dead objects only exist in the baseline), bound to the current ids at each call like an inspection row's.
 
 **Acceptance criteria**: to be set at /start-sprint.
 
@@ -2600,6 +2615,17 @@ Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Ph
 - Async state machine and Task leak detection.
 
 **Medium**
+- From the 3.1 review (decided autonomously): the memory reservations evicting the object set cache before they
+  refuse (M2); the baseline of a set generalized into "the other snapshot" for 3.3's dead objects and 3.5's growth
+  (M6, do with 3.3); a view model test of a set replayed after a worker restart, a ClrMD check of a set's Generations
+  and Dominators views, and a test that a set's worker lines carry the UI's trace id (M15); the set dominators of a few
+  objects by climbing their dominators instead of walking the tree, and one retention pass shared by the Retained view
+  and "open as set" (L2); a set's frozen members said apart in its Retained view (L3); the CLI logging `--address` like
+  the worker (L12); an `IOpensAsSet` interface for the shortcut, one type key builder, and one session query helper (L18); from the re-review:
+  a concurrency test of the shared set resolution and a worker test of `MaxTypes + 1` (M15); keeping only the mask of a set
+  too large to cache (L20); an event row's bytes counting a shared target once (L21); the cache add and a snapshot's
+  close made one step (L22); progress and a log line for a query that joins a running resolution (L23); exact arrays
+  for the detectors' member lists (L24); the path step id in the set's log line (L25).
 - From the 2.3.5 review (decided autonomously, deferred; the Compare baseline and the Windows CI dump step were done in
   2.3.6):
   - Unix file semantics stated by tests: replacing or deleting a mapped index cache on Linux and macOS succeeds and

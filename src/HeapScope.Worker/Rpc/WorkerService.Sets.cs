@@ -129,7 +129,7 @@ internal sealed partial class WorkerService
 
         while (true)
         {
-            var shared = _resolving.GetOrAdd((snapshotId, key), _ => new Lazy<Task<ObjectSet>>(() => ResolveNowAsync(snapshotId, snapshot, spec, progress, cancellationToken, depth)));
+            var shared = _resolving.GetOrAdd((snapshotId, key), _ => new Lazy<Task<ObjectSet>>(() => ResolveNowAsync(snapshotId, snapshot, spec, key, progress, cancellationToken, depth)));
             try
             {
                 return await shared.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -149,9 +149,10 @@ internal sealed partial class WorkerService
         }
     }
 
-    private async Task<ObjectSet> ResolveNowAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth)
+    private async Task<ObjectSet> ResolveNowAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, string key, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth)
     {
         var graph = snapshot.Graph;
+        var shape = spec.Shape;
         var stopwatch = Stopwatch.StartNew();
         ObjectSet set;
         string detail;
@@ -186,7 +187,7 @@ internal sealed partial class WorkerService
                 }
 
                 set = Reserved(snapshotId, graph, () => ObjectSet.OfAddresses(graph, addresses));
-                detail = string.Create(CultureInfo.InvariantCulture, $"{addresses.Count - set.Count} addresses with no object");
+                detail = string.Create(CultureInfo.InvariantCulture, $"{addresses.Distinct().Count() - set.Count} addresses with no object");
                 break;
             case ObjectSetKind.InspectionRow:
                 (set, detail) = await ResolveInspectionRowAsync(snapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false);
@@ -204,12 +205,17 @@ internal sealed partial class WorkerService
         // A snapshot closed meanwhile keeps nothing in the cache.
         if (snapshots.TryGet(snapshotId) is not null)
         {
-            _sets.Add(snapshotId, spec.CacheKey, set);
+            _sets.Add(snapshotId, key, set);
+        }
+
+        if (set.EstimatedBytes > ObjectSetCache.MaxBytes / 2)
+        {
+            detail += string.Create(CultureInfo.InvariantCulture, $"; too large to keep ({set.EstimatedBytes} bytes), so each view resolves it again");
         }
 
         logger.LogInformation(
             "Object set resolved: {Shape} in snapshot {Id}: {Objects} objects of {Bytes} bytes, {Types} types ({Detail}) in {Seconds:0.000} s",
-            spec.Shape,
+            shape,
             snapshotId,
             set.Count,
             set.Bytes,
@@ -254,7 +260,8 @@ internal sealed partial class WorkerService
             throw new ArgumentException("None of the set's types is in this snapshot. Names are case sensitive and include the namespace.");
         }
 
-        var missing = wanted.Where(w => w.Value == 0).Select(w => w.Key.Name).ToList();
+        var missing = keys.Where(k => wanted[(k.Name, TypeGroups.ModuleKey(k.Module).ToUpperInvariant())] == 0)
+            .Select(k => string.IsNullOrEmpty(k.Module) ? k.Name : $"{k.Name} [{k.Module}]").Distinct().ToList();
         var set = Reserved(snapshotId, graph, () => ObjectSet.OfTypes(graph, typeMask, cancellationToken));
         return (set, string.Create(
             CultureInfo.InvariantCulture,
