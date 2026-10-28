@@ -35,6 +35,9 @@ public enum ShortcutKeys
     FocusPath,
     Refresh,
     Help,
+
+    /// <summary>Opens the selected rows as one object set (sprint 3.1).</summary>
+    OpenAsSet,
 }
 
 /// <summary>One line of the shortcuts list.</summary>
@@ -65,6 +68,7 @@ public static class Shortcuts
         ShortcutKeys.FocusPath => CommandKey + "+L",
         ShortcutKeys.Refresh => "F5",
         ShortcutKeys.Help => "F1",
+        ShortcutKeys.OpenAsSet => CommandKey + "+Shift+O",
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, null),
     };
 
@@ -88,6 +92,7 @@ public static class Shortcuts
             new(Show(Gesture(ShortcutKeys.Find)), "Go to the filter of the current view"),
             new(Show(Gesture(ShortcutKeys.Export)), "Export the grid with focus (or the view's grid) to CSV"),
             new(Show(Gesture(ShortcutKeys.Bookmark)), "Bookmark the shown object, or the selected row's object"),
+            new(Show(Gesture(ShortcutKeys.OpenAsSet)), "Open the selected rows (types, compared types, an inspection row) as one set of objects"),
             new(Show(Gesture(ShortcutKeys.OpenDump)), "Open a dump"),
             new(Show(Gesture(ShortcutKeys.Refresh)), "Refresh the page (processes, sessions)"),
             new("Enter", "Open the selected row (also a double-click)"),

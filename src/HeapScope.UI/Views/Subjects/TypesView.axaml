@@ -73,7 +73,7 @@
       <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center"
                 IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
                 ToolTip.Tip="Show bytes per generation (Gen0, Gen1, Gen2, LOH, POH, frozen) for every row." />
-      <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center"
+      <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding !IsSet}"
                 IsChecked="{Binding ShowRetained, Mode=TwoWay}"
                 ToolTip.Tip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
@@ -82,16 +82,17 @@
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
 
-    <DataGrid x:Name="TypesGrid" ctl:GridExports.ExportName="Types" CanUserSortColumns="True"
+    <DataGrid x:Name="TypesGrid" ctl:GridExports.ExportName="Types" CanUserSortColumns="True" SelectionMode="Extended"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}"
-              ToolTip.Tip="Double-click or Enter opens a type's objects; right-click for what they retain.">
+              ToolTip.Tip="Double-click or Enter opens a type's objects, or a namespace or assembly as a set; Ctrl or Shift selects several types to open as one set (Ctrl+Shift+O); right-click for more.">
       <DataGrid.ContextMenu>
         <ContextMenu>
-          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" />
-          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" />
+          <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItems}" IsVisible="{Binding !IsSet}" />
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" IsVisible="{Binding !IsSet}" />
+          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" IsVisible="{Binding !IsSet}" />
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>

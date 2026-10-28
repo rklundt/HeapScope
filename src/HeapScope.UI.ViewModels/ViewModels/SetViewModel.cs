@@ -153,6 +153,10 @@ public sealed partial class SetDominatorsViewModel : GridQueryViewModel<CellRowI
     [ObservableProperty]
     private string? _summary;
 
+    /// <summary>The columns with their index in the cells.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<(ResultColumn Column, int Index)> _columns = [];
+
     public SetDominatorsViewModel(SnapshotSession session, SnapshotHandle snapshot, ObjectSetQuery set, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
         : base(SetDominatorColumns.Retained, dispatcher, logger)
     {
@@ -201,6 +205,7 @@ public sealed partial class SetDominatorsViewModel : GridQueryViewModel<CellRowI
             answer.Rows,
             () =>
             {
+                Columns = [.. result.Rows.Columns.Select((c, i) => (c, i)).Where(c => !c.c.IsHidden)];
                 Summary = Describe(result) + " " + RetainedText.Source(result.Dominators);
                 Totals = string.Create(CultureInfo.CurrentCulture, $"{result.TopMembers:N0} rows");
             },

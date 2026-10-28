@@ -44,7 +44,7 @@ public sealed partial class RetainedBySetViewModel : GridQueryViewModel<CellRowI
     private SnapshotHandle? _snapshot;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsShown))]
+    [NotifyPropertyChangedFor(nameof(IsShown), nameof(ShownTitle))]
     private string? _typeName;
 
     [ObservableProperty]
@@ -56,6 +56,7 @@ public sealed partial class RetainedBySetViewModel : GridQueryViewModel<CellRowI
     private ObjectSetQuery? _setQuery;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShownTitle))]
     private string? _setTitle;
 
     /// <summary>The totals: the set, what it retains, and the lower bound, with how the dominators were obtained.</summary>
