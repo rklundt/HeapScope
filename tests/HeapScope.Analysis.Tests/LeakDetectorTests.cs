@@ -118,6 +118,15 @@ public sealed class LeakDetectorTests
         Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Publisher.Changed", "2", "1200", "105600", "App.Subscriber (1,200)"], Compare.Prefix);
         result.Bytes.ShouldBe(105_600);
         result.Basis!.ShouldContain("App.Publisher.Changed 1200 subscribers on 2 publishers");
+
+        // The row opens exactly the objects whose bytes it counts (sprint 3.1, review H1): each subscriber delegate (never the
+        // multicast delegate holding the list) and its target, so the set's bytes are the row's.
+        var members = result.Rows.MembersOf(0).ShouldNotBeNull().Distinct().ToList();
+        members.Count.ShouldBe(2_400);
+        members.Select(m => graph.Types.GetName(graph.TypeIndices[m])).Distinct().Order().ShouldBe(["App.Subscriber", "System.EventHandler"]);
+        members.Sum(m => (long)graph.GetSize(m)).ShouldBe(result.Bytes);
+        members.Where(m => graph.Types.GetName(graph.TypeIndices[m]) == "System.EventHandler").Count(m => graph.GetReferences(m).Length != 1)
+            .ShouldBe(0, "each member delegate references only its target: a multicast delegate holding the list is not a member");
     }
 
     [Fact]
@@ -251,10 +260,16 @@ public sealed class LeakDetectorTests
             reader.Fields[(elapsed.Address, "_target")] = Ref(target, "App.Poller");
         }
 
-        var result = Run("timer-leaks", builder.Build(), reader);
+        var timers = builder.Build();
+        var result = Run("timer-leaks", timers, reader);
 
         // Bytes are the timers' (review H1): 500 x (96 + 88).
         Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Poller", "500", "92000", "System.Timers.Timer"], Compare.Prefix);
+
+        // The row's members are the timers it counted, so their bytes are the row's (sprint 3.1).
+        var members = result.Rows.MembersOf(0).ShouldNotBeNull();
+        members.Count.ShouldBe(1_000);
+        members.Sum(m => (long)timers.GetSize(m)).ShouldBe(92_000);
         result.Bytes.ShouldBe(92_000);
         result.Basis!.ShouldContain("500 periodic timers in the queue, 1 canceled, 1 paused or fired, 1 one-shot");
     }
@@ -324,16 +339,25 @@ public sealed class LeakDetectorTests
             reader.Fields[(garbage.Address, "_disposed")] = new ObjectValue(ObjectValueKind.Boolean) { Boolean = true };
         }
 
-        var result = Run("disposed-but-referenced", builder.Build(), reader);
+        var graph = builder.Build();
+        var result = Run("disposed-but-referenced", graph, reader);
 
         Rows(result).Select(r => (r[0], r[1], r[3])).ShouldBe([("App.Session", "240", "<IsDisposed>k__BackingField"), ("App.Resource", "150", "_disposed"), ("App.Connection", "120", "_disposed")]);
+
+        // Each row opens its disposed objects only, never the live ones of the type (sprint 3.1, 2.6 review M24).
+        var resources = result.Rows.MembersOf(1).ShouldNotBeNull();
+        resources.Count.ShouldBe(150);
+        resources.Where(m => reader.Fields[(graph.Addresses[m], "_disposed")].Boolean != true).ShouldBeEmpty();
+        result.Rows.MembersOf(2).ShouldNotBeNull().Count.ShouldBe(120);
     }
 
     [Fact]
     public void Many_reachable_http_clients_are_named_and_a_few_are_not()
     {
         var (many, reader) = Clients(owning: 20, sharing: 0);
-        Rows(Run("httpclient-instances", many, reader)).ShouldHaveSingleItem()[0].ShouldBe("System.Net.Http.HttpClient");
+        var clients = Run("httpclient-instances", many, reader);
+        Rows(clients).ShouldHaveSingleItem()[0].ShouldBe("System.Net.Http.HttpClient");
+        clients.Rows.MembersOf(0).ShouldNotBeNull().Count.ShouldBe(20, "the clients owning their handler (sprint 3.1)");
         var (few, fewReader) = Clients(owning: 19, sharing: 0);
         Run("httpclient-instances", few, fewReader).Count.ShouldBe(0);
     }
@@ -382,6 +406,7 @@ public sealed class LeakDetectorTests
         var result = Run("undisposed-service-scopes", builder.Build(), reader);
 
         Rows(result).ShouldHaveSingleItem().ShouldBe([ScopeType, "550", "39600"], Compare.Prefix);
+        result.Rows.MembersOf(0).ShouldNotBeNull().Count.ShouldBe(550, "the open scopes only (sprint 3.1)");
         result.Bytes.ShouldBe(550 * 72);
         result.Basis!.ShouldStartWith("550 reachable scopes not disposed, 50 disposed, 1 root, 0 unreadable; ");
         result.Note!.ShouldContain("requests in flight");

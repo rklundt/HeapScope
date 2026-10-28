@@ -25,6 +25,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using HeapScope.Analysis;
 using HeapScope.Analysis.Retention;
+using HeapScope.Analysis.Sets;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
@@ -121,12 +122,59 @@ internal sealed class InstancesSource : IResultSource
         }
 
         InstanceFilter.Parse(request.Filter);
+        if (request.Set is not null)
+        {
+            if (request.Scope != InstanceScope.All)
+            {
+                throw new ArgumentException("A set's members are listed without a scope.");
+            }
+
+            return true;
+        }
+
         TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matchedTypes);
         return matchedTypes > 0;
     }
 
+    /// <summary>
+    /// The objects of a type in a scope, in address order (sprint 3.1): what an inspection row without its own member list
+    /// opens as a set, the same objects its instances list shows.
+    /// </summary>
+    public static int[] Select(HeapGraph graph, IObjectReader? reader, string typeName, string? module, InstanceScope scope, ulong sameValueAs, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        var matches = TypeGroups.MatchTypes(graph, typeName, module, out _);
+        var types = graph.TypeIndices.Span;
+
+        // Count first, then fill an exact array (the 3.1 review: no doubling list of per-object data).
+        var count = 0;
+        for (var i = 0; i < types.Length; i++)
+        {
+            if ((i & 0xFFFF) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            count += matches[types[i]] ? 1 : 0;
+        }
+
+        var objects = new int[count];
+        for (int i = 0, filled = 0; filled < count; i++)
+        {
+            if (matches[types[i]])
+            {
+                objects[filled++] = i;
+            }
+        }
+
+        return scope == InstanceScope.All
+            ? objects
+            : Scoped(graph, reader, objects, new InstancesRequest(Guid.Empty, typeName, module, Scope: scope, SameValueAs: sameValueAs), cancellationToken);
+    }
+
     /// <param name="dominators">The snapshot's dominators, for the retained bytes column (sprint 2.3); null without it.</param>
-    public static InstancesSource Create(HeapGraph graph, IObjectReader? reader, InstancesRequest request, CancellationToken cancellationToken, IProgress<JobProgress>? progress = null, Dominators? dominators = null)
+    /// <param name="set">The resolved <see cref="InstancesRequest.Set"/> (sprint 3.1): its members are listed instead of a type's objects.</param>
+    public static InstancesSource Create(HeapGraph graph, IObjectReader? reader, InstancesRequest request, CancellationToken cancellationToken, IProgress<JobProgress>? progress = null, Dominators? dominators = null, ObjectSet? set = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(request);
@@ -138,11 +186,21 @@ internal sealed class InstancesSource : IResultSource
         }
 
         var filter = InstanceFilter.Parse(request.Filter);
-        var matches = TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matchedTypes);
+        if (set is null && request.Set is not null)
+        {
+            throw new ArgumentException("The set has not been resolved.", nameof(set));
+        }
+
+        // A set's members (all, or those of one type) take the place of a type's objects (sprint 3.1).
+        var matches = set is not null && string.IsNullOrEmpty(request.TypeName)
+            ? MembersTypes(graph, set)
+            : TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out _);
         var strings = false;
+        var matchedTypes = 0;
         for (var t = 0; t < matches.Length; t++)
         {
             strings |= matches[t] && graph.Types.Kinds[t].HasFlag(TypeKind.String);
+            matchedTypes += matches[t] ? 1 : 0;
         }
 
         // Without string text a value filter or sort on strings would silently match or order nothing.
@@ -153,15 +211,17 @@ internal sealed class InstancesSource : IResultSource
 
         // Count first, then fill an array of exactly that size: no doubling copies of per-object data.
         var types = graph.TypeIndices.Span;
+        var candidates = set?.Members;
+        var length = candidates?.Length ?? types.Length;
         var total = 0;
-        for (var i = 0; i < types.Length; i++)
+        for (var k = 0; k < length; k++)
         {
-            if ((i & 0xFFFF) == 0)
+            if ((k & 0xFFFF) == 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            if (matches[types[i]])
+            if (matches[types[candidates?[k] ?? k]])
             {
                 total++;
             }
@@ -170,8 +230,9 @@ internal sealed class InstancesSource : IResultSource
         var objects = new int[total];
         long totalBytes = 0;
         var filled = 0;
-        for (var i = 0; i < types.Length && filled < total; i++)
+        for (var k = 0; k < length && filled < total; k++)
         {
+            var i = candidates?[k] ?? k;
             if (matches[types[i]])
             {
                 objects[filled++] = i;
@@ -237,6 +298,19 @@ internal sealed class InstancesSource : IResultSource
 
         SortByKey(graph, dominators, objects, sortColumn, request.Descending, cancellationToken);
         return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes, dominators, note);
+    }
+
+    /// <summary>The types the members of <paramref name="set"/> have.</summary>
+    private static bool[] MembersTypes(HeapGraph graph, ObjectSet set)
+    {
+        var types = graph.TypeIndices.Span;
+        var present = new bool[graph.Types.Count];
+        foreach (var member in set.Members)
+        {
+            present[types[member]] = true;
+        }
+
+        return present;
     }
 
     /// <summary>The objects of the scope: on the large object heap, still to be finalized, strings equal to one string, or reachable from a root.</summary>

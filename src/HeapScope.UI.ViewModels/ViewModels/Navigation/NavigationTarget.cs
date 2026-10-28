@@ -40,7 +40,9 @@ public sealed record NavigationTarget(
     InstanceScope Scope = InstanceScope.All,
     ulong SameValueAs = 0,
     string? NodeKey = null,
-    ObjectReferenceTabs ObjectTab = ObjectReferenceTabs.Outgoing)
+    ObjectReferenceTabs ObjectTab = ObjectReferenceTabs.Outgoing,
+    ObjectSetQuery? Set = null,
+    string? SetTitle = null)
 {
     /// <summary>One object, with <paramref name="tab"/> shown in its references panel.</summary>
     public static NavigationTarget Object(SnapshotHandle snapshot, ulong address, ObjectReferenceTabs tab = ObjectReferenceTabs.Outgoing) =>
@@ -65,4 +67,16 @@ public sealed record NavigationTarget(
 
     public static NavigationTarget RetainedBySet(SnapshotHandle snapshot, string typeName, string? module) =>
         new(NavigationKind.RetainedBySet, snapshot, TypeName: typeName, Module: module);
+
+    /// <summary>What the members of any object set retain together (sprint 3.1), on the Retainers tab.</summary>
+    public static NavigationTarget RetainedBySet(SnapshotHandle snapshot, ObjectSetQuery set, string title) =>
+        new(NavigationKind.RetainedBySet, snapshot, Set: set, SetTitle: title);
+
+    /// <summary>An object set with its views (sprint 3.1), titled <paramref name="title"/> in the analysis path.</summary>
+    public static NavigationTarget ObjectSet(SnapshotHandle snapshot, ObjectSetQuery set, string title) =>
+        new(NavigationKind.Set, snapshot, Set: set, SetTitle: title);
+
+    /// <summary>The members of a set (of one type when <paramref name="typeName"/> is given), as instances (sprint 3.1).</summary>
+    public static NavigationTarget SetInstances(SnapshotHandle snapshot, ObjectSetQuery set, string title, string? typeName = null, string? module = null) =>
+        new(NavigationKind.Instances, snapshot, TypeName: typeName ?? string.Empty, Module: module, Set: set, SetTitle: title);
 }

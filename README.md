@@ -21,6 +21,10 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
   starts a branch; the later steps stay. Back and Forward (Alt+Left, Alt+Right, the mouse buttons) move along it.
 - **Bookmarks.** Ctrl+D (Cmd+D on macOS) marks the shown object, or the selected row's object, with a color. Bookmarks
   of every open snapshot are listed together and come back when the same dump is opened again.
+- **Object sets.** Select several types (Ctrl or Shift and click, or Shift+Down) and press Ctrl+Shift+O (Cmd+Shift+O), or
+  open a namespace or assembly row, a Compare row, an inspection row, your bookmarks or what a set retains: the set
+  gets its own step with Types, Instances, Generations and Dominators views and "Objects retained by this set". A leak
+  detector's row opens exactly the objects it counted. The CLI's `set` command shows the same views.
 - **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;
   `module:name` (or `m:name`) matches the module. Each term is a substring, CamelHumps with capitals (`SCE` finds
   `StaticCacheEntry`), or uses `*` for anything.

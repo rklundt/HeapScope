@@ -125,8 +125,24 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
     /// <summary>The objects of a type within a scope (sprint 1.6: what an inspection row opens).</summary>
     public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
+        : this(session, snapshot, typeName, module, scope, sameValueAs, null, null, dispatcher, logger, navigator)
+    {
+    }
+
+    /// <summary>
+    /// The members of an object set (sprint 3.1): all of them when <paramref name="typeName"/> is empty, else those of that
+    /// type; <paramref name="setTitle"/> names the set in the title.
+    /// </summary>
+    public InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, ObjectSetQuery set, string setTitle, string typeName, string? module, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
+        : this(session, snapshot, typeName, module, InstanceScope.All, 0, set ?? throw new ArgumentNullException(nameof(set)), setTitle, dispatcher, logger, navigator)
+    {
+    }
+
+    private InstancesViewModel(SnapshotSession session, SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope, ulong sameValueAs, ObjectSetQuery? set, string? setTitle, IUiDispatcher dispatcher, ILogger? logger, INavigator? navigator)
         : base(InstanceColumns.Bytes, dispatcher, logger)
     {
+        Set = set;
+        SetTitle = setTitle;
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         TypeName = typeName ?? throw new ArgumentNullException(nameof(typeName));
@@ -142,13 +158,21 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
                 navigator?.Navigate(NavigationTarget.Object(Snapshot, row.Address));
             }
         });
-        ReferencedByCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.TypeReferrers(Snapshot, TypeName, Module)));
+        ReferencedByCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.TypeReferrers(Snapshot, TypeName, Module)), () => Set is null);
 
         // Why alive and the retained set explain all objects of a type, so a scoped list (review L12: equal strings, LOH)
-        // does not offer them.
-        WhyAliveCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.TypePaths(Snapshot, TypeName, Module)), () => Scope == InstanceScope.All);
-        RetainedBySetCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.RetainedBySet(Snapshot, TypeName, Module)), () => Scope == InstanceScope.All);
+        // does not offer them; nor does part of a set. A whole set's members retain what the set retains (sprint 3.1).
+        WhyAliveCommand = new RelayCommand(() => navigator?.Navigate(NavigationTarget.TypePaths(Snapshot, TypeName, Module)), () => Scope == InstanceScope.All && Set is null);
+        RetainedBySetCommand = new RelayCommand(
+            () => navigator?.Navigate(Set is { } members ? NavigationTarget.RetainedBySet(Snapshot, members, SetTitle!) : NavigationTarget.RetainedBySet(Snapshot, TypeName, Module)),
+            () => Scope == InstanceScope.All && (Set is null || string.IsNullOrEmpty(TypeName)));
     }
+
+    /// <summary>The object set whose members are listed (sprint 3.1); null for a type's objects.</summary>
+    public ObjectSetQuery? Set { get; }
+
+    /// <summary>The set's title, with <see cref="Set"/>.</summary>
+    public string? SetTitle { get; }
 
     public SnapshotHandle Snapshot { get; }
 
@@ -161,8 +185,10 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     /// <summary>With <see cref="InstanceScope.SameValue"/>: the string whose equal copies are listed.</summary>
     public ulong SameValueAs { get; }
 
-    /// <summary>The navigation title: the type, with its module and scope.</summary>
-    public string Title => (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]") + Scope switch
+    /// <summary>The navigation title: the type, with its module and scope; or the set's members.</summary>
+    public string Title => Set is not null
+        ? (string.IsNullOrEmpty(TypeName) ? "Objects of " + SetTitle : $"{TypeName} in {SetTitle}")
+        : (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]") + Scope switch
     {
         InstanceScope.LargeObjectHeap => " on the large object heap",
         InstanceScope.Finalizable => " to be finalized",
@@ -223,14 +249,14 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
         InstanceList list;
         try
         {
-            list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, SortColumn, Descending, Scope, SameValueAs, retained), progress, cancellationToken);
+            list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, SortColumn, Descending, Scope, SameValueAs, retained, Set), progress, cancellationToken);
         }
         catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
         {
             // Review M8: retained sizes are optional, so the objects load without them and the note says why.
             retainedFailure = ex.Message;
             var bytes = SortColumn == InstanceColumns.Retained;
-            list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, bytes ? InstanceColumns.Bytes : SortColumn, bytes || Descending, Scope, SameValueAs), null, cancellationToken);
+            list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, bytes ? InstanceColumns.Bytes : SortColumn, bytes || Descending, Scope, SameValueAs, Set: Set), null, cancellationToken);
         }
 
         finished = true;
@@ -260,7 +286,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
                     : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.StringContents, Snapshot.Descriptor.Kind);
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{result.Rows.TotalCount:N0} of {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)}{(result.MatchedTypes > 1 ? $" ({result.MatchedTypes} loaded copies of the type)" : string.Empty)}");
+                    $"{result.Rows.TotalCount:N0} of {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)}{(Set is not null && string.IsNullOrEmpty(TypeName) ? $" of {result.MatchedTypes:N0} types" : result.MatchedTypes > 1 ? $" ({result.MatchedTypes} loaded copies of the type)" : string.Empty)}");
             },
             onError => InstanceRowItem.CreateList(list.Rows, result.Rows, onError, Logger));
     }

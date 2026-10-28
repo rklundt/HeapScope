@@ -454,6 +454,61 @@ public sealed class ViewTests(UiSession ui) : IDisposable
         });
     }
 
+    [Fact]
+    public async Task Types_selected_by_keyboard_open_as_a_set_whose_views_bind_cleanly()
+    {
+        // Sprint 3.1: Shift+Down selects two types, Ctrl+Shift+O (Cmd on macOS) opens them as a set; its views by keyboard.
+        await ui.RunAsync(async () =>
+        {
+            var (shell, worker) = Shell();
+            worker.Service.Rows.Add(["App.Order", "2", "80"]);
+            worker.Service.Rows.Add(["App.Customer", "1", "60"]);
+            worker.Service.InstanceRows.Add(["0x1000", "App.Order", "40", "Gen2", ""]);
+            worker.Service.SetDominatorRows.Add((0x1000, "App.Order", 40, 500, 1));
+            var snapshots = shell.Snapshots;
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell);
+            window.Show();
+            shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+            var command = OperatingSystem.IsMacOS() ? RawInputModifiers.Meta : RawInputModifiers.Control;
+            var dump = Path.Combine(_folder, "app.dmp");
+            await File.WriteAllBytesAsync(dump, [1]);
+            await snapshots.OpenPathAsync(dump);
+            await snapshots.Types.QueryTask;
+            await Settle(snapshots.Types.Rows);
+
+            var types = Grid(window, "TypesGrid");
+            types.Focus();
+            Press(window, PhysicalKey.ArrowDown);
+            Press(window, PhysicalKey.ArrowDown, RawInputModifiers.Shift);
+            types.SelectedItems.Count.ShouldBe(2);
+            Press(window, PhysicalKey.O, command | RawInputModifiers.Shift);
+
+            var set = snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+            set.Title.ShouldBe("2 types");
+            await set.Types.QueryTask;
+            await Settle(set.Types.Rows);
+            Grid(window, "TypesGrid").DataContext.ShouldBeSameAs(set.Types);
+
+            var views = window.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "ViewList" && l.IsEffectivelyVisible);
+            views.ContainerFromIndex(views.SelectedIndex).ShouldNotBeNull().Focus(NavigationMethod.Tab);
+            Press(window, PhysicalKey.ArrowRight);
+            set.View.ShouldBe(SetViews.Instances);
+            await set.Instances!.QueryTask;
+            await Settle(set.Instances.Rows);
+            Press(window, PhysicalKey.ArrowRight);
+            set.View.ShouldBe(SetViews.Generations);
+            Press(window, PhysicalKey.ArrowRight);
+            set.View.ShouldBe(SetViews.Dominators);
+            await set.Dominators!.QueryTask;
+            await Settle(set.Dominators.Rows);
+            Grid(window, "SetDominatorsGrid").IsEffectivelyVisible.ShouldBeTrue();
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
     private static void Click(Window window, Control control)
     {
         var point = control.TranslatePoint(new Point(4, control.Bounds.Height / 2), window)!.Value;
@@ -482,8 +537,12 @@ public sealed class ViewTests(UiSession ui) : IDisposable
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 
-    internal static DataGrid Grid(Window window, string name) =>
-        window.GetVisualDescendants().OfType<DataGrid>().Single(g => g.Name == name);
+    internal static DataGrid Grid(Window window, string name)
+    {
+        // A set's Types view (sprint 3.1) has a second types grid: the shown one is meant when both exist.
+        var grids = window.GetVisualDescendants().OfType<DataGrid>().Where(g => g.Name == name).ToList();
+        return grids.Count == 1 ? grids[0] : grids.Single(g => g.IsEffectivelyVisible);
+    }
 
     // Lets the first page of rows arrive and the grids lay out with it.
     internal static async Task Settle<TRow>(VirtualRowList<TRow> rows)

@@ -222,7 +222,20 @@ public sealed partial class InspectionsViewModel : ObservableObject
     [RelayCommand]
     private void OpenRow(CellRowItem? row)
     {
-        if (row is not { IsLoaded: true } || Snapshot is not { } snapshot || TargetOf(row) is not { } target)
+        if (row is not { IsLoaded: true } || Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        // A leak detector's row of a type opens exactly the objects it counted, as a set (sprint 3.1, 2.6 review M24); a
+        // row that names one object (a growing collection) still opens that object (the 3.1 review).
+        if (Selected is { IsDetector: true } && TargetOf(row) is { TypeName: not null } && SetOf(row) is { } set)
+        {
+            _navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, set.Query, set.Title));
+            return;
+        }
+
+        if (TargetOf(row) is not { } target)
         {
             return;
         }
@@ -231,6 +244,33 @@ public sealed partial class InspectionsViewModel : ObservableObject
         _navigator?.Navigate(target.TypeName is { } typeName
             ? NavigationTarget.Instances(snapshot, typeName, target.Module, target.Scope, target.Address)
             : NavigationTarget.Object(snapshot, target.Address));
+    }
+
+    /// <summary>Opens a row's objects as a set with all its views (sprint 3.1): what it counted, or what it opens.</summary>
+    [RelayCommand]
+    private void OpenAsSet(CellRowItem? row)
+    {
+        if (row is { IsLoaded: true } && Snapshot is { } snapshot && SetOf(row) is { } set)
+        {
+            _navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, set.Query, set.Title));
+        }
+    }
+
+    /// <summary>
+    /// A row of the selected inspection as a set (sprint 3.1): its inspection, its number and the baseline it ran with,
+    /// titled by the inspection and the row's key.
+    /// </summary>
+    public (ObjectSetQuery Query, string Title)? SetOf(CellRowItem row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (Selected is not { Run: not null } tile)
+        {
+            return null;
+        }
+
+        var key = Columns.Count > 0 ? row.Display[Columns[0].Index] : string.Empty;
+        var spec = ObjectSetSpec.OfInspectionRow(tile.Info.Name, row.Index);
+        return (new ObjectSetQuery(spec, tile.RanWith), $"{tile.Title}: {key}");
     }
 
     /// <summary>A row's object (when it names one), or its type's group, in the dominator tree (sprint 2.4).</summary>
@@ -246,21 +286,29 @@ public sealed partial class InspectionsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// What a row's objects retain together (sprint 2.4). Only for a row that stands for every object of its type: a
-    /// scoped row (some of a type's objects, such as the empty collections) would get the whole type's answer, so it is
-    /// off until sets narrower than a type exist (the 2.4 review; Backlog).
+    /// What a row's objects retain together (sprint 2.4): a whole type's row as that type; any other row (some of a type's
+    /// objects, such as the empty collections, or a detector's counted objects) through its own set (sprint 3.1, the 2.4
+    /// review M14), so it never gets the whole type's answer.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(IsWholeType))]
+    [RelayCommand(CanExecute = nameof(HasObjects))]
     private void RetainedBySet(CellRowItem? row)
     {
-        if (IsWholeType(row) && Snapshot is { } snapshot && TargetOf(row!) is { TypeName: { } typeName } target)
+        if (row is not { IsLoaded: true } || Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        if (TargetOf(row) is { TypeName: { } typeName, Scope: InstanceScope.All, Address: 0 } target && Selected is not { IsDetector: true })
         {
             _navigator?.Navigate(NavigationTarget.RetainedBySet(snapshot, typeName, target.Module));
         }
+        else if (SetOf(row) is { } set)
+        {
+            _navigator?.Navigate(NavigationTarget.RetainedBySet(snapshot, set.Query, set.Title));
+        }
     }
 
-    private static bool IsWholeType(CellRowItem? row) =>
-        row is { IsLoaded: true } && TargetOf(row) is { TypeName: not null, Scope: InstanceScope.All, Address: 0 };
+    private static bool HasObjects(CellRowItem? row) => row is { IsLoaded: true } && TargetOf(row) is not null;
 
     /// <summary>What a row opens: its hidden type, module and scope, or its address alone (ADR-020).</summary>
     public static InspectionTarget? TargetOf(CellRowItem row)

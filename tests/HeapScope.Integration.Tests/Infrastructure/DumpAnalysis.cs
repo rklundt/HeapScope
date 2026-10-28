@@ -147,10 +147,14 @@ public sealed class DumpAnalysis : IDisposable
     /// bytes reachable from the roots now, less those still reachable without entering the set. <paramref name="reachable"/>
     /// is <see cref="ReachableFromRoots"/>, passed in so several sets share one walk.
     /// </summary>
-    public ulong SetRetainedBytes(string typeName, HashSet<ulong> reachable)
+    public ulong SetRetainedBytes(string typeName, HashSet<ulong> reachable) => SetRetainedBytes([typeName], reachable);
+
+    /// <summary>What every object of any of <paramref name="typeNames"/> retains together (sprint 3.1, a set of types).</summary>
+    public ulong SetRetainedBytes(IReadOnlyCollection<string> typeNames, HashSet<ulong> reachable)
     {
+        ArgumentNullException.ThrowIfNull(typeNames);
         ArgumentNullException.ThrowIfNull(reachable);
-        var set = Instances(typeName).Select(o => o.Address).ToHashSet();
+        var set = Heap.EnumerateObjects().Where(o => o.Type?.Name is { } name && typeNames.Contains(name)).Select(o => o.Address).ToHashSet();
         var without = ReachableFromRoots(set);
         ulong total = 0;
         foreach (var address in reachable)

@@ -123,6 +123,7 @@ public partial class MainWindow : Window
             _ when Matches(e, ShortcutKeys.Find) => FocusFilter,
             _ when Matches(e, ShortcutKeys.Export) => Export,
             _ when Matches(e, ShortcutKeys.Bookmark) => Bookmark,
+            _ when Matches(e, ShortcutKeys.OpenAsSet) => OpenAsSet,
             _ when Matches(e, ShortcutKeys.FocusPath) => FocusPath,
             _ when Matches(e, ShortcutKeys.OpenDump) => () => Run(shell.Snapshots.OpenDumpCommand),
             _ when Matches(e, ShortcutKeys.Refresh) => () =>
@@ -182,6 +183,30 @@ public partial class MainWindow : Window
 
         var row = (FocusManager?.GetFocusedElement() as Visual)?.FindAncestorOfType<DataGrid>(includeSelf: true)?.SelectedItem as IObjectLink;
         _ = shell.Snapshots.ToggleBookmarkAsync(row);
+        return true;
+    }
+
+    // The focused grid's rows as one set (sprint 3.1): several rows where the grid takes several, else the selected one.
+    private bool OpenAsSet()
+    {
+        if ((FocusManager?.GetFocusedElement() as Visual)?.FindAncestorOfType<DataGrid>(includeSelf: true) is not { } grid)
+        {
+            return false;
+        }
+
+        var (command, parameter) = grid.DataContext switch
+        {
+            TypeSummaryViewModel types => (types.OpenAsSetCommand, (object?)grid.SelectedItems),
+            CompareViewModel compare => (compare.OpenAsSetCommand, grid.SelectedItems),
+            InspectionsViewModel inspections => (inspections.OpenAsSetCommand, grid.SelectedItem),
+            _ => ((System.Windows.Input.ICommand?)null, null),
+        };
+        if (command is null || !command.CanExecute(parameter))
+        {
+            return false;
+        }
+
+        command.Execute(parameter);
         return true;
     }
 

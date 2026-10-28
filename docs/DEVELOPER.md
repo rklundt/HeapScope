@@ -102,6 +102,12 @@ dotnet test --solution HeapScope.sln
   the tree below that object and its dominators from the top. `retained-by <snapshot> <type> [--module <file>] [--top N
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
   with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
+  `set <snapshot> (--type <name> [--type ...] [--module <file>] | --namespace <name> | --assembly <file> | --address 0x...
+  [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--retained] [--view types|instances|generations|dominators|retained]
+  [--top N | --all] [--format table|csv|json]` (sprint 3.1) shows an object set in one of the app's set views; `--retained`
+  takes what the set keeps alive instead of its members; a set that selects nothing exits 1, two ways of choosing it 64.
+  The logs name an objects set (bookmarks) by its count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of
+  its distinct addresses sorted ascending, each as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
   Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
   `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
   that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.

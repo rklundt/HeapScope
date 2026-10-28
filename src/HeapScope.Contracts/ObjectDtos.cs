@@ -52,6 +52,8 @@ public static class InstanceColumns
 /// finalized, or strings with the same text as the one at <paramref name="SameValueAs"/>.</param>
 /// <param name="IncludeRetained">Adds the <see cref="InstanceColumns.Retained"/> column (sprint 2.3), computing the
 /// snapshot's dominators on first use.</param>
+/// <param name="Set">Lists the members of this set instead (sprint 3.1): all of them when <paramref name="TypeName"/> is
+/// empty, else the members of that type; <paramref name="Scope"/> must then be <see cref="InstanceScope.All"/>.</param>
 public sealed record InstancesRequest(
     Guid SnapshotId,
     string TypeName,
@@ -61,7 +63,8 @@ public sealed record InstancesRequest(
     bool Descending = true,
     InstanceScope Scope = InstanceScope.All,
     ulong SameValueAs = 0,
-    bool IncludeRetained = false);
+    bool IncludeRetained = false,
+    ObjectSetSpec? Set = null);
 
 /// <summary>Which objects of a type an instances query lists (sprint 1.6; inspection rows open these).</summary>
 public enum InstanceScope

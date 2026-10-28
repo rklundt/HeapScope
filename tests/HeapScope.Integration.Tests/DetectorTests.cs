@@ -189,6 +189,31 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
 
     public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 
+    [Fact]
+    public async Task A_detector_row_opens_exactly_the_objects_it_counted_as_a_set()
+    {
+        // Sprint 3.1 (2.6 review M24): the disposed-but-referenced row is its disposed objects, not every reachable one.
+        var current = await _session.StartOpen(_runs.LeakyCurrent).Result;
+        var rows = await RowsAsync(current, "disposed-but-referenced", null);
+        var index = rows.FindIndex(r => r["Type"] == "Fixtures.Leaks.DisposedResource");
+        index.ShouldBeGreaterThanOrEqualTo(0);
+        var counted = long.Parse(rows[index]["Objects"]!, CultureInfo.InvariantCulture);
+
+        var set = await _session.QueryInstancesAsync(current, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfInspectionRow("disposed-but-referenced", index))), null, Ct);
+
+        set.Result.TotalObjects.ShouldBe(counted);
+        set.Result.MatchedTypes.ShouldBe(1);
+
+        // An event row opens its subscriber delegates and their targets (the 3.1 review H1): the row's bytes, not the
+        // shared multicast delegates.
+        var events = await RowsAsync(current, "event-handler-leaks", null);
+        var eventRow = events.FindIndex(r => long.Parse(r["Subscribers"]!, CultureInfo.InvariantCulture) > 0);
+        eventRow.ShouldBeGreaterThanOrEqualTo(0);
+        var eventSet = await _session.QueryInstancesAsync(current, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfInspectionRow("event-handler-leaks", eventRow))), null, Ct);
+        eventSet.Result.TotalObjects.ShouldBeGreaterThanOrEqualTo(long.Parse(events[eventRow]["Subscribers"]!, CultureInfo.InvariantCulture), "at least one delegate per subscriber");
+        eventSet.Result.TotalBytes.ShouldBeLessThanOrEqualTo(long.Parse(events[eventRow]["Bytes"]!, CultureInfo.InvariantCulture), "targets shared by several subscribers count once in the set");
+    }
+
     private async Task<List<Dictionary<string, string?>>> RowsAsync(SnapshotHandle snapshot, string detector, SnapshotHandle? baseline)
     {
         var run = await _session.RunInspectionAsync(snapshot, detector, null, Ct, baseline);

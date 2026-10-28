@@ -141,6 +141,13 @@ public interface IWorkerService
     Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The members of an object set that no other member dominates, with what each retains (sprint 3.1, ADR-030). Computes
+    /// or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A set that selects nothing fails with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The icicle chart below a focus object or the whole reachable heap (sprint 2.4). Fails like
     /// <see cref="QueryDominatorTreeAsync"/> for a focus with no object or none a root reaches.
     /// </summary>

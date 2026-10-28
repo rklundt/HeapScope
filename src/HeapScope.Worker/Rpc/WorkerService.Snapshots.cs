@@ -43,6 +43,7 @@ internal sealed partial class WorkerService
     public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
     {
         snapshots.Close(snapshotId);
+        _sets.Forget(snapshotId);
         return Task.CompletedTask;
     }
 }

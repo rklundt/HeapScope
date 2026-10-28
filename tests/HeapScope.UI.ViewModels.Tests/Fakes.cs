@@ -449,6 +449,34 @@ internal sealed class FakeWorkerService : IWorkerService
             new ResultSetInfo(id, rows.Length, columns), SetRows.Count == 0 ? 0 : 1, set.Objects, set.Bytes, SetRows.Sum(r => r.Objects), total, set.Bytes, 10 * total, 0.25, Dominators));
     }
 
+    /// <summary>Set dominator queries received (sprint 3.1).</summary>
+    public List<SetDominatorsRequest> SetDominatorQueries { get; } = [];
+
+    /// <summary>The top members the fake answers a set dominators query with: address, type, bytes, retained, members below.</summary>
+    public List<(ulong Address, string Type, long Bytes, long Retained, int Below)> SetDominatorRows { get; } = [];
+
+    public Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        SetDominatorQueries.Add(request);
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        IReadOnlyList<string?>[] rows =
+        [
+            .. SetDominatorRows.Select(r => (IReadOnlyList<string?>)[
+                "0x" + r.Address.ToString("x", invariant), r.Type, r.Bytes.ToString(invariant), r.Retained.ToString(invariant), r.Below.ToString(invariant)]),
+        ];
+        var id = Guid.NewGuid();
+        _sets[id] = [.. rows];
+        var columns = new ResultColumn[]
+        {
+            new(SetDominatorColumns.Address, ResultColumnKind.Address, IsKey: true), new(SetDominatorColumns.Type, ResultColumnKind.Text),
+            new(SetDominatorColumns.Bytes, ResultColumnKind.Bytes), new(SetDominatorColumns.Retained, ResultColumnKind.Bytes),
+            new(SetDominatorColumns.Members, ResultColumnKind.Integer),
+        };
+        var members = SetDominatorRows.Count + SetDominatorRows.Sum(r => r.Below);
+        return Task.FromResult(new SetDominatorsResult(
+            new ResultSetInfo(id, rows.Length, columns), new ObjectSetInfo(members, SetDominatorRows.Sum(r => r.Bytes), 1), SetDominatorRows.Count, SetDominatorRows.Sum(r => r.Retained), 0, Dominators));
+    }
+
     /// <summary>Icicle queries received (sprint 2.4).</summary>
     public List<IcicleRequest> IcicleQueries { get; } = [];
 

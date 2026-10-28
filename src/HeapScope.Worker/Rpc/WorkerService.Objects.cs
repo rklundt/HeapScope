@@ -58,14 +58,16 @@ internal sealed partial class WorkerService
                 DominatorIndex? dominators = null;
                 DominatorIndexInfo? info = null;
                 // Sprint 2.3 review M7: a bad request is refused, and a type with no objects answered, before any dominators.
-                if (InstancesSource.Validate(snapshot.Graph, request) && request.IncludeRetained)
+                var valid = InstancesSource.Validate(snapshot.Graph, request);
+                var set = request.Set is { } spec ? await ResolveSetAsync(request.SnapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false) : null;
+                if (valid && request.IncludeRetained)
                 {
                     // Sprint 2.3: attached to the graph, so the set's lease keeps them while its pages are read.
                     (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
                 }
 
                 var throttled = new ThrottledProgress<JobProgress>(progress);
-                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators), cancellationToken).ConfigureAwait(false);
+                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators, set), cancellationToken).ConfigureAwait(false);
                 var rows = resultSets.Add(source, lease);
                 return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds, info, source.Note);
             }

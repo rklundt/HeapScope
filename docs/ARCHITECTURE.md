@@ -199,7 +199,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   retained lower bound), with `TypeGroups.GroupOfType` numbering the groups of a grouping [2.3]; the dominator tree's
   children (`DominatorTree.BuildChildren`, kept with the dominators), `DominatorTreeRows` (the tree flattened for a paged
   grid, with `DominatorRow`, `DominatorTreeView` and `DominatorGrouping`), `IcicleLayout` and `SetRetention` (what a set
-  retains together, exactly) [2.4].
+  retains together, exactly) [2.4]. `Sets/ObjectSet` (a set's members as sorted object indices and a bit mask, built from
+  types, addresses or indices), `Sets/SetDominators` (the members no other member dominates), `TypeAggregation.Compute`
+  over a set, `SetRetention.Compute` over a set (optionally returning the retained objects as a set),
+  `TypeGroups.MatchGroup` (a namespace's or an assembly's types) and `InspectionTable.MembersOf` (the objects a leak
+  detector row counted) [3.1].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
   built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
@@ -232,7 +236,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   dumper), MIT, with its four changes listed in its `CHANGES.md` [1.8, 1.9].
 - **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
   [0.3]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
-  [1.9]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
+  [1.9], and `SetDtos` (`ObjectSetSpec`, with its shape, address hash and cache key as extension members in
+  `ObjectSetSpecs`, so they are never serialized) [3.1]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
   identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]; terms separated by spaces must
   all match, `-term` leaves out, `module:` (or `m:`) tests the row's module, and a term still being typed filters nothing
@@ -274,7 +279,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   it, with the fallbacks) and `MemoryReservations` (the worker-wide memory check of the large derived computations,
   with `Refusal`'s next steps) and `WorkerService.Retained.cs`; `TypeSummarySource` and `InstancesSource` add a retained column when
   asked [2.3]. `WorkerService.Dominators.cs` (the tree and the icicle) with `DominatorTreeSource`, and
-  `WorkerService.SetRetention.cs` with `RetainedBySetSource` [2.4].
+  `WorkerService.SetRetention.cs` with `RetainedBySetSource` [2.4]. `WorkerService.Sets.cs` (resolving an
+  `ObjectSetSpec` into its members, logged with its size; a set's dominators with `SetDominatorsSource`), `ObjectSetCache`
+  (resolved sets and the inspection tables their rows come from, least recently used out, dropped with their snapshot),
+  `InstancesSource.Select` (a type's objects in a scope) and the set on instances, type summaries and set retention [3.1].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -290,6 +298,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
   `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
+  `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
+  by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
+  and a set on type summaries and instances) [3.1].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). `Services/`: `IUiDispatcher` (post to the UI
   thread, `YieldToRenderAsync`) with `ImmediateUiDispatcher` for tests, `IUserInteraction` (asynchronous dialogs; opening a file or showing it in its folder since the timeline row) with
   `AutomaticUserInteraction` for smoke runs. `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>`
@@ -321,6 +332,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `GridExportService`: save picker, the values question, the write off the dispatcher, the status and the log);
   `BookmarksViewModel` and `BookmarkItem`; `Shortcuts` (the one shortcut table) and the shell's `ShowPage`,
   `ShowSnapshotTab`, `ShowHelp` and `RefreshPage`; `InspectionsViewModel.RefreshBaselines`.
+  Sprint 3.1: `SetViewModel` (an object set as a subject: its `SetViews`, the Types view as a `TypeSummaryViewModel` over
+  the set, Instances as an `InstancesViewModel` over the set, Generations from the Types totals, Dominators as a
+  `SetDominatorsViewModel`), `NavigationKind.Set` with `NavigationTarget.ObjectSet` and `SetInstances`, and the entry
+  points: the types and Compare grids' selections and group rows, inspection and detector rows, the bookmarks and the
+  retained objects (`RetainedBySetViewModel` takes any set).
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -602,6 +618,10 @@ Rules:
   Version 15 (sprint 2.7): `ResultColumn.IsHidden` (link columns no front end shows: raw type names, modules, tree keys,
   child counts) and `HasValues` (columns of the target's data), replacing the naming convention of 1.5 and 1.6
   (`InspectionColumn.HasValues` marks them in Analysis).
+  Version 16 (sprint 3.1, ADR-030): `ObjectSetSpec` (kinds `Types`, `Namespace`, `Assembly`, `Objects`, `InspectionRow`,
+  `RetainedBy`, with `ObjectSetLimits`), `Set` on `InstancesRequest`, `TypeSummaryRequest` and `RetainedBySetRequest`,
+  `TypeSummaryResult.Set` (`ObjectSetInfo`), and `QuerySetDominatorsAsync` (`SetDominatorsRequest`, `SetDominatorsResult`,
+  `SetDominatorColumns`).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1323,6 +1343,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Large arrays are allocated once at their final size. No `List<T>` doubling for per-object data; chunked
   buffers during building, exact arrays after.
 - Hot loops avoid LINQ, closures, boxing and per-item allocations. `ArrayPool<T>` for temporary buffers.
+- Object sets (sprint 3.1, ADR-030) are built inside a reservation and cached within 256 MB of sets and 128 MB of
+  detector tables, outside the reservations' total; letting the reservations evict that cache before refusing is in the
+  Backlog.
 
 ## 10. Scale targets and budgets
 
@@ -1492,12 +1515,22 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
 - Logs never contain field values or string contents from a snapshot.
 - Navigation and polish (sprint 2.7): the analysis path logs each step opened, shown or closed by kind (Types,
-  Instances, Object, TypeReferrers, TypePaths, Retainers, RetainedBySet), its id on the path, its parent's id, its depth,
+  Instances, Object, TypeReferrers, TypePaths, Retainers, RetainedBySet, and Set and SetInstances since 3.1), its id on the path, its parent's id, its depth,
   the worker snapshot id and the step count, and each switch of snapshot, never a type name or an address; a CSV export
   logs the grid's fixed name, the worker result set it reads (whose query the worker logged), the rows expected and
   written, the columns, whether values were included and the time, never the file's path or a cell (a failure logs its
   exception type and HResult); bookmarks log counts, opens and file problems only. Provenance logs a filter by its shape
   (length and counts of terms, excluding terms and module terms), never its text.
+- Object sets (sprint 3.1): a set is logged by its shape (`ObjectSetSpecs.Shape`: the kind, the first 20 type keys with
+  their modules, the namespace or assembly, the inspection, row and baseline, and for objects their count and a short
+  hash of the sorted addresses, never the addresses), in every request's provenance too. A resolution logs the
+  snapshot id, objects, bytes, types, time and how it matched (the type entries matched for the keys, and the keys that
+  matched nothing, with their modules; for an inspection row the rule version and whether its own objects or its hidden type, module and scope were
+  used, and a re-run of the inspection with its reason); a cache hit logs the set and its size; evictions log at Debug.
+  A set's dominators log the top members' count, what they retain, the members no root reaches and the five largest by
+  type; set retention logs the shape and "n/a" as the lower bound of a set that is not whole types. The front end opens
+  a set and switches its views in a `HeapScope.Sets` activity (the view's query and its worker lines share its trace
+  id), logging the snapshot and the shape. A disputed set view is traced to what the set held.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -2037,6 +2070,28 @@ sprint 0.1.
   grid is shared by the paths and re-queried for the selected snapshot. Every change to the bookmarks file re-reads it
   under a lock file, so two HeapScope windows keep each other's marks (review H3). Several analyses side by side
   (analysis tabs) stay in the Backlog: the branching path covers coming back to an earlier one without more result sets. Bookmarks are not matched to objects of another dump.
+
+### ADR-030 Object sets as the analysis subject (added in sprint 3.1)
+- Context: Phase 2 analysed one type's objects at a time; dotMemory's model is the object set, where any selection
+  (several types, a namespace, a comparison row, an inspection finding, marked objects, what a set retains) becomes a
+  subject with every view. The product owner found HeapScope "well under powered" after Phase 2 and agreed to Phase 3.
+- Decision: a set is described by an `ObjectSetSpec` (what it selects, not its members) that the client keeps and sends
+  with each query; the worker resolves it in one snapshot into its members (sorted object indices and a bit per object)
+  and caches a few resolved sets and inspection tables. There is no set handle on the wire: a spec survives result set
+  eviction and worker restarts, and the analysis path replays it. An inspection row's baseline is held by the client as
+  a snapshot handle and bound to the current id at each call. Leak detector rows list the objects they counted; other
+  inspection rows resolve through their hidden columns (a type in a scope, or one object). A set's views are Types (no
+  retained column: the Retained view is exact), Instances, Generations, Dominators (the members no other member
+  dominates) and Retained.
+- Consequences: specs are small, but a resolved set costs 4 bytes per member and a bit per object of the graph; it is
+  built inside a reservation of that much and cached (at most 8 sets and 256 MB of them, never one over half, least
+  recently used out); only leak detector tables are cached for their rows (128 MB, member arrays counted). One
+  resolution per set runs at a time. What a set retains is computed with the same memory reservation as set retention;
+  a set's dominators reserve 37 bytes per object (two chunked walks, exact arrays, the sort). A detector row's members
+  are the objects whose bytes it counts (an event's subscriber delegates and their targets; a timer's queue entry and
+  its `System.Timers.Timer`). Compare's New, Dead and Survived objects need object identity across dumps
+  (ADR-018) and stay in 3.3. Sets match types by name and module like every other query (1.5 M3 stays in the Backlog).
+  An `InspectionRow` spec depends on the inspection's row order, which is deterministic for one snapshot and rule version.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

@@ -189,16 +189,36 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_scoped_row_does_not_offer_its_whole_types_set_and_a_row_with_an_address_shows_its_object_in_the_tree()
+    public async Task A_row_opens_as_a_set_named_by_its_inspection_and_row()
     {
-        // The 2.4 review: "Objects retained by this set" on a scoped row would answer for every object of the type.
+        // Sprint 3.1: the objects a row stands for, with every set view; the worker resolves the row by its number.
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        await Inspections.RunTask;
+        Inspections.Rows.GetRow(0);
+        await Inspections.Rows.WhenLoadedAsync();
+
+        Inspections.OpenAsSetCommand.Execute(Inspections.Rows.GetRow(0));
+
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Snapshot);
+        var set = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (set.Set.Spec.Kind, set.Set.Spec.Name, set.Set.Spec.Row).ShouldBe((ObjectSetKind.InspectionRow, Inspections.Tiles[0].Info.Name, 0));
+        set.Title.ShouldStartWith(Inspections.Tiles[0].Title + ": ");
+    }
+
+    [Fact]
+    public async Task A_scoped_rows_retention_is_its_own_set_and_a_row_with_an_address_shows_its_object_in_the_tree()
+    {
+        // The 2.4 review M14, done in 3.1: a scoped row's "Objects retained by this set" is its own objects, never the type's.
         await _snapshots.OpenPathAsync(Dump("a.dmp"));
         _snapshots.Tab = SnapshotTabs.Inspections;
         await Inspections.RunTask;
         var scoped = Inspections.Rows.GetRow(0);
         await Inspections.Rows.WhenLoadedAsync();
 
-        Inspections.RetainedBySetCommand.CanExecute(scoped).ShouldBeFalse("a duplicate string row stands for some strings, not all");
+        Inspections.RetainedBySetCommand.Execute(scoped);
+        _snapshots.Retainers.Set.SetQuery.ShouldNotBeNull().Spec.Kind.ShouldBe(ObjectSetKind.InspectionRow, "the row's strings, not every string");
+        _snapshots.Tab = SnapshotTabs.Inspections;
         Inspections.ShowInRetainersCommand.Execute(scoped);
 
         _snapshots.Tab.ShouldBe(SnapshotTabs.Retainers);
