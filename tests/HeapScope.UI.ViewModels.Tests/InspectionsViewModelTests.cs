@@ -189,6 +189,24 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_row_opens_as_a_set_named_by_its_inspection_and_row()
+    {
+        // Sprint 3.1: the objects a row stands for, with every set view; the worker resolves the row by its number.
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        await Inspections.RunTask;
+        Inspections.Rows.GetRow(0);
+        await Inspections.Rows.WhenLoadedAsync();
+
+        Inspections.OpenAsSetCommand.Execute(Inspections.Rows.GetRow(0));
+
+        _snapshots.Tab.ShouldBe(SnapshotTabs.Snapshot);
+        var set = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (set.Set.Spec.Kind, set.Set.Spec.Name, set.Set.Spec.Row).ShouldBe((ObjectSetKind.InspectionRow, Inspections.Tiles[0].Info.Name, 0));
+        set.Title.ShouldStartWith(Inspections.Tiles[0].Title + ": ");
+    }
+
+    [Fact]
     public async Task A_scoped_row_does_not_offer_its_whole_types_set_and_a_row_with_an_address_shows_its_object_in_the_tree()
     {
         // The 2.4 review: "Objects retained by this set" on a scoped row would answer for every object of the type.

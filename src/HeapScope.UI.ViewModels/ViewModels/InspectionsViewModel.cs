@@ -222,7 +222,19 @@ public sealed partial class InspectionsViewModel : ObservableObject
     [RelayCommand]
     private void OpenRow(CellRowItem? row)
     {
-        if (row is not { IsLoaded: true } || Snapshot is not { } snapshot || TargetOf(row) is not { } target)
+        if (row is not { IsLoaded: true } || Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        // A leak detector's row opens exactly the objects it counted, as a set (sprint 3.1, 2.6 review M24).
+        if (Selected is { IsDetector: true } && SetOf(row) is { } set)
+        {
+            _navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, set.Query, set.Title));
+            return;
+        }
+
+        if (TargetOf(row) is not { } target)
         {
             return;
         }
@@ -231,6 +243,33 @@ public sealed partial class InspectionsViewModel : ObservableObject
         _navigator?.Navigate(target.TypeName is { } typeName
             ? NavigationTarget.Instances(snapshot, typeName, target.Module, target.Scope, target.Address)
             : NavigationTarget.Object(snapshot, target.Address));
+    }
+
+    /// <summary>Opens a row's objects as a set with all its views (sprint 3.1): what it counted, or what it opens.</summary>
+    [RelayCommand]
+    private void OpenAsSet(CellRowItem? row)
+    {
+        if (row is { IsLoaded: true } && Snapshot is { } snapshot && SetOf(row) is { } set)
+        {
+            _navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, set.Query, set.Title));
+        }
+    }
+
+    /// <summary>
+    /// A row of the selected inspection as a set (sprint 3.1): its inspection, its number and the baseline it ran with,
+    /// titled by the inspection and the row's key.
+    /// </summary>
+    public (ObjectSetQuery Query, string Title)? SetOf(CellRowItem row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (Selected is not { Run: not null } tile)
+        {
+            return null;
+        }
+
+        var key = Columns.Count > 0 ? row.Display[Columns[0].Index] : string.Empty;
+        var spec = ObjectSetSpec.OfInspectionRow(tile.Info.Name, row.Index);
+        return (new ObjectSetQuery(spec, tile.RanWith), $"{tile.Title}: {key}");
     }
 
     /// <summary>A row's object (when it names one), or its type's group, in the dominator tree (sprint 2.4).</summary>

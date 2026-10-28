@@ -102,6 +102,13 @@ public sealed partial class NavigatorViewModel : ObservableObject
     /// <summary>Whether a type's retention paths are the current subject (sprint 2.2).</summary>
     public bool IsTypePathsShown => Current is TypePathsViewModel;
 
+    /// <summary>Whether an object set is the current subject (sprint 3.1).</summary>
+    public bool IsSetShown => Current is SetViewModel;
+
+    /// <summary>The set shown last (the set view's data; kept while another subject is shown).</summary>
+    [ObservableProperty]
+    private SetViewModel? _shownSet;
+
     /// <summary>The type paths shown last (the view's data; kept while another subject is shown).</summary>
     [ObservableProperty]
     private TypePathsViewModel? _shownTypePaths;
@@ -174,6 +181,8 @@ public sealed partial class NavigatorViewModel : ObservableObject
         return target.Kind switch
         {
             NavigationKind.Object => OpenObject(target.Snapshot, target.Address, target.ObjectTab),
+            NavigationKind.Set when target.Set is { } set => OpenSet(target.Snapshot, set, target.SetTitle ?? "Set"),
+            NavigationKind.Instances when target.Set is { } set => OpenSetInstances(target.Snapshot, set, target.SetTitle ?? "the set", target.TypeName ?? string.Empty, target.Module),
             NavigationKind.Instances when target.TypeName is { } typeName => OpenInstances(target.Snapshot, typeName, target.Module, target.Scope, target.SameValueAs),
             NavigationKind.TypeReferrers when target.TypeName is { } typeName => OpenTypeReferrers(target.Snapshot, typeName, target.Module),
             NavigationKind.TypePaths when target.TypeName is { } typeName => OpenTypePaths(target.Snapshot, typeName, target.Module),
@@ -195,6 +204,27 @@ public sealed partial class NavigatorViewModel : ObservableObject
     public InstancesViewModel OpenInstances(SnapshotHandle snapshot, string typeName, string? module, InstanceScope scope = InstanceScope.All, ulong sameValueAs = 0)
     {
         var instances = new InstancesViewModel(_session, snapshot, typeName, module, scope, sameValueAs, Types.UiDispatcher, _loggers?.CreateLogger<InstancesViewModel>(), _navigator)
+        {
+            ShowRetained = Types.ShowRetained,
+        };
+        Push(instances);
+        instances.Start();
+        return instances;
+    }
+
+    /// <summary>Shows an object set with its views (sprint 3.1).</summary>
+    public SetViewModel OpenSet(SnapshotHandle snapshot, ObjectSetQuery set, string title)
+    {
+        var subject = new SetViewModel(_session, snapshot, set, title, Types.UiDispatcher, _loggers, _navigator);
+        Push(subject);
+        subject.Start();
+        return subject;
+    }
+
+    /// <summary>Shows a set's members, all of them or those of one type, as instances (sprint 3.1).</summary>
+    public InstancesViewModel OpenSetInstances(SnapshotHandle snapshot, ObjectSetQuery set, string setTitle, string typeName, string? module)
+    {
+        var instances = new InstancesViewModel(_session, snapshot, set, setTitle, typeName, module, Types.UiDispatcher, _loggers?.CreateLogger<InstancesViewModel>(), _navigator)
         {
             ShowRetained = Types.ShowRetained,
         };
@@ -300,6 +330,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         ObjectViewModel => "Object",
         TypeReferrersViewModel => "TypeReferrers",
         TypePathsViewModel => "TypePaths",
+        SetViewModel => "Set",
         _ => "Subject",
     };
 
@@ -309,6 +340,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         ShownObject = null;
         ShownTypeReferrers = null;
         ShownTypePaths = null;
+        ShownSet = null;
     }
 
     private void Move()
@@ -329,6 +361,9 @@ public sealed partial class NavigatorViewModel : ObservableObject
             case TypePathsViewModel paths:
                 ShownTypePaths = paths;
                 break;
+            case SetViewModel set:
+                ShownSet = set;
+                break;
         }
 
         OnPropertyChanged(nameof(Path));
@@ -337,6 +372,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         OnPropertyChanged(nameof(IsObjectShown));
         OnPropertyChanged(nameof(IsTypeReferrersShown));
         OnPropertyChanged(nameof(IsTypePathsShown));
+        OnPropertyChanged(nameof(IsSetShown));
         OnPropertyChanged(nameof(Trail));
         if (_steps is null || _steps.Count != _path.Count || !_steps.SequenceEqual(_path.Steps))
         {

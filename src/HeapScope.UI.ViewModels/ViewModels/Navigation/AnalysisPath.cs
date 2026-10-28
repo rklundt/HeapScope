@@ -119,6 +119,7 @@ public sealed class AnalysisStep
         NavigationKind.Retainers when target.Address != 0 => string.Create(CultureInfo.InvariantCulture, $"Retainers of 0x{target.Address:x}"),
         NavigationKind.Retainers when target.TypeName is { } type => "Retainers: " + type,
         NavigationKind.Retainers => "Biggest retainers",
+        NavigationKind.RetainedBySet when target.SetTitle is { } title => "Retained by " + title,
         NavigationKind.RetainedBySet => "Retained by the set of " + target.TypeName,
         _ => target.Kind.ToString(),
     };

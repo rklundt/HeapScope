@@ -216,6 +216,28 @@ public sealed partial class BookmarksViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Opens the bookmarks of a snapshot as one object set (sprint 3.1): those of <paramref name="item"/>'s snapshot, or
+    /// of the only snapshot with bookmarks.
+    /// </summary>
+    [RelayCommand]
+    private void OpenAsSet(BookmarkItem? item)
+    {
+        var snapshot = item?.Snapshot ?? (Items.Select(i => i.Snapshot).Distinct().ToList() is [var only] ? only : null);
+        if (snapshot is null)
+        {
+            Status = Items.Count == 0 ? "Bookmark objects first (Ctrl+D)." : "Choose a bookmark of the snapshot whose bookmarks to open.";
+            return;
+        }
+
+        var addresses = Items.Where(i => i.Snapshot == snapshot).Select(i => i.Address).ToList();
+        _logger.LogInformation("Bookmarks: opened {Count} as a set", addresses.Count);
+        _navigator.Navigate(NavigationTarget.ObjectSet(
+            snapshot,
+            new ObjectSetQuery(HeapScope.Contracts.ObjectSetSpec.OfObjects(addresses)),
+            string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Bookmarks ({addresses.Count:N0})")));
+    }
+
     [RelayCommand]
     private async Task RemoveAsync(BookmarkItem? item)
     {

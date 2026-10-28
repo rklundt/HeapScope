@@ -232,12 +232,71 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     private bool _retainedOffQuietly;
 
     public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ILogger<TypeSummaryViewModel>? logger = null, INavigator? navigator = null)
+        : this(session, dispatcher, null, null, logger, navigator)
+    {
+    }
+
+    /// <summary>The Types view of an object set (sprint 3.1): the members only; a row opens the set's members of its type.</summary>
+    public TypeSummaryViewModel(SnapshotSession session, IUiDispatcher dispatcher, ObjectSetQuery? set, string? setTitle, ILogger<TypeSummaryViewModel>? logger = null, INavigator? navigator = null)
         : base(TypeSummaryColumns.Bytes, dispatcher, logger)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
+        Set = set;
+        SetTitle = setTitle;
         OpenRowCommand = new RelayCommand<TypeRowItem?>(row => OpenRow(row, navigator));
         ShowInRetainersCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.Retainers(s, typeName: r.TypeName, module: r.Module)));
         RetainedBySetCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.RetainedBySet(s, r.TypeName!, r.Module)));
+        OpenAsSetCommand = new RelayCommand<System.Collections.IList?>(rows => OpenAsSet(rows, navigator), _ => Set is null);
+    }
+
+    /// <summary>The set whose members are summarized (sprint 3.1); null for the whole snapshot.</summary>
+    public ObjectSetQuery? Set { get; }
+
+    /// <summary>The set's title, with <see cref="Set"/>.</summary>
+    public string? SetTitle { get; }
+
+    /// <summary>Whether this grid summarizes a set: the whole-type links and retained sizes are off.</summary>
+    public bool IsSet => Set is not null;
+
+    /// <summary>
+    /// Opens the selected rows as one object set (sprint 3.1): several type rows, or one namespace or assembly row. The
+    /// parameter is the grid's selected rows.
+    /// </summary>
+    public System.Windows.Input.ICommand OpenAsSetCommand { get; }
+
+    /// <summary>The set the selected rows make, and its title; null (with <see cref="GridQueryViewModel{TRow}.Status"/> saying why) when they make none.</summary>
+    public (ObjectSetSpec Spec, string Title)? SetOf(IEnumerable<TypeRowItem> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var loaded = rows.Where(r => r.IsLoaded).ToList();
+        if (loaded.Count == 0)
+        {
+            return null;
+        }
+
+        if (GroupBy == TypeGrouping.Type)
+        {
+            var keys = loaded.Where(r => r.TypeName is not null).Select(r => new TypeKeyDto(r.TypeName!, r.Module)).ToList();
+            return (ObjectSetSpec.OfTypes(keys), keys.Count == 1 ? loaded[0].Name : string.Create(CultureInfo.CurrentCulture, $"{keys.Count:N0} types"));
+        }
+
+        if (loaded.Count > 1)
+        {
+            Status = GroupBy == TypeGrouping.Namespace ? "Open one namespace at a time as a set, or group by type and select its types." : "Open one assembly at a time as a set, or group by type and select its types.";
+            return null;
+        }
+
+        return GroupBy == TypeGrouping.Namespace
+            ? (ObjectSetSpec.OfNamespace(loaded[0].Name), "Namespace " + loaded[0].Name)
+            : (ObjectSetSpec.OfAssembly(loaded[0].Name), "Assembly " + loaded[0].Name);
+    }
+
+    private void OpenAsSet(System.Collections.IList? rows, INavigator? navigator)
+    {
+        if (_snapshot is { } snapshot && Set is null && rows is not null && SetOf(rows.OfType<TypeRowItem>()) is { } set)
+        {
+            navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, new ObjectSetQuery(set.Spec), set.Title));
+        }
     }
 
     /// <summary>A type row's group in the dominator tree, on the Retainers tab (sprint 2.4).</summary>
@@ -249,11 +308,17 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     /// <summary>The snapshot shown, if any.</summary>
     public SnapshotHandle? Snapshot => _snapshot;
 
-    /// <summary>The navigation title of the root subject.</summary>
-    public string Title => "Types";
+    /// <summary>The navigation title of the root subject (a set's Types view has its set's title).</summary>
+    public string Title => SetTitle ?? "Types";
 
     private void Link(TypeRowItem? row, INavigator? navigator, Func<SnapshotHandle, TypeRowItem, NavigationTarget> target)
     {
+        if (Set is not null)
+        {
+            // These follow all of a type's objects, not the set's members (sprint 3.1).
+            return;
+        }
+
         if (row is { IsLoaded: true } && _snapshot is { } snapshot)
         {
             if (row.TypeName is null)
@@ -276,11 +341,20 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
         if (row.TypeName is null)
         {
+            // A namespace or assembly row opens as a set of its types (sprint 3.1); within a set, group by type.
+            if (Set is null && SetOf([row]) is { } group)
+            {
+                navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, new ObjectSetQuery(group.Spec), group.Title));
+                return;
+            }
+
             Status = "Group by type to open a row's objects.";
             return;
         }
 
-        navigator?.Navigate(NavigationTarget.Instances(snapshot, row.TypeName, row.Module));
+        navigator?.Navigate(Set is { } set
+            ? NavigationTarget.SetInstances(snapshot, set, SetTitle!, row.TypeName, row.Module)
+            : NavigationTarget.Instances(snapshot, row.TypeName, row.Module));
     }
 
     protected override bool CanQuery => _snapshot is not null;
@@ -325,7 +399,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     {
         var snapshot = _snapshot!;
         var groupBy = GroupBy;
-        var retained = ShowRetained;
+        var retained = ShowRetained && Set is null;
 
         // The first retained query computes the dominators: its phases replace the busy text until it answers.
         var finished = false;
@@ -334,7 +408,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
         TypeSummary summary;
         try
         {
-            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, SortColumn, Descending, retained, progress, cancellationToken);
+            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, SortColumn, Descending, retained, progress, cancellationToken, Set);
         }
         catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
         {
@@ -369,7 +443,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} ({Scope(snapshot.Descriptor.Kind)})");
+                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} ({(Set is null ? Scope(snapshot.Descriptor.Kind) : "the set's objects")})");
             },
             onError => TypeRowItem.CreateList(summary.Rows, result.Rows, onError, Logger));
     }

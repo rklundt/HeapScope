@@ -77,6 +77,24 @@ public sealed class BookmarksViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_snapshots_bookmarks_open_as_one_set_of_objects()
+    {
+        // Sprint 3.1: the marked objects as a set, with every set view.
+        var snapshots = Create();
+        await OpenAsync(snapshots, "app.dmp");
+        snapshots.Bookmarks.OpenAsSetCommand.Execute(null);
+        snapshots.Bookmarks.Status.ShouldNotBeNull().ShouldContain("Bookmark objects first");
+        await snapshots.ToggleBookmarkAsync(new Link(0x2000, "App.Customer"));
+        await snapshots.ToggleBookmarkAsync(new Link(0x3000, "App.Order"));
+
+        snapshots.Bookmarks.OpenAsSetCommand.Execute(null);
+
+        var set = snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (set.Title, set.Set.Spec.Kind).ShouldBe(("Bookmarks (2)", HeapScope.Contracts.ObjectSetKind.Objects));
+        set.Set.Spec.Addresses.ShouldNotBeNull().ShouldBe([0x2000UL, 0x3000UL], ignoreOrder: true);
+    }
+
+    [Fact]
     public async Task Bookmarks_come_back_when_the_snapshot_is_opened_again_in_a_new_run()
     {
         var first = Create();
