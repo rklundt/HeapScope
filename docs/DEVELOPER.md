@@ -169,7 +169,8 @@ dotnet test --solution HeapScope.sln
   "Generations" checkbox shows bytes per generation.
 - Live (sprint 1.7): the Live page monitors a process (pick it, set the sample interval and the snapshot rules, Start):
   a stacked chart of the GC heap per heap kind over the last 30 minutes with dashed lines at snapshots, the latest
-  values, a "High GC pressure" badge (10 percent or more of the last ten intervals in GC) and a card per snapshot.
+  values, a "High GC pressure" badge (10 percent or more of the last ten intervals in GC) and a card per snapshot,
+  with Show in folder for its file.
   When a run stops, a row shows its timeline file with Open (the system's app for CSV), Show in folder (Explorer and
   Finder select the file; elsewhere the folder opens) and Delete (asks first; the run's snapshots are kept). The log
   says which was used and how it went, never the path.
