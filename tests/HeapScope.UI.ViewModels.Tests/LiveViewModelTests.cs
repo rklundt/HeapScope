@@ -163,6 +163,29 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_snapshot_card_shows_its_file_in_its_folder()
+    {
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+        _live.Above = "500MB";
+        _live.StartCommand.Execute(null);
+        await _feed.SendAsync(600 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.Snapshots.Count == 1);
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+
+        var card = _live.Snapshots.Single();
+        var path = card.Path.ShouldNotBeNull();
+        await _live.ShowSnapshotCommand.ExecuteAsync(card);
+        _interaction.Shown.ShouldBe([path]);
+
+        File.Delete(path);
+        await _live.ShowSnapshotCommand.ExecuteAsync(card);
+        _interaction.Shown.Count.ShouldBe(1);
+        _live.Status.ShouldBe("That snapshot file is no longer there.");
+    }
+
+    [Fact]
     public async Task A_timeline_removed_outside_HeapScope_is_said_to_be_gone()
     {
         await _live.RefreshCommand.ExecuteAsync(null);

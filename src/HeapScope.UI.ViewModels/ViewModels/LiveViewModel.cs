@@ -272,6 +272,29 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    /// <summary>Shows a rule's snapshot file in its folder (a failed capture's card has none).</summary>
+    [RelayCommand]
+    private async Task ShowSnapshotAsync(SnapshotCard? card)
+    {
+        if (card?.Path is not { } path || _interaction is null)
+        {
+            return;
+        }
+
+        if (!File.Exists(path))
+        {
+            Status = "That snapshot file is no longer there.";
+            return;
+        }
+
+        var shown = await _interaction.ShowInFolderAsync(path);
+        _logger.LogInformation("Snapshot show in folder asked: {Outcome}", shown ? "shown" : "failed");
+        if (!shown)
+        {
+            Status = "The folder could not be opened.";
+        }
+    }
+
     /// <summary>The timeline's path, or null after saying it is gone (deleted or moved outside HeapScope).</summary>
     private string? TimelineOrGone()
     {

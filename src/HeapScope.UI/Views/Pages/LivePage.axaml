@@ -103,6 +103,9 @@
               <StackPanel>
                 <TextBlock><Run Text="{Binding Time}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Rule}" /></TextBlock>
                 <TextBlock Text="{Binding Summary}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" Classes="subtle" />
+                <Button Content="Show in folder" FontSize="11" Padding="6,1" Margin="0,4,0,0" HorizontalAlignment="Left"
+                        IsVisible="{Binding Path, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        Command="{Binding $parent[ItemsControl].((vm:LiveViewModel)DataContext).ShowSnapshotCommand}" CommandParameter="{Binding}" />
               </StackPanel>
             </Border>
           </DataTemplate>
