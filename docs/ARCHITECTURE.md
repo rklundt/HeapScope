@@ -1359,8 +1359,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Hot loops avoid LINQ, closures, boxing and per-item allocations. `ArrayPool<T>` for temporary buffers.
 - Object sets (sprint 3.1, ADR-030) are built inside a reservation and cached within 256 MB of sets and 128 MB of
   detector tables, outside the reservations' total; letting the reservations evict that cache before refusing is in the
-  Backlog. Similar Retention (sprint 3.2) reserves 4 bytes per member (each member's group); its path signatures share
-  the 2.2 key paths' cap of 8 million remembered objects.
+  Backlog. Similar Retention (sprint 3.2) reserves `SimilarRetention.WorkingBytes`: 4 bytes per member, 200 per possible
+  pattern (at most 1,000,000) and the path signature memo's cap (8 million objects at 48 bytes, the resize peak),
+  then compacts; a retention group set reserves the same plus a set's working bytes.
 
 ## 10. Scale targets and budgets
 
@@ -1546,11 +1547,14 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   type; set retention logs the shape and "n/a" as the lower bound of a set that is not whole types. The front end opens
   a set and switches its views in a `HeapScope.Sets` activity (the view's query and its worker lines share its trace
   id), logging the snapshot and the shape. A disputed set view is traced to what the set held.
-- Retention views (sprint 3.2): Similar Retention logs the set's shape, its members, groups, unreachable members, the
-  members with more referrers than were looked at, the time, and the five largest groups with their objects, bytes,
-  path count and the paths shown (roots and type names, metadata); a retention group set logs its rank and the inner
-  set's shape and size. The interface table logs the types read, the failures and the distinct interfaces per snapshot.
-  A set's key paths log the set's shape in place of the type.
+- Retention views (sprint 3.2): Similar Retention logs its rule version, the reverse index's memory mode, the set's
+  shape, its members, groups, unreachable members, the members with more referrers than were looked at, the grouping's
+  time, and the five largest groups (`Provenance.Describe(RetentionGroupDto)`: number from 1, pattern key, objects,
+  bytes, types and first type, path count, the paths shown as roots and type names); every other listed group at Debug.
+  A retention group set logs its number, pattern key and the inner set's shape and size. The interface table logs the
+  type entries, how many were not read and the first 20 of them with the reason; an interface set logs the first 20
+  matching type names and the unread count. A set's key paths log the set's shape in place of the type. A growth gate
+  logs its grouping.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -2119,17 +2123,32 @@ sprint 0.1.
   like objects held in one. dotMemory's Similar Retention groups objects by how they are retained and shows each
   group's most different paths; its Key Retention Paths diagram merges the paths into one graph.
 - Decision: a member's retention pattern is the set of key path signatures of its direct referrers that a root reaches
-  (its own shortest path always included, its root when it is one), at most 16 referrers per member; members with the
-  same pattern form a group. A group shows its first member's path and the path sharing the fewest steps with it.
-  Groups rank by objects, bytes, then first member, which is deterministic for one graph, so a group is named by its
-  inner set and its rank (`ObjectSetKind.RetentionGroup`) and resolved by grouping the inner set again. The diagram is
-  built by the front end from the key paths: a node per root description, per type and per target, layered by first
-  depth. Interfaces are read from the dump through one object of each type (ClrMD's interface map) and kept per snapshot;
-  a type counts under each interface, so interface rows overlap and have no retained column; gcdumps refuse.
+  without passing through the member (a back pointer from its own child retains nothing; checked up to 256 steps up the
+  referrer's path), its own shortest path always included, its root when it is one, at most 16 referrers per member;
+  members with the same pattern form a group. A group shows its first member's path and the path sharing the fewest steps
+  with it; every member has every path, so the paths overlap and the diagram counts a group once. Groups rank by objects,
+  bytes, then first member, and are numbered from 1 wherever a person reads them (app, CLI, logs). A group set
+  (`ObjectSetKind.RetentionGroup`) is named by its pattern's fingerprint (the SHA-256 of its paths' root keys and type
+  names, 8 bytes) with the rank as a hint, and resolved by grouping the inner set again; a pattern this snapshot does not
+  have is refused, never replaced by another group of the same rank. The diagram is built by the front end from the key
+  paths: a node per root (kind and description), per type and per target (the set's title for a set), a gap node per
+  long path, layered by first depth. Interfaces are a derived index of each snapshot (a `DerivedData` slot: its own
+  lease, shared progress, dropped on close): read through up to three objects of each type from ClrMD (the type's and its
+  base types' interfaces and the interfaces those extend) plus generic instantiations decoded from the module's metadata,
+  taken from the dump or, when the dump does not hold the image, from the module's file on this machine if its image size
+  matches. A type counts under each interface, so interface rows overlap: no retained column, no growth gate over them,
+  and a type whose interfaces could not be read is on its own "(interfaces not read)" row, never "(no interface)". The
+  grouping is offered only where every snapshot is a full dump.
 - Consequences: Similar Retention needs the root path tree and the reverse references (both built once per snapshot) and
-  4 bytes per member while grouping. A member with more than 16 referrers is grouped by the first 16 (counted in the
-  result). Interface grouping costs one dump read per type on first use. A retention group's members depend on the inner
-  set's members; a spec replayed on another snapshot names that snapshot's group of the same rank.
+  reserves 4 bytes per member, 200 bytes per possible pattern (at most 1,000,000 patterns; more is refused with a
+  message to narrow the set) and the path signature memo (48 bytes per remembered object, at most 8 million), compacting
+  after. A member with more than 16 referrers is grouped by the first 16 (counted in the result). Interface grouping
+  costs one dump read per type on first use, and a module file read per module for generic interfaces; a module moved or
+  replaced since the dump (its time stamp or size differ from the dump's module index) gives no generic interfaces.
+  Generic arguments come from the type's name, every generic segment in order; a type whose arguments cannot be known
+  is unread. COM objects show their metadata interfaces only. The back pointer check climbs 256 steps of the referrer's
+  shortest path: a back pointer deeper in a chain still counts, and a child also held elsewhere whose shortest path runs
+  through the member is skipped (an exact test is in the Backlog).
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

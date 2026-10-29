@@ -84,10 +84,19 @@ public sealed class ProvenanceLogTests
         [
             ObjectSetSpec.OfType("A", null), ObjectSetSpec.OfNamespace("A"), ObjectSetSpec.OfAssembly("A"), ObjectSetSpec.OfObjects([1]),
             ObjectSetSpec.OfInspectionRow("A", 0), ObjectSetSpec.RetainedByOf(ObjectSetSpec.OfNamespace("A")),
+            ObjectSetSpec.OfInterface("A"), ObjectSetSpec.RetentionGroupOf(ObjectSetSpec.OfNamespace("A"), new RetentionGroupDto(0, 1, 1, 1, "A", 1, [], 0, "ab")),
         ];
         specs.Select(s => s.Kind).Distinct().Count().ShouldBe(Enum.GetValues<ObjectSetKind>().Length, "every kind is covered here");
         specs.Select(s => s.CacheKey).Distinct().Count().ShouldBe(specs.Length);
         Should.Throw<ArgumentException>(() => new ObjectSetSpec((ObjectSetKind)99).CacheKey);
+    }
+
+    [Fact]
+    public void The_interface_row_names_mirrored_in_contracts_match_the_analysis()
+    {
+        // Sprint 3.2 review: front ends name these rows from Contracts, the worker from Analysis.
+        (TypeSummaryColumns.NoInterface, TypeSummaryColumns.UnreadInterfaces).ShouldBe((HeapScope.Analysis.TypeGroups.NoInterface, HeapScope.Analysis.TypeGroups.Unread));
+        SimilarRetentionLimits.MaxReferrers.ShouldBe(HeapScope.Analysis.Retention.SimilarRetention.MaxReferrers);
     }
 
     [Fact]

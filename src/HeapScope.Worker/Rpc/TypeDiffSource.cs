@@ -101,8 +101,8 @@ internal sealed class TypeDiffSource : IResultSource
         TypeDiffRequest request,
         SnapshotKind baselineKind,
         SnapshotKind currentKind,
-        string[][]? baselineInterfaces = null,
-        string[][]? currentInterfaces = null)
+        TypeInterfaces? baselineInterfaces = null,
+        TypeInterfaces? currentInterfaces = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(request.GroupBy))

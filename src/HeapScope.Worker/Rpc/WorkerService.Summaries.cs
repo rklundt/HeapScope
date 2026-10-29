@@ -78,16 +78,15 @@ internal sealed partial class WorkerService
                     cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
             }
             var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
-            string[][]? interfaces = null;
+            Analysis.TypeInterfaces? interfaces = null;
             if (request.GroupBy == TypeGrouping.Interface)
             {
-                // Interface groups overlap, so they have no retained lower bound (decision 6).
+                // Interface groups overlap, so they have no retained lower bound (decision 6); a gcdump is refused first.
+                interfaces = await GetInterfacesAsync(request.SnapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
                 if (request.IncludeRetained)
                 {
-                    throw new ArgumentException("Interface rows have no retained column: a type counts under each of its interfaces.");
+                    throw new ArgumentException("Interface rows have no retained column: a type counts under each of its interfaces, so the rows overlap. Leave out retained sizes (--retained), or group by type, namespace or assembly.");
                 }
-
-                interfaces = await GetInterfacesAsync(request.SnapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
             }
 
             ulong[]? retained = null;
@@ -147,11 +146,11 @@ internal sealed partial class WorkerService
                 request.CurrentId,
                 new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone + done, total))),
                 cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.CurrentId);
-            string[][]? baselineInterfaces = null, currentInterfaces = null;
+            Analysis.TypeInterfaces? baselineInterfaces = null, currentInterfaces = null;
             if (request.GroupBy == TypeGrouping.Interface)
             {
-                baselineInterfaces = await GetInterfacesAsync(request.BaselineId, baseline, progress, cancellationToken).ConfigureAwait(false);
-                currentInterfaces = await GetInterfacesAsync(request.CurrentId, current, progress, cancellationToken).ConfigureAwait(false);
+                baselineInterfaces = await GetInterfacesAsync(request.BaselineId, baseline, progress, cancellationToken, "the baseline").ConfigureAwait(false);
+                currentInterfaces = await GetInterfacesAsync(request.CurrentId, current, progress, cancellationToken, "the current snapshot").ConfigureAwait(false);
             }
 
             var source = await Task.Run(

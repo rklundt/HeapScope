@@ -50,13 +50,16 @@ public static class TypeGroups
     /// <summary>The row of the types that implement no interface (sprint 3.2; Contracts' <c>TypeSummaryColumns.NoInterface</c>).</summary>
     public const string NoInterface = "(no interface)";
 
+    /// <summary>The row of the types whose interfaces could not be read (the 3.2 review; Contracts' <c>TypeSummaryColumns.UnreadInterfaces</c>).</summary>
+    public const string Unread = "(interfaces not read)";
+
     /// <summary>
     /// Rows for every present type (one per type table entry, never merged by name), or merged per namespace, assembly or
     /// interface. <paramref name="retainedByGroup"/>, when given, holds each group's retained bytes in the numbering of
     /// <see cref="GroupOfType"/> and fills <see cref="SummaryRow.Retained"/> (not for interfaces, whose groups overlap).
     /// <paramref name="interfaces"/> holds each type's interfaces for <see cref="GroupKey.Interface"/>.
     /// </summary>
-    public static List<SummaryRow> Build(HeapGraph graph, TypeAggregation aggregation, GroupKey groupBy, ulong[]? retainedByGroup = null, string[][]? interfaces = null)
+    public static List<SummaryRow> Build(HeapGraph graph, TypeAggregation aggregation, GroupKey groupBy, ulong[]? retainedByGroup = null, TypeInterfaces? interfaces = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(aggregation);
@@ -224,7 +227,7 @@ public static class TypeGroups
         return dot <= 0 ? "(global)" : outer[..dot];
     }
 
-    private static List<SummaryRow> ByInterface(TypeAggregation aggregation, string[][] interfaces)
+    private static List<SummaryRow> ByInterface(TypeAggregation aggregation, TypeInterfaces interfaces)
     {
         var rows = new Dictionary<string, (long Count, ulong Bytes, ulong[] Kinds)>(StringComparer.Ordinal);
         for (var t = 0; t < aggregation.TypeCount; t++)
@@ -234,7 +237,7 @@ public static class TypeGroups
                 continue;
             }
 
-            foreach (var key in InterfaceKeys(interfaces, t))
+            foreach (var key in interfaces.Keys(t))
             {
                 if (!rows.TryGetValue(key, out var row))
                 {
@@ -253,15 +256,8 @@ public static class TypeGroups
         return [.. rows.Select(r => new SummaryRow(r.Key, r.Value.Count, r.Value.Bytes, r.Value.Kinds))];
     }
 
-    /// <summary>The interface rows a type counts under: its interfaces, or <see cref="NoInterface"/>.</summary>
-    public static IReadOnlyList<string> InterfaceKeys(string[][] interfaces, int typeIndex)
-    {
-        ArgumentNullException.ThrowIfNull(interfaces);
-        return typeIndex < interfaces.Length && interfaces[typeIndex] is { Length: > 0 } names ? names : [NoInterface];
-    }
-
     /// <summary>The types that count under the interface row <paramref name="name"/> (sprint 3.2, an interface opened as a set).</summary>
-    public static bool[] MatchInterface(HeapGraph graph, string[][] interfaces, string name, out int matched)
+    public static bool[] MatchInterface(HeapGraph graph, TypeInterfaces interfaces, string name, out int matched)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(interfaces);
@@ -270,7 +266,7 @@ public static class TypeGroups
         matched = 0;
         for (var t = 0; t < matches.Length; t++)
         {
-            if (InterfaceKeys(interfaces, t).Contains(name, StringComparer.Ordinal))
+            if (interfaces.Keys(t).Contains(name, StringComparer.Ordinal))
             {
                 matches[t] = true;
                 matched++;

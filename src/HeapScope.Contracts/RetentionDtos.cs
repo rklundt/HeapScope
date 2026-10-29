@@ -145,10 +145,16 @@ public static class SimilarRetentionLimits
 /// <summary>
 /// One group of Similar Retention: members retained the same way, their bytes and distinct types, how many distinct
 /// key paths the pattern has (<see cref="PathCount"/>) and at most two of them (<see cref="Paths"/>: the first, and the
-/// one sharing the fewest steps with it). <see cref="Rank"/> opens the group as a set (<see cref="ObjectSetKind.RetentionGroup"/>).
-/// A group of members that are roots themselves shows root-only paths.
+/// one sharing the fewest steps with it). Every member has every path of its pattern, so the paths overlap: each path's
+/// objects and bytes are the whole group's. <see cref="Rank"/> is where it is listed, from 0 (front ends and logs number
+/// groups from 1: <see cref="Number"/>); <see cref="Key"/> is the pattern's fingerprint, which opens the group as a set
+/// (<see cref="ObjectSetSpec.RetentionGroupOf"/>). A group of members that are roots themselves shows root-only paths.
 /// </summary>
-public sealed record RetentionGroupDto(int Rank, long Objects, long Bytes, int Types, string FirstType, int PathCount, IReadOnlyList<KeyPathDto> Paths, ulong ExampleAddress);
+public sealed record RetentionGroupDto(int Rank, long Objects, long Bytes, int Types, string FirstType, int PathCount, IReadOnlyList<KeyPathDto> Paths, ulong ExampleAddress, string Key)
+{
+    /// <summary>The group's number as shown, from 1.</summary>
+    public int Number => Rank + 1;
+}
 
 /// <summary>
 /// The answer to <see cref="SimilarRetentionRequest"/>: the groups, largest first; the set; the members no root reaches

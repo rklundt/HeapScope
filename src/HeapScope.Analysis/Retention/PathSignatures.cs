@@ -35,7 +35,7 @@ internal sealed class PathSignatures(HeapGraph graph, RootPathTree tree)
     private readonly Dictionary<(int Previous, int Type), int> _steps = [];
     private readonly Dictionary<(string RootKey, int Type), int> _roots = [];
     /// <summary>Objects whose signature is remembered at most (review M5); later ones are walked again instead.</summary>
-    private const int MaxRemembered = 8_000_000;
+    public const int MaxRemembered = 8_000_000;
 
     private readonly Dictionary<int, int> _ofObject = [];
     private readonly Stack<int> _pending = new();
@@ -97,6 +97,15 @@ internal sealed class PathSignatures(HeapGraph graph, RootPathTree tree)
     public int RootOnly(int objectIndex) => RootEntry(objectIndex, -1);
 
     public PathRoot RootOf(int signature) => _entries[signature].Root;
+
+    /// <summary>The group key of a signature's root (the same root kind and detail in every snapshot).</summary>
+    public string RootKeyOf(int signature) => _entries[signature].RootKey;
+
+    /// <summary>
+    /// Memory the signatures of a graph of <paramref name="objects"/> objects may take: the memo at its cap (about 45 bytes
+    /// per entry at a resize, old and new tables together; the 3.2 review). The interned entries are few beside it.
+    /// </summary>
+    public static long WorkingBytes(long objects) => 48L * Math.Min(objects, MaxRemembered);
 
     /// <summary>The type indices of a signature, root first (none for a root-only signature).</summary>
     public IReadOnlyList<int> Steps(int signature)

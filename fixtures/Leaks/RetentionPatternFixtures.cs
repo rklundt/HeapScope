@@ -26,12 +26,15 @@ namespace Fixtures.Leaks;
 /// <summary>
 /// Objects held by known distinct retention patterns (sprint 3.2, Similar Retention): per item, three
 /// <see cref="PatternItem"/>s only in a list, two in the list and in a dictionary, and one held by a holder in an array.
+/// Also one <see cref="PatternDerived"/> per item, for interface grouping: it inherits <see cref="IPatternMarker"/> from
+/// its base class and implements a generic interface itself.
 /// </summary>
 public static class RetentionPatternFixtures
 {
     private static readonly List<PatternItem> s_listed = [];
     private static readonly Dictionary<int, PatternItem> s_indexed = [];
     private static PatternHolder[] s_holders = [];
+    private static PatternDerived[] s_derived = [];
 
     /// <summary>Creates the objects of <paramref name="count"/> items.</summary>
     public static void Create(int count)
@@ -55,6 +58,7 @@ public static class RetentionPatternFixtures
         }
 
         s_holders = holders;
+        s_derived = [.. Enumerable.Range(0, count).Select(i => new PatternDerived(i))];
     }
 
     public static int ItemCount => s_holders.Length;
@@ -68,4 +72,24 @@ public sealed class PatternItem(int id)
 public sealed class PatternHolder(PatternItem item)
 {
     public PatternItem Item { get; } = item;
+}
+
+/// <summary>An interface a fixture type only inherits (sprint 3.2 review: interface grouping counts inherited interfaces).</summary>
+public interface IPatternMarker
+{
+    int Id { get; }
+}
+
+public class PatternBase(int id) : IPatternMarker
+{
+    public int Id { get; } = id;
+}
+
+public sealed class PatternDerived(int id) : PatternBase(id), IEquatable<PatternDerived>
+{
+    public bool Equals(PatternDerived? other) => other?.Id == Id;
+
+    public override bool Equals(object? obj) => Equals(obj as PatternDerived);
+
+    public override int GetHashCode() => Id;
 }

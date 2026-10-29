@@ -65,6 +65,9 @@ public static class TypeSummaryColumns
 
     /// <summary>The row of the types that implement no interface, in <see cref="TypeGrouping.Interface"/> grouping.</summary>
     public const string NoInterface = "(no interface)";
+
+    /// <summary>The row of the types whose interfaces could not be read from the dump (a damaged or incomplete dump).</summary>
+    public const string UnreadInterfaces = "(interfaces not read)";
 }
 
 /// <summary>

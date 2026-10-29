@@ -55,8 +55,93 @@ public sealed class SimilarRetentionTests
         both.Shown.Select(p => PathRoots.Detail(graph, p.Root)).ShouldBe(["App.s_list", "App.s_map"], ignoreOrder: true);
         Names(graph, result.Groups[2].Shown.ShouldHaveSingleItem()).ShouldBe(["App.Holder[]", "App.Holder"]);
 
-        SimilarRetention.MembersOf(graph, tree, reverse, set, rank: 1, Ct).ShouldBe(items.Both);
-        SimilarRetention.MembersOf(graph, tree, reverse, set, rank: 3, Ct).ShouldBeEmpty();
+        // A group is named by its pattern's key; the rank is only a hint.
+        result.Groups.Select(g => g.Key).Distinct().Count().ShouldBe(3);
+        SimilarRetention.MembersOf(graph, tree, reverse, set, both.Key, rank: 1, Ct).ShouldBe(items.Both);
+        SimilarRetention.MembersOf(graph, tree, reverse, set, both.Key, rank: 0, Ct).ShouldBe(items.Both, "a wrong hint still finds the group by its key");
+        SimilarRetention.MembersOf(graph, tree, reverse, set, "0000000000000000", rank: 1, Ct).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_back_pointer_from_a_members_child_retains_nothing_and_does_not_split_its_group()
+    {
+        // The 3.2 review: child.Owner = member must not count as a way the member is retained.
+        var builder = new SyntheticGraphBuilder();
+        var list = builder.Object("App.List");
+        builder.Root(list, RootKind.StaticField, "App.s_list");
+        var items = new List<int>();
+        for (var i = 0; i < 4; i++)
+        {
+            var item = builder.Object("App.Item", 10);
+            builder.Reference(list, item);
+            items.Add(item.Id);
+            if (i % 2 == 0)
+            {
+                var child = builder.Object("App.Child");
+                builder.Reference(item, child).Reference(child, item);
+            }
+        }
+
+        var selfHeld = builder.Object("App.Item", 10);
+        builder.Reference(list, selfHeld).Reference(selfHeld, selfHeld);
+        items.Add(selfHeld.Id);
+        using var graph = builder.Build();
+        using var reverse = ReverseReferences.Build(graph, cancellationToken: Ct);
+        var tree = RootPathTree.Build(graph, cancellationToken: Ct);
+
+        var result = SimilarRetention.Group(graph, tree, reverse, ObjectSet.OfIndices(graph, items), maxGroups: 10, Ct);
+
+        result.Groups.ShouldHaveSingleItem().Objects.ShouldBe(5, "back pointers and self references are no retention");
+        result.Groups[0].PathCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public void A_member_that_is_a_root_and_one_held_through_a_dependent_handle_have_patterns_of_their_own()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var rooted = builder.Object("App.Item", 10);
+        builder.Root(rooted, RootKind.StrongHandle);
+        var both = builder.Object("App.Item", 10);
+        var holder = builder.Object("App.Holder");
+        builder.Root(both, RootKind.StrongHandle).Root(holder, RootKind.StaticField, "App.s_holder").Reference(holder, both);
+        var key = builder.Object("App.Key");
+        builder.Root(key, RootKind.StaticField, "App.s_key");
+        var value = builder.Object("App.Item", 10);
+        builder.DependentHandle(key, value);
+        using var graph = builder.Build();
+        using var reverse = ReverseReferences.Build(graph, cancellationToken: Ct);
+        var tree = RootPathTree.Build(graph, cancellationToken: Ct);
+
+        var result = SimilarRetention.Group(graph, tree, reverse, ObjectSet.OfIndices(graph, [rooted.Id, both.Id, value.Id]), maxGroups: 10, Ct);
+
+        result.Groups.Count.ShouldBe(3);
+        result.Groups.Single(g => g.ExampleObject == rooted.Id).Shown.ShouldHaveSingleItem().Steps.ShouldBeEmpty("a root's own path has no steps");
+        result.Groups.Single(g => g.ExampleObject == both.Id).PathCount.ShouldBe(2, "its root and the holder");
+        result.Groups.Single(g => g.ExampleObject == value.Id).Shown.ShouldHaveSingleItem().Steps.Select(graph.Types.GetName).ShouldBe(["App.Key"]);
+        (result.Unreachable, result.LimitedMembers).ShouldBe((0L, 0L));
+    }
+
+    [Fact]
+    public void Interfaces_are_read_through_the_next_object_when_one_fails_and_types_never_read_are_kept_apart()
+    {
+        var builder = new SyntheticGraphBuilder();
+        var a1 = builder.Object("App.A", 10);
+        var a2 = builder.Object("App.A", 10);
+        var b = builder.Object("App.B", 20);
+        builder.Object("App.C", 40);
+        using var graph = builder.Build();
+        var reader = new InterfaceReader(new() { [a1.Address] = null, [a2.Address] = ["App.I1"], [b.Address] = [] }, throwFor: graph.Addresses[3]);
+        var failures = new List<(int Type, string Reason)>();
+
+        var table = TypeInterfaces.Read(graph, reader, failures, cancellationToken: Ct);
+
+        table.Keys(graph.TypeIndices[a1.Id]).ShouldBe(["App.I1"], "the second object answered");
+        table.Keys(graph.TypeIndices[b.Id]).ShouldBe([TypeGroups.NoInterface]);
+        table.Keys(graph.TypeIndices[3]).ShouldBe([TypeGroups.Unread]);
+        failures.ShouldHaveSingleItem().Reason.ShouldBe(nameof(ArgumentException));
+        table.UnreadTypes.ShouldBe(1);
+        var rows = TypeGroups.Build(graph, TypeAggregation.Compute(graph, cancellationToken: Ct), GroupKey.Interface, interfaces: table).ToDictionary(r => r.Name, r => r.Count);
+        rows.ShouldBe(new Dictionary<string, long> { ["App.I1"] = 2, [TypeGroups.NoInterface] = 1, [TypeGroups.Unread] = 1 }, ignoreOrder: true);
     }
 
     [Fact]
@@ -198,6 +283,25 @@ public sealed class SimilarRetentionTests
 
     private static List<string> Names(HeapGraph graph, KeyPath path) => [.. path.Steps.Select(graph.Types.GetName)];
 
-    private static string[][] Interfaces(HeapGraph graph, params (string Type, string[] Interfaces)[] types) =>
-        [.. Enumerable.Range(0, graph.Types.Count).Select(t => types.FirstOrDefault(x => x.Type == graph.Types.GetName(t)).Interfaces ?? [])];
+    private static TypeInterfaces Interfaces(HeapGraph graph, params (string Type, string[] Interfaces)[] types) =>
+        new([.. Enumerable.Range(0, graph.Types.Count).Select(t => types.FirstOrDefault(x => x.Type == graph.Types.GetName(t)).Interfaces ?? [])]);
+
+    /// <summary>Answers interfaces by address (null: cannot tell) and throws for one address.</summary>
+    private sealed class InterfaceReader(Dictionary<ulong, string[]?> answers, ulong throwFor) : HeapScope.Core.IObjectReader
+    {
+        public IReadOnlyList<string>? ReadInterfaces(ulong address) =>
+            address == throwFor ? throw new ArgumentException("bad object") : answers.GetValueOrDefault(address);
+
+        public IReadOnlyList<HeapScope.Core.ObjectField> ReadFields(ulong address, int maxElements, int maxText, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public HeapScope.Core.ObjectValue? ReadField(ulong address, string path, int maxText = 1000) => throw new NotSupportedException();
+
+        public string? ReadString(ulong address, int maxLength) => throw new NotSupportedException();
+
+        public void ReadStrings(IReadOnlyList<ulong> addresses, int maxLength, Action<int, string?> onEach, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public void ReadStringPieces(IReadOnlyList<ulong> addresses, HeapScope.Core.StringPieceHandler onPiece, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
 }

@@ -79,14 +79,20 @@ public sealed class RetentionViewsTests : IClassFixture<AllLeaksDump>, IAsyncDis
             group.FirstType.ShouldBe(typeof(PatternItem).FullName);
         }
 
-        // The middle group (list and dictionary) as a set: exactly its objects.
-        var group1 = new ObjectSetQuery(ObjectSetSpec.RetentionGroupOf(Items.Spec, 1));
-        var types = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, false, null, Ct, group1);
-        types.Result.Set.ShouldNotBeNull().Objects.ShouldBe(AllLeaksDump.RetentionItems * 2L);
-        var indexed = _shared.Dump.ReadStatic(typeof(RetentionPatternFixtures).FullName!, "s_indexed");
-        _shared.Dump.CountReachable(indexed, typeof(PatternItem).FullName!, followDependentHandles: false).ShouldBe(AllLeaksDump.RetentionItems * 2);
-        (await Should.ThrowAsync<WorkerOperationException>(() => _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, false, null, Ct, new ObjectSetQuery(ObjectSetSpec.RetentionGroupOf(Items.Spec, 3)))))
-            .Message.ShouldContain("no retention group 3");
+        // The middle group (list and dictionary) as a set: exactly the objects the dictionary reaches, by address (ClrMD).
+        var group2 = new ObjectSetQuery(ObjectSetSpec.RetentionGroupOf(Items.Spec, result.Groups[1]));
+        var instances = await _session.QueryInstancesAsync(handle, new InstancesQuery(string.Empty, null, Set: group2), null, Ct);
+        var addresses = (await RetainedSizesTests.AllRowsAsync(instances.Rows)).Select(r => r[InstanceColumns.Address]).ToHashSet();
+        var fixture = typeof(RetentionPatternFixtures).FullName!;
+        var notListedNorHeld = _shared.Dump.ReachableFromRoots(new HashSet<ulong> { _shared.Dump.ReadStatic(fixture, "s_listed").Address, _shared.Dump.ReadStatic(fixture, "s_holders").Address });
+        var expected = _shared.Dump.Instances(typeof(PatternItem).FullName!).Where(o => notListedNorHeld.Contains(o.Address)).Select(o => $"0x{o.Address:x}").ToHashSet();
+        expected.Count.ShouldBe(AllLeaksDump.RetentionItems * 2);
+        addresses.SetEquals(expected).ShouldBeTrue();
+
+        // A group whose pattern this set does not have is refused with the next step.
+        var missing = result.Groups[1] with { Key = "0000000000000000" };
+        (await Should.ThrowAsync<WorkerOperationException>(() => _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, false, null, Ct, new ObjectSetQuery(ObjectSetSpec.RetentionGroupOf(Items.Spec, missing)))))
+            .Message.ShouldContain("List the groups again");
     }
 
     [Fact]
@@ -114,8 +120,24 @@ public sealed class RetentionViewsTests : IClassFixture<AllLeaksDump>, IAsyncDis
         var rows = (await RetainedSizesTests.AllRowsAsync(summary.Rows)).ToDictionary(r => r[TypeSummaryColumns.Name]!);
 
         Long(rows[typeof(ILeak).FullName!][TypeSummaryColumns.Objects]).ShouldBe(expected);
-        Long(rows["System.IDisposable"][TypeSummaryColumns.Objects]).ShouldBeGreaterThanOrEqualTo((long)AllLeaksDump.Items, "every UndisposedResource is disposable");
         rows.ShouldContainKey(TypeSummaryColumns.NoInterface);
+        rows.ShouldNotContainKey(TypeSummaryColumns.UnreadInterfaces);
+        Long(rows["System.IEquatable<Fixtures.Leaks.PatternDerived>"][TypeSummaryColumns.Objects]).ShouldBe(AllLeaksDump.RetentionItems, "generic interfaces are named from the module's metadata");
+        rows.Keys.ShouldContain("System.Collections.Generic.IList<Fixtures.Leaks.PatternItem>", "List<PatternItem> implements it");
+        rows.Keys.ShouldNotContain(k => k.Contains("\u0001", StringComparison.Ordinal) || k.Contains("<T0>", StringComparison.Ordinal), "no made-up generic arguments");
+
+        // Inherited interfaces count (the 3.2 review): PatternDerived implements IPatternMarker through its base class.
+        Long(rows[typeof(IPatternMarker).FullName!][TypeSummaryColumns.Objects]).ShouldBe(AllLeaksDump.RetentionItems);
+
+        // Every disposable fixture type is under System.IDisposable with all its objects (ClrMD's counts).
+        var disposables = typeof(ILeak).Assembly.GetTypes().Where(t => typeof(IDisposable).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract).Select(t => t.FullName!).ToList();
+        var disposableSet = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, false, null, Ct, new ObjectSetQuery(ObjectSetSpec.OfInterface("System.IDisposable")));
+        var disposableRows = (await RetainedSizesTests.AllRowsAsync(disposableSet.Rows)).ToDictionary(r => r[TypeSummaryColumns.TypeName]!, r => Long(r[TypeSummaryColumns.Objects]));
+        foreach (var (type, count) in _shared.Dump.CountTypes(disposables).Where(c => c.Value > 0))
+        {
+            disposableRows.GetValueOrDefault(type).ShouldBe(count, type);
+        }
+
         var set = await _session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, false, null, Ct, new ObjectSetQuery(ObjectSetSpec.OfInterface(typeof(ILeak).FullName!)));
         set.Result.Set.ShouldNotBeNull().Objects.ShouldBe(expected);
         (await Should.ThrowAsync<WorkerOperationException>(() => _session.QueryTypeSummaryAsync(handle, TypeGrouping.Interface, null, null, true, includeRetained: true, null, Ct)))
@@ -139,7 +161,7 @@ public sealed class RetentionViewsTests : IClassFixture<AllLeaksDump>, IAsyncDis
         similar.Output.ShouldContain(string.Create(CultureInfo.InvariantCulture, $"{AllLeaksDump.RetentionItems * 6:N0} members in 3 groups"));
         similar.Output.ShouldContain("s_indexed");
 
-        using var group = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--type", item, "--module", Module, "--group", "2", "--view", "paths");
+        using var group = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--type", item, "--module", Module, "--similar-group", "3", "--view", "paths");
         (await group.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(group.Output);
         group.Process.ExitCode.ShouldBe(0, group.Output);
         group.Output.ShouldContain(string.Create(CultureInfo.InvariantCulture, $"Key retention paths: {AllLeaksDump.RetentionItems:N0} objects"));
@@ -149,6 +171,20 @@ public sealed class RetentionViewsTests : IClassFixture<AllLeaksDump>, IAsyncDis
         (await summary.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(summary.Output);
         summary.Process.ExitCode.ShouldBe(0, summary.Output);
         summary.Output.ShouldContain(typeof(ILeak).FullName!);
+        summary.Output.ShouldContain("rows overlap");
+
+        // Refused before anything runs (exit 64): a growth gate over overlapping rows, retained bytes per interface, a group 0.
+        foreach (var args in new[]
+        {
+            new[] { "diff", _dump, _dump, "--group", "interface", "--fail-on-growth", "1MB" },
+            ["summary", _dump, "--group", "interface", "--retained"],
+            ["set", _dump, "--type", item, "--similar-group", "-1"],
+        })
+        {
+            using var usage = ChildProcess.Start(TestPaths.CliExe, args);
+            (await usage.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(usage.Output);
+            usage.Process.ExitCode.ShouldBe(64, string.Join(" ", args) + Environment.NewLine + usage.Output);
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -83,8 +83,8 @@ public static class TypeDiff
         GroupKey groupBy,
         Func<string, string>? baselineNames = null,
         Func<string, string>? currentNames = null,
-        string[][]? baselineInterfaces = null,
-        string[][]? currentInterfaces = null)
+        TypeInterfaces? baselineInterfaces = null,
+        TypeInterfaces? currentInterfaces = null)
     {
         ArgumentNullException.ThrowIfNull(baselineGraph);
         ArgumentNullException.ThrowIfNull(baseline);
@@ -127,7 +127,7 @@ public static class TypeDiff
         TypeAggregation aggregation,
         GroupKey groupBy,
         Func<string, string>? names,
-        string[][]? interfaces,
+        TypeInterfaces? interfaces,
         Dictionary<(string Name, string Module), Totals> rows,
         bool isBaseline)
     {
@@ -145,7 +145,8 @@ public static class TypeDiff
             {
                 GroupKey.Namespace => [(TypeGroups.NamespaceOf(name), string.Empty)],
                 GroupKey.Assembly => [(module.Length > 0 ? module : "(unknown assembly)", string.Empty)],
-                GroupKey.Interface => TypeGroups.InterfaceKeys(interfaces!, t).Select(i => (i, string.Empty)),
+                // Checked in Build: interface grouping comes with both tables.
+                GroupKey.Interface => interfaces!.Keys(t).Select(i => (i, string.Empty)),
                 _ => [(name, module)],
             };
 

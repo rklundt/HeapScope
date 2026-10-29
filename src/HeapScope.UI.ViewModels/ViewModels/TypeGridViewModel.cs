@@ -41,8 +41,22 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     {
     }
 
-    /// <summary>The groupings the selector offers.</summary>
-    public IReadOnlyList<TypeGrouping> Groupings { get; } = Enum.GetValues<TypeGrouping>();
+    /// <summary>The groupings the selector offers: Interface only where the snapshots are full dumps (the 3.2 review).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<TypeGrouping> _groupings = Enum.GetValues<TypeGrouping>();
+
+    /// <summary>
+    /// Offers the groupings the snapshots support: interfaces are read from a full dump, so a gcdump leaves Interface out
+    /// (and a grid grouped by interface goes back to types).
+    /// </summary>
+    protected void OfferGroupings(bool interfacesReadable)
+    {
+        Groupings = interfacesReadable ? Enum.GetValues<TypeGrouping>() : [.. Enum.GetValues<TypeGrouping>().Where(g => g != TypeGrouping.Interface)];
+        if (!interfacesReadable && GroupBy == TypeGrouping.Interface)
+        {
+            GroupBy = TypeGrouping.Type;
+        }
+    }
 
     /// <summary>What the grouping means for the totals (sprint 3.2: interface rows overlap).</summary>
     public string? GroupNote => GroupBy == TypeGrouping.Interface

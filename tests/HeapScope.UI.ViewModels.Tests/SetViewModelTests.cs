@@ -185,8 +185,8 @@ public sealed class SetViewModelTests : IDisposable
     [Fact]
     public async Task Similar_retention_lists_the_groups_and_a_group_opens_as_a_set_of_its_own()
     {
-        _worker.Service.RetentionGroups.Add(new RetentionGroupDto(0, 3, 30, 1, "App.Order", 1, [KeyPath("App.s_list", 3, "App.List", "App.Order[]")], 0x1000));
-        _worker.Service.RetentionGroups.Add(new RetentionGroupDto(1, 2, 20, 1, "App.Order", 2, [KeyPath("App.s_list", 2, "App.List"), KeyPath("App.s_map", 2, "App.Map")], 0x1100));
+        _worker.Service.RetentionGroups.Add(new RetentionGroupDto(0, 3, 30, 1, "App.Order", 1, [KeyPath("App.s_list", 3, "App.List", "App.Order[]")], 0x1000, "k0"));
+        _worker.Service.RetentionGroups.Add(new RetentionGroupDto(1, 2, 20, 1, "App.Order", 2, [KeyPath("App.s_list", 2, "App.List"), KeyPath("App.s_map", 2, "App.Map")], 0x1100, "k1"));
         await OpenAsync("app.dmp");
         var types = _snapshots.Types;
         types.OpenAsSetCommand.Execute(new List<TypeRowItem> { await FirstRowAsync(types.Rows) });
@@ -203,11 +203,14 @@ public sealed class SetViewModelTests : IDisposable
         similar.Diagram.Nodes.Count.ShouldBe(4, "the first group's root, two types and the target");
         similar.Selected = similar.Groups[1];
         similar.Diagram.Nodes.Count(n => n.Kind == DiagramNodeKind.Root).ShouldBe(2);
+        similar.Diagram.Nodes.Single(n => n.Kind == DiagramNodeKind.Target).ShouldSatisfyAllConditions(
+            n => n.Objects.ShouldBe(2, "every member has both paths: the group is counted once (the 3.2 review)"),
+            n => n.Label.ShouldBe("Group 2"));
 
         similar.OpenGroupCommand.Execute(similar.Groups[1]);
 
         var group = Navigator.Current.ShouldBeOfType<SetViewModel>();
-        (group.Title, group.Set.Spec.Kind, group.Set.Spec.Row, group.Set.Spec.Inner?.Kind).ShouldBe(("Group 2 of App.Order", ObjectSetKind.RetentionGroup, 1, ObjectSetKind.Types));
+        (group.Title, group.Set.Spec.Kind, group.Set.Spec.Name, group.Set.Spec.Row, group.Set.Spec.Inner?.Kind).ShouldBe(("Group 2 of App.Order", ObjectSetKind.RetentionGroup, "k1", 1, ObjectSetKind.Types));
     }
 
     [Fact]

@@ -37,8 +37,8 @@ public sealed class RetentionGroupItem(RetentionGroupDto group, bool showFramewo
 {
     public RetentionGroupDto Group { get; } = group;
 
-    /// <summary>The group's number as shown, from 1.</summary>
-    public int Number => Group.Rank + 1;
+    /// <summary>The group's number as shown, from 1 (as the CLI and the logs number it).</summary>
+    public int Number => Group.Number;
 
     public long Objects => Group.Objects;
 
@@ -53,9 +53,6 @@ public sealed class RetentionGroupItem(RetentionGroupDto group, bool showFramewo
 
     /// <summary>The paths as one text: root, then the path from it; one line per path.</summary>
     public string PathsText => string.Join(Environment.NewLine, Paths.Select(p => p.Root + ": " + p.PathText));
-
-    /// <summary>What the group's paths say beyond the ones shown.</summary>
-    public string? MorePaths => Group.PathCount > Group.Paths.Count ? string.Create(CultureInfo.CurrentCulture, $"and {Group.PathCount - Group.Paths.Count:N0} more paths") : null;
 
     public ulong LinkAddress => Group.ExampleAddress;
 }
@@ -120,7 +117,9 @@ public sealed partial class SimilarRetentionViewModel : ObservableObject
     public string Title { get; }
 
     /// <summary>The selected group's paths as a diagram (the first group's when none is selected).</summary>
-    public KeyPathDiagram Diagram => (Selected ?? Groups.FirstOrDefault()) is { } group ? KeyPathDiagram.Build(group.Group.Paths, ShowFramework) : KeyPathDiagram.Empty;
+    public KeyPathDiagram Diagram => (Selected ?? Groups.FirstOrDefault()) is { } group
+        ? KeyPathDiagram.Build(group.Group.Paths, ShowFramework, overlapping: true, target: string.Create(CultureInfo.CurrentCulture, $"Group {group.Number}"))
+        : KeyPathDiagram.Empty;
 
     /// <summary>Opens a group as a set of its own (Enter or double click).</summary>
     public System.Windows.Input.ICommand OpenGroupCommand { get; }
@@ -139,7 +138,7 @@ public sealed partial class SimilarRetentionViewModel : ObservableObject
     public ObjectSetQuery GroupSet(RetentionGroupItem group)
     {
         ArgumentNullException.ThrowIfNull(group);
-        return Set with { Spec = ObjectSetSpec.RetentionGroupOf(Set.Spec, group.Group.Rank) };
+        return Set with { Spec = ObjectSetSpec.RetentionGroupOf(Set.Spec, group.Group) };
     }
 
     private string GroupTitle(RetentionGroupItem group) => string.Create(CultureInfo.CurrentCulture, $"Group {group.Number} of {Title}");

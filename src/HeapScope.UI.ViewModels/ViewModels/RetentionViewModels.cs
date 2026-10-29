@@ -235,7 +235,7 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
     public string Title => "Why alive: " + (_setTitle ?? (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]"));
 
     /// <summary>The paths merged into one graph (sprint 3.2).</summary>
-    public KeyPathDiagram Diagram => _result is null ? KeyPathDiagram.Empty : KeyPathDiagram.Build(_result.Paths, ShowFramework);
+    public KeyPathDiagram Diagram => _result is null ? KeyPathDiagram.Empty : KeyPathDiagram.Build(_result.Paths, ShowFramework, target: _setTitle);
 
     /// <summary>Opens the type's objects as a set on its Similar Retention view (sprint 3.2).</summary>
     public IRelayCommand SimilarRetentionCommand { get; }

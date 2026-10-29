@@ -110,7 +110,7 @@ internal sealed class TypeSummarySource : IResultSource
     /// <paramref name="retainedByGroup"/> (sprint 2.3; numbered as <see cref="TypeGroups.GroupOfType"/>) the rows carry a
     /// retained bytes column.
     /// </summary>
-    public static TypeSummarySource Create(HeapGraph graph, TypeAggregation aggregation, TypeSummaryRequest request, bool generations, ulong[]? retainedByGroup = null, string[][]? interfaces = null)
+    public static TypeSummarySource Create(HeapGraph graph, TypeAggregation aggregation, TypeSummaryRequest request, bool generations, ulong[]? retainedByGroup = null, TypeInterfaces? interfaces = null)
     {
         ArgumentNullException.ThrowIfNull(aggregation);
         ArgumentNullException.ThrowIfNull(request);

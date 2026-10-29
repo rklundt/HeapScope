@@ -54,8 +54,9 @@ public enum ObjectSetKind
     Interface = 6,
 
     /// <summary>
-    /// The members of a Similar Retention group of <see cref="ObjectSetSpec.Inner"/> (sprint 3.2): the group at rank
-    /// <see cref="ObjectSetSpec.Row"/>, ranked as <see cref="SimilarRetentionResult"/> lists them.
+    /// The members of a Similar Retention group of <see cref="ObjectSetSpec.Inner"/> (sprint 3.2): the group whose pattern
+    /// has the fingerprint <see cref="ObjectSetSpec.Name"/> (<see cref="RetentionGroupDto.Key"/>); <see cref="ObjectSetSpec.Row"/>
+    /// is the rank it was listed at, for the log and as a hint.
     /// </summary>
     RetentionGroup = 7,
 }
@@ -103,7 +104,8 @@ public sealed record ObjectSetSpec(
 
     public static ObjectSetSpec OfInterface(string name) => new(ObjectSetKind.Interface, Name: name);
 
-    public static ObjectSetSpec RetentionGroupOf(ObjectSetSpec inner, int rank) => new(ObjectSetKind.RetentionGroup, Row: rank, Inner: inner);
+    public static ObjectSetSpec RetentionGroupOf(ObjectSetSpec inner, RetentionGroupDto group) =>
+        new(ObjectSetKind.RetentionGroup, Name: group?.Key ?? throw new ArgumentNullException(nameof(group)), Row: group.Rank, Inner: inner);
 
 }
 
@@ -132,7 +134,7 @@ public static class ObjectSetSpecs
             ObjectSetKind.InspectionRow => $"inspection {spec.Name} row {spec.Row}{(spec.Baseline is null ? string.Empty : " with baseline " + spec.Baseline)}",
             ObjectSetKind.RetainedBy => $"retained by {spec.Inner?.Shape}",
             ObjectSetKind.Interface => $"interface {spec.Name}",
-            ObjectSetKind.RetentionGroup => $"similar retention group {spec.Row} of {spec.Inner?.Shape}",
+            ObjectSetKind.RetentionGroup => $"similar retention group {spec.Row + 1} (pattern #{spec.Name}) of {spec.Inner?.Shape}",
             _ => spec.Kind.ToString(),
         };
 
@@ -168,7 +170,7 @@ public static class ObjectSetSpecs
             ObjectSetKind.InspectionRow => $"I|{spec.Name?.ToLowerInvariant()}|{spec.Row}|{spec.Baseline}",
             ObjectSetKind.RetainedBy => "R|" + spec.Inner?.CacheKey,
             ObjectSetKind.Interface => "F|" + spec.Name,
-            ObjectSetKind.RetentionGroup => $"G|{spec.Row}|{spec.Inner?.CacheKey}",
+            ObjectSetKind.RetentionGroup => $"G|{spec.Name}|{spec.Inner?.CacheKey}",
             _ => throw new ArgumentException($"Unknown set kind {(int)spec.Kind}."),
         };
     }

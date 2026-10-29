@@ -165,7 +165,8 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
         var ex = await Should.ThrowAsync<WorkerOperationException>(() => Session.QueryTypeSummaryAsync(handle, TypeGrouping.Interface, null, null, true, null, Ct));
 
         ex.ErrorCode.ShouldBe(HeapScopeErrorCode.CapabilityNotSupported);
-        ex.Message.ShouldContain("gcdump records no interfaces");
+        ex.Message.ShouldContain("is a gcdump, which records no interfaces");
+        ex.Message.ShouldContain("capture a full dump");
     }
 
     [Fact]

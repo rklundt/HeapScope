@@ -163,6 +163,7 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
 
     partial void OnBaselineChanged(SnapshotItemViewModel? value)
     {
+        OfferInterfaces();
         if (!_settingPair)
         {
             OnPairChanged();
@@ -171,11 +172,16 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
 
     partial void OnCurrentChanged(SnapshotItemViewModel? value)
     {
+        OfferInterfaces();
         if (!_settingPair)
         {
             OnPairChanged();
         }
     }
+
+    // Interface rows need both snapshots' interfaces, which only full dumps record (the 3.2 review).
+    private void OfferInterfaces() =>
+        OfferGroupings(new[] { Baseline, Current }.All(s => s?.Handle.Descriptor?.Features.HasFlag(SnapshotFeatures.FieldValues) != false));
 
     protected override async Task<GridQuery<DiffRowItem>> RunQueryAsync(CancellationToken cancellationToken)
     {

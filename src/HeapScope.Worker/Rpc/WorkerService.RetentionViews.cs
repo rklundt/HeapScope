@@ -37,9 +37,6 @@ namespace HeapScope.Worker.Rpc;
 /// <summary>Sprint 3.2 (ADR-031): Similar Retention, and the interfaces of a snapshot's types.</summary>
 internal sealed partial class WorkerService
 {
-    // Each snapshot's interfaces per type index, read from the dump once (decision 6).
-    private readonly ConcurrentDictionary<Guid, Lazy<Task<string[][]>>> _interfaces = new();
-
     public Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SimilarRetentionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         GuardAsync(request, async () =>
         {
@@ -59,14 +56,24 @@ internal sealed partial class WorkerService
             var (tree, reverse) = await RetentionInputsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
             const string phase = "Grouping objects by retention pattern";
             progress?.Report(new JobProgress(phase, 0, null));
+            var groupStopwatch = Stopwatch.StartNew();
             var groups = await Task.Run(
                 () =>
                 {
-                    using var reservation = snapshots.Reserve(request.SnapshotId, (long)SimilarRetention.WorkingBytesPerMember * set.Count, phase)
+                    // The member groups, the patterns and the signature memo (the 3.2 review), compacted after.
+                    using var reservation = snapshots.Reserve(request.SnapshotId, SimilarRetention.WorkingBytes(set.Count, graph.ObjectCount), phase)
                         ?? throw SnapshotNotLoaded(request.SnapshotId);
-                    return SimilarRetention.Group(graph, tree, reverse.References, set, request.MaxGroups, cancellationToken);
+                    try
+                    {
+                        return SimilarRetention.Group(graph, tree, reverse.References, set, request.MaxGroups, cancellationToken);
+                    }
+                    finally
+                    {
+                        MemoryReservations.Collect();
+                    }
                 },
                 cancellationToken).ConfigureAwait(false);
+            var groupSeconds = groupStopwatch.Elapsed.TotalSeconds;
             var result = new SimilarRetentionResult(
                 [.. groups.Groups.Select((g, rank) => new RetentionGroupDto(
                     rank,
@@ -76,7 +83,8 @@ internal sealed partial class WorkerService
                     graph.Types.GetName(g.FirstType),
                     g.PathCount,
                     [.. g.Shown.Select(p => RetentionMapping.KeyPath(graph, p))],
-                    graph.Addresses[g.ExampleObject]))],
+                    graph.Addresses[g.ExampleObject],
+                    g.Key))],
                 Info(set),
                 groups.GroupCount,
                 groups.Unreachable,
@@ -88,9 +96,12 @@ internal sealed partial class WorkerService
                 stopwatch.Elapsed.TotalSeconds,
                 RetentionMapping.UnreachableNote(snapshot.Info.Kind));
 
-            // What the view rests on (decision 7): the set, the groups, and the largest groups with the paths shown.
+            // What the view rests on (decision 7): the set, the groups, and the largest groups with the paths shown; every
+            // listed group at Debug (the 3.2 review), numbered as the app and the CLI number them.
             logger.LogInformation(
-                "Similar retention: {Shape} in snapshot {Id}, {Members} members in {Groups} groups ({Unreachable} unreachable, {Limited} with more than {Max} referrers) in {Seconds:0.00} s; largest {Largest}",
+                "Similar retention (rule v{Version}, reverse index {Mode}): {Shape} in snapshot {Id}, {Members} members in {Groups} groups ({Unreachable} unreachable, {Limited} with more than {Max} referrers) grouped in {Seconds:0.00} s; largest {Largest}",
+                SimilarRetention.Version,
+                reverse.Mode,
                 request.Set.Shape,
                 request.SnapshotId,
                 set.Count,
@@ -98,8 +109,16 @@ internal sealed partial class WorkerService
                 result.Unreachable,
                 result.LimitedMembers,
                 SimilarRetention.MaxReferrers,
-                result.Seconds,
-                string.Join("; ", result.Groups.Take(5).Select(g => string.Create(CultureInfo.InvariantCulture, $"#{g.Rank} {g.Objects} objects, {g.Bytes} bytes, {g.PathCount} paths: {string.Join(" | ", g.Paths.Select(Provenance.Describe))}"))));
+                groupSeconds,
+                string.Join("; ", result.Groups.Take(5).Select(Provenance.Describe)));
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                foreach (var group in result.Groups.Skip(5))
+                {
+                    logger.LogDebug("Similar retention of {Shape} in snapshot {Id}: {Group}", request.Set.Shape, request.SnapshotId, Provenance.Describe(group));
+                }
+            }
+
             return result;
         });
 
@@ -116,6 +135,11 @@ internal sealed partial class WorkerService
     private async Task<(ObjectSet Set, string Detail)> ResolveRetentionGroupAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth)
     {
         var innerSpec = spec.Inner ?? throw new ArgumentException("A retention group set needs its inner set.");
+        if (string.IsNullOrEmpty(spec.Name))
+        {
+            throw new ArgumentException("A retention group set needs its group's pattern key.");
+        }
+
         var inner = await ResolveSetAsync(snapshotId, snapshot, innerSpec, progress, cancellationToken, depth + 1).ConfigureAwait(false);
         RequireMembers(inner);
         var (tree, reverse) = await RetentionInputsAsync(snapshotId, progress, cancellationToken).ConfigureAwait(false);
@@ -123,11 +147,11 @@ internal sealed partial class WorkerService
         var set = await Task.Run(
             () =>
             {
-                using var reservation = snapshots.Reserve(snapshotId, ((long)SimilarRetention.WorkingBytesPerMember * inner.Count) + ObjectSet.WorkingBytes(graph), "Resolving a retention group")
+                using var reservation = snapshots.Reserve(snapshotId, SimilarRetention.WorkingBytes(inner.Count, graph.ObjectCount) + ObjectSet.WorkingBytes(graph), "Resolving a retention group")
                     ?? throw SnapshotNotLoaded(snapshotId);
                 try
                 {
-                    return ObjectSet.OfIndices(graph, SimilarRetention.MembersOf(graph, tree, reverse.References, inner, spec.Row, cancellationToken).AsSpan());
+                    return ObjectSet.OfIndices(graph, SimilarRetention.MembersOf(graph, tree, reverse.References, inner, spec.Name ?? string.Empty, spec.Row, cancellationToken).AsSpan());
                 }
                 finally
                 {
@@ -137,95 +161,26 @@ internal sealed partial class WorkerService
             cancellationToken).ConfigureAwait(false);
         if (set.Count == 0)
         {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"The set has no retention group {spec.Row}."));
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"No group of this set is retained the way group {spec.Row + 1} was (pattern #{spec.Name}) in this snapshot. List the groups again with Similar Retention (the CLI's --view similar)."));
         }
 
-        return (set, string.Create(CultureInfo.InvariantCulture, $"group {spec.Row} of the inner set's {inner.Count} objects"));
+        return (set, string.Create(CultureInfo.InvariantCulture, $"group {spec.Row + 1} (pattern #{spec.Name}) of the inner set's {inner.Count} objects"));
     }
 
     /// <summary>
-    /// The interfaces of each type of a snapshot, read once from the dump through one object of each type (decision 6).
-    /// gcdumps and snapshots without a dump reader refuse.
+    /// The interfaces of each type of a snapshot (decision 6), read once and kept with the snapshot. gcdumps and snapshots
+    /// without a dump reader refuse; <paramref name="side"/> names the snapshot in a comparison's message.
     /// </summary>
-    private async Task<string[][]> GetInterfacesAsync(Guid snapshotId, ISnapshot snapshot, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    private async Task<TypeInterfaces> GetInterfacesAsync(Guid snapshotId, ISnapshot snapshot, IProgress<JobProgress>? progress, CancellationToken cancellationToken, string? side = null)
     {
         if (!snapshot.Capabilities.HasFlag(SnapshotCapabilities.FieldValues) || !snapshot.TryGetService<IObjectReader>(out var reader) || reader is null)
         {
-            throw new CapabilityNotSupportedException(SnapshotCapabilities.FieldValues, "Grouping by interface needs a full dump: a gcdump records no interfaces.");
+            throw new CapabilityNotSupportedException(
+                SnapshotCapabilities.FieldValues,
+                $"Interfaces need a full dump: {side ?? "this snapshot"} is a gcdump, which records no interfaces. Group by type, namespace or assembly, or capture a full dump.");
         }
 
-        while (true)
-        {
-            var shared = _interfaces.GetOrAdd(snapshotId, _ => new Lazy<Task<string[][]>>(() => Task.Run(() => ReadInterfaces(snapshotId, snapshot.Graph, reader, progress, cancellationToken), cancellationToken)));
-            try
-            {
-                return await shared.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                _interfaces.TryRemove(new KeyValuePair<Guid, Lazy<Task<string[][]>>>(snapshotId, shared));
-            }
-            catch
-            {
-                _interfaces.TryRemove(new KeyValuePair<Guid, Lazy<Task<string[][]>>>(snapshotId, shared));
-                throw;
-            }
-        }
-    }
-
-    private string[][] ReadInterfaces(Guid snapshotId, Core.Graph.HeapGraph graph, IObjectReader reader, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        var typeCount = graph.Types.Count;
-        var example = new int[typeCount];
-        Array.Fill(example, -1);
-        var typeIndices = graph.TypeIndices.Span;
-        var found = 0;
-        for (var o = 0; o < typeIndices.Length && found < typeCount; o++)
-        {
-            if (example[typeIndices[o]] < 0)
-            {
-                example[typeIndices[o]] = o;
-                found++;
-            }
-        }
-
-        const string phase = "Reading the types' interfaces";
-        var interfaces = new string[typeCount][];
-        var names = new Dictionary<string, string>(StringComparer.Ordinal);
-        var failed = 0;
-        for (var t = 0; t < typeCount; t++)
-        {
-            if ((t & 0xFF) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                progress?.Report(new JobProgress(phase, t, typeCount));
-            }
-
-            interfaces[t] = [];
-            if (example[t] < 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                // One string per interface name across the table.
-                interfaces[t] = [.. (reader.ReadInterfaces(graph.Addresses[example[t]]) ?? []).Select(n => names.TryGetValue(n, out var known) ? known : names[n] = n)];
-            }
-            catch (Exception e) when (e is ArgumentException or InvalidOperationException or IOException)
-            {
-                failed++;
-            }
-        }
-
-        logger.LogInformation(
-            "Interfaces of snapshot {Id}: {Types} types read, {Failed} failed, {Interfaces} distinct interfaces in {Seconds:0.00} s",
-            snapshotId,
-            found,
-            failed,
-            names.Count,
-            stopwatch.Elapsed.TotalSeconds);
-        return interfaces;
+        return await snapshots.GetInterfacesAsync(snapshotId, reader, progress, cancellationToken).ConfigureAwait(false)
+            ?? throw SnapshotNotLoaded(snapshotId);
     }
 }

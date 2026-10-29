@@ -103,12 +103,12 @@ dotnet test --solution HeapScope.sln
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
   with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
   `set <snapshot> (--type <name> [--type ...] [--module <file>] | --namespace <name> | --assembly <file> | --interface
-  <name> | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--group N] [--retained]
+  <name> | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--similar-group N] [--retained]
   [--view types|instances|generations|dominators|retained|paths|similar] [--top N | --all] [--format table|csv|json]`
   (sprint 3.1) shows an object set in one of the app's set views; `--retained` takes what the set keeps alive instead
   of its members; a set that selects nothing exits 1, two ways of choosing it 64. Since 3.2: `--interface` (full dumps),
-  `--view paths` (the set's key retention paths), `--view similar` (Similar Retention groups, numbered from 0, with
-  their most different paths) and `--group N` (the set's Similar Retention group N, as the similar view numbers it).
+  `--view paths` (the set's key retention paths), `--view similar` (Similar Retention groups, numbered from 1, with
+  their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers it; opened by its pattern, so it is the same group in another snapshot or refused). `diff --group interface` refuses `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
   `summary` and `diff` take `--group interface` (full dumps; a type counts under each interface it implements).
   The logs name an objects set (bookmarks) by its count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of
   its distinct addresses sorted ascending, each as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).

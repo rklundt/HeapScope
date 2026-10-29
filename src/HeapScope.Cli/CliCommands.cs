@@ -247,7 +247,7 @@ internal static partial class CliCommands
         var all = AllOption();
         var format = FormatOption();
 
-        var command = new Command("summary", "Summarize a dump by type, namespace or assembly (opens it first; reuses its index cache). Ctrl+C cancels.");
+        var command = new Command("summary", "Summarize a dump by type, namespace, assembly or interface (opens it first; reuses its index cache). Ctrl+C cancels.");
         command.Arguments.Add(dump);
         command.Options.Add(group);
         command.Options.Add(filter);
@@ -257,6 +257,13 @@ internal static partial class CliCommands
         command.Options.Add(all);
         command.Options.Add(format);
         AddTopOrAllValidator(command, top, all);
+        command.Validators.Add(result =>
+        {
+            if (result.GetValue(group) == "interface" && (result.GetValue(retained) || result.GetValue(sort) == "retained"))
+            {
+                result.AddError("Interface rows have no retained bytes: a type counts under each interface it implements, so the rows overlap. Leave out --retained (and --sort retained), or group by type, namespace or assembly.");
+            }
+        });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
             var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
@@ -266,6 +273,11 @@ internal static partial class CliCommands
             }
 
             var session = services().GetRequiredService<SnapshotSession>();
+            if (parseResult.GetValue(group) == "interface")
+            {
+                await error.WriteLineAsync("Note: a type counts under each interface it implements, so interface rows overlap and add up to more than the total.").ConfigureAwait(false);
+            }
+
             var sortName = parseResult.GetValue(sort);
             var summary = await session.QueryTypeSummaryAsync(
                 handle,

@@ -77,6 +77,21 @@ public sealed class KeyPathDiagramTests
         (KeyPathDiagram.Empty.Width, KeyPathDiagram.Empty.Height).ShouldBe((0d, 0d));
     }
 
+    [Fact]
+    public void Long_paths_keep_their_gaps_apart_and_a_set_names_the_target()
+    {
+        var diagram = KeyPathDiagram.Build(
+            [
+                Path("s_a", 3, ("App.A", false), ("(12 steps not shown)", false), ("App.Z", false)),
+                Path("s_b", 2, ("App.B", false), ("(12 steps not shown)", false), ("App.Z", false)),
+            ],
+            showFramework: true,
+            target: "Namespace App");
+
+        diagram.Nodes.Count(n => n.Label == "(12 steps not shown)").ShouldBe(2, "two unrelated gaps are two nodes");
+        diagram.Nodes.Single(n => n.Kind == DiagramNodeKind.Target).ShouldSatisfyAllConditions(n => n.Label.ShouldBe("Namespace App"), n => n.Objects.ShouldBe(5));
+    }
+
     private static KeyPathDto Path(string root, long objects, params (string Type, bool Framework)[] steps) =>
         new(new PathRootDto(RootKindDto.StaticField, false, "static field " + root), [.. steps.Select(s => new PathStepDto(s.Type, s.Framework))], "App.Item", objects, objects * 10, 0x1000);
 }

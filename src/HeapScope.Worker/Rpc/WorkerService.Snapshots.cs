@@ -44,7 +44,6 @@ internal sealed partial class WorkerService
     {
         snapshots.Close(snapshotId);
         _sets.Forget(snapshotId);
-        _interfaces.TryRemove(snapshotId, out _);
         return Task.CompletedTask;
     }
 }
