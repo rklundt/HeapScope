@@ -14,8 +14,8 @@ anything they depend on.
 
 ## What to check
 - **Layering**: every `ProjectReference` and `PackageReference` against the dependency table in
-  ARCHITECTURE.md section 3.1. UI.Wpf must never reach Loaders, Analysis, Storage, Capture or diagnostics
-  libraries. Core references nothing. Look for leaks through transitive types, too (for example a Contracts DTO
+  ARCHITECTURE.md section 3.1. UI and UI.ViewModels must never reach Loaders, Analysis, Storage, Capture, Worker
+  or diagnostics libraries, and use no Core types; UI.ViewModels references no UI toolkit. Core references nothing. Look for leaks through transitive types, too (for example a Contracts DTO
   exposing a Core graph type).
 - **Process boundaries**: snapshot contents only processed in the worker; capture only in Application; the UI
   never blocks on the worker.
@@ -23,8 +23,7 @@ anything they depend on.
   (paging used), progress and cancellation on every long operation, clear error codes.
 - **Capability model**: features declare required capabilities; nothing is faked for snapshot kinds that
   cannot support it.
-- **Extensibility**: will 2.x features (reverse references, retention paths, dominators, detectors,
-  allocation tracking) and backlog items fit without redesign? Flag anything that forces a rewrite later
+- **Extensibility**: will the next phase's candidates and the Backlog items in SPRINTS.md fit without redesign? Flag anything that forces a rewrite later
   (High).
 - **ADRs**: consistency with every ADR; significant new decisions that need an ADR.
 - **Docs**: ARCHITECTURE.md matches the code.
