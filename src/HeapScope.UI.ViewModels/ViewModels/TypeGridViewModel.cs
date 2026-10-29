@@ -33,6 +33,7 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     where TRow : class, IIndexedRow
 {
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GroupNote))]
     private TypeGrouping _groupBy = TypeGrouping.Type;
 
     protected TypeGridViewModel(string sortColumn, IUiDispatcher dispatcher, ILogger? logger)
@@ -40,8 +41,27 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     {
     }
 
-    /// <summary>The groupings the selector offers.</summary>
-    public IReadOnlyList<TypeGrouping> Groupings { get; } = Enum.GetValues<TypeGrouping>();
+    /// <summary>The groupings the selector offers: Interface only where the snapshots are full dumps (the 3.2 review).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<TypeGrouping> _groupings = Enum.GetValues<TypeGrouping>();
+
+    /// <summary>
+    /// Offers the groupings the snapshots support: interfaces are read from a full dump, so a gcdump leaves Interface out
+    /// (and a grid grouped by interface goes back to types).
+    /// </summary>
+    protected void OfferGroupings(bool interfacesReadable)
+    {
+        Groupings = interfacesReadable ? Enum.GetValues<TypeGrouping>() : [.. Enum.GetValues<TypeGrouping>().Where(g => g != TypeGrouping.Interface)];
+        if (!interfacesReadable && GroupBy == TypeGrouping.Interface)
+        {
+            GroupBy = TypeGrouping.Type;
+        }
+    }
+
+    /// <summary>What the grouping means for the totals (sprint 3.2: interface rows overlap).</summary>
+    public string? GroupNote => GroupBy == TypeGrouping.Interface
+        ? "A type counts under each interface it implements, so rows overlap and add up to more than the total. Full dumps only."
+        : null;
 
     protected override string EmptyText => string.IsNullOrWhiteSpace(Filter) ? "Nothing to show." : $"No {Singular(GroupBy)} matches the filter.";
 
@@ -49,6 +69,7 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     {
         TypeGrouping.Namespace => "namespaces",
         TypeGrouping.Assembly => "assemblies",
+        TypeGrouping.Interface => "interfaces",
         _ => "types",
     };
 
@@ -56,6 +77,7 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     {
         TypeGrouping.Namespace => "namespace",
         TypeGrouping.Assembly => "assembly",
+        TypeGrouping.Interface => "interface",
         _ => "type",
     };
 

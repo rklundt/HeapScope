@@ -78,6 +78,17 @@ internal sealed partial class WorkerService
                     cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
             }
             var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
+            Analysis.TypeInterfaces? interfaces = null;
+            if (request.GroupBy == TypeGrouping.Interface)
+            {
+                // Interface groups overlap, so they have no retained lower bound (decision 6); a gcdump is refused first.
+                interfaces = await GetInterfacesAsync(request.SnapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
+                if (request.IncludeRetained)
+                {
+                    throw new ArgumentException("Interface rows have no retained column: a type counts under each of its interfaces, so the rows overlap. Leave out retained sizes (--retained), or group by type, namespace or assembly.");
+                }
+            }
+
             ulong[]? retained = null;
             DominatorIndexInfo? dominators = null;
             if (request.IncludeRetained)
@@ -90,7 +101,7 @@ internal sealed partial class WorkerService
                     ?? throw SnapshotNotLoaded(request.SnapshotId);
             }
 
-            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations, retained), cancellationToken).ConfigureAwait(false);
+            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations, retained, interfaces), cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);
             // Unknown (generation not determined) is listed only when present, so the bar always adds up to the total.
@@ -135,8 +146,15 @@ internal sealed partial class WorkerService
                 request.CurrentId,
                 new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone + done, total))),
                 cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.CurrentId);
+            Analysis.TypeInterfaces? baselineInterfaces = null, currentInterfaces = null;
+            if (request.GroupBy == TypeGrouping.Interface)
+            {
+                baselineInterfaces = await GetInterfacesAsync(request.BaselineId, baseline, progress, cancellationToken, "the baseline").ConfigureAwait(false);
+                currentInterfaces = await GetInterfacesAsync(request.CurrentId, current, progress, cancellationToken, "the current snapshot").ConfigureAwait(false);
+            }
+
             var source = await Task.Run(
-                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind),
+                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind, baselineInterfaces, currentInterfaces),
                 cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);

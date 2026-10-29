@@ -70,6 +70,14 @@ internal static partial class CliCommands
         command.Options.Add(format);
         command.Options.Add(failOnGrowth);
         AddTopOrAllValidator(command, top, all);
+        command.Validators.Add(result =>
+        {
+            // Interface rows overlap, so their growth adds up a type once per interface (the 3.2 review).
+            if (result.GetValue(failOnGrowth) is not null && result.GetValue(group) == "interface")
+            {
+                result.AddError("--fail-on-growth cannot gate interface rows: a type counts under each interface it implements, so their growth adds up more than once. Gate by type, namespace or assembly.");
+            }
+        });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
             var before = await OpenForQueryAsync(parseResult.GetValue(baseline)!, error, ct).ConfigureAwait(false);
@@ -144,8 +152,9 @@ internal static partial class CliCommands
                 // The gate's decision in the log, so a failed CI run can be explained later (sprint 2.3.7 review M4). The
                 // filter is logged by its length only.
                 services().GetRequiredService<ILoggerFactory>().CreateLogger("HeapScope.Cli.Diff").LogInformation(
-                    "Growth gate {Outcome}: matching rows grew by {Delta} bytes from {BaselineBytes} bytes, limit {Threshold} ({Limit} bytes); {Rows} matching rows, filter {FilterLength} chars; baseline {Baseline} (worker snapshot {BaselineId}), current {Current} (worker snapshot {CurrentId}); exact counts {ExactCounts}",
+                    "Growth gate {Outcome} ({Grouping} rows): matching rows grew by {Delta} bytes from {BaselineBytes} bytes, limit {Threshold} ({Limit} bytes); {Rows} matching rows, filter {FilterLength} chars; baseline {Baseline} (worker snapshot {BaselineId}), current {Current} (worker snapshot {CurrentId}); exact counts {ExactCounts}",
                     exceeded ? "failed" : "passed",
+                    parseResult.GetValue(group),
                     result.MatchingBytesDelta,
                     result.MatchingBaselineBytes,
                     text,

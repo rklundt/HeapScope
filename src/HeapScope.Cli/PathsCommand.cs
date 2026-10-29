@@ -244,7 +244,7 @@ internal static partial class CliCommands
     }
 
     /// <summary>A key path as text, root first: "A > B > (2 framework types) > C > target".</summary>
-    private static string PathText(KeyPathDto path, bool fold)
+    internal static string PathText(KeyPathDto path, bool fold)
     {
         var parts = new List<string>();
         var run = 0;

@@ -164,17 +164,26 @@ public sealed partial class RetentionNodeItem : ObservableObject, IObjectLink
 
 /// <summary>
 /// Why the objects of a type are alive (sprint 2.2, dotMemory's Key Retention Paths): one row per path from a root, the
-/// largest first; opening a row shows its example object. Opened from a type's instances.
+/// largest first; opening a row shows its example object. Opened from a type's instances. Since 3.2 also a set's Paths
+/// view, and the paths can be shown merged into a diagram.
 /// </summary>
 public sealed partial class TypePathsViewModel : ObservableObject, INavigationSubject
 {
     private readonly SnapshotSession _session;
     private readonly ILogger _logger;
+    private readonly INavigator? _navigator;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly ObjectSetQuery? _set;
+    private readonly string? _setTitle;
     private TypePathsResult? _result;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Diagram))]
     private IReadOnlyList<KeyPathItem> _paths = [];
+
+    /// <summary>Shows the paths merged into a diagram instead of the list (sprint 3.2).</summary>
+    [ObservableProperty]
+    private bool _showDiagram;
 
     [ObservableProperty]
     private string? _status;
@@ -199,6 +208,18 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
         TypeName = typeName ?? throw new ArgumentNullException(nameof(typeName));
         Module = module;
         _logger = logger ?? NullLogger.Instance;
+        _navigator = navigator;
+        SimilarRetentionCommand = new RelayCommand(
+            () => _navigator?.Navigate(NavigationTarget.ObjectSet(Snapshot, new ObjectSetQuery(ObjectSetSpec.OfType(TypeName, Module)), TypeName, SetViews.SimilarRetention)),
+            () => _set is null);
+    }
+
+    /// <summary>The key paths of a set's members (sprint 3.2: the set's Paths view).</summary>
+    public TypePathsViewModel(SnapshotSession session, SnapshotHandle snapshot, ObjectSetQuery set, string setTitle, ILogger? logger = null, INavigator? navigator = null)
+        : this(session, snapshot, string.Empty, null, logger, navigator)
+    {
+        _set = set ?? throw new ArgumentNullException(nameof(set));
+        _setTitle = setTitle ?? throw new ArgumentNullException(nameof(setTitle));
     }
 
     public SnapshotHandle Snapshot { get; }
@@ -207,8 +228,17 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
 
     public string? Module { get; }
 
+    /// <summary>Whether these are a set's paths (no type of their own).</summary>
+    public bool IsSet => _set is not null;
+
     /// <summary>The navigation title.</summary>
-    public string Title => "Why alive: " + (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]");
+    public string Title => "Why alive: " + (_setTitle ?? (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]"));
+
+    /// <summary>The paths merged into one graph (sprint 3.2).</summary>
+    public KeyPathDiagram Diagram => _result is null ? KeyPathDiagram.Empty : KeyPathDiagram.Build(_result.Paths, ShowFramework, target: _setTitle);
+
+    /// <summary>Opens the type's objects as a set on its Similar Retention view (sprint 3.2).</summary>
+    public IRelayCommand SimilarRetentionCommand { get; }
 
     /// <summary>Opens a row's example object (set by the navigator).</summary>
     public System.Windows.Input.ICommand OpenRowCommand { get; }
@@ -220,7 +250,11 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
 
     public void Close() => _lifetime.Cancel();
 
-    partial void OnShowFrameworkChanged(bool value) => ShowPaths();
+    partial void OnShowFrameworkChanged(bool value)
+    {
+        ShowPaths();
+        OnPropertyChanged(nameof(Diagram));
+    }
 
     private async Task LoadAsync(CancellationToken cancellationToken)
     {
@@ -235,7 +269,9 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
         });
         try
         {
-            var result = await _session.QueryTypePathsAsync(Snapshot, TypeName, Module, 20, progress, cancellationToken);
+            var result = _set is null
+                ? await _session.QueryTypePathsAsync(Snapshot, TypeName, Module, 20, progress, cancellationToken)
+                : await _session.QuerySetPathsAsync(Snapshot, _set, 20, progress, cancellationToken);
             finished = true;
             if (cancellationToken.IsCancellationRequested)
             {
@@ -250,7 +286,7 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
                 + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
                 + (result.OtherPaths > 0 ? string.Create(CultureInfo.CurrentCulture, $"; {result.OtherPaths:N0} smaller paths not listed hold {result.OtherObjects:N0} objects") : string.Empty)
                 + ReferrersText.Incomplete(result.CompleteGraph).Replace("referrers", "paths", StringComparison.Ordinal);
-            Status = result.Objects == 0 ? "No objects of this type." : null;
+            Status = result.Objects == 0 ? (_set is null ? "No objects of this type." : "The set has no objects.") : null;
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {

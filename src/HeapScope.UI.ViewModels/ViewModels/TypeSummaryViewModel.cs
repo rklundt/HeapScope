@@ -296,13 +296,16 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
         if (loaded.Count > 1)
         {
-            Status = GroupBy == TypeGrouping.Namespace ? "Open one namespace at a time as a set, or group by type and select its types." : "Open one assembly at a time as a set, or group by type and select its types.";
+            Status = $"Open one {Singular(GroupBy)} at a time as a set, or group by type and select its types.";
             return null;
         }
 
-        return GroupBy == TypeGrouping.Namespace
-            ? (ObjectSetSpec.OfNamespace(loaded[0].Name), "Namespace " + loaded[0].Name)
-            : (ObjectSetSpec.OfAssembly(loaded[0].Name), "Assembly " + loaded[0].Name);
+        return GroupBy switch
+        {
+            TypeGrouping.Namespace => (ObjectSetSpec.OfNamespace(loaded[0].Name), "Namespace " + loaded[0].Name),
+            TypeGrouping.Interface => (ObjectSetSpec.OfInterface(loaded[0].Name), "Interface " + loaded[0].Name),
+            _ => (ObjectSetSpec.OfAssembly(loaded[0].Name), "Assembly " + loaded[0].Name),
+        };
     }
 
     private void OpenAsSet(System.Collections.IList? rows, INavigator? navigator)
@@ -385,6 +388,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
             return;
         }
 
+        OfferGroupings(snapshot.Descriptor?.Features.HasFlag(SnapshotFeatures.FieldValues) != false);
         Requery();
     }
 
@@ -413,7 +417,11 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     {
         var snapshot = _snapshot!;
         var groupBy = GroupBy;
-        var retained = ShowRetained && Set is null;
+        // Interface rows overlap, so they have no retained lower bound (sprint 3.2); the note says so, and a sort by
+        // retained bytes falls back to bytes (the 3.2 review).
+        var retained = ShowRetained && Set is null && groupBy != TypeGrouping.Interface;
+        var noRetainedHere = ShowRetained && Set is null && groupBy == TypeGrouping.Interface;
+        var sortColumn = !retained && SortColumn == TypeSummaryColumns.Retained ? TypeSummaryColumns.Bytes : SortColumn;
 
         // The first retained query computes the dominators: its phases replace the busy text until it answers.
         var finished = false;
@@ -422,7 +430,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
         TypeSummary summary;
         try
         {
-            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, SortColumn, Descending, retained, progress, cancellationToken, Set);
+            summary = await _session.QueryTypeSummaryAsync(snapshot, groupBy, Filter, sortColumn, Descending, retained, progress, cancellationToken, Set);
         }
         catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
         {
@@ -452,6 +460,10 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 {
                     TurnRetainedOffQuietly();
                     RetainedNote = RetainedText.NotShown(retainedFailure);
+                }
+                else if (noRetainedHere)
+                {
+                    RetainedNote = "Interface rows have no retained sizes: a type counts under each interface it implements, so the rows overlap. Group by type, namespace or assembly to see them.";
                 }
 
                 HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];

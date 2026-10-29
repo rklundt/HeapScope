@@ -167,6 +167,21 @@ internal sealed partial class WorkerService
 
                 (set, detail) = await Task.Run(() => OfTypeKeys(snapshotId, graph, keys, cancellationToken), cancellationToken).ConfigureAwait(false);
                 break;
+            case ObjectSetKind.Interface:
+                var interfaces = await GetInterfacesAsync(snapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
+                var interfaceMask = TypeGroups.MatchInterface(graph, interfaces, spec.Name ?? string.Empty, out var implementing);
+                if (implementing == 0)
+                {
+                    throw new ArgumentException("No type of this snapshot implements that interface. Names are case sensitive and include the namespace; group the types by interface (the CLI's summary --group interface) to list them.");
+                }
+
+                set = await Task.Run(() => Reserved(snapshotId, graph, () => ObjectSet.OfTypes(graph, interfaceMask, cancellationToken)), cancellationToken).ConfigureAwait(false);
+                var implementers = Enumerable.Range(0, interfaceMask.Length).Where(t => interfaceMask[t]).Select(graph.Types.GetName).Distinct(StringComparer.Ordinal).ToList();
+                detail = string.Create(CultureInfo.InvariantCulture, $"{implementing} type entries: {string.Join(", ", implementers.Take(20))}{(implementers.Count > 20 ? $" and {implementers.Count - 20} more" : string.Empty)}; {interfaces.UnreadTypes} types' interfaces not read");
+                break;
+            case ObjectSetKind.RetentionGroup:
+                (set, detail) = await ResolveRetentionGroupAsync(snapshotId, snapshot, spec, progress, cancellationToken, depth).ConfigureAwait(false);
+                break;
             case ObjectSetKind.Namespace:
             case ObjectSetKind.Assembly:
                 var grouping = spec.Kind == ObjectSetKind.Namespace ? GroupKey.Namespace : GroupKey.Assembly;

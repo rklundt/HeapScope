@@ -61,6 +61,18 @@ internal static class Provenance
         CultureInfo.InvariantCulture,
         $"[{Describe(path.Root)}] {string.Join(" > ", path.Steps.Select(s => s.TypeName))}{(path.Steps.Count > 0 ? " > " : string.Empty)}{path.TargetType} ({path.Objects} objects, {path.Bytes} bytes)");
 
+    /// <summary>
+    /// A Similar Retention group for the log (sprint 3.2): its number as shown, pattern key, objects, bytes, types and paths
+    /// (roots and type names; the paths overlap, each holding the whole group).
+    /// </summary>
+    public static string Describe(RetentionGroupDto group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"group {group.Number} #{group.Key}: {group.Objects} objects, {group.Bytes} bytes, {group.Types} types from {group.FirstType}, {group.PathCount} paths: {string.Join(" | ", group.Paths.Select(p => $"[{Describe(p.Root)}] {string.Join(" > ", p.Steps.Select(s => s.TypeName))}"))}");
+    }
+
     /// <summary>The value for the log, at most two levels of nested records deep.</summary>
     public static string Describe(object? value)
     {

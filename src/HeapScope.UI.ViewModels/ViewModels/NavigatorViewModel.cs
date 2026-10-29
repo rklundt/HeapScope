@@ -181,7 +181,7 @@ public sealed partial class NavigatorViewModel : ObservableObject
         return target.Kind switch
         {
             NavigationKind.Object => OpenObject(target.Snapshot, target.Address, target.ObjectTab),
-            NavigationKind.Set when target.Set is { } set => OpenSet(target.Snapshot, set, target.SetTitle ?? "Set"),
+            NavigationKind.Set when target.Set is { } set => OpenSet(target.Snapshot, set, target.SetTitle ?? "Set", target.SetView),
             NavigationKind.Instances when target.Set is { } set => OpenSetInstances(target.Snapshot, set, target.SetTitle ?? "the set", target.TypeName ?? string.Empty, target.Module),
             NavigationKind.Instances when target.TypeName is { } typeName => OpenInstances(target.Snapshot, typeName, target.Module, target.Scope, target.SameValueAs),
             NavigationKind.TypeReferrers when target.TypeName is { } typeName => OpenTypeReferrers(target.Snapshot, typeName, target.Module),
@@ -213,11 +213,12 @@ public sealed partial class NavigatorViewModel : ObservableObject
     }
 
     /// <summary>Shows an object set with its views (sprint 3.1).</summary>
-    public SetViewModel OpenSet(SnapshotHandle snapshot, ObjectSetQuery set, string title)
+    public SetViewModel OpenSet(SnapshotHandle snapshot, ObjectSetQuery set, string title, SetViews view = SetViews.Types)
     {
         var subject = new SetViewModel(_session, snapshot, set, title, Types.UiDispatcher, _loggers, _navigator);
         Push(subject);
         subject.Start();
+        subject.View = view;
         return subject;
     }
 

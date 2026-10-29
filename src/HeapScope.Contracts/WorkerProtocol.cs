@@ -47,7 +47,8 @@ public static class WorkerProtocol
     /// Version 14 (sprint 2.6): inspection kinds (the leak detectors) and a baseline snapshot on inspection requests.
     /// Version 15 (sprint 2.7): result columns say whether they are hidden and whether they carry values.
     /// Version 16 (sprint 3.1): object sets (a set on instances, type summaries and set retention; a set's dominators).
-    public const int Version = 16;
+    /// Version 17 (sprint 3.2): Similar Retention, a set's key paths, interface grouping, interface and retention group sets.
+    public const int Version = 17;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

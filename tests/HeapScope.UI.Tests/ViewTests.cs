@@ -504,6 +504,23 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             await Settle(set.Dominators.Rows);
             Grid(window, "SetDominatorsGrid").IsEffectivelyVisible.ShouldBeTrue();
 
+            // Sprint 3.2: the Paths view (list and diagram) and Similar Retention, by the keyboard too.
+            Press(window, PhysicalKey.ArrowRight);
+            set.View.ShouldBe(SetViews.Paths);
+            await set.Paths!.LoadTask;
+            Dispatcher.UIThread.RunJobs();
+            Grid(window, "TypePathsGrid").IsEffectivelyVisible.ShouldBeTrue();
+            set.Paths.ShowDiagram = true;
+            Dispatcher.UIThread.RunJobs();
+            window.GetVisualDescendants().OfType<HeapScope.UI.Controls.KeyPathDiagramView>().Single(d => d.Name == "PathsDiagram").IsEffectivelyVisible.ShouldBeTrue();
+            views.ContainerFromIndex(views.SelectedIndex).ShouldNotBeNull().Focus(NavigationMethod.Tab);
+            Press(window, PhysicalKey.ArrowRight);
+            set.View.ShouldBe(SetViews.SimilarRetention);
+            await set.SimilarRetention!.LoadTask;
+            Dispatcher.UIThread.RunJobs();
+            Grid(window, "SimilarRetentionGrid").IsEffectivelyVisible.ShouldBeTrue();
+            window.GetVisualDescendants().OfType<HeapScope.UI.Controls.KeyPathDiagramView>().Single(d => d.Name == "SimilarDiagram").IsEffectivelyVisible.ShouldBeTrue();
+
             ui.BindingErrors.ShouldBeEmpty();
             window.Close();
         });

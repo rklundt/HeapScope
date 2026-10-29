@@ -34,7 +34,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
 | 2.8 | Packaging and distribution | Planned | | |
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
-| 3.2 | Retention views | Planned | | |
+| 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
 | 3.3 | Comparison depth | Planned | | |
 | 3.4 | Live workflow and housekeeping | Planned | | |
 | 3.5 | Leak detection depth | Planned | | |
@@ -2519,14 +2519,75 @@ support engineer): 4 High, 15 Moderate, 26 Low (7 from the re-review).
 roots); key retention paths drawn as a diagram (the distinct paths merged into a graph); group by interface in the types
 grid and Compare.
 
-**Acceptance criteria**: to be set at /start-sprint; fixture objects held by known distinct patterns form the expected
-groups.
+**Acceptance criteria**:
+- On the RetentionPatterns fixture (objects held by three known patterns: a list only, the list and a dictionary, an
+  array of holders only) Similar Retention of the item type gives exactly three groups with the known counts, each group
+  showing the paths of its pattern; a group opens as a set with exactly its objects.
+- A set has key paths (the 2.2 grouping over its members); for a set of one type they equal the type's key paths.
+- The key paths diagram merges the paths into one node per root and per type, with edges carrying the objects that pass
+  them (view model tests), and is drawn on the type's Paths subject and the set's Paths view.
+- Group by interface in the types grid and Compare: on the fixture each leak class counts under `ILeak` and the
+  disposable fixtures under `System.IDisposable`, matching ClrMD; an interface row opens as a set; gcdumps refuse the
+  grouping with a reason.
 
 **Dependencies**: 3.1 (groups open as sets), 2.2.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
+1. A member's retention pattern is the set of distinct key path signatures (2.2: the shortest path from a root, the
+   types on the way with repeats folded) of its direct referrers that a root reaches, plus its own root when it is one.
+   Members with the same pattern form a group (dotMemory's Similar Retention). At most 16 referrers per member are
+   looked at; the result counts the members that had more.
+2. A group shows how many distinct paths its pattern has and at most two of them: the first, and the one sharing the
+   fewest steps with it ("the most different paths"). Groups rank by objects, then bytes, then their first member; 50
+   by default (1 to 500), the rest summed. Groups are numbered from 1 in the app, the CLI and the logs (review).
+3. A group opens as a set: spec kind `RetentionGroup` (the inner set and the group's pattern fingerprint, its rank as a
+   hint; review). The worker groups the inner set again to resolve it, inside a memory reservation.
+4. A set's key paths: `TypePathsRequest` takes a `Set` (the type name then empty), like `InstancesRequest` in 3.1.
+5. The diagram is built in the view model from the key paths: a node per root (by its description), per type and for the
+   set; an edge per consecutive pair, carrying the summed objects of the paths through it. Layers by first depth; an
+   edge back to an earlier layer is drawn as such. The list stays as the keyboard and screen reader form.
+6. Interfaces are read from the dump (ClrMD's interface map of one object per type, inherited interfaces included), once
+   per type and snapshot, and kept by the worker. A type counts under each interface it implements (the rows overlap;
+   the view says so) and types without one under "(no interface)". gcdumps record no interfaces: the grouping is
+   refused there. The retained column is not offered in this grouping (a type in several groups breaks the lower bound's
+   numbering). Interface rows open as sets (kind `Interface`). Compare groups both snapshots by their own interfaces.
+7. Logging: Similar Retention logs the set's shape, its groups, unreachable and limited members, and the top five groups
+   with their counts, bytes and shown paths (types and roots are metadata); the interface table logs how many types
+   were read and how many failed.
+8. Protocol 17.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**:
+1. [x] Contracts: `TypeGrouping.Interface`, set kinds `Interface` and `RetentionGroup` (shape, cache key, factories),
+   `TypePathsRequest.Set`, the Similar Retention query and result, protocol 17. Tests: round trips, keys, version.
+2. [x] Analysis: `SimilarRetention` (patterns, groups, the most different pair, a group's members), key paths over a set,
+   interface grouping in `TypeGroups` and `TypeDiff`. Tests: synthetic graphs with known groups and rows.
+3. [x] Reader and fixture: `IObjectReader.ReadInterfaces`; the RetentionPatterns fixture (`--retention-patterns N`) with
+   its known answer. Tests: known answers with ClrMD; interfaces of fixture types.
+4. [x] Worker: the interface table, interface grouping in summaries and diffs (refused for gcdumps), the two new set
+   kinds, set key paths, Similar Retention with logging. Tests: worker tests and integration on the fixture.
+5. [x] Application and CLI: session methods; `--group interface` on `summary` and `diff`; `set` views `paths` and
+   `similar`, and `--group N` for a Similar Retention group. Tests: CLI output on the fixture.
+6. [x] View models: the set's Paths and Similar Retention views, group rows opening as sets, the diagram model, the
+   interface grouping in the types grid and Compare, a Similar Retention command on a type's Paths subject. Tests.
+7. [x] UI: the views, the diagram control, list and diagram switch. Tests: view tests, no binding errors.
+8. [x] Docs: ARCHITECTURE (code map, protocol, ADR-031 Similar Retention, privacy of logs), DEVELOPER, README.
+
+**Review summary** (`docs/reviews/sprint-3.2.md`; four reviewers: solution-architect, senior-dev, gc-specialist and a
+support engineer): 7 High, 15 Moderate, 24 Low (3 Moderate and 5 Low from the re-review).
+- High, all fixed: a back pointer from a member's child counted as retention (H1); interfaces missed inherited and
+  generic ones (H2: base types, base interfaces, and generic instantiations decoded from module metadata, from the module
+  file when the dump does not hold the image); Similar Retention's memory was mostly unreserved (H3); the diagram double
+  counted a group's overlapping paths (H4); a growth gate over overlapping interface rows (H5, refused); the interface
+  table read the graph without a lease (H6, now a derived slot); unread interfaces shown as "(no interface)" (H7, own row).
+- Moderate, decided autonomously: 10 fixed (numbering from 1 everywhere with `--similar-group`, group sets named by
+  their pattern's fingerprint, every group logged, the retained note and sort fallback, refusals with next steps,
+  interface grouping offered only on full dumps, no per-member allocation, edge case and address tests, diagram gaps and
+  set labels, unread types logged), 2 in part (a per-grouping capability table and the result's index info deferred);
+  from the re-review, nested generic types' arguments and the module file's identity fixed, the exact back pointer test
+  deferred. Every High was confirmed by the reviewer that raised it.
+- Low: 12 fixed in passing, 12 listed.
+- Deferred to the Backlog: below ("From the 3.2 review").
+
 
 ---
 
@@ -2615,6 +2676,16 @@ Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Ph
 - Async state machine and Task leak detection.
 
 **Medium**
+- From the 3.2 review (decided autonomously): which grouping needs which snapshot feature declared in Contracts, so
+  every front end disables it the same way (M6); the reverse index info on `SimilarRetentionResult` (M12); a test that a
+  weak-handle-only referrer is not a retainer (M8); a reservation around `KeyPaths.ForTypes` and `ForMembers` (from 2.2);
+  interfaces kept in a sidecar so a reopen does not read them again (L16); a dependent-handle marker on path steps (L1);
+  interface rows keyed by name and module (L3); the diagram cached, its back edges inside its bounds and redrawn on a
+  theme change (L13, L14); a request with both a type and a set refused (L15); the `MaxReferrers` constants tied by a
+  test (L12); diagram toggles logged (L5); from the re-review: an exact back pointer test (the member dominates the
+  referrer, or entry and exit numbers over the shortest-path tree) instead of the 256-step climb (M13); module metadata
+  released after the interface table is built (L20); the (group, type) set in the reservation (L22); a cheap check
+  before fingerprinting every pattern (L23); Compare's matching total hidden for interface rows (L24).
 - From the 3.1 review (decided autonomously): the memory reservations evicting the object set cache before they
   refuse (M2); the baseline of a set generalized into "the other snapshot" for 3.3's dead objects and 3.5's growth
   (M6, do with 3.3); a view model test of a set replayed after a worker restart, a ClrMD check of a set's Generations
