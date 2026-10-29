@@ -169,6 +169,13 @@ public sealed class SessionLibraryTests : IDisposable
         }
 
         library.InUseBy(session.Folder).ShouldBeNull();
+        if (!OperatingSystem.IsWindows())
+        {
+            // Only Windows refuses to delete a file another handle holds open; the partial failure cannot happen elsewhere.
+            library.DeleteSession(session.Folder).Complete.ShouldBeTrue();
+            return;
+        }
+
         Deletion failed;
         using (new FileStream(dump, FileMode.Open, FileAccess.Read, FileShare.None))
         {
