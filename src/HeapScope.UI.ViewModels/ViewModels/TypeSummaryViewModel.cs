@@ -247,6 +247,25 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
         ShowInRetainersCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.Retainers(s, typeName: r.TypeName, module: r.Module)));
         RetainedBySetCommand = new RelayCommand<TypeRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.RetainedBySet(s, r.TypeName!, r.Module)));
         OpenAsSetCommand = new RelayCommand<System.Collections.IList?>(rows => OpenAsSet(rows, navigator), _ => Set is null);
+        OpenUnreachableCommand = new RelayCommand(() => OpenUnreachable(navigator), () => CanOpenUnreachable);
+    }
+
+    /// <summary>
+    /// Opens the objects no root reaches as a set (sprint 3.5): the garbage a full dump still holds. Full dumps only (a
+    /// gcdump's collection removed it).
+    /// </summary>
+    public IRelayCommand OpenUnreachableCommand { get; }
+
+    /// <summary>Whether the unreachable objects can be opened: a full dump's own Types view.</summary>
+    public bool CanOpenUnreachable => Set is null && _snapshot?.Descriptor?.Kind == SnapshotKindDto.FullDump;
+
+    private void OpenUnreachable(INavigator? navigator)
+    {
+        // CanOpenUnreachable checked the snapshot.
+        if (CanOpenUnreachable)
+        {
+            navigator?.Navigate(NavigationTarget.ObjectSet(_snapshot!, new ObjectSetQuery(ObjectSetSpec.OfUnreachable()), "Unreachable objects"));
+        }
     }
 
     /// <summary>The set whose members are summarized (sprint 3.1); null for the whole snapshot.</summary>
@@ -382,6 +401,8 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     public void Show(SnapshotHandle? snapshot)
     {
         _snapshot = snapshot;
+        OnPropertyChanged(nameof(CanOpenUnreachable));
+        OpenUnreachableCommand.NotifyCanExecuteChanged();
         if (snapshot is null)
         {
             ClearResults();

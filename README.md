@@ -41,6 +41,9 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
   and lists the session's past runs to reopen their timelines and snapshots. One capture per process runs at a time,
   from any page or rule. Snapshots can be closed and deleted with their caches, sessions deleted, and old sessions
   cleaned up from the Home page; each asks first.
+- **Runtime leaks.** Detectors for async methods that never complete (their state machines waiting by the thousand), a
+  finalizer backlog behind a blocked or slow finalizer thread, and, against a baseline, the application's types that
+  keep growing. The objects no root reaches open as a set from a full dump's Types view (`set --unreachable`).
 - **Group by interface.** The types grid and Compare group by interface on full dumps: a type counts under each
   interface it implements, so the rows overlap. An interface row opens as a set.
 - **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;

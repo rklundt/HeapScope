@@ -17,6 +17,6 @@
   "growingCollection": "System.Collections.Generic.List<System.Action>",
   "pathShape": [ "Fixtures.Leaks.ClosureLeak.s_callbacks", "System.Collections.Generic.List", "System.Action[]", "System.Action", "<>c__DisplayClass", "Fixtures.Leaks.CapturedState" ],
   "minRetainedBytesPerItem": { "base": 56, "payloadMultiplier": 1 },
-  "detections": [ { "detector": "growing-static-collections", "key": "Fixtures.Leaks.ClosureLeak.s_callbacks", "perItem": 1 } ],
+  "detections": [ { "detector": "growing-static-collections", "key": "Fixtures.Leaks.ClosureLeak.s_callbacks", "perItem": 1 }, { "detector": "type-growth", "key": "Fixtures.Leaks.CapturedState", "perItem": 1 } ],
   "notes": "The compiler-generated display class sits between the delegate and the captured state; the display class and the delegate are dominated by the list, not by the captured state."
 }

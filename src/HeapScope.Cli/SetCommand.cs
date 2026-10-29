@@ -45,6 +45,7 @@ internal static partial class CliCommands
         var ns = new Option<string?>("--namespace") { Description = "Every type of a namespace, as the summary's namespace rows name them." };
         var assembly = new Option<string?>("--assembly") { Description = "Every type of an assembly, by its module file name (Leaks.dll)." };
         var iface = new Option<string?>("--interface") { Description = "Every type implementing an interface, by its full name (full dumps)." };
+        var unreachable = new Option<bool>("--unreachable") { Description = "The objects no root reaches: garbage the full dump still holds; objects waiting for their finalizer are not in it (sprint 3.5; full dumps with a complete graph)." };
         var comparedWith = new Option<FileInfo?>("--compared-with") { Description = "Another dump of the same process: with --change, the set's new, dead or survived objects matched by address (sprint 3.3). Dead objects are in the earlier dump, so give the earlier dump as the snapshot and the later one here." };
         var change = new Option<string?>("--change") { Description = "new, dead or survived, with --compared-with." };
         change.AcceptOnlyFromAmong("new", "dead", "survived");
@@ -60,9 +61,9 @@ internal static partial class CliCommands
         var all = AllOption();
         var format = FormatOption();
 
-        var command = new Command("set", "Show a set of objects, chosen by type, namespace, assembly, interface, address or inspection row, in one of the app's set views. Exit codes: 0 ok, 1 error (the set selects nothing), 64 usage, 130 canceled.");
+        var command = new Command("set", "Show a set of objects, chosen by type, namespace, assembly, interface, address, inspection row or as the objects no root reaches, in one of the app's set views. Exit codes: 0 ok, 1 error (the set selects nothing), 64 usage, 130 canceled.");
         command.Arguments.Add(dump);
-        foreach (var option in new Option[] { types, module, ns, assembly, iface, addresses, inspection, row, baseline, comparedWith, change, similarGroup, retained, view, top, all, format })
+        foreach (var option in new Option[] { types, module, ns, assembly, iface, unreachable, addresses, inspection, row, baseline, comparedWith, change, similarGroup, retained, view, top, all, format })
         {
             command.Options.Add(option);
         }
@@ -76,12 +77,13 @@ internal static partial class CliCommands
                 result.GetValue(ns) is not null,
                 result.GetValue(assembly) is not null,
                 result.GetValue(iface) is not null,
+                result.GetValue(unreachable),
                 result.GetValue(addresses) is { Length: > 0 },
                 result.GetValue(inspection) is not null,
             }.Count(c => c);
             if (chosen != 1)
             {
-                result.AddError("Choose the set with exactly one of --type, --namespace, --assembly, --interface, --address or --inspection.");
+                result.AddError("Choose the set with exactly one of --type, --namespace, --assembly, --interface, --unreachable, --address or --inspection.");
             }
             else if (result.GetValue(inspection) is not null && result.GetValue(row) < 0)
             {
@@ -157,6 +159,10 @@ internal static partial class CliCommands
             else if (parseResult.GetValue(iface) is { } interfaceName)
             {
                 spec = ObjectSetSpec.OfInterface(interfaceName);
+            }
+            else if (parseResult.GetValue(unreachable))
+            {
+                spec = ObjectSetSpec.OfUnreachable();
             }
             else if (parseResult.GetValue(addresses) is { Length: > 0 } texts)
             {

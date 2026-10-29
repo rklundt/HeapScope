@@ -48,8 +48,18 @@ foreach (var leak in LeakCatalog.Resolve(leakNames))
     leak.Grow(count, payload);
 }
 
-// The 2.6 detector leaks (Timer, DisposedReferenced) only when asked for: --detected all|Name.
-foreach (var leak in LeakCatalog.Resolve(Arg("--detected"), LeakCatalog.Detected))
+// The 2.6 and 3.5 detector leaks (Timer, DisposedReferenced, PendingAsync, FinalizerBacklog) only when asked for: --detected all|Name.
+// The finalizer backlog blocks the finalizer thread for good, so it grows after the last wait for finalizers below, and
+// not with --waste, whose own backlog blocks the thread first (the 3.5 review).
+var detected = LeakCatalog.Resolve(Arg("--detected"), LeakCatalog.Detected);
+var backlog = detected.OfType<FinalizerBacklogLeak>().FirstOrDefault();
+if (backlog is not null && args.Contains("--waste"))
+{
+    await Console.Error.WriteLineAsync("--detected FinalizerBacklog and --waste both block the finalizer thread; choose one.");
+    Environment.Exit(64);
+}
+
+foreach (var leak in detected.Where(l => l is not FinalizerBacklogLeak))
 {
     leak.Grow(count, payload);
 }
@@ -89,6 +99,9 @@ if (args.Contains("--waste"))
 {
     WasteFixtures.CreateFinalizerBacklog();
 }
+
+// Its growth runs a full collection, so before the late garbage too.
+backlog?.Grow(count, payload);
 
 if (lateGarbage > 0)
 {
