@@ -43,6 +43,7 @@ internal sealed record KnownAnswer(
     IReadOnlyList<FieldAnswer>? Fields,
     IReadOnlyList<FindingAnswer>? Findings,
     IReadOnlyList<DetectionAnswer>? Detections,
+    IReadOnlyList<RetentionGroupAnswer>? RetentionGroups,
     string Notes)
 {
     public const int CurrentFormatVersion = 1;
@@ -123,3 +124,6 @@ internal sealed record FindingAnswer(string Inspection, string Key, long Count, 
 /// <paramref name="PerItem"/> per item leaked (elements, growth, subscribers, timers or objects, as the detector counts).
 /// </summary>
 internal sealed record DetectionAnswer(string Detector, string Key, double PerItem = 1);
+
+/// <summary>A Similar Retention group of the fixture's item type (sprint 3.2): members per item and the static fields its paths start at.</summary>
+internal sealed record RetentionGroupAnswer(int PerItem, IReadOnlyList<string> Paths);

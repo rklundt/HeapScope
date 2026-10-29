@@ -82,7 +82,9 @@ public static class TypeDiff
         TypeAggregation current,
         GroupKey groupBy,
         Func<string, string>? baselineNames = null,
-        Func<string, string>? currentNames = null)
+        Func<string, string>? currentNames = null,
+        string[][]? baselineInterfaces = null,
+        string[][]? currentInterfaces = null)
     {
         ArgumentNullException.ThrowIfNull(baselineGraph);
         ArgumentNullException.ThrowIfNull(baseline);
@@ -90,8 +92,13 @@ public static class TypeDiff
         ArgumentNullException.ThrowIfNull(current);
 
         var rows = new Dictionary<(string Name, string Module), Totals>(groupBy == GroupKey.Assembly ? TypeKeyComparer.Assembly : TypeKeyComparer.Type);
-        Collect(baselineGraph, baseline, groupBy, baselineNames, rows, isBaseline: true);
-        Collect(currentGraph, current, groupBy, currentNames, rows, isBaseline: false);
+        if (groupBy == GroupKey.Interface && (baselineInterfaces is null || currentInterfaces is null))
+        {
+            throw new ArgumentNullException(nameof(baselineInterfaces), "Interface grouping needs both snapshots' interfaces.");
+        }
+
+        Collect(baselineGraph, baseline, groupBy, baselineNames, baselineInterfaces, rows, isBaseline: true);
+        Collect(currentGraph, current, groupBy, currentNames, currentInterfaces, rows, isBaseline: false);
 
         // A type name seen with more than one module shows the module, so the rows stay distinguishable.
         var modulesPerName = rows.Keys.GroupBy(k => k.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
@@ -120,6 +127,7 @@ public static class TypeDiff
         TypeAggregation aggregation,
         GroupKey groupBy,
         Func<string, string>? names,
+        string[][]? interfaces,
         Dictionary<(string Name, string Module), Totals> rows,
         bool isBaseline)
     {
@@ -133,17 +141,21 @@ public static class TypeDiff
             var module = TypeGroups.ModuleKey(graph.Types.GetModule(t));
             var original = graph.Types.GetName(t);
             var name = names is null ? original : names(original);
-            var key = groupBy switch
+            IEnumerable<(string, string)> keys = groupBy switch
             {
-                GroupKey.Namespace => (TypeGroups.NamespaceOf(name), string.Empty),
-                GroupKey.Assembly => (module.Length > 0 ? module : "(unknown assembly)", string.Empty),
-                _ => (name, module),
+                GroupKey.Namespace => [(TypeGroups.NamespaceOf(name), string.Empty)],
+                GroupKey.Assembly => [(module.Length > 0 ? module : "(unknown assembly)", string.Empty)],
+                GroupKey.Interface => TypeGroups.InterfaceKeys(interfaces!, t).Select(i => (i, string.Empty)),
+                _ => [(name, module)],
             };
 
-            rows.TryGetValue(key, out var row);
-            rows[key] = isBaseline
-                ? row with { BaseCount = row.BaseCount + aggregation.Counts[t], BaseBytes = row.BaseBytes + aggregation.Bytes[t], BaseTypes = row.BaseTypes + 1, BaseName = Merge(row.BaseName, original) }
-                : row with { CurCount = row.CurCount + aggregation.Counts[t], CurBytes = row.CurBytes + aggregation.Bytes[t], CurTypes = row.CurTypes + 1, CurName = Merge(row.CurName, original) };
+            foreach (var key in keys)
+            {
+                rows.TryGetValue(key, out var row);
+                rows[key] = isBaseline
+                    ? row with { BaseCount = row.BaseCount + aggregation.Counts[t], BaseBytes = row.BaseBytes + aggregation.Bytes[t], BaseTypes = row.BaseTypes + 1, BaseName = Merge(row.BaseName, original) }
+                    : row with { CurCount = row.CurCount + aggregation.Counts[t], CurBytes = row.CurBytes + aggregation.Bytes[t], CurTypes = row.CurTypes + 1, CurName = Merge(row.CurName, original) };
+            }
         }
     }
 

@@ -178,4 +178,10 @@ public interface IObjectReader
     /// with ", ": the first three and a count of the rest ("[0], [1], [2] and 997 more"). At most <paramref name="maxElements"/> array elements are walked.
     /// </summary>
     IReadOnlyDictionary<ulong, string> ReadReferencePaths(ulong address, int maxElements, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The full names of the interfaces the type of the object at <paramref name="address"/> implements, inherited ones
+    /// included, in ordinal order (sprint 3.2, interface grouping); null when the reader cannot tell.
+    /// </summary>
+    IReadOnlyList<string>? ReadInterfaces(ulong address) => null;
 }

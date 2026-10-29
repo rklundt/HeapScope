@@ -372,8 +372,8 @@ internal static partial class CliCommands
 
     private static Option<string> GroupOption()
     {
-        var group = new Option<string>("--group") { Description = "Rows per type, namespace or assembly.", DefaultValueFactory = _ => "type" };
-        group.AcceptOnlyFromAmong("type", "namespace", "assembly");
+        var group = new Option<string>("--group") { Description = "Rows per type, namespace, assembly or interface (full dumps; a type counts under each interface it implements).", DefaultValueFactory = _ => "type" };
+        group.AcceptOnlyFromAmong("type", "namespace", "assembly", "interface");
         return group;
     }
 

@@ -167,6 +167,20 @@ internal sealed partial class WorkerService
 
                 (set, detail) = await Task.Run(() => OfTypeKeys(snapshotId, graph, keys, cancellationToken), cancellationToken).ConfigureAwait(false);
                 break;
+            case ObjectSetKind.Interface:
+                var interfaces = await GetInterfacesAsync(snapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
+                var interfaceMask = TypeGroups.MatchInterface(graph, interfaces, spec.Name ?? string.Empty, out var implementing);
+                if (implementing == 0)
+                {
+                    throw new ArgumentException("No type of this snapshot implements that interface.");
+                }
+
+                set = await Task.Run(() => Reserved(snapshotId, graph, () => ObjectSet.OfTypes(graph, interfaceMask, cancellationToken)), cancellationToken).ConfigureAwait(false);
+                detail = string.Create(CultureInfo.InvariantCulture, $"{implementing} type entries");
+                break;
+            case ObjectSetKind.RetentionGroup:
+                (set, detail) = await ResolveRetentionGroupAsync(snapshotId, snapshot, spec, progress, cancellationToken, depth).ConfigureAwait(false);
+                break;
             case ObjectSetKind.Namespace:
             case ObjectSetKind.Assembly:
                 var grouping = spec.Kind == ObjectSetKind.Namespace ? GroupKey.Namespace : GroupKey.Assembly;

@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "name": "RetentionPatterns",
+  "kind": "semantics",
+  "description": "Similar Retention (sprint 3.2): per item, three PatternItems only in the list RetentionPatternFixtures.s_listed, two in that list and in the dictionary s_indexed, and one held by a PatternHolder in the array s_holders.",
+  "types": [
+    { "type": "Fixtures.Leaks.PatternItem", "perItem": 6 },
+    { "type": "Fixtures.Leaks.PatternHolder", "perItem": 1 }
+  ],
+  "roots": [
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.RetentionPatternFixtures", "field": "s_listed", "itemType": "Fixtures.Leaks.PatternItem" },
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.RetentionPatternFixtures", "field": "s_indexed", "itemType": "Fixtures.Leaks.PatternItem" },
+    { "kind": "StaticField", "declaringType": "Fixtures.Leaks.RetentionPatternFixtures", "field": "s_holders", "itemType": "Fixtures.Leaks.PatternHolder" }
+  ],
+  "retentionGroups": [
+    { "perItem": 3, "paths": [ "s_listed" ] },
+    { "perItem": 2, "paths": [ "s_listed", "s_indexed" ] },
+    { "perItem": 1, "paths": [ "s_holders" ] }
+  ],
+  "notes": "Similar Retention of PatternItem gives exactly these three groups. Key paths alone cannot tell the second group from the first: its shortest path may run through either collection."
+}

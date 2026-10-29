@@ -100,7 +100,9 @@ internal sealed class TypeDiffSource : IResultSource
         TypeAggregation current,
         TypeDiffRequest request,
         SnapshotKind baselineKind,
-        SnapshotKind currentKind)
+        SnapshotKind currentKind,
+        string[][]? baselineInterfaces = null,
+        string[][]? currentInterfaces = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(request.GroupBy))
@@ -130,7 +132,9 @@ internal sealed class TypeDiffSource : IResultSource
             current,
             request.GroupBy.ToGroupKey(),
             Snapshots.SnapshotKinds.Describe(baselineKind).NamesWhenComparedWith(currentKind),
-            Snapshots.SnapshotKinds.Describe(currentKind).NamesWhenComparedWith(baselineKind));
+            Snapshots.SnapshotKinds.Describe(currentKind).NamesWhenComparedWith(baselineKind),
+            baselineInterfaces,
+            currentInterfaces);
         var unfiltered = rows.Count;
         var newRows = rows.Count(r => r.IsNew);
         var goneRows = rows.Count(r => r.IsGone);

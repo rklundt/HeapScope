@@ -182,6 +182,80 @@ public sealed class SetViewModelTests : IDisposable
         set.Dominators.ShouldBeNull("a closed set opens no new views (the 3.1 review)");
     }
 
+    [Fact]
+    public async Task Similar_retention_lists_the_groups_and_a_group_opens_as_a_set_of_its_own()
+    {
+        _worker.Service.RetentionGroups.Add(new RetentionGroupDto(0, 3, 30, 1, "App.Order", 1, [KeyPath("App.s_list", 3, "App.List", "App.Order[]")], 0x1000));
+        _worker.Service.RetentionGroups.Add(new RetentionGroupDto(1, 2, 20, 1, "App.Order", 2, [KeyPath("App.s_list", 2, "App.List"), KeyPath("App.s_map", 2, "App.Map")], 0x1100));
+        await OpenAsync("app.dmp");
+        var types = _snapshots.Types;
+        types.OpenAsSetCommand.Execute(new List<TypeRowItem> { await FirstRowAsync(types.Rows) });
+        var set = Navigator.Current.ShouldBeOfType<SetViewModel>();
+
+        set.View = SetViews.SimilarRetention;
+        var similar = set.SimilarRetention.ShouldNotBeNull();
+        await similar.LoadTask;
+
+        _worker.Service.SimilarRetentionQueries.ShouldHaveSingleItem().Set.Kind.ShouldBe(ObjectSetKind.Types);
+        similar.Groups.Select(g => (g.Number, g.Objects, g.PathCount)).ShouldBe([(1, 3L, 1), (2, 2L, 2)]);
+        similar.Groups[1].PathsText.ShouldContain("App.s_map");
+        similar.Totals!.ShouldStartWith("6 objects in 2 groups");
+        similar.Diagram.Nodes.Count.ShouldBe(4, "the first group's root, two types and the target");
+        similar.Selected = similar.Groups[1];
+        similar.Diagram.Nodes.Count(n => n.Kind == DiagramNodeKind.Root).ShouldBe(2);
+
+        similar.OpenGroupCommand.Execute(similar.Groups[1]);
+
+        var group = Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (group.Title, group.Set.Spec.Kind, group.Set.Spec.Row, group.Set.Spec.Inner?.Kind).ShouldBe(("Group 2 of App.Order", ObjectSetKind.RetentionGroup, 1, ObjectSetKind.Types));
+    }
+
+    [Fact]
+    public async Task A_sets_paths_view_queries_its_key_paths_and_a_types_paths_open_similar_retention()
+    {
+        _worker.Service.TypePaths.Add(KeyPath("App.s_list", 2, "App.List"));
+        await OpenAsync("app.dmp");
+        var types = _snapshots.Types;
+        types.OpenAsSetCommand.Execute(new List<TypeRowItem> { await FirstRowAsync(types.Rows) });
+        var set = Navigator.Current.ShouldBeOfType<SetViewModel>();
+
+        set.View = SetViews.Paths;
+        await set.Paths!.LoadTask;
+
+        var query = _worker.Service.TypePathQueries.ShouldHaveSingleItem();
+        (query.TypeName, query.Set?.Kind).ShouldBe((string.Empty, ObjectSetKind.Types));
+        (set.Paths.IsSet, set.Paths.Title, set.Paths.Paths.Count).ShouldBe((true, "Why alive: App.Order", 1));
+        set.Paths.SimilarRetentionCommand.CanExecute(null).ShouldBeFalse("a set's paths are next to its own Similar Retention view");
+        set.Paths.Diagram.Edges.Count.ShouldBe(2);
+
+        var snapshot = _snapshots.Selected!.Handle;
+        _snapshots.Navigate(NavigationTarget.TypePaths(snapshot, "App.Order", "App.dll"));
+        var paths = Navigator.Current.ShouldBeOfType<TypePathsViewModel>();
+        paths.SimilarRetentionCommand.Execute(null);
+        var opened = Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (opened.View, opened.Set.Spec.Types.ShouldNotBeNull().ShouldHaveSingleItem()).ShouldBe((SetViews.SimilarRetention, new TypeKeyDto("App.Order", "App.dll")));
+        await opened.SimilarRetention!.LoadTask;
+        _worker.Service.SimilarRetentionQueries.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Interface_rows_say_they_overlap_ask_for_no_retained_sizes_and_open_as_sets()
+    {
+        await OpenAsync("app.dmp");
+        var types = _snapshots.Types;
+        types.ShowRetained = true;
+        types.GroupBy = TypeGrouping.Interface;
+        await WaitUntilAsync(() => _worker.Service.SummaryQueries[^1].GroupBy == TypeGrouping.Interface);
+        await types.QueryTask;
+
+        _worker.Service.SummaryQueries[^1].IncludeRetained.ShouldBeFalse();
+        types.GroupNote!.ShouldContain("rows overlap");
+        types.OpenRowCommand!.Execute(await FirstRowAsync(types.Rows));
+
+        var set = Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (set.Set.Spec.Kind, set.Title).ShouldBe((ObjectSetKind.Interface, "Interface App.Order"));
+    }
+
     public void Dispose()
     {
         try
@@ -200,6 +274,9 @@ public sealed class SetViewModelTests : IDisposable
         await _snapshots.OpenPathAsync(path);
         await _snapshots.Types.QueryTask;
     }
+
+    private static KeyPathDto KeyPath(string root, long objects, params string[] steps) =>
+        new(new PathRootDto(RootKindDto.StaticField, false, "static field " + root), [.. steps.Select(s => new PathStepDto(s, false))], "App.Order", objects, objects * 10, 0x1000);
 
     private static async Task<TRow> FirstRowAsync<TRow>(VirtualRowList<TRow> rows)
         where TRow : class, IIndexedRow

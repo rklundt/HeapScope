@@ -33,6 +33,7 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     where TRow : class, IIndexedRow
 {
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GroupNote))]
     private TypeGrouping _groupBy = TypeGrouping.Type;
 
     protected TypeGridViewModel(string sortColumn, IUiDispatcher dispatcher, ILogger? logger)
@@ -43,12 +44,18 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     /// <summary>The groupings the selector offers.</summary>
     public IReadOnlyList<TypeGrouping> Groupings { get; } = Enum.GetValues<TypeGrouping>();
 
+    /// <summary>What the grouping means for the totals (sprint 3.2: interface rows overlap).</summary>
+    public string? GroupNote => GroupBy == TypeGrouping.Interface
+        ? "A type counts under each interface it implements, so rows overlap and add up to more than the total. Full dumps only."
+        : null;
+
     protected override string EmptyText => string.IsNullOrWhiteSpace(Filter) ? "Nothing to show." : $"No {Singular(GroupBy)} matches the filter.";
 
     protected static string Plural(TypeGrouping grouping) => grouping switch
     {
         TypeGrouping.Namespace => "namespaces",
         TypeGrouping.Assembly => "assemblies",
+        TypeGrouping.Interface => "interfaces",
         _ => "types",
     };
 
@@ -56,6 +63,7 @@ public abstract partial class TypeGridViewModel<TRow> : GridQueryViewModel<TRow>
     {
         TypeGrouping.Namespace => "namespace",
         TypeGrouping.Assembly => "assembly",
+        TypeGrouping.Interface => "interface",
         _ => "type",
     };
 

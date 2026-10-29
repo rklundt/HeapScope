@@ -300,6 +300,17 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
             : fieldName;
     }
 
+    public IReadOnlyList<string>? ReadInterfaces(ulong address)
+    {
+        lock (_gate)
+        {
+            // The method table's interface map lists every interface, those of base types included.
+            return Object(address).Type is { } type
+                ? [.. type.EnumerateInterfaces().Select(i => i.Name).OfType<string>().Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)]
+                : null;
+        }
+    }
+
     private ClrObject Object(ulong address)
     {
         EnsureOpen();

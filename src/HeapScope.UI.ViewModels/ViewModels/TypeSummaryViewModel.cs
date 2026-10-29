@@ -296,13 +296,16 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
         if (loaded.Count > 1)
         {
-            Status = GroupBy == TypeGrouping.Namespace ? "Open one namespace at a time as a set, or group by type and select its types." : "Open one assembly at a time as a set, or group by type and select its types.";
+            Status = $"Open one {Singular(GroupBy)} at a time as a set, or group by type and select its types.";
             return null;
         }
 
-        return GroupBy == TypeGrouping.Namespace
-            ? (ObjectSetSpec.OfNamespace(loaded[0].Name), "Namespace " + loaded[0].Name)
-            : (ObjectSetSpec.OfAssembly(loaded[0].Name), "Assembly " + loaded[0].Name);
+        return GroupBy switch
+        {
+            TypeGrouping.Namespace => (ObjectSetSpec.OfNamespace(loaded[0].Name), "Namespace " + loaded[0].Name),
+            TypeGrouping.Interface => (ObjectSetSpec.OfInterface(loaded[0].Name), "Interface " + loaded[0].Name),
+            _ => (ObjectSetSpec.OfAssembly(loaded[0].Name), "Assembly " + loaded[0].Name),
+        };
     }
 
     private void OpenAsSet(System.Collections.IList? rows, INavigator? navigator)
@@ -413,7 +416,8 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     {
         var snapshot = _snapshot!;
         var groupBy = GroupBy;
-        var retained = ShowRetained && Set is null;
+        // Interface rows overlap, so they have no retained lower bound (sprint 3.2).
+        var retained = ShowRetained && Set is null && groupBy != TypeGrouping.Interface;
 
         // The first retained query computes the dominators: its phases replace the busy text until it answers.
         var finished = false;

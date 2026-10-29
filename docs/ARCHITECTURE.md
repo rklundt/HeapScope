@@ -203,7 +203,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   types, addresses or indices), `Sets/SetDominators` (the members no other member dominates), `TypeAggregation.Compute`
   over a set, `SetRetention.Compute` over a set (optionally returning the retained objects as a set),
   `TypeGroups.MatchGroup` (a namespace's or an assembly's types) and `InspectionTable.MembersOf` (the objects a leak
-  detector row counted) [3.1].
+  detector row counted) [3.1]. `Retention/SimilarRetention` (a set's members grouped by retention pattern, each group
+  with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
+  signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
+  grouping in `TypeGroups` (`GroupKey.Interface`, `InterfaceKeys`, `MatchInterface`) and `TypeDiff` [3.2].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
   built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
@@ -237,7 +240,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
 - **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
   [0.3]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
   [1.9], and `SetDtos` (`ObjectSetSpec`, with its shape, address hash and cache key as extension members in
-  `ObjectSetSpecs`, so they are never serialized) [3.1]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
+  `ObjectSetSpecs`, so they are never serialized) [3.1]; the Similar Retention DTOs in `RetentionDtos` [3.2]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
   identifier (`SCE` finds `StaticCacheEntry`); `*` matches any run of characters [1.3]; terms separated by spaces must
   all match, `-term` leaves out, `module:` (or `m:`) tests the row's module, and a term still being typed filters nothing
@@ -283,6 +286,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `ObjectSetSpec` into its members, logged with its size; a set's dominators with `SetDominatorsSource`), `ObjectSetCache`
   (resolved sets and the inspection tables their rows come from, least recently used out, dropped with their snapshot),
   `InstancesSource.Select` (a type's objects in a scope) and the set on instances, type summaries and set retention [3.1].
+  `WorkerService.RetentionViews.cs` (Similar Retention, a retention group resolved as a set, and each snapshot's
+  interfaces per type, read once from the dump through one object per type and dropped with the snapshot), the two new
+  set kinds in `WorkerService.Sets.cs`, a set's key paths in `QueryTypePathsAsync`, and interface grouping in summaries
+  and diffs [3.2].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -300,7 +307,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
-  and a set on type summaries and instances) [3.1].
+  and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). `Services/`: `IUiDispatcher` (post to the UI
   thread, `YieldToRenderAsync`) with `ImmediateUiDispatcher` for tests, `IUserInteraction` (asynchronous dialogs; opening a file or showing it in its folder since the timeline row) with
   `AutomaticUserInteraction` for smoke runs. `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>`
@@ -337,6 +344,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `SetDominatorsViewModel`), `NavigationKind.Set` with `NavigationTarget.ObjectSet` and `SetInstances`, and the entry
   points: the types and Compare grids' selections and group rows, inspection and detector rows, the bookmarks and the
   retained objects (`RetainedBySetViewModel` takes any set).
+  Sprint 3.2: `SetViews.Paths` (a `TypePathsViewModel` over the set) and `SetViews.SimilarRetention`
+  (`SimilarRetentionViewModel` with `RetentionGroupItem`; a group opens as a set), `KeyPathDiagram` (key paths merged
+  into a layered graph, toolkit independent), the Paths subject's diagram switch and Similar Retention command,
+  `NavigationTarget.SetView` (the view a set opens on), and `TypeGridViewModel.GroupNote` for the interface grouping.
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -622,6 +633,9 @@ Rules:
   `RetainedBy`, with `ObjectSetLimits`), `Set` on `InstancesRequest`, `TypeSummaryRequest` and `RetainedBySetRequest`,
   `TypeSummaryResult.Set` (`ObjectSetInfo`), and `QuerySetDominatorsAsync` (`SetDominatorsRequest`, `SetDominatorsResult`,
   `SetDominatorColumns`).
+  Version 17 (sprint 3.2, ADR-031): `QuerySimilarRetentionAsync` (`SimilarRetentionRequest`, `SimilarRetentionResult`,
+  `RetentionGroupDto`, `SimilarRetentionLimits`), `TypePathsRequest.Set`, `TypeGrouping.Interface` with
+  `TypeSummaryColumns.NoInterface`, and set kinds `Interface` and `RetentionGroup`.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1345,7 +1359,8 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Hot loops avoid LINQ, closures, boxing and per-item allocations. `ArrayPool<T>` for temporary buffers.
 - Object sets (sprint 3.1, ADR-030) are built inside a reservation and cached within 256 MB of sets and 128 MB of
   detector tables, outside the reservations' total; letting the reservations evict that cache before refusing is in the
-  Backlog.
+  Backlog. Similar Retention (sprint 3.2) reserves 4 bytes per member (each member's group); its path signatures share
+  the 2.2 key paths' cap of 8 million remembered objects.
 
 ## 10. Scale targets and budgets
 
@@ -1531,6 +1546,11 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   type; set retention logs the shape and "n/a" as the lower bound of a set that is not whole types. The front end opens
   a set and switches its views in a `HeapScope.Sets` activity (the view's query and its worker lines share its trace
   id), logging the snapshot and the shape. A disputed set view is traced to what the set held.
+- Retention views (sprint 3.2): Similar Retention logs the set's shape, its members, groups, unreachable members, the
+  members with more referrers than were looked at, the time, and the five largest groups with their objects, bytes,
+  path count and the paths shown (roots and type names, metadata); a retention group set logs its rank and the inner
+  set's shape and size. The interface table logs the types read, the failures and the distinct interfaces per snapshot.
+  A set's key paths log the set's shape in place of the type.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -2092,6 +2112,24 @@ sprint 0.1.
   its `System.Timers.Timer`). Compare's New, Dead and Survived objects need object identity across dumps
   (ADR-018) and stay in 3.3. Sets match types by name and module like every other query (1.5 M3 stays in the Backlog).
   An `InspectionRow` spec depends on the inspection's row order, which is deterministic for one snapshot and rule version.
+
+### ADR-031 Similar Retention and the key paths diagram (added in sprint 3.2)
+- Context: key paths (2.2) group objects by their one shortest path from a root, so objects held by the same two
+  collections can split across groups by which one the search reached first, and objects held in several ways look
+  like objects held in one. dotMemory's Similar Retention groups objects by how they are retained and shows each
+  group's most different paths; its Key Retention Paths diagram merges the paths into one graph.
+- Decision: a member's retention pattern is the set of key path signatures of its direct referrers that a root reaches
+  (its own shortest path always included, its root when it is one), at most 16 referrers per member; members with the
+  same pattern form a group. A group shows its first member's path and the path sharing the fewest steps with it.
+  Groups rank by objects, bytes, then first member, which is deterministic for one graph, so a group is named by its
+  inner set and its rank (`ObjectSetKind.RetentionGroup`) and resolved by grouping the inner set again. The diagram is
+  built by the front end from the key paths: a node per root description, per type and per target, layered by first
+  depth. Interfaces are read from the dump through one object of each type (ClrMD's interface map) and kept per snapshot;
+  a type counts under each interface, so interface rows overlap and have no retained column; gcdumps refuse.
+- Consequences: Similar Retention needs the root path tree and the reverse references (both built once per snapshot) and
+  4 bytes per member while grouping. A member with more than 16 referrers is grouped by the first 16 (counted in the
+  result). Interface grouping costs one dump read per type on first use. A retention group's members depend on the inner
+  set's members; a spec replayed on another snapshot names that snapshot's group of the same rank.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

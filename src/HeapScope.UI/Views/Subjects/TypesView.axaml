@@ -79,6 +79,7 @@
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
     </WrapPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GroupNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GenerationsExplanation}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
 
@@ -87,7 +88,7 @@
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}"
-              ToolTip.Tip="Double-click or Enter opens a type's objects, or a namespace or assembly as a set; Ctrl or Shift selects several types to open as one set (Ctrl+Shift+O); right-click for more.">
+              ToolTip.Tip="Double-click or Enter opens a type's objects, or a namespace, assembly or interface as a set; Ctrl or Shift selects several types to open as one set (Ctrl+Shift+O); right-click for more.">
       <DataGrid.ContextMenu>
         <ContextMenu>
           <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItems}" IsVisible="{Binding !IsSet}" />

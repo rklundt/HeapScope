@@ -46,6 +46,18 @@ public enum ObjectSetKind
 
     /// <summary>The objects <see cref="ObjectSetSpec.Inner"/> retains, its own reachable members included.</summary>
     RetainedBy = 5,
+
+    /// <summary>
+    /// Every object of the types implementing an interface (sprint 3.2; <see cref="ObjectSetSpec.Name"/> as the interface
+    /// rows name it, or <see cref="TypeSummaryColumns.NoInterface"/>). Full dumps only.
+    /// </summary>
+    Interface = 6,
+
+    /// <summary>
+    /// The members of a Similar Retention group of <see cref="ObjectSetSpec.Inner"/> (sprint 3.2): the group at rank
+    /// <see cref="ObjectSetSpec.Row"/>, ranked as <see cref="SimilarRetentionResult"/> lists them.
+    /// </summary>
+    RetentionGroup = 7,
 }
 
 /// <summary>A type by name and module file name (null or empty for none), the key of the summary rows (ADR-018).</summary>
@@ -59,12 +71,12 @@ public sealed record TypeKeyDto(string Name, string? Module);
 /// <param name="Types">The type keys of <see cref="ObjectSetKind.Types"/>.</param>
 /// <param name="Name">
 /// The namespace as the summary's namespace rows name it ("(global)" for types without one), the assembly's module file
-/// name, or the inspection's name.
+/// name, the inspection's name, or the interface as the interface rows name it.
 /// </param>
 /// <param name="Addresses">The objects of <see cref="ObjectSetKind.Objects"/>, at most <see cref="ObjectSetLimits.MaxAddresses"/>.</param>
-/// <param name="Row">The inspection row's index, in the order the inspection lists its rows.</param>
+/// <param name="Row">The inspection row's index, in the order the inspection lists its rows; a Similar Retention group's rank.</param>
 /// <param name="Baseline">The inspection's baseline snapshot, for the rows of a detector that uses one.</param>
-/// <param name="Inner">The set whose retained objects <see cref="ObjectSetKind.RetainedBy"/> selects.</param>
+/// <param name="Inner">The set whose retained objects <see cref="ObjectSetKind.RetainedBy"/> selects, or whose Similar Retention group <see cref="ObjectSetKind.RetentionGroup"/> selects.</param>
 public sealed record ObjectSetSpec(
     ObjectSetKind Kind,
     IReadOnlyList<TypeKeyDto>? Types = null,
@@ -88,6 +100,10 @@ public sealed record ObjectSetSpec(
         new(ObjectSetKind.InspectionRow, Name: inspection, Row: row, Baseline: baseline);
 
     public static ObjectSetSpec RetainedByOf(ObjectSetSpec inner) => new(ObjectSetKind.RetainedBy, Inner: inner);
+
+    public static ObjectSetSpec OfInterface(string name) => new(ObjectSetKind.Interface, Name: name);
+
+    public static ObjectSetSpec RetentionGroupOf(ObjectSetSpec inner, int rank) => new(ObjectSetKind.RetentionGroup, Row: rank, Inner: inner);
 
 }
 
@@ -115,6 +131,8 @@ public static class ObjectSetSpecs
             ObjectSetKind.Objects => $"objects ({spec.Addresses?.Count ?? 0} addresses, #{spec.AddressHash})",
             ObjectSetKind.InspectionRow => $"inspection {spec.Name} row {spec.Row}{(spec.Baseline is null ? string.Empty : " with baseline " + spec.Baseline)}",
             ObjectSetKind.RetainedBy => $"retained by {spec.Inner?.Shape}",
+            ObjectSetKind.Interface => $"interface {spec.Name}",
+            ObjectSetKind.RetentionGroup => $"similar retention group {spec.Row} of {spec.Inner?.Shape}",
             _ => spec.Kind.ToString(),
         };
 
@@ -149,6 +167,8 @@ public static class ObjectSetSpecs
             ObjectSetKind.Objects => $"O|{spec.Addresses?.Distinct().Count() ?? 0}|{spec.AddressHash}",
             ObjectSetKind.InspectionRow => $"I|{spec.Name?.ToLowerInvariant()}|{spec.Row}|{spec.Baseline}",
             ObjectSetKind.RetainedBy => "R|" + spec.Inner?.CacheKey,
+            ObjectSetKind.Interface => "F|" + spec.Name,
+            ObjectSetKind.RetentionGroup => $"G|{spec.Row}|{spec.Inner?.CacheKey}",
             _ => throw new ArgumentException($"Unknown set kind {(int)spec.Kind}."),
         };
     }

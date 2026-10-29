@@ -455,6 +455,29 @@ internal sealed class FakeWorkerService : IWorkerService
     /// <summary>The top members the fake answers a set dominators query with: address, type, bytes, retained, members below.</summary>
     public List<(ulong Address, string Type, long Bytes, long Retained, int Below)> SetDominatorRows { get; } = [];
 
+    /// <summary>Similar Retention queries received (sprint 3.2).</summary>
+    public List<SimilarRetentionRequest> SimilarRetentionQueries { get; } = [];
+
+    /// <summary>The groups Similar Retention answers with.</summary>
+    public List<RetentionGroupDto> RetentionGroups { get; } = [];
+
+    public Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SimilarRetentionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        SimilarRetentionQueries.Add(request);
+        return Task.FromResult(new SimilarRetentionResult(
+            [.. RetentionGroups],
+            new ObjectSetInfo(RetentionGroups.Sum(g => g.Objects) + 1, RetentionGroups.Sum(g => g.Bytes) + 10, 1),
+            RetentionGroups.Count,
+            1,
+            10,
+            0,
+            0,
+            0,
+            CompleteGraph,
+            0.2,
+            UnreachableNote));
+    }
+
     public Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         SetDominatorQueries.Add(request);

@@ -32,6 +32,12 @@ public enum TypeGrouping
     Type = 0,
     Namespace = 1,
     Assembly = 2,
+
+    /// <summary>
+    /// Per interface a type implements (sprint 3.2, full dumps only): a type counts under each of its interfaces, so rows
+    /// overlap; types without one are under <see cref="TypeSummaryColumns.NoInterface"/>.
+    /// </summary>
+    Interface = 3,
 }
 
 /// <summary>
@@ -56,6 +62,9 @@ public static class TypeSummaryColumns
 
     /// <summary>The module file name, empty when the type has none.</summary>
     public const string Module = "Module";
+
+    /// <summary>The row of the types that implement no interface, in <see cref="TypeGrouping.Interface"/> grouping.</summary>
+    public const string NoInterface = "(no interface)";
 }
 
 /// <summary>
