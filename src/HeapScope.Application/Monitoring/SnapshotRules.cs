@@ -134,12 +134,57 @@ public sealed class SnapshotRuleEngine
     /// </summary>
     public bool HighGcPressure => _timeInGc.Count > 0 && _timeInGc.Average() >= PressurePercent;
 
+    /// <summary>
+    /// The rule that was due at the last <see cref="Evaluate"/> but did not fire because a capture of the process was
+    /// running (sprint 3.4 review H5: logged, and it fires at the next sample after the capture ends).
+    /// </summary>
+    public SnapshotRule? Deferred { get; private set; }
+
+    /// <summary>The metric the last <see cref="Evaluate"/> compared (for the log of a deferred rule).</summary>
+    public long LastMetric { get; private set; }
+
+    /// <summary>
+    /// Undoes a rule's firing whose capture was refused because another capture of the process started first (sprint 3.4
+    /// review H5): a once rule is not used up, a timed rule is due again at the next sample.
+    /// </summary>
+    public void Missed(SnapshotRule rule)
+    {
+        var i = Array.FindIndex(_rules.Rules.ToArray(), r => ReferenceEquals(r, rule));
+        if (i < 0)
+        {
+            return;
+        }
+
+        var state = _states[i];
+        switch (rule)
+        {
+            case EveryRule:
+                state.NextDue = DateTimeOffset.MinValue;
+                break;
+            case AboveRule or GrowthRule:
+                switch (RearmOf(rule))
+                {
+                    case RearmMode.Once:
+                    case RearmMode.Below:
+                        state.Armed = true;
+                        state.Retired = false;
+                        break;
+                    case RearmMode.Step when state.Steps > 0:
+                        state.Steps--;
+                        break;
+                }
+
+                break;
+        }
+    }
+
     /// <summary>The rule that fires for <paramref name="sample"/>, or null. Call <see cref="Taken"/> once its snapshot is written.</summary>
     public SnapshotRule? Evaluate(HeapSample sample, bool captureRunning)
     {
         ArgumentNullException.ThrowIfNull(sample);
         _start ??= sample.At;
         var metric = sample.RuleBytes;
+        LastMetric = metric;
         Baseline ??= metric;
 
         if (sample.HadGc)
@@ -161,8 +206,15 @@ public sealed class SnapshotRuleEngine
             }
         }
 
-        if (captureRunning || (_rules.MaxSnapshots is { } max && Count >= max))
+        Deferred = null;
+        if (_rules.MaxSnapshots is { } max && Count >= max)
         {
+            return null;
+        }
+
+        if (captureRunning)
+        {
+            Deferred = Due(sample, metric);
             return null;
         }
 
@@ -196,6 +248,28 @@ public sealed class SnapshotRuleEngine
 
     /// <summary>Records that a rule's snapshot was written (the maximum count includes it).</summary>
     public void Taken() => Count++;
+
+    /// <summary>The rule that would fire for the sample, changing nothing (a capture is running).</summary>
+    private SnapshotRule? Due(HeapSample sample, long metric)
+    {
+        for (var i = 0; i < _states.Length; i++)
+        {
+            var rule = _rules.Rules[i];
+            var state = _states[i];
+            var due = rule switch
+            {
+                EveryRule every => sample.At >= (state.NextDue ?? (_start!.Value + every.Interval)),
+                AboveRule or GrowthRule => state.Armed && Threshold(rule, state) is { } threshold && metric >= threshold,
+                _ => false,
+            };
+            if (due)
+            {
+                return rule;
+            }
+        }
+
+        return null;
+    }
 
     private void Fire(SnapshotRule rule, RuleState state)
     {

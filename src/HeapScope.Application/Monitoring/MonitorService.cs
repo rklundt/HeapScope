@@ -127,8 +127,19 @@ public sealed class SyntheticCounterSource(int count, int perSecond) : ICounterS
 /// </summary>
 /// <param name="RecordAllocations">Records an allocation trace for the whole run (sprint 3.4, decision 4).</param>
 /// <param name="ProcessName">The target's name, for the run's record.</param>
-public sealed record MonitorOptions(TimeSpan Interval, MonitorRules Rules, bool WriteTimeline = true, SnapshotKindDto CaptureKind = SnapshotKindDto.FullDump, bool RecordAllocations = false, string? ProcessName = null)
+/// <param name="RecordRun">
+/// Whether the run uses a session at all (its record, its timeline, its trace): off for smoke runs, which leave nothing in
+/// the session library (sprint 3.4 re-review).
+/// </param>
+/// <param name="TraceLimitBytes">
+/// The allocation trace stops at this size (review H7 of 3.4): 1 GB by default, which the Allocations page reads well
+/// inside its memory budget on a 16 GB laptop; the run goes on without it.
+/// </param>
+public sealed record MonitorOptions(TimeSpan Interval, MonitorRules Rules, bool WriteTimeline = true, SnapshotKindDto CaptureKind = SnapshotKindDto.FullDump, bool RecordAllocations = false, string? ProcessName = null, long TraceLimitBytes = MonitorOptions.DefaultTraceLimitBytes, bool RecordRun = true)
 {
+    /// <summary>The default allocation trace limit, 1 GB.</summary>
+    public const long DefaultTraceLimitBytes = 1L << 30;
+
     public static MonitorOptions Default { get; } = new(TimeSpan.FromSeconds(1), MonitorRules.None);
 }
 
@@ -191,25 +202,46 @@ public sealed class MonitorService(ICaptureService capture, ICounterSource? coun
 
 /// <summary>
 /// One monitoring run. <see cref="SampleReceived"/> and <see cref="Captured"/> are raised on a background thread; front
-/// ends marshal them. Timeline rows go to <see cref="TimelinePath"/> (one per sample, plus one per capture).
+/// ends marshal them. Timeline rows go to <see cref="TimelinePath"/> (one per sample, plus one per capture or event).
 /// </summary>
 public sealed class MonitorRun : IAsyncDisposable
 {
+    /// <summary>The timeline event of a forced collection that finished.</summary>
+    public const string GcForcedEvent = "gc forced";
+
+    /// <summary>The prefix of a capture's timeline event.</summary>
+    public const string SnapshotEventPrefix = "snapshot: ";
+
+    /// <summary>The label of a snapshot taken with Get snapshot.</summary>
+    public const string ManualLabel = "manual";
+
+    /// <summary>The run stops recording allocations when the disk has less free space than this (review H7 of 3.4).</summary>
+    public const long TraceMinimumFreeBytes = 1L << 30;
+
+    private static readonly TimeSpan s_traceCheckInterval = TimeSpan.FromSeconds(2);
+
     private readonly ICaptureService _capture;
     private readonly ILogger _logger;
     private readonly SnapshotRuleEngine _rules;
     private readonly CancellationTokenSource _stop = new();
+    private readonly CancellationTokenSource _traceStop = new();
     private readonly object _gate = new();
     private readonly List<MonitorCapture> _captures = [];
-    private bool _maximumLogged;
-    private StreamWriter? _timeline;
-    private bool _timelineFailed;
-    private string? _folder;
-    private Task? _capturing;
+    private readonly HashSet<Task> _pending = [];
     private readonly AllocationRecorder _allocations;
     private readonly TimeProvider _time;
     private readonly List<DateTimeOffset> _forcedGcs = [];
     private readonly DateTimeOffset _started;
+    private bool _maximumLogged;
+    private bool _deferLogged;
+    private bool _closing;
+    private bool _closed;
+    private StreamWriter? _timeline;
+    private bool _timelineFailed;
+    private string? _timelinePath;
+    private string? _folder;
+    private IDisposable? _inUse;
+    private Task? _capturing;
     private Task<TraceResult>? _trace;
     private string? _tracePath;
 
@@ -232,6 +264,12 @@ public sealed class MonitorRun : IAsyncDisposable
     /// <summary>Raised when a forced collection ends (sprint 3.4), on a background thread.</summary>
     public event EventHandler<MonitorForcedGc>? GcForced;
 
+    /// <summary>
+    /// Raised when the allocation trace stops before the run (refused, failed, or stopped at its size or disk limit), with
+    /// the reason in words, on a background thread (review of 3.4: shown at once, not at the end of the run).
+    /// </summary>
+    public event EventHandler<string>? TraceStopped;
+
     /// <summary>The run's id in its session's record (sprint 3.4).</summary>
     public Guid Id { get; } = Guid.NewGuid();
 
@@ -241,58 +279,14 @@ public sealed class MonitorRun : IAsyncDisposable
     /// <summary>The allocation trace, once the run ended with one (sprint 3.4).</summary>
     public string? TracePath { get; private set; }
 
-    /// <summary>Why the allocation trace was not recorded, when asked for and it failed.</summary>
+    /// <summary>Why the allocation trace was not recorded or stopped early, when asked for.</summary>
     public string? TraceError { get; private set; }
-
-    /// <summary>
-    /// Takes a snapshot now (sprint 3.4, the Live page's Get snapshot): a manual capture of the run's process with the run's
-    /// kind, recorded as the run's card and timeline marker. Refused (a failed card) while a capture of it runs.
-    /// </summary>
-    public Task<MonitorCapture> CaptureNowAsync()
-    {
-        Task<MonitorCapture> capture;
-        lock (_gate)
-        {
-            capture = Task.Run(() => CaptureAsync(null, "manual", _time.GetUtcNow(), null));
-            _capturing = capture;
-        }
-
-        return capture;
-    }
-
-    /// <summary>Forces a full collection in the run's process (sprint 3.4), marked on the timeline.</summary>
-    public async Task<MonitorForcedGc> ForceGcAsync(CancellationToken cancellationToken)
-    {
-        var at = _time.GetUtcNow();
-        MonitorForcedGc result;
-        try
-        {
-            result = new MonitorForcedGc(at, await _capture.ForceGcAsync(ProcessId, cancellationToken).ConfigureAwait(false), null);
-        }
-        catch (CaptureFailedException ex)
-        {
-            result = new MonitorForcedGc(at, null, ex.Message);
-        }
-
-        lock (_gate)
-        {
-            if (result.Result is not null)
-            {
-                _forcedGcs.Add(at);
-            }
-
-            WriteEvent(at, result.Result is not null ? "gc forced" : "gc not forced: " + result.Error);
-        }
-
-        Raise(GcForced, result);
-        return result;
-    }
 
     public int ProcessId { get; }
 
     public MonitorOptions Options { get; }
 
-    /// <summary>The timeline file, once the first sample arrived (null when not written, or when writing it failed).</summary>
+    /// <summary>The timeline file, from the run's start (null when not written, or when writing it failed).</summary>
     public string? TimelinePath
     {
         get
@@ -303,8 +297,6 @@ public sealed class MonitorRun : IAsyncDisposable
             }
         }
     }
-
-    private string? _timelinePath;
 
     /// <summary>
     /// Ends when the run stops: canceled, or the process exited. Faults with <see cref="CaptureFailedException"/> when the
@@ -335,6 +327,41 @@ public sealed class MonitorRun : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Takes a snapshot now (sprint 3.4, the Live page's Get snapshot): a manual capture of the run's process with the run's
+    /// kind, recorded as the run's card and timeline marker. Refused (a failed card) while a capture of it runs, and once
+    /// the run is stopping.
+    /// </summary>
+    public Task<MonitorCapture> CaptureNowAsync()
+    {
+        lock (_gate)
+        {
+            if (Stopping)
+            {
+                return Task.FromResult(new MonitorCapture(_time.GetUtcNow(), ManualLabel, null, "The run has stopped."));
+            }
+
+            return Track(Task.Run(() => CaptureAsync(null, ManualLabel, _time.GetUtcNow(), null)));
+        }
+    }
+
+    /// <summary>
+    /// Forces a full collection in the run's process (sprint 3.4), marked on the timeline and in the run's record when it
+    /// finished. Refused once the run is stopping.
+    /// </summary>
+    public Task<MonitorForcedGc> ForceGcAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (Stopping)
+            {
+                return Task.FromResult(new MonitorForcedGc(_time.GetUtcNow(), null, "The run has stopped."));
+            }
+
+            return Track(Task.Run(() => ForceGcCoreAsync(cancellationToken), CancellationToken.None));
+        }
+    }
+
     /// <summary>Stops sampling; a capture already running finishes and is recorded.</summary>
     public void Stop() => _stop.Cancel();
 
@@ -351,22 +378,31 @@ public sealed class MonitorRun : IAsyncDisposable
         }
 
         _stop.Dispose();
+        _traceStop.Dispose();
     }
 
     internal void Begin(ICounterSource counters)
     {
-        // The run's session is fixed now: opening another session meanwhile does not split the timeline from it.
-        if (Options.WriteTimeline)
+        // The run's session is fixed now: opening another session meanwhile does not split the timeline from it, and the
+        // session cannot be deleted while the run writes into it (review H1 of 3.4).
+        try
         {
-            try
+            if (Options.RecordRun)
             {
                 _folder = _capture.Library.Current.Folder;
+                _inUse = _capture.Library.MarkInUse(_folder, "a monitoring run");
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _logger.LogWarning(ex, "The monitoring timeline has no session folder");
-                _timelineFailed = true;
-            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Monitoring run {RunId} has no session folder: it is not recorded and writes no timeline", Id);
+            _folder = null;
+            _timelineFailed = true;
+        }
+
+        if (Options.WriteTimeline)
+        {
+            OpenTimeline();
         }
 
         if (Options.RecordAllocations)
@@ -378,21 +414,185 @@ public sealed class MonitorRun : IAsyncDisposable
         Completion = RunAsync(counters);
     }
 
-    /// <summary>Starts the allocation trace in the run's session folder; a refusal is recorded, the run goes on.</summary>
+    /// <summary>Whether the run is stopping or stopped: nothing new starts then (review H6 of 3.4).</summary>
+    private bool Stopping => _closing || _stop.IsCancellationRequested;
+
+    /// <summary>Tracks a capture or forced collection, so the run's end waits for it (call under the gate).</summary>
+    private Task<T> Track<T>(Task<T> task)
+    {
+        _pending.Add(task);
+        task.ContinueWith(
+            done =>
+            {
+                lock (_gate)
+                {
+                    _pending.Remove(done);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return task;
+    }
+
+    private async Task<MonitorForcedGc> ForceGcCoreAsync(CancellationToken cancellationToken)
+    {
+        var at = _time.GetUtcNow();
+        MonitorForcedGc result;
+        try
+        {
+            result = new MonitorForcedGc(at, await _capture.ForceGcAsync(ProcessId, cancellationToken).ConfigureAwait(false), null);
+        }
+        catch (CaptureFailedException ex)
+        {
+            result = new MonitorForcedGc(at, null, ex.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            result = new MonitorForcedGc(at, null, "Canceled.");
+        }
+
+        lock (_gate)
+        {
+            // Only a collection whose end was seen is marked as forced (review of 3.4): the marker backs the advice that
+            // objects compared across it may have moved.
+            if (result.Result is { Completed: true })
+            {
+                _forcedGcs.Add(at);
+            }
+
+            WriteEvent(at, result.Result is { Completed: true } ? GcForcedEvent
+                : result.Result is { } incomplete ? "gc not confirmed: " + incomplete.Outcome
+                : "gc not forced: " + result.Error);
+        }
+
+        _logger.LogInformation("Monitoring run {RunId}: Force GC {Outcome}", Id, result.Result?.Outcome ?? "failed: " + result.Error);
+        Raise(GcForced, result);
+        return result;
+    }
+
+    /// <summary>Creates the timeline file in the run's session folder (a numbered suffix when the name is taken).</summary>
+    private void OpenTimeline()
+    {
+        if (_folder is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var stem = string.Create(CultureInfo.InvariantCulture, $"counters-{ProcessId}-{_time.GetLocalNow():yyyyMMdd-HHmmss}");
+            for (var n = 1; _timeline is null; n++)
+            {
+                var path = Path.Combine(_folder, n == 1 ? stem + ".csv" : string.Create(CultureInfo.InvariantCulture, $"{stem}-{n}.csv"));
+                try
+                {
+                    _timeline = new StreamWriter(PrivateFiles.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                    _timelinePath = path;
+                }
+                catch (IOException) when (File.Exists(path) && n < 100)
+                {
+                    // Taken (two runs on one process within a second): try the next number.
+                }
+            }
+
+            _timeline.WriteLine("time,gc_heap_bytes,gen0_bytes,gen1_bytes,gen2_bytes,loh_bytes,poh_bytes,gen0_gcs,gen1_gcs,gen2_gcs,allocated_bytes,time_in_gc_percent,working_set_bytes,event");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Monitoring run {RunId}: the timeline could not be created; the run goes on without it", Id);
+            _timelineFailed = true;
+            _timeline?.Dispose();
+            _timeline = null;
+        }
+    }
+
+    /// <summary>
+    /// Starts the allocation trace in the run's session folder, with a watch that stops it at its size limit or when the
+    /// disk runs low (review H7 of 3.4); a refusal is reported at once and the run goes on.
+    /// </summary>
     private void StartTrace()
     {
         try
         {
-            var folder = _folder ?? _capture.Library.Current.Folder;
-            _tracePath = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"allocations-{ProcessId}-{DateTime.Now:yyyyMMdd-HHmmss}.nettrace"));
-            _trace = _allocations(ProcessId, _tracePath, _stop.Token);
-            _logger.LogInformation("Monitoring pid {Pid} (run {RunId}): recording allocations to {Path}", ProcessId, Id, _tracePath);
+            var folder = _folder ?? throw new IOException("The run has no session folder to record the allocation trace into.");
+            _tracePath = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"allocations-{ProcessId}-{_time.GetLocalNow():yyyyMMdd-HHmmss}.nettrace"));
+            _logger.LogInformation("Monitoring run {RunId} (pid {Pid}): starting an allocation trace to {Path}, limit {Limit} bytes", Id, ProcessId, _tracePath, Options.TraceLimitBytes);
+            _trace = _allocations(ProcessId, _tracePath, _traceStop.Token);
+            _ = _trace.ContinueWith(OnTraceEnded, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            _ = WatchTraceAsync(_tracePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CaptureFailedException)
         {
-            TraceError = ex.Message;
-            _logger.LogWarning(ex, "Monitoring pid {Pid}: the allocation trace could not start", ProcessId);
+            TraceProblem($"The allocation trace could not start: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>A trace that ends before the run (refused, failed) is reported at once.</summary>
+    private void OnTraceEnded(Task<TraceResult> trace)
+    {
+        if (trace.IsFaulted && !_traceStop.IsCancellationRequested)
+        {
+            var error = trace.Exception!.InnerException ?? trace.Exception;
+            TraceProblem($"The allocation trace stopped: {error.Message} The run goes on without it.", error);
+        }
+    }
+
+    /// <summary>Stops the trace at its size limit or when the disk has less than <see cref="TraceMinimumFreeBytes"/> free.</summary>
+    private async Task WatchTraceAsync(string path)
+    {
+        try
+        {
+            while (!_traceStop.IsCancellationRequested && _trace is { IsCompleted: false })
+            {
+                await Task.Delay(s_traceCheckInterval, _time, _traceStop.Token).ConfigureAwait(false);
+                var file = new FileInfo(path + ".partial") is { Exists: true } partial ? partial : new FileInfo(path);
+                var size = file.Exists ? file.Length : 0;
+                var free = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(path))!).AvailableFreeSpace;
+                string? why = size >= Options.TraceLimitBytes
+                    ? string.Create(CultureInfo.InvariantCulture, $"it reached its limit of {Options.TraceLimitBytes / (1024 * 1024)} MB")
+                    : free < TraceMinimumFreeBytes ? string.Create(CultureInfo.InvariantCulture, $"the disk has {free / (1024 * 1024)} MB free") : null;
+                if (why is not null)
+                {
+                    TraceProblem($"The allocation trace stopped early because {why}; what it recorded is kept and the run goes on.", null);
+
+                    // Not while a capture of the process runs: stopping a runtime session while a gcdump's is open can
+                    // induce another collection (review of 3.4).
+                    Task[] pending;
+                    lock (_gate)
+                    {
+                        pending = [.. _pending];
+                    }
+
+                    await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                    await _traceStop.CancelAsync().ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            _logger.LogWarning(ex, "Monitoring run {RunId}: the allocation trace's size could not be checked", Id);
+        }
+    }
+
+    private void TraceProblem(string message, Exception? ex)
+    {
+        lock (_gate)
+        {
+            if (TraceError is not null)
+            {
+                return;
+            }
+
+            TraceError = message;
+        }
+
+        _logger.LogWarning(ex, "Monitoring run {RunId} (pid {Pid}): {Message}", Id, ProcessId, message);
+        Raise(TraceStopped, message);
     }
 
     /// <summary>The run's record in its session (decision 5): at the start, and with its end, files and snapshots.</summary>
@@ -407,13 +607,17 @@ public sealed class MonitorRun : IAsyncDisposable
         {
             string? Relative(string? path) => path is null ? null : Path.GetRelativePath(_folder, path);
             List<Guid> snapshots;
+            List<string> described;
             List<DateTimeOffset> forced;
             lock (_gate)
             {
                 snapshots = [.. _captures.Select(c => c.Result?.SnapshotId).OfType<Guid>()];
+                described = [.. _captures.Where(c => c.Result?.SnapshotId is not null).Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Result!.SnapshotId} {Path.GetFileName(c.Result.Path)}"))];
                 forced = [.. _forcedGcs];
             }
 
+            // At the start the files it will write; at the end the trace only when it was kept.
+            var trace = ended is null ? _tracePath : TracePath;
             _capture.Library.RecordRun(_folder, new SessionRun(
                 Id,
                 Options.ProcessName,
@@ -424,10 +628,19 @@ public sealed class MonitorRun : IAsyncDisposable
                 _started,
                 ended,
                 Relative(TimelinePath),
-                Relative(TracePath),
+                Relative(trace),
                 snapshots,
-                forced));
-            _logger.LogInformation("Monitoring run {RunId} recorded in {Folder} ({State}: {Snapshots} snapshots, {Forced} forced collections, trace {Trace})", Id, _folder, ended is null ? "started" : "ended", snapshots.Count, forced.Count, TracePath ?? "none");
+                forced,
+                TraceError));
+            _logger.LogInformation(
+                "Monitoring run {RunId} recorded in {Folder} ({State}: snapshots {Snapshots}, forced collections {Forced}, timeline {Timeline}, trace {Trace})",
+                Id,
+                _folder,
+                ended is null ? "started" : "ended",
+                described.Count == 0 ? "none" : string.Join(", ", described),
+                forced.Count,
+                TimelinePath ?? "none",
+                trace ?? "none");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -451,34 +664,35 @@ public sealed class MonitorRun : IAsyncDisposable
         }
         finally
         {
-            _logger.LogInformation("Monitoring pid {Pid} ended: {Captures} snapshots taken", ProcessId, _rules.Count);
-
             // Teardown never throws: a capture's own failure is recorded by CaptureAsync, and the timeline is closed
-            // whatever happened (review H3 of 1.7).
-            Task? pending;
+            // whatever happened (review H3 of 1.7). Nothing new starts from here on, and every capture and forced
+            // collection still running is awaited (review H6 of 3.4).
+            Task[] pending;
             lock (_gate)
             {
-                pending = _capturing;
+                _closing = true;
+                pending = [.. _pending];
             }
 
-            if (pending is not null)
-            {
-                await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            }
+            await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            var taken = Captures.Count(c => c.Result is not null);
+            _logger.LogInformation("Monitoring run {RunId} (pid {Pid}) ended: {Captures} snapshots taken, {Rules} by rules", Id, ProcessId, taken, _rules.Count);
 
-            // The allocation trace stops with the run (the token): keep what it wrote.
+            // The allocation trace stops after the captures: stopping a runtime session while a gcdump's is open can
+            // induce another collection (review of 3.4). Keep what it wrote.
             if (_trace is { } trace)
             {
+                await _traceStop.CancelAsync().ConfigureAwait(false);
                 try
                 {
                     var written = await trace.ConfigureAwait(false);
                     TracePath = written.Path;
-                    _logger.LogInformation("Monitoring pid {Pid} (run {RunId}): allocation trace {Path}, {Bytes} bytes over {Seconds:N0} s", ProcessId, Id, written.Path, written.Bytes, written.Duration.TotalSeconds);
+                    _logger.LogInformation("Monitoring run {RunId} (pid {Pid}): allocation trace {Path}, {Bytes} bytes over {Seconds:N0} s", Id, ProcessId, written.Path, written.Bytes, written.Duration.TotalSeconds);
                 }
-                catch (Exception ex) when (ex is CaptureFailedException or OperationCanceledException or IOException)
+                catch (Exception ex)
                 {
-                    TraceError = ex.Message;
-                    _logger.LogWarning(ex, "Monitoring pid {Pid}: the allocation trace failed", ProcessId);
+                    // A boundary: whatever the recorder threw, the run still closes its timeline and records its end.
+                    TraceProblem($"The allocation trace failed: {ex.Message}", ex);
                 }
             }
 
@@ -487,6 +701,7 @@ public sealed class MonitorRun : IAsyncDisposable
             {
                 timeline = _timeline;
                 _timeline = null;
+                _closed = true;
             }
 
             if (timeline is not null)
@@ -502,6 +717,7 @@ public sealed class MonitorRun : IAsyncDisposable
             }
 
             Record(_time.GetUtcNow());
+            _inUse?.Dispose();
         }
     }
 
@@ -512,21 +728,45 @@ public sealed class MonitorRun : IAsyncDisposable
         lock (_gate)
         {
             // After Stop no rule fires: the user asked for no more dumps (review of 1.7).
-            var stopped = _stop.IsCancellationRequested;
-            // A capture of this process from anywhere (the Processes page, Get snapshot) counts as running (decision 3).
-            fired = stopped ? null : _rules.Evaluate(sample, captureRunning: _capturing is { IsCompleted: false } || _capture.IsBusy(ProcessId));
+            var stopped = Stopping;
+
+            // A capture or forced collection of this process from anywhere (the Processes page, Get snapshot, Force GC)
+            // counts as running (decision 3).
+            var own = _pending.Any(t => !t.IsCompleted);
+            var running = own || _capture.IsBusy(ProcessId);
+            fired = stopped ? null : _rules.Evaluate(sample, captureRunning: running);
             seen = new MonitorSample(sample, _rules.HighGcPressure, _rules.Baseline);
             WriteRow(sample, null);
             if (fired is not null)
             {
                 // Started outside the lock: a capture logs and adds a job, which raises events.
                 var decision = _rules.LastDecision;
-                _capturing = Task.Run(() => CaptureAsync(fired, fired.Label, sample.At, decision));
+                _capturing = Track(Task.Run(() => CaptureAsync(fired, fired.Label, sample.At, decision)));
+            }
+            else if (_rules.Deferred is { } deferred)
+            {
+                // Logged once per busy stretch (review H5 of 3.4): the rule fires at the first sample after it.
+                if (!_deferLogged)
+                {
+                    _deferLogged = true;
+                    _logger.LogInformation(
+                        "Monitoring run {RunId} (pid {Pid}): {Rule} is due (metric {Metric} bytes) but {Holder} of the process is running; it fires at the next sample after that ends",
+                        Id,
+                        ProcessId,
+                        deferred.Label,
+                        _rules.LastMetric,
+                        own ? "the run's own capture or forced collection" : "a capture or forced collection from elsewhere");
+                }
             }
             else if (_rules.AtMaximum && !_maximumLogged)
             {
                 _maximumLogged = true;
                 _logger.LogInformation("Monitoring pid {Pid}: the maximum of {Max} snapshots is reached; rules no longer capture", ProcessId, _rules.Count);
+            }
+
+            if (!running)
+            {
+                _deferLogged = false;
             }
         }
 
@@ -536,26 +776,29 @@ public sealed class MonitorRun : IAsyncDisposable
     private async Task<MonitorCapture> CaptureAsync(SnapshotRule? rule, string label, DateTimeOffset at, RuleDecision? decision)
     {
         MonitorCapture result;
+        var busy = false;
         try
         {
-            _logger.LogInformation("Monitoring pid {Pid}: {Rule} {How} at {At:O}, capturing: {Decision}", ProcessId, label, rule is null ? "asked for" : "fired", at, decision?.ToString() ?? "no decision recorded");
+            _logger.LogInformation("Monitoring run {RunId} (pid {Pid}): {Rule} {How} at {At:O}, capturing: {Decision}", Id, ProcessId, label, rule is null ? "asked for" : "fired", at, decision?.ToString() ?? "no decision recorded");
             var captured = await _capture.StartCapture(ProcessId, label: label, source: rule is null ? SnapshotSource.Manual : SnapshotSource.Timed, kind: Options.CaptureKind).Result.ConfigureAwait(false);
             result = new MonitorCapture(at, label, captured, null);
+            _logger.LogInformation("Monitoring run {RunId}: the {Rule} capture is snapshot {SnapshotId}", Id, label, captured.SnapshotId);
         }
         catch (CaptureFailedException ex)
         {
-            _logger.LogWarning(ex, "Monitoring pid {Pid}: the {Rule} capture failed", ProcessId, label);
+            busy = ex.Reason == CaptureFailure.Busy;
+            _logger.LogWarning(ex, "Monitoring run {RunId} (pid {Pid}): the {Rule} capture failed", Id, ProcessId, label);
             result = new MonitorCapture(at, label, null, ex.Message);
         }
         catch (OperationCanceledException)
         {
             // Canceled from the jobs panel, or when the app closes: recorded like a failure, the run goes on.
-            _logger.LogInformation("Monitoring pid {Pid}: the {Rule} capture was canceled", ProcessId, label);
+            _logger.LogInformation("Monitoring run {RunId} (pid {Pid}): the {Rule} capture was canceled", Id, ProcessId, label);
             result = new MonitorCapture(at, label, null, "Canceled.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Monitoring pid {Pid}: the {Rule} capture failed unexpectedly", ProcessId, label);
+            _logger.LogError(ex, "Monitoring run {RunId} (pid {Pid}): the {Rule} capture failed unexpectedly", Id, ProcessId, label);
             result = new MonitorCapture(at, label, null, "The capture failed. Details are in the log.");
         }
 
@@ -565,6 +808,14 @@ public sealed class MonitorRun : IAsyncDisposable
             if (result.Result is not null && rule is not null)
             {
                 _rules.Taken();
+            }
+
+            // Another capture of the process won the race between the busy check and the gate: the rule is not used up
+            // (review H5 of 3.4).
+            if (busy && rule is not null)
+            {
+                _rules.Missed(rule);
+                _logger.LogInformation("Monitoring run {RunId}: {Rule} is re-armed; another capture of the process started first", Id, label);
             }
 
             _captures.Add(result);
@@ -596,77 +847,45 @@ public sealed class MonitorRun : IAsyncDisposable
         }
     }
 
-    /// <summary>A timeline row holding only an event (a forced collection), its text quoted for CSV.</summary>
-    private void WriteEvent(DateTimeOffset at, string text)
-    {
-        if (!Options.WriteTimeline || _timelineFailed || _folder is null || _timeline is null)
-        {
-            return;
-        }
-
-        try
-        {
-            _timeline.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{at:O},,,,,,,,,,,,,\"{text.Replace("\"", "\"\"", StringComparison.Ordinal)}\""));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(ex, "The monitoring timeline could not be written; the run goes on without it");
-            _timelineFailed = true;
-        }
-    }
+    /// <summary>A timeline row holding only an event (a forced collection), its text quoted for CSV (call under the gate).</summary>
+    private void WriteEvent(DateTimeOffset at, string text) =>
+        WriteLine(string.Create(CultureInfo.InvariantCulture, $"{at:O},,,,,,,,,,,,,\"{text.Replace("\"", "\"\"", StringComparison.Ordinal)}\""));
 
     /// <summary>A capture marker's event cell, quoted for CSV.</summary>
     private static string Quoted(MonitorCapture capture)
     {
         var what = capture.Result is { } result ? Path.GetFileName(result.Path) : "failed: " + capture.Error;
-        return "\"" + $"snapshot: {capture.Rule}: {what}".Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+        return "\"" + $"{SnapshotEventPrefix}{capture.Rule}: {what}".Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
 
+    /// <summary>One timeline row: a sample, or a capture marker (columns empty but the time and the event).</summary>
+    private void WriteRow(HeapSample? sample, MonitorCapture? capture) =>
+        WriteLine(sample is { } s
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"{s.At:O},{s.GcHeapBytes},{s.Gen0Bytes},{s.Gen1Bytes},{s.Gen2Bytes},{s.LargeObjectHeapBytes},{s.PinnedObjectHeapBytes},{s.Gen0Collections},{s.Gen1Collections},{s.Gen2Collections},{s.AllocatedBytes},{s.TimeInGcPercent:0.##},{s.WorkingSetBytes},")
+            : string.Create(CultureInfo.InvariantCulture, $"{capture!.At:O},,,,,,,,,,,,,{Quoted(capture)}"));
+
     /// <summary>
-    /// One timeline row: a sample, or a capture marker (columns empty but the time and the event). The file is created
-    /// new (a numbered suffix when the name is taken) in the run's session folder; after the first failure the run
-    /// stops writing it and warns once.
+    /// Writes a line to the timeline opened at the start; never creates a file (after the run closed it nothing is written,
+    /// review H6 of 3.4). After the first failure the run stops writing it and warns once.
     /// </summary>
-    private void WriteRow(HeapSample? sample, MonitorCapture? capture)
+    private void WriteLine(string line)
     {
-        if (!Options.WriteTimeline || _timelineFailed || _folder is null)
+        if (_closed || _timelineFailed || _timeline is null)
         {
             return;
         }
 
         try
         {
-            if (_timeline is null)
-            {
-                var stem = string.Create(CultureInfo.InvariantCulture, $"counters-{ProcessId}-{DateTime.Now:yyyyMMdd-HHmmss}");
-                for (var n = 1; _timeline is null; n++)
-                {
-                    var path = Path.Combine(_folder, n == 1 ? stem + ".csv" : string.Create(CultureInfo.InvariantCulture, $"{stem}-{n}.csv"));
-                    try
-                    {
-                        _timeline = new StreamWriter(PrivateFiles.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                        _timelinePath = path;
-                    }
-                    catch (IOException) when (File.Exists(path) && n < 100)
-                    {
-                        // Taken (two runs on one process within a second): try the next number.
-                    }
-                }
-
-                _timeline.WriteLine("time,gc_heap_bytes,gen0_bytes,gen1_bytes,gen2_bytes,loh_bytes,poh_bytes,gen0_gcs,gen1_gcs,gen2_gcs,allocated_bytes,time_in_gc_percent,working_set_bytes,event");
-            }
-
-            _timeline.WriteLine(sample is { } s
-                ? string.Create(CultureInfo.InvariantCulture,
-                    $"{s.At:O},{s.GcHeapBytes},{s.Gen0Bytes},{s.Gen1Bytes},{s.Gen2Bytes},{s.LargeObjectHeapBytes},{s.PinnedObjectHeapBytes},{s.Gen0Collections},{s.Gen1Collections},{s.Gen2Collections},{s.AllocatedBytes},{s.TimeInGcPercent:0.##},{s.WorkingSetBytes},")
-                : string.Create(CultureInfo.InvariantCulture, $"{capture!.At:O},,,,,,,,,,,,,{Quoted(capture)}"));
+            _timeline.WriteLine(line);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // The timeline is a convenience: a full disk must not stop monitoring, and must not flood the log.
             _logger.LogWarning(ex, "The monitoring timeline could not be written; the run goes on without it");
             _timelineFailed = true;
-            _timeline?.Dispose();
+            _timeline.Dispose();
             _timeline = null;
         }
     }

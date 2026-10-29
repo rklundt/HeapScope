@@ -32,7 +32,7 @@ namespace HeapScope.Worker.Snapshots;
 internal sealed partial class SnapshotStore
 {
     /// <summary>File name part of the reverse references sidecar (<c>app.dmp.rev.hsidx</c>).</summary>
-    public const string ReverseSidecarKind = "rev";
+    public const string ReverseSidecarKind = HeapScope.Core.IndexCachePaths.ReverseKind;
 
     /// <summary>
     /// The reverse references index of a loaded snapshot, opened from its sidecar or built on first use

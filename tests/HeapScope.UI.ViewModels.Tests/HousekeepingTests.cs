@@ -25,6 +25,7 @@ using System.IO;
 using HeapScope.Application;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Sessions;
+using HeapScope.Application.Tests;
 using HeapScope.Application.Snapshots;
 using HeapScope.UI.Services;
 using HeapScope.UI.ViewModels;
@@ -40,13 +41,15 @@ public sealed class HousekeepingTests : IDisposable
     private readonly SessionLibrary _library;
     private readonly SnapshotsViewModel _snapshots;
     private readonly HomeViewModel _home;
+    private readonly RecordingLogger _snapshotsLog = new();
+    private readonly RecordingLogger<HomeViewModel> _homeLog = new();
 
     public HousekeepingTests()
     {
         _library = new SessionLibrary(_root);
         var operations = new WorkerOperations(_worker, new JobTracker(TimeProvider.System));
-        _snapshots = new SnapshotsViewModel(new SnapshotSession(_worker, operations.Jobs), operations, new ImmediateUiDispatcher(), _interaction, library: _library);
-        _home = new HomeViewModel(operations, _snapshots, _library, _interaction);
+        _snapshots = new SnapshotsViewModel(new SnapshotSession(_worker, operations.Jobs), operations, new ImmediateUiDispatcher(), _interaction, new OneLogger(_snapshotsLog), library: _library);
+        _home = new HomeViewModel(operations, _snapshots, _library, _interaction, _homeLog);
     }
 
     [Fact]
@@ -63,6 +66,8 @@ public sealed class HousekeepingTests : IDisposable
         await _snapshots.CloseAndDeleteCommand.ExecuteAsync(null);
         (File.Exists(dump), _snapshots.Snapshots.Count).ShouldBe((true, 1), "declined: nothing happens");
         _interaction.Questions[^1].ShouldContain("110 bytes");
+        _interaction.Questions[^1].ShouldContain(dump + ".hsidx", customMessage: "the confirmation names the files");
+        _snapshotsLog.Lines.ShouldContain(l => l.Contains("Asked to delete snapshot", StringComparison.Ordinal) && l.Contains(dump, StringComparison.Ordinal) && l.EndsWith("answered no", StringComparison.Ordinal));
 
         _interaction.Answer = true;
         await _snapshots.CloseAndDeleteCommand.ExecuteAsync(null);
@@ -70,12 +75,14 @@ public sealed class HousekeepingTests : IDisposable
         (File.Exists(dump), File.Exists(dump + ".hsidx"), _snapshots.Snapshots.Count).ShouldBe((false, false, 0));
         SessionLibrary.TryRead(folder)!.Document.Snapshots.ShouldBeEmpty();
         _snapshots.Status!.ShouldStartWith("Deleted app.dmp");
+        _snapshotsLog.Lines.ShouldContain(l => l.StartsWith("Deleted snapshot", StringComparison.Ordinal) && l.Contains(dump + "; " + dump + ".hsidx", StringComparison.Ordinal), "support can tell which files went");
 
         var outside = Path.Combine(_root, "elsewhere.dmp");
         await File.WriteAllBytesAsync(outside, new byte[5], TestContext.Current.CancellationToken);
         await _snapshots.OpenPathAsync(outside);
         await _snapshots.CloseAndDeleteCommand.ExecuteAsync(null);
         (File.Exists(outside), _snapshots.Status).ShouldBe((true, "This dump is not in a HeapScope session, so HeapScope does not delete it: close it and delete the file yourself."));
+        _snapshotsLog.Lines.ShouldContain(l => l.Contains(outside, StringComparison.Ordinal) && l.Contains("refused", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -91,6 +98,7 @@ public sealed class HousekeepingTests : IDisposable
 
         await _home.DeleteSessionCommand.ExecuteAsync(summary);
         _home.SessionStatus!.ShouldContain("is the current session");
+        _homeLog.Lines.ShouldContain(l => l.StartsWith("Deleting session", StringComparison.Ordinal) && l.Contains("refused: old is the current session", StringComparison.Ordinal));
 
         var other = _library.CreateSession("other");
         _library.Open(other.Folder);
@@ -103,12 +111,28 @@ public sealed class HousekeepingTests : IDisposable
         await _home.DeleteSessionCommand.ExecuteAsync(summary);
 
         Directory.Exists(old.Folder).ShouldBeFalse();
+        _homeLog.Lines.ShouldContain(l => l.Contains("answered yes", StringComparison.Ordinal) && l.Contains(old.Folder, StringComparison.Ordinal));
+        _homeLog.Lines.ShouldContain(l => l.StartsWith("Deleted session", StringComparison.Ordinal) && l.Contains(dump, StringComparison.Ordinal));
         _home.SessionStatus!.ShouldStartWith("Deleted 1 sessions");
         _home.RecentSessions.ShouldNotContain(s => s.Name == "old");
 
         _home.CleanupDays = 30;
         await _home.CleanUpCommand.ExecuteAsync(null);
         _home.SessionStatus!.ShouldStartWith("No session was left unopened for 30 days");
+        _homeLog.Lines.ShouldContain(l => l.StartsWith("Clean up of sessions not opened for 30 days", StringComparison.Ordinal));
+    }
+
+    private sealed class OneLogger(Microsoft.Extensions.Logging.ILogger logger) : Microsoft.Extensions.Logging.ILoggerFactory
+    {
+        public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => logger;
+
+        public void AddProvider(Microsoft.Extensions.Logging.ILoggerProvider provider)
+        {
+        }
+
+        public void Dispose()
+        {
+        }
     }
 
     public void Dispose()

@@ -36,7 +36,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
-| 3.4 | Live workflow and housekeeping | In Progress | | |
+| 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
 | 3.5 | Leak detection depth | Planned | | |
 
 ---
@@ -2744,7 +2744,20 @@ one capture per target at a time across pages (1.7 M4).
 6. [x] Docs: ARCHITECTURE (ADR-033 capture gate and run records, session format, logging), DEVELOPER, README, this
    section.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (docs/reviews/sprint-3.4.md): 7 High, 18 Moderate, 27 Low after dedupe across four reviewers
+(solution-architect, senior-dev, gc-specialist, support engineer). All Highs fixed and confirmed by the reviewers that
+raised them: a session written into could be deleted (now registered in use and refused, deleted under its lock);
+deletion could reach outside the library (now only inside the session folder, through no link, root check separator
+safe, outside dumps kept); Start's file work ran on the UI thread; deletions were not backed up by the log and a partial
+failure lost the record (now planned, listed in the confirmation, logged path by path with the answer, `session.json`
+last); a busy rule skip was silent and a once rule could be lost (now logged and re-armed); Stop did not await every
+capture and a late one opened a second timeline (now tracked, refused once stopping, timeline opened at start); the
+run's allocation trace had no limit (now 1 GB or 1 GB free disk). Moderates: 15 fixed (a partly failed snapshot deletion explained, the Live smoke run no longer writes into the user's sessions and awaits Start, trace refusal shown at once, Force
+GC's timeout over the whole call with three outcomes and a confirmation, the .NET 5 check, exact cache names, refusal
+logs, runs recorded without a timeline, Force GC's own messages, log-line tests, run and snapshot ids), 1 in part
+(trace stopped after captures), 2 deferred (runs parsed one by one, a seam to test the real capture gate). Measured: the
+Live workflow integration tests pass on LeakyApi (a forced collection matched by its induced reason, finished in under a
+second).
 
 ---
 
@@ -2794,6 +2807,14 @@ Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Ph
 - Async state machine and Task leak detection.
 
 **Medium**
+- From the 3.4 review (decided autonomously): `session.json` runs read one by one, an unreadable run kept as its JSON
+  so the session still opens and nothing is lost on save, with the rule that new run members are optional (M8); a seam
+  in front of `DumpCapturer` so the real per-process capture gate is tested deterministically (one pid refused, two pids
+  together, released on failure and cancel) (M13); serializing the Allocations page's recording with a gcdump of the
+  same process, with an integration test counting induced collections across a gcdump and a trace's start and stop on
+  .NET 8 and 10 (M5); the allocation trace's size per minute and the target's slowdown measured on LeakyApi and a
+  high-allocation target, added to section 10 (L17); a reopened run downsampled over its whole length so every marker
+  shows, read as a stream (L1).
 - From the 3.3 review (decided autonomously): the address match kept per snapshot pair with the snapshots (and its
   reservation held as long), and a Medium measurement of a matched and retained diff against the budgets (M12); the CLI
   trend aggregating each dump and closing it before the next, measured with 20 dumps (M13); the other snapshot bound per

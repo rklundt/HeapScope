@@ -149,6 +149,9 @@ public sealed class CaptureService : ICaptureService
             string? path = null;
             string? sessionFolder = null;
             var createdSession = false;
+
+            // The session is written into until the capture is recorded: it cannot be deleted meanwhile (review H1 of 3.4).
+            using var inUse = new Claim();
             try
             {
                 if (outputPath is null)
@@ -161,6 +164,7 @@ public sealed class CaptureService : ICaptureService
 
                     // The session is fixed now: opening another one meanwhile does not move this capture.
                     sessionFolder = Library.Current.Folder;
+                    inUse.Held = Library.MarkInUse(sessionFolder, "a capture");
                     path = UniquePath(sessionFolder, process, profile.Extension);
                 }
                 else
@@ -217,6 +221,7 @@ public sealed class CaptureService : ICaptureService
                 var session = Library.AddTo(sessionFolder ?? Library.Current.Folder, new SessionSnapshot(
                     snapshotId, path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
                     Kind: kind, Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
+                _logger.LogInformation("Recorded {Path} as snapshot {SnapshotId} ({Source}, {Label}) in session {Folder}", path, snapshotId, source, label ?? "no label", session.Folder);
                 return new CaptureResult(path, size, ToEntry(process), session, Kind: kind, SnapshotId: snapshotId);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -240,21 +245,36 @@ public sealed class CaptureService : ICaptureService
         using var gate = EnterGate(processId, "a forced collection", "Force GC");
         try
         {
+            // Decision 1: the runtime's GC heap collect keyword over EventPipe needs .NET 5 or later.
+            var process = await Task.Run(() => _discovery.Find(processId), cancellationToken).ConfigureAwait(false)
+                ?? throw Failure(CaptureFailure.ProcessNotFound, string.Create(CultureInfo.InvariantCulture, $"No running .NET process with id {processId} was found (or it has no diagnostics port)."), null);
+            if (Version.TryParse(process.RuntimeVersion, out var runtime) && runtime.Major < 5)
+            {
+                _logger.LogInformation("Refused a forced collection of pid {Pid}: runtime {Runtime} is older than .NET 5", processId, process.RuntimeVersion);
+                throw Failure(CaptureFailure.NotSupportedOnThisSystem, $"{process.Name} ({processId}) runs an older .NET than .NET 5, where HeapScope cannot force a collection.", null);
+            }
+
             var forced = await GcTrigger.CollectAsync(processId, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation(
-                "Forced a full garbage collection in pid {Pid}: {Outcome} (collection {Number}) in {Seconds:0.00} s",
-                processId,
-                forced.Completed ? "finished" : "its end was not seen within 30 s",
-                forced.GcNumber,
-                forced.Elapsed.TotalSeconds);
-            return new ForcedGcResult(processId, forced.Completed, forced.Elapsed);
+            var result = new ForcedGcResult(processId, forced.Completed, forced.Elapsed, forced.GcNumber);
+            _logger.LogInformation("Forced a full garbage collection in pid {Pid}: {Outcome} in {Seconds:0.00} s", processId, result.Outcome, forced.Elapsed.TotalSeconds);
+            return result;
         }
-        catch (Exception ex) when (Translate(ex) is { } failure)
+        catch (Exception ex) when (ex is not CaptureFailedException && TranslateForcedGc(ex) is { } failure)
         {
             _logger.LogWarning(ex, "Forcing a garbage collection in pid {Pid} failed: {Reason}", processId, failure.Reason);
             throw failure;
         }
     }
+
+    /// <summary>A forced collection's failure in its own words, not a dump's (review of 3.4).</summary>
+    private static CaptureFailedException? TranslateForcedGc(Exception ex) => ex switch
+    {
+        ElevationRequiredException => Failure(CaptureFailure.NeedsAdministrator, ex.Message, ex),
+        TargetUnavailableException => Failure(CaptureFailure.TargetExited, ex.Message, ex),
+        PlatformNotSupportedException => Failure(CaptureFailure.NotSupportedOnThisSystem, ex.Message, ex),
+        OperationCanceledException => null,
+        _ => Failure(CaptureFailure.Unknown, $"The collection could not be forced: {ex.Message} Details are in the log.", ex),
+    };
 
     /// <summary>
     /// Takes the process's gate, or fails with <see cref="CaptureFailure.Busy"/> naming what holds it (decision 3); the
@@ -270,6 +290,14 @@ public sealed class CaptureService : ICaptureService
         }
 
         return new Gate(() => _busy.TryRemove(processId, out _));
+    }
+
+    /// <summary>A claim taken part way through a job, released with it.</summary>
+    private sealed class Claim : IDisposable
+    {
+        public IDisposable? Held { get; set; }
+
+        public void Dispose() => Held?.Dispose();
     }
 
     private sealed class Gate(Action leave) : IDisposable

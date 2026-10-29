@@ -147,6 +147,120 @@ public sealed class MonitorServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Stop_waits_for_every_capture_refuses_new_ones_and_writes_nothing_after_the_run_closed()
+    {
+        // Review H6 of 3.4: a rule capture and a Get snapshot in flight together are both awaited and recorded.
+        _capture.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new MonitorService(_capture, _feed);
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), new MonitorRules([new AboveRule(500 * Mb)])));
+        var folder = run.SessionFolder.ShouldNotBeNull();
+        _capture.Library.InUseBy(folder).ShouldBe("a monitoring run");
+        await _feed.SendAsync(600 * Mb);
+        var manual = run.CaptureNowAsync();
+        run.Stop();
+        await Task.Delay(200, Ct);
+
+        run.Completion.IsCompleted.ShouldBeFalse("the run's end waits for both captures");
+        (await run.CaptureNowAsync()).Error.ShouldBe("The run has stopped.");
+        (await run.ForceGcAsync(Ct)).Error.ShouldBe("The run has stopped.");
+        _capture.Gate.SetResult();
+        await run.Completion;
+
+        (await manual).Result.ShouldNotBeNull();
+        SessionLibrary.TryRead(folder)!.Document.Runs!.Single().SnapshotIds.Count.ShouldBe(2);
+        Directory.GetFiles(folder, "counters-*.csv").ShouldHaveSingleItem("no second timeline after the run closed it");
+        _capture.Library.InUseBy(folder).ShouldBeNull();
+        _capture.ForcedGcs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_rule_that_lost_the_race_for_the_process_is_rearmed_and_a_deferred_rule_is_logged_once()
+    {
+        // Review H5 of 3.4.
+        var logger = new RecordingLogger<MonitorService>();
+        var service = new MonitorService(_capture, _feed, logger);
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), new MonitorRules([new AboveRule(500 * Mb, RearmMode.Once)])));
+
+        _capture.FailureOnce = new CaptureFailedException(CaptureFailure.Busy, "A capture of process 42 is running.", null);
+        await _feed.SendAsync(600 * Mb);
+        await run.CaptureTask;
+        _capture.Busy.Add(42);
+        await _feed.SendAsync(650 * Mb);
+        await _feed.SendAsync(660 * Mb);
+        _capture.Busy.Clear();
+        await _feed.SendAsync(670 * Mb);
+        await run.CaptureTask;
+        await _feed.SendAsync(680 * Mb);
+        run.Stop();
+        await run.Completion;
+
+        run.Captures.Select(c => c.Result is not null).ShouldBe([false, true], "the once rule fired again after losing the race, then retired");
+        logger.Lines.Count(l => l.Contains("is re-armed", StringComparison.Ordinal)).ShouldBe(1);
+        logger.Lines.Count(l => l.Contains("above 500 MB is due", StringComparison.Ordinal) && l.Contains("from elsewhere", StringComparison.Ordinal)).ShouldBe(1, "once per busy stretch");
+    }
+
+    [Fact]
+    public async Task The_allocation_trace_stops_at_its_limit_and_the_run_goes_on()
+    {
+        // Review H7 of 3.4.
+        static async Task<TraceResult> Recorder(int pid, string path, CancellationToken ct)
+        {
+            await File.WriteAllBytesAsync(path + ".partial", new byte[4096], CancellationToken.None);
+            await Task.Delay(Timeout.Infinite, ct).ContinueWith(_ => { }, TaskScheduler.Default);
+            File.Move(path + ".partial", path);
+            return new TraceResult(path, 4096, TimeSpan.FromSeconds(1), StoppedEarly: true);
+        }
+
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new MonitorService(_capture, _feed, allocations: Recorder);
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, RecordAllocations: true, TraceLimitBytes: 1024), r => r.TraceStopped += (_, m) => stopped.TrySetResult(m));
+
+        (await stopped.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct)).ShouldContain("limit of 0 MB");
+        await _feed.SendAsync(100 * Mb);
+        run.Stop();
+        await run.Completion;
+
+        run.TracePath.ShouldNotBeNull("what it recorded is kept");
+        var recorded = SessionLibrary.TryRead(run.SessionFolder!)!.Document.Runs!.Single();
+        (recorded.Trace, recorded.TraceNote).ShouldBe((Path.GetFileName(run.TracePath), run.TraceError));
+    }
+
+    [Fact]
+    public async Task A_refused_trace_is_reported_at_once_and_an_unconfirmed_collection_is_not_marked()
+    {
+        // Reviews of 3.4: the refusal arrives as a faulted task; a collection whose end was not seen is no marker.
+        var stopped = new List<string>();
+        var service = new MonitorService(_capture, _feed, allocations: (_, _, _) => Task.FromException<TraceResult>(new CaptureFailedException(CaptureFailure.NeedsAdministrator, "Run HeapScope as administrator.", null)));
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, WriteTimeline: false, RecordAllocations: true), r => r.TraceStopped += (_, m) => stopped.Add(m));
+
+        stopped.ShouldHaveSingleItem().ShouldContain("administrator", Case.Insensitive);
+        _capture.ForcedGcIncomplete = true;
+        var forced = await run.ForceGcAsync(Ct);
+        run.Stop();
+        await run.Completion;
+
+        forced.Result.ShouldNotBeNull().Outcome.ShouldBe("no induced collection was seen");
+        var recorded = SessionLibrary.TryRead(run.SessionFolder.ShouldNotBeNull("a run is recorded without a timeline too"))!.Document.Runs!.Single();
+        (recorded.Timeline, recorded.Trace, recorded.ForcedGcs!.Count).ShouldBe((null, null, 0));
+        recorded.TraceNote.ShouldNotBeNull().ShouldContain("administrator", Case.Insensitive);
+    }
+
+    [Fact]
+    public async Task A_run_that_records_nothing_leaves_the_session_library_alone()
+    {
+        // Sprint 3.4 re-review: smoke runs never write into the user's sessions.
+        var service = new MonitorService(_capture, _feed);
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, WriteTimeline: false, RecordRun: false));
+        await _feed.SendAsync(100 * Mb);
+        run.Stop();
+        await run.Completion;
+
+        (run.SessionFolder, run.TimelinePath).ShouldBe((null, null));
+        _capture.Library.HasCurrent.ShouldBeFalse("no session was created");
+        Directory.Exists(_capture.Library.Root).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Rules_capture_the_kind_the_run_was_started_with()
     {
         var run = new MonitorService(_capture, _feed).Start(
@@ -302,6 +416,7 @@ public sealed class MonitorServiceTests : IDisposable
     private sealed class RecordingCaptureService(string root, JobTracker jobs) : ICaptureService
     {
         private Task _last = Task.CompletedTask;
+        private int _started;
 
         public SessionLibrary Library { get; } = new(root);
 
@@ -310,6 +425,12 @@ public sealed class MonitorServiceTests : IDisposable
         public bool IsHeapScopeElevated => false;
 
         public CaptureFailedException? Failure { get; set; }
+
+        /// <summary>A failure for the next capture only (sprint 3.4 review: a race lost to another capture).</summary>
+        public CaptureFailedException? FailureOnce { get; set; }
+
+        /// <summary>Forced collections whose start is never seen (sprint 3.4 review).</summary>
+        public bool ForcedGcIncomplete { get; set; }
 
         /// <summary>When set, captures wait for it (or for their cancellation).</summary>
         public TaskCompletionSource? Gate { get; set; }
@@ -336,7 +457,7 @@ public sealed class MonitorServiceTests : IDisposable
             }
 
             ForcedGcs.Add(processId);
-            return Task.FromResult(new ForcedGcResult(processId, true, TimeSpan.FromMilliseconds(5)));
+            return Task.FromResult(ForcedGcIncomplete ? new ForcedGcResult(processId, false, TimeSpan.FromSeconds(30)) : new ForcedGcResult(processId, true, TimeSpan.FromMilliseconds(5), 7));
         }
 
         public Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ProcessEntry>>([]);
@@ -344,7 +465,9 @@ public sealed class MonitorServiceTests : IDisposable
         public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual, SnapshotKindDto kind = SnapshotKindDto.FullDump)
         {
             Kinds.Add(kind);
-            var failure = Failure;
+            var failure = FailureOnce ?? Failure;
+            FailureOnce = null;
+            var number = Interlocked.Increment(ref _started) - 1;
             var gate = Gate;
             var job = jobs.Start($"Capture pid {processId}", async (progress, ct) =>
             {
@@ -358,9 +481,12 @@ public sealed class MonitorServiceTests : IDisposable
                     throw failure;
                 }
 
-                var path = Path.Combine(Library.Current.Folder, $"app-{Taken.Count}.dmp");
+                var path = Path.Combine(Library.Current.Folder, $"app-{number}.dmp");
                 await File.WriteAllBytesAsync(path, new byte[16], ct);
-                Taken.Add((label, source));
+                lock (Taken)
+                {
+                    Taken.Add((label, source));
+                }
                 var process = new ProcessEntry(processId, "app", null, "10.0.0", ProcessElevation.NotElevated, false, null, null);
                 var id = Guid.NewGuid();
                 return new CaptureResult(path, 16, process, Library.AddToCurrent(new SessionSnapshot(id, path, "app", processId, "10.0.0", DateTimeOffset.UtcNow, 16, Source: source, Label: label)), SnapshotId: id);

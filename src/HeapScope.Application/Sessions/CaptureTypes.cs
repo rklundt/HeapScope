@@ -80,7 +80,16 @@ public enum CaptureFailure
 }
 
 /// <summary>A forced garbage collection (sprint 3.4): whether its end was seen, and how long it took.</summary>
-public sealed record ForcedGcResult(int ProcessId, bool Completed, TimeSpan Elapsed);
+public sealed record ForcedGcResult(int ProcessId, bool Completed, TimeSpan Elapsed, int GcNumber = -1)
+{
+    /// <summary>
+    /// The outcome in words (review of 3.4): finished, never started (the runtime ignored the request, or the target did
+    /// not answer in time), or started without its end seen.
+    /// </summary>
+    public string Outcome => Completed
+        ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"finished (collection {GcNumber})")
+        : GcNumber < 0 ? "no induced collection was seen" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"collection {GcNumber} started but its end was not seen");
+}
 
 /// <summary>The capture use cases front ends depend on (faked in their tests).</summary>
 public interface ICaptureService

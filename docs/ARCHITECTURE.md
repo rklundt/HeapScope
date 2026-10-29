@@ -92,7 +92,10 @@ Capture and sessions (sprint 1.1):
   files and the ids of their snapshots and forced collections; unknown members are kept on save, on the document and on
   each run, so an older build never drops what a newer one wrote). Since 3.4 a snapshot of a session is deleted with
   its index caches and sidecars (next to it and in the fallback folder, named by Core's `IndexCachePaths`), and a session
-  whole; the front end refuses open snapshots and the current session and confirms every deletion. Every change is a
+  whole; only files inside the session folder are deleted (no link is followed; dumps a session records elsewhere are
+  kept and listed), a session written into by a capture or a run (`MarkInUse`) or the current one is refused, the
+  front end refuses open snapshots, shows the files (`PlanSnapshotDeletion`, `PlanSessionDeletion`) and confirms every
+  deletion, and a file that cannot be deleted is reported with `session.json` kept so the session stays listed. Every change is a
   read-modify-write under a cross-process lock file (`session.lock`) with a unique temporary file flushed to disk.
   The current session is created when the first capture passes its checks (a refused capture leaves no folder), or
   chosen with `Open` (Home's Open, CLI `--session`). `CaptureService` (behind `ICaptureService`) lists processes off
@@ -312,7 +315,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   its session (`SessionRun`) at its start and end, takes a snapshot now (`CaptureNowAsync`) or forces a collection
   (`ForceGcAsync`, marked on the timeline), records an allocation trace for its whole length when asked, and
   `TimelineFile` reads a timeline back; `CaptureService` keeps one capture or forced collection per process at a time
-  (`CaptureFailure.Busy`) and forces collections through Capture's `GcTrigger` [3.4]. `ICaptureService.StartCapture`
+  (`CaptureFailure.Busy`) and forces collections through Capture's `GcTrigger` [3.4]. A run awaits every capture and
+  forced collection at its end, refuses new ones once stopping, marks its session in use, logs a rule deferred by a busy
+  process and re-arms one that lost the race, and stops its allocation trace at `MonitorOptions.TraceLimitBytes` (1 GB)
+  or under 1 GB of free disk (`TraceStopped`) [3.4 review]. Core's `IndexCachePaths` names a snapshot's index cache, its
+  sidecar kinds and the writer's temporary files, for Storage and for deletion [3.4]. `ICaptureService.StartCapture`
   records a source (`SnapshotSource.Timed` for rules) and takes a `SnapshotKindDto` [1.7, 1.8]. `Exports/CsvExport`:
   a result set or in-memory rows as CSV, page by page, without hidden columns and, unless opted in, without value
   columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
@@ -1585,8 +1592,11 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 - Live workflow (sprint 3.4): a forced collection logs the target, whether its end was seen and the time; a refused
   capture or collection logs what it was, why it was asked and what was running; a run logs its id at the start, the
   allocation trace's path, size and length, and each time it is recorded in its session (snapshots, forced collections);
-  reopening a past run logs its id, samples, events and snapshots; every deletion logs the paths and bytes removed (paths
-  of the user's own files, never their contents) or why it was refused.
+  reopening a past run logs its id, timeline, samples, events and snapshots; a rule deferred by a busy process logs once
+  per busy stretch, and a re-armed rule says why; the trace's early stop logs its reason; every deletion logs the
+  question (files and bytes), the answer, the paths and bytes removed, the files left (with the reason) and kept (paths
+  of the user's own files, never their contents), or why it was refused; cleanup logs its cutoff, what it proposed and
+  what it kept and why.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -2214,15 +2224,21 @@ sprint 0.1.
 - Context: the Processes page, the Live page and monitoring rules could each start a capture of one process at once,
   doubling the pause and the disk use (1.7 M4); a monitoring run's timeline was a loose CSV with no record of what it
   watched (1.7 M3); and sessions grew without a way to remove them from the app.
-- Decision: `CaptureService` holds a gate per process id for captures and forced collections; a second one fails at once
-  with `CaptureFailure.Busy` naming what runs, and rules see a busy process as a capture running. Forcing a collection is
-  an EventPipe session with the runtime's GC heap collect keyword (`GcTrigger`), like a gcdump without the heap walk.
+- Decision: `CaptureService` holds a gate per process id (one per process, in one HeapScope) for captures and forced
+  collections; a second one fails at once with `CaptureFailure.Busy` naming what runs, and rules see a busy process as a
+  capture running: a due rule is deferred and logged, and a rule that lost the race is re-armed. Forcing a collection is
+  an EventPipe session with the runtime's GC heap collect keyword (`GcTrigger`), like a gcdump without the heap walk; the
+  runtime runs it while enabling the session, so the timeout covers the session's start, and only an induced collection
+  whose end was seen is marked. It asks first: the target pauses, finalizers do not run, and a no-GC region ends.
   Monitoring runs are recorded in `session.json` (`Runs`) when they start and when they end, with their files and
   snapshots, so a past run reopens read only from its timeline. Deletion is explicit only: a snapshot of a session (file,
-  caches, sidecars, entry), a session, or the sessions not opened for N days, each confirmed and logged; never a dump
-  outside the library, never automatically.
-- Consequences: different processes still capture together. A forced collection moves objects (ADR-032's comparisons
-  across it see them as dead and new); the timeline and the run record mark it. A run that ends with the app recorded no
+  caches, sidecars, entry), a session, or the sessions not opened for N days, each confirmed with its files and logged
+  with them; never a file outside the session folder, never a session something writes into (in this HeapScope; another
+  HeapScope's capture is held off only by `session.lock` and its open files), never automatically. A run's allocation
+  trace stops at 1 GB or when the disk runs low. A run started with `RecordRun` off (smoke runs) uses no session at all.
+- Consequences: different processes still capture together. A forced collection may move objects (ADR-032's comparisons
+  across it see moved ones as dead and new) and leaves finalizable objects for a later collection; the timeline and the
+  run record mark it. A run that ends with the app recorded no
   end (its `EndedUtc` stays null). Cache file names are Core's, so Storage and Application agree on them.
 
 ## 14. Package versions

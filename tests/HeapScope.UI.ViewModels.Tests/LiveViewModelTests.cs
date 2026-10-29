@@ -53,7 +53,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     [Fact]
     public async Task Start_needs_a_process_and_valid_rules()
     {
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         _live.Status.ShouldBe("Pick a process to monitor.");
 
         await _live.RefreshCommand.ExecuteAsync(null);
@@ -78,7 +78,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
                 default: _live.MaxSnapshots = text; break;
             }
 
-            _live.StartCommand.Execute(null);
+            await _live.StartCommand.ExecuteAsync(null);
             (_live.Status, _live.IsRunning).ShouldBe((message, false), $"{field} = {text}");
         }
     }
@@ -91,7 +91,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         _live.SelectedProcess = _live.Processes.Single();
         _live.GetSnapshotCommand.CanExecute(null).ShouldBeFalse("only while monitoring");
 
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         await _feed.SendAsync(100 * Mb, timeInGc: 2);
         await _live.GetSnapshotCommand.ExecuteAsync(null);
         _live.Status.ShouldBe("Snapshot taken.");
@@ -102,6 +102,10 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         await _live.ForceGcCommand.ExecuteAsync(null);
         _live.Status!.ShouldContain("Wait for it to finish");
         _capture.Busy.Clear();
+        _interaction.Answer = false;
+        await _live.ForceGcCommand.ExecuteAsync(null);
+        _interaction.Answer = true;
+        _interaction.Questions.ShouldContain(q => q.Contains("Finalizers do not run", StringComparison.Ordinal), "asked first, with what it does to the target");
 
         (_live.Snapshots.ShouldHaveSingleItem().Rule, _live.Markers.Count, _live.GcMarkers.Count, _capture.ForcedGcs.Count).ShouldBe(("manual", 1, 1, 1));
         _live.StopCommand.Execute(null);
@@ -110,7 +114,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
 
         var past = _live.PastRuns.ShouldHaveSingleItem();
         past.Title.ShouldContain("app 42, 1 snapshots");
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         _live.OpenPastRunCommand.CanExecute(past).ShouldBeFalse("not while monitoring");
         _live.StopCommand.Execute(null);
         await _live.Run!.Completion;
@@ -132,7 +136,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         _live.Above = "500MB";
         _live.CaptureGcDumps = true;
 
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         await _feed.SendAsync(600 * Mb, timeInGc: 2);
         await WaitUntilAsync(() => _live.Snapshots.Count == 1);
         _live.StopCommand.Execute(null);
@@ -148,7 +152,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         _live.Above = "500MB";
         _live.Rearm = "once";
 
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         _live.IsRunning.ShouldBeTrue();
         _live.Status!.ShouldContain("rules: above 500 MB");
         await _feed.SendAsync(100 * Mb, timeInGc: 2);
@@ -176,7 +180,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     {
         await _live.RefreshCommand.ExecuteAsync(null);
         _live.SelectedProcess = _live.Processes.Single();
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         _live.HasTimeline.ShouldBeFalse("not while running");
         await _feed.SendAsync(100 * Mb, timeInGc: 2);
         await WaitUntilAsync(() => _live.Samples.Count == 1);
@@ -209,7 +213,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         await _live.RefreshCommand.ExecuteAsync(null);
         _live.SelectedProcess = _live.Processes.Single();
         _live.Above = "500MB";
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         await _feed.SendAsync(600 * Mb, timeInGc: 2);
         await WaitUntilAsync(() => _live.Snapshots.Count == 1);
         _live.StopCommand.Execute(null);
@@ -231,7 +235,7 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     {
         await _live.RefreshCommand.ExecuteAsync(null);
         _live.SelectedProcess = _live.Processes.Single();
-        _live.StartCommand.Execute(null);
+        await _live.StartCommand.ExecuteAsync(null);
         await _feed.SendAsync(100 * Mb, timeInGc: 2);
         await WaitUntilAsync(() => _live.Samples.Count == 1);
         _live.StopCommand.Execute(null);

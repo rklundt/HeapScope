@@ -36,6 +36,15 @@ public static class IndexCachePaths
     /// <summary>The index cache file extension.</summary>
     public const string Extension = ".hsidx";
 
+    /// <summary>The reverse references sidecar (sprint 2.0).</summary>
+    public const string ReverseKind = "rev";
+
+    /// <summary>The dominator tree sidecar (sprint 2.1).</summary>
+    public const string DominatorKind = "dom";
+
+    /// <summary>Every sidecar kind; a deletion removes exactly these (sprint 3.4 review: never a sibling dump's cache).</summary>
+    public static IReadOnlyList<string> SidecarKinds { get; } = [ReverseKind, DominatorKind];
+
     /// <summary>The fallback folder for snapshots in folders HeapScope cannot write.</summary>
     public static string DefaultFallbackRoot { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "cache");
@@ -55,7 +64,8 @@ public static class IndexCachePaths
     public static string Sidecar(string cachePath, string kind) => Path.ChangeExtension(cachePath, "." + kind + Extension);
 
     /// <summary>
-    /// Every cache file of a snapshot that exists: the base cache and its sidecars, next to it and in the fallback root.
+    /// Every cache file of a snapshot that exists: the base cache and its known sidecars, next to it and in the fallback
+    /// root, and the writer's temporary files of each (<c>&lt;cache&gt;.&lt;32 hex digits&gt;.tmp</c>).
     /// </summary>
     public static IReadOnlyList<string> Existing(string snapshotPath, string? fallbackRoot = null)
     {
@@ -68,11 +78,24 @@ public static class IndexCachePaths
                 continue;
             }
 
-            var stem = Path.GetFileNameWithoutExtension(cache);
-            found.AddRange(Directory.EnumerateFiles(folder, stem + "*" + Extension)
-                .Where(f => Path.GetFileName(f) is var name && (name.Equals(stem + Extension, StringComparison.OrdinalIgnoreCase) || (name.StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase) && name.Count(c => c == '.') == stem.Count(c => c == '.') + 2))));
+            foreach (var file in SidecarKinds.Select(kind => Sidecar(cache, kind)).Prepend(cache))
+            {
+                if (File.Exists(file))
+                {
+                    found.Add(file);
+                }
+
+                var name = Path.GetFileName(file);
+                found.AddRange(Directory.EnumerateFiles(folder, name + ".*.tmp").Where(t => IsTemporary(Path.GetFileName(t), name)));
+            }
         }
 
         return found;
+    }
+
+    private static bool IsTemporary(string file, string cacheName)
+    {
+        var middle = file.AsSpan(cacheName.Length + 1, file.Length - cacheName.Length - 1 - ".tmp".Length);
+        return middle.Length == 32 && !middle.ContainsAnyExcept("0123456789abcdefABCDEF");
     }
 }

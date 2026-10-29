@@ -33,7 +33,7 @@ namespace HeapScope.Worker.Snapshots;
 internal sealed partial class SnapshotStore
 {
     /// <summary>File name part of the dominators sidecar (<c>app.dmp.dom.hsidx</c>).</summary>
-    public const string DominatorSidecarKind = "dom";
+    public const string DominatorSidecarKind = HeapScope.Core.IndexCachePaths.DominatorKind;
 
     /// <summary>
     /// The dominators of a loaded snapshot (sprint 2.3, ARCHITECTURE.md 6.4): opened from their sidecar, or computed on first
