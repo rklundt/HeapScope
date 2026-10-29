@@ -417,6 +417,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
+- Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
+  adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no
   Co-Authored-By or generated-by lines in commits, PR titles or PR bodies. Files write the contact address as
   "rayklundt (at) outlook (dot) com".

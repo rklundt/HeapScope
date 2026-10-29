@@ -32,7 +32,8 @@ resets it for the next sprint.
 - Never commit without `/close-sprint`. One commit per sprint on `sprint/X.Y`, squash merged into `develop` by PR,
   and one annotated tag `sprint-X.Y` on `develop`. Work outside a sprint that the owner asks for uses a short
   `fix/...` or `chore/...` branch and a PR. `main` and `develop` change only by PR (a ruleset enforces it); releases
-  (`develop` to `main`, tag `vX.Y.0`) happen only when the owner says so (DEVELOPER.md 7).
+  (`develop` to `main`, tag `vX.Y.0`) happen only when the owner says so (DEVELOPER.md 7). Every version (sprint) has
+  a section in `RELEASE-NOTES.md`; a GitHub Release's notes are the sections since the previous release.
 - The owner is the sole author: no Co-Authored-By or generated-by lines in commits, PR titles or PR bodies.
 - Never one managed object per heap object (ADR-005). Hot paths use spans, indices and pooled buffers.
 - Never upload or log snapshot contents. Dumps and index caches are sensitive. Logs hold names and numbers only, and
