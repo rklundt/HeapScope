@@ -25,7 +25,8 @@ Follow these steps exactly.
    - No em dashes or en dashes in changed files (search for U+2014 and U+2013).
    If anything is unmet, list exactly what is missing and stop. Do not close.
 2. **Status.** In SPRINTS.md set the sprint to Closed with today's date and the tag `sprint-X.Y`. Set
-   `<Version>X.Y.0</Version>` in `Directory.Build.props`.
+   `<Version>X.Y.0</Version>` in `Directory.Build.props`. Add the version's section at the top of `RELEASE-NOTES.md`
+   ("## X.Y.0: <title> (sprint X.Y)"): what a user gets, in a few bullets, and anything refused or limited.
 3. **Commit.** On `sprint/X.Y`: `git add -A`, check `git status` shows no dumps, caches, traces or logs, then commit with the
    subject `Sprint X.Y: <title>` and a short body: what was delivered and any deferred items.
    No Co-Authored-By or generated-by lines.
