@@ -114,13 +114,16 @@ dotnet test --solution HeapScope.sln
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
   with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
   `set <snapshot> (--type <name> [--type ...] [--module <file>] | --namespace <name> | --assembly <file> | --interface
-  <name> | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--similar-group N] [--retained]
+  <name> | --unreachable | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--similar-group N] [--retained]
   [--view types|instances|generations|dominators|retained|paths|similar] [--top N | --all] [--format table|csv|json]`
   (sprint 3.1) shows an object set in one of the app's set views; `--retained` takes what the set keeps alive instead
   of its members; a set that selects nothing exits 1, two ways of choosing it 64. Since 3.2: `--interface` (full dumps),
   `--view paths` (the set's key retention paths), `--view similar` (Similar Retention groups, numbered from 1, with
   their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers it; opened by its pattern, so it is the same group in another snapshot or refused). `diff --group interface` refuses `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
   `summary` and `diff` take `--group interface` (full dumps; a type counts under each interface it implements).
+  Since 3.5: `--unreachable` (full dumps with a complete graph) is the objects no root reaches, with the retention views'
+  roots (the finalizer queue counts: objects waiting for their finalizer are not in it); a gcdump or an incomplete dump
+  is refused (exit 1).
   The logs name an objects set (bookmarks) by its count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of
   its distinct addresses sorted ascending, each as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
   Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
@@ -131,8 +134,9 @@ dotnet test --solution HeapScope.sln
   (one line each); with a name (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`,
   `large-arrays`, `loh`, `finalizable`, `fragmentation`, or a detector: `growing-static-collections`,
   `event-handler-leaks`, `timer-leaks`, `disposed-but-referenced`, `httpclient-instances`,
-  `undisposed-service-scopes`), its cause, fix and rows. `--baseline` is an earlier dump of the same process: the
-  growth detector reports what grew since it. An unknown or unavailable inspection exits 1. A dump opened
+  `undisposed-service-scopes`, and since 3.5 `pending-async-methods`, `finalizer-backlog`, `type-growth`), its cause,
+  fix and rows. `--baseline` is an earlier dump of the same process: the growth detectors report what grew since it
+  (`type-growth` needs one). An unknown or unavailable inspection exits 1. A dump opened
   from an index cache written before 1.6 has no free space or reference-array marks: reopen it with `open --rebuild`.
   `monitor --pid <id> [--interval 1] [--duration N] [--every 5m] [--above 500MB] [--growth 100MB|50%]
   [--rearm once|below|step] [--max N] [--format table|csv] [--kind full|gcdump]` watches a process's GC heap (the heap now and after the
@@ -245,14 +249,16 @@ projects are always compiled optimized (they stand in for production apps; see A
 of debuggable code) and exit when the process given as parent exits.
 - `fixtures/LeakyApi`: `dotnet run --project fixtures/LeakyApi -- --urls http://127.0.0.1:5080
   --Leaks:Enabled=all --Leaks:ItemsPerRequest=100 --Leaks:PayloadBytes=64 [--Leaks:Publishers=N]
-  [--Leaks:Detected=all|none|Timer,DisposedReferenced] [--Clean:Enabled=true] [--ParentPid=P]`. `Leaks:Detected` adds the
-  sprint 2.6 detector leaks (a started timer never disposed, disposed objects in a static list); `Clean:Enabled` runs the
-  clean workload on each `POST /work` (a bounded cache, unsubscribed handlers, disposed timers and objects).
+  [--Leaks:Detected=all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] [--Clean:Enabled=true] [--ParentPid=P]`.
+  `Leaks:Detected` adds the sprint 2.6 detector leaks (a started timer never disposed, disposed objects in a static list)
+  and sprint 3.5's (async calls awaiting tasks nothing completes; finalizable items behind a finalizer that blocks the
+  finalizer thread for good, so use it only in a process you will kill); `Clean:Enabled` runs the clean workload on each
+  `POST /work` (a bounded cache, unsubscribed handlers, disposed timers and objects, finished async calls kept).
   Prints `READY pid=<pid> url=<url>` when listening (use port 0 for a free port). `POST /work` grows every enabled
   leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
   `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
 - `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2
-  [--detected all|none|Timer,DisposedReferenced] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+  [--detected all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
   [--parent-pid P]`;
   prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
   embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and

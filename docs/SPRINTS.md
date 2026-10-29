@@ -37,7 +37,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
 | 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
-| 3.5 | Leak detection depth | Planned | | |
+| 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
 
 ---
 
@@ -2769,13 +2769,64 @@ second).
 and `Task` leaks; the objects a raw dump holds that the GC has not collected (unreachable from roots) as a set; a type
 growth detector across two snapshots (from 2.6).
 
-**Acceptance criteria**: to be set at /start-sprint; fixture leaks of each kind found with known counts.
+**Acceptance criteria** (set at /start-sprint, 2026-10-29):
+- A "pending-async-methods" detector names async methods with at least 1,000 reachable state machines that have not
+  completed (boxes whose task is neither run to completion, faulted nor canceled), by method, with the objects as a set;
+  the fixture's never-signaled awaits are found with their known count.
+- A "finalizer-backlog" detector names the types of at least 1,000 objects waiting on the finalizer queue (ready for
+  finalization, so the finalizer thread is blocked or slow), by type; the fixture's backlog behind a blocked finalizer is
+  found with its known count.
+- A "type-growth" detector, with a baseline, names the application's types whose reachable objects grew by at least
+  1,000 and by at least half since the baseline (types matched by name and module, ADR-018), with the current objects as
+  a set; each fixture leak's item type is found with the count it grew by.
+- The objects no root reaches in a full dump open as a set (`ObjectSetKind.Unreachable`): from the Types view of a full
+  dump and the CLI's `set --unreachable`, with their count and bytes matching the reachability walk.
+- No new detector fires on the clean LeakyApi run, with or without a baseline.
+
+**Decisions** (all decided autonomously, 2026-10-29, Phase 3 autonomy):
+1. Async leaks: a reachable `AsyncStateMachineBox<T>` is a pending async method unless its task's state flags say it
+   ended (read with field values, so full dumps only); rows are keyed by the method (`Namespace.Type.Method` from the
+   state machine's `<Method>d__N` name), threshold 1,000. Plain `Task` objects never completed (TaskCompletionSource) are
+   the cause the note names; a separate Task detector goes to the Backlog.
+2. Finalizer backlog: the objects the finalizer queue roots (ready for finalization), by type, when at least 1,000 wait.
+   The 1.6 finalizable inspection keeps the full census; this detector is the leak signal. "Objects finalized between two
+   snapshots" is not built in this sprint: it needs the baseline's finalizable objects whose finalizer has not run (the
+   header bit) matched by address against the later dump (ADR-032), which only full dumps of one run allow (Backlog).
+3. Type growth: reachable objects per type key against the baseline's, framework types (System., Microsoft.) left out
+   so a steady service stays quiet; at least 1,000 more objects and at least 50% more. Members are the current reachable
+   objects of the type. Rule version 1.
+4. Unreachable set: `ObjectSetKind.Unreachable = 9`, the objects the retention views' roots do not reach (ADR-024, the
+   finalizer queue included, so members have no path; changed in the review, see H1); refused for gcdumps (their
+   collection removed what no root reaches) and incomplete dumps. Protocol 19. ADR-034.
+5. Fixtures: two detected leaks in `LeakCatalog.Detected` (PendingAsync: awaits on TaskCompletionSources kept in a static
+   list; FinalizerBacklog: a finalizer that blocks the finalizer thread once, then finalizable items queued behind it),
+   with known answers; type-growth detections added to the seven earlier leaks' known answers and PendingAsync's.
+6. Logging: each detector's basis line (objects scanned, unreadable, thresholds, baseline used); the unreachable set's
+   resolution logs its count and bytes.
 
 **Dependencies**: 3.1 (findings open as sets), 2.6.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**:
+1. [x] Analysis: the three detectors in `LeakDetectors`, registered in the catalog. Tests: synthetic graphs (with a fake
+   reader for task flags), thresholds, the clean case.
+2. [x] Sets: `ObjectSetKind.Unreachable` through Contracts (shape, cache key, factory), the worker (refused for gcdumps),
+   the CLI (`set --unreachable`) and the Types view (Open unreachable objects). Protocol 19. Tests: worker, CLI, view model.
+3. [x] Fixtures and known answers: PendingAsync and FinalizerBacklog leaks, known answer files, type-growth detections.
+   Tests: the fixtures hold their items (raw ClrMD), every detection found, clean run quiet.
+4. [x] Docs: ARCHITECTURE (ADR-034, set kinds, detectors, protocol), DEVELOPER, README, KnownAnswers README, this section.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (docs/reviews/sprint-3.5.md): 3 High, 15 Moderate, 21 Low after dedupe across four reviewers
+(solution-architect, senior-dev, gc-specialist, support engineer). All Highs fixed and confirmed by the reviewers that
+raised them: the unreachable set contradicted the retention views (now the complement of the retention views' roots,
+the finalizer queue included, so members have no path; incomplete dumps refused; its log says what only the finalizer
+queue holds); type growth compared gcdumps with full dumps (now two full dumps only, after a re-review caught that a
+complete gcdump still passed); pending async methods counted the framework's own waiting work (now left out and
+logged). Moderates: 12 fixed (incomplete dumps, exact tests, LeakyConsole's hang, exact counts, cancellation and the
+census, the set's log, every basis row, a later baseline, the wording of type growth and the finalizer backlog, box
+types), 2 in part (memory of the detectors, after a re-review fix of the first attempt), 1 deferred (old-generation
+growth). Measured: the detector integration tests find PendingAsync and FinalizerBacklog with exactly 6,000 each on a
+LeakyApi run, type growth names every leak's item type with its growth, the clean run fires nothing with or without a
+baseline, and the unreachable set matches ClrMD's walk exactly in count and bytes.
 
 ---
 
@@ -2803,8 +2854,16 @@ Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Ph
 - CI leak checks using the CLI (the remote, `develop` and the CI pipeline exist since 2.3 and 2.3.5; CI already runs the
   CLI on a fixture dump on Linux and macOS). Making CI a required check is the product owner's call (2.3.5 decision 8).
 - Trend analysis across more than two snapshots.
-- Finalizer queue and finalizable object analysis.
-- Async state machine and Task leak detection.
+- Objects finalized between two snapshots: the baseline's finalizable objects whose finalizer has not run, matched by
+  address (ADR-032) against the later dump (from 3.5's scope). By address it is an upper bound outside gen2, LOH and POH
+  (moved objects count as dead), and it needs a bit per object of each snapshot: add a memory reservation callback to
+  `InspectionContext` first (3.5 review M3). Plain `Task` objects that never complete, without an async method waiting
+  on them (3.5 names the async methods).
+- From the 3.5 review (decided autonomously): type growth with a column of old-generation (gen2, LOH, POH) growth, and
+  required, so load alone cannot look like growth (M13); the finalizer queue counted into a bit set and a memory
+  reservation for detector runs (M14); the finalizer thread's state read from the dump (its top frames) to back a
+  backlog (M11); timings and memory of the three detectors on Medium in section 10 (M6, L8); finalizer backlog's own
+  gcdump refusal text (L5).
 
 **Medium**
 - From the 3.4 review (decided autonomously): `session.json` runs read one by one, an unreadable run kept as its JSON

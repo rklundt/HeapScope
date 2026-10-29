@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
+using HeapScope.Analysis.Retention;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Analysis.Sets;
@@ -84,6 +85,28 @@ public sealed class ObjectSet
             }
 
             if (typeInSet[types[i]])
+            {
+                mask[i >> 6] |= 1UL << (i & 63);
+            }
+        }
+
+        return FromMask(graph, mask);
+    }
+
+    /// <summary>The objects no root reaches (sprint 3.5): the complement of <paramref name="reachable"/>.</summary>
+    public static ObjectSet Unreachable(HeapGraph graph, Reachability reachable, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(reachable);
+        var mask = new ulong[(graph.ObjectCount + 63) / 64];
+        for (var i = 0; i < graph.ObjectCount; i++)
+        {
+            if ((i & 0xFFFF) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            if (!reachable.IsReachable(i))
             {
                 mask[i >> 6] |= 1UL << (i & 63);
             }

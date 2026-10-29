@@ -301,7 +301,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   set kinds in `WorkerService.Sets.cs`, a set's key paths in `QueryTypePathsAsync`, and interface grouping in summaries
   and diffs [3.2]. `WorkerService.Comparison.cs` (a diff's extras: objects matched when both snapshots are of one process,
   both snapshots' group retention, kinds; the `Compared` set kind resolved under both leases; trends) and
-  `TypeTrendSource` [3.3].
+  `TypeTrendSource` [3.3]. The `Unreachable` set kind (`ObjectSet.Unreachable`, the complement of
+  `Reachability.FromPathRoots`; refused for gcdumps and incomplete dumps) [3.5].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -408,7 +409,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `EventHandlerLeaksDetector` (subscribers of a publisher type's event field, through the incoming references and
   invocation lists), `TimerLeaksDetector` (active `TimerQueueTimer`s by their callback's target, through
   `System.Timers.Timer`), `DisposedButReferencedDetector` (reachable objects whose disposed flag is set),
-  `HttpClientInstancesDetector`, `UndisposedServiceScopesDetector`; `IInspection.Kind`, `UsesBaseline`,
+  `HttpClientInstancesDetector`, `UndisposedServiceScopesDetector`, and since 3.5 `PendingAsyncMethodsDetector` (with
+  `AsyncMethods.MethodOf`), `FinalizerBacklogDetector` and `TypeGrowthDetector` (ADR-034); `IInspection.Kind`, `UsesBaseline`,
   `UsesReferrers`; `InspectionBaseline` and `InspectionContext.Referrers`; `Retention/Reachability` (a bit per object
   from the retaining roots other than the finalizer queue, computed once per graph by `Reachability.For`) and the
   shared `ChunkedStack`; `InspectionScopes.Reachable`, the scope a detector row opens (Worker: `InstancesSource`). Worker: `WorkerService.Inspections` leases the baseline and passes the
@@ -659,11 +661,13 @@ Rules:
   `SetDominatorColumns`).
   Version 17 (sprint 3.2, ADR-031): `QuerySimilarRetentionAsync` (`SimilarRetentionRequest`, `SimilarRetentionResult`,
   `RetentionGroupDto`, `SimilarRetentionLimits`), `TypePathsRequest.Set`, `TypeGrouping.Interface` with
-  `TypeSummaryColumns.NoInterface`, and set kinds `Interface` and `RetentionGroup`.
+  `TypeSummaryColumns.NoInterface`, and set kinds `Interface` and `RetentionGroup`; since 3.5 `Unreachable`.
   Version 18 (sprint 3.3, ADR-032): `TypeDiffRequest.MatchObjects` and `IncludeRetained`, the New, Dead, retained and
   per-kind delta columns, `TypeDiffResult`'s identity, kind deltas and dominators, the set kind `Compared` with
   `ObjectChange` (the spec's `Baseline` is now "the other snapshot"), and `QueryTypeTrendAsync` (`TypeTrendRequest`,
   `TypeTrendColumns`, `TypeTrendResult`).
+  Version 19 (sprint 3.5, ADR-034): the set kind `Unreachable` (`ObjectSetSpec.OfUnreachable`), and the detectors
+  `pending-async-methods`, `finalizer-backlog` and `type-growth` in the catalog.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1604,6 +1608,10 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   callback field, field not an event, one-shot or paused timer, unreadable field), every reported row with its counts,
   and the largest below the threshold, so a disputed finding is traced to its rule and inputs; the front end logs each
   run with its snapshot and baseline, and each baseline choice.
+- Runtime leak detectors (sprint 3.5): each basis line counts what was scanned and left out (async state machines waiting,
+  ended and unreadable, by the largest methods; finalizer queue objects by type; types reachable now and in the baseline,
+  framework types left out, the largest growth below the thresholds); the unreachable set's line has its objects, bytes
+  and the reachable count.
 - Allocation traces (sprint 2.5): opening a trace logs its file with its size and write time, the reader's version, the
   process (and that it came from the first allocation tick), the recording's start and duration, samples, frames, lost
   events, samples without a stack or with unresolved frames, whether the rundown arrived and TraceEvent's conversion
@@ -2240,6 +2248,30 @@ sprint 0.1.
   across it see moved ones as dead and new) and leaves finalizable objects for a later collection; the timeline and the
   run record mark it. A run that ends with the app recorded no
   end (its `EndedUtc` stays null). Cache file names are Core's, so Storage and Application agree on them.
+
+### ADR-034 Runtime leak detectors and the unreachable set (added in sprint 3.5)
+- Context: 2.6's detectors name application patterns (static collections, events, timers, disposal); dotMemory also
+  finds what the runtime holds for an app that misuses it (waiting async calls, a stuck finalizer), shows types that
+  grow, and opens the garbage a dump still holds.
+- Decision: three leak detectors over the graph. `pending-async-methods` counts reachable `AsyncStateMachineBox<T>`
+  objects (and the debugger's `DebugFinalizableAsyncStateMachineBox<T>`) whose task has not ended (`m_stateFlags`, so
+  full dumps only), by async method, from 1,000 calls; the framework's own methods wait by design and are left out and
+  logged. `finalizer-backlog` counts the objects the finalizer queue roots (ready for finalization), from 1,000, with a
+  row per type of at least 100. `type-growth`, with a baseline, counts reachable objects per type key (ADR-018: name and
+  module), framework types (by namespace or module) left out, from 1,000 more and 50% more; both snapshots must have a
+  complete graph and exact counts (full dumps: a gcdump names nested types differently and may be sampled), and a
+  baseline captured later is not compared. Each row opens its objects as a set. `ObjectSetKind.Unreachable` is the
+  complement of `Reachability.FromPathRoots`, the retention views' roots (ADR-024, finalizer queue included), so no
+  member has a path or retains anything; the leak detectors keep `Reachability.For`, which does not start from the
+  finalizer queue (objects waiting for their finalizer are dead for them). Refused for gcdumps and incomplete dumps; its
+  log line says how much only the finalizer queue holds. Protocol 19.
+- Consequences: async calls that wait by design (requests in flight, background loops) count too, so the note says to
+  compare with the work in flight. A blocked finalizer thread is named by its effect, not its stack (which needs a
+  debugger). Type growth by type misses growth in framework types, which the growing static collections detector and
+  Compare cover; type growth counts young objects too, so load alone can add some (old-generation growth is in the
+  Backlog). Pooled `ValueTask` boxes have no task state and are not counted; methods compiled with .NET 10's opt-in
+  runtime async have no box. Objects finalized between two snapshots are not reported: it needs the address match
+  (ADR-032) of the baseline's finalizable objects not yet run, and is in the Backlog.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

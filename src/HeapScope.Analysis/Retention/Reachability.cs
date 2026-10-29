@@ -39,6 +39,9 @@ public sealed class Reachability
     // One per graph, computed once (review M6): the graph never changes, and five detectors and the instances scope ask.
     private static readonly ConditionalWeakTable<HeapGraph, Reachability> s_cache = [];
 
+    // The retention views' reachability (sprint 3.5, ADR-024): from every path root, the finalizer queue included.
+    private static readonly ConditionalWeakTable<HeapGraph, Reachability> s_fromPathRoots = [];
+
     private readonly ulong[] _bits;
 
     private Reachability(ulong[] bits, long count)
@@ -73,27 +76,57 @@ public sealed class Reachability
         return s_cache.GetValue(graph, _ => computed);
     }
 
+    /// <summary>
+    /// What the retention views count as alive (sprint 3.5): a walk from <see cref="PathRoots.Sources"/>, the finalizer
+    /// queue included, so an object this leaves out has no retention path and retains nothing (ADR-024). Computed on first
+    /// use and kept as long as the graph.
+    /// </summary>
+    public static Reachability FromPathRoots(HeapGraph graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        if (s_fromPathRoots.TryGetValue(graph, out var known))
+        {
+            return known;
+        }
+
+        var computed = Walk(graph, PathRoots.Sources(graph), cancellationToken);
+        return s_fromPathRoots.GetValue(graph, _ => computed);
+    }
+
     public static Reachability Compute(HeapGraph graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        var bits = new ulong[(graph.ObjectCount + 63) >> 6];
-        var stack = new ChunkedStack();
-        long count = 0;
+        var starts = new List<int>();
         foreach (var root in graph.Roots.Roots.Span)
         {
-            if (root.IsRetaining && root.Kind != RootKind.FinalizerQueue && Mark(bits, root.ObjectIndex))
+            if (root.IsRetaining && root.Kind != RootKind.FinalizerQueue)
             {
-                count++;
-                stack.Push(root.ObjectIndex);
+                starts.Add(root.ObjectIndex);
             }
         }
 
         for (var i = 0; i < graph.ObjectCount; i++)
         {
-            if (graph.HeapKinds[i] == HeapKind.Frozen && Mark(bits, i))
+            if (graph.HeapKinds[i] == HeapKind.Frozen)
+            {
+                starts.Add(i);
+            }
+        }
+
+        return Walk(graph, starts, cancellationToken);
+    }
+
+    private static Reachability Walk(HeapGraph graph, IEnumerable<int> starts, CancellationToken cancellationToken)
+    {
+        var bits = new ulong[(graph.ObjectCount + 63) >> 6];
+        var stack = new ChunkedStack();
+        long count = 0;
+        foreach (var start in starts)
+        {
+            if (Mark(bits, start))
             {
                 count++;
-                stack.Push(i);
+                stack.Push(start);
             }
         }
 

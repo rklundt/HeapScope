@@ -85,7 +85,7 @@ public sealed class ProvenanceLogTests
             ObjectSetSpec.OfType("A", null), ObjectSetSpec.OfNamespace("A"), ObjectSetSpec.OfAssembly("A"), ObjectSetSpec.OfObjects([1]),
             ObjectSetSpec.OfInspectionRow("A", 0), ObjectSetSpec.RetainedByOf(ObjectSetSpec.OfNamespace("A")),
             ObjectSetSpec.OfInterface("A"), ObjectSetSpec.RetentionGroupOf(ObjectSetSpec.OfNamespace("A"), new RetentionGroupDto(0, 1, 1, 1, "A", 1, [], 0, "ab")),
-            ObjectSetSpec.ComparedOf(ObjectSetSpec.OfNamespace("A"), ObjectChange.New, Guid.NewGuid()),
+            ObjectSetSpec.ComparedOf(ObjectSetSpec.OfNamespace("A"), ObjectChange.New, Guid.NewGuid()), ObjectSetSpec.OfUnreachable(),
         ];
         specs.Select(s => s.Kind).Distinct().Count().ShouldBe(Enum.GetValues<ObjectSetKind>().Length, "every kind is covered here");
         specs.Select(s => s.CacheKey).Distinct().Count().ShouldBe(specs.Length);

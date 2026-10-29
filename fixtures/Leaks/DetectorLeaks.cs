@@ -176,6 +176,12 @@ public static class CleanWorkload
         }
     }
 
+    private static async Task<int> FinishedAsync(int value)
+    {
+        await Task.Yield();
+        return value;
+    }
+
     private static object[] Steady(int payloadBytes)
     {
         var steady = new List<object>();
@@ -202,6 +208,9 @@ public static class CleanWorkload
             {
                 steady.Add(new System.Net.Http.HttpClient(handler, disposeHandler: false));
             }
+
+            // Async calls that finished, their tasks kept (sprint 3.5): state machines that are not waiting.
+            steady.Add(FinishedAsync(i));
         }
 
         steady.Add(handler);
