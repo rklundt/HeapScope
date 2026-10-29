@@ -22,7 +22,8 @@
 
   Commercial licenses are available. See COMMERCIAL.md.
 -->
-<!-- Comparison of two open snapshots (sprint 1.4, ADR-018): per-type deltas, no object identity. -->
+<!-- Comparison of two open snapshots (sprint 1.4, ADR-018): per-type deltas; since 3.3 new and dead objects by address
+     (ADR-032), retained bytes and per-generation deltas, and a trend across several snapshots. -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
@@ -31,6 +32,13 @@
              x:Class="HeapScope.UI.Views.Pages.CompareTab"
              x:DataType="vm:SnapshotsViewModel">
   <DockPanel DataContext="{Binding Compare}" x:DataType="vm:CompareViewModel" Margin="0,8,0,0">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8" Spacing="12">
+      <RadioButton x:Name="PairMode" Content="Two snapshots" IsChecked="{Binding !IsTrendShown}" GroupName="CompareMode" />
+      <RadioButton x:Name="TrendMode" Content="Trend across snapshots" IsChecked="{Binding IsTrendShown, Mode=TwoWay}" GroupName="CompareMode"
+                   ToolTip.Tip="Each type's objects and bytes in several snapshots side by side, and how often it grew." />
+    </StackPanel>
+    <Grid>
+    <DockPanel IsVisible="{Binding !IsTrendShown}">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8">
       <TextBlock Text="Baseline" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
@@ -58,11 +66,19 @@
       <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
       <TextBox x:Name="FilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
                ToolTip.Tip="Terms separated by spaces must all match. Each is a substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything. -term leaves out matches; module:name (m:name) matches the module. Ctrl+F (Cmd+F) comes here." />
+      <CheckBox Content="New and dead objects" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding MatchObjects, Mode=TwoWay}"
+                ToolTip.Tip="Matches objects by address and type: only for two snapshots of one process. An object a compacting collection moved counts as dead and new." />
+      <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowRetained, Mode=TwoWay}"
+                ToolTip.Tip="Each row's retained bytes in both snapshots (lower bounds). The first time for a snapshot this computes its dominators." />
+      <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
+                ToolTip.Tip="The change in bytes per generation (Gen0, Gen1, Gen2, LOH, POH): growth in Gen2 is what stays." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
     </WrapPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GroupNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
-    <DataGrid x:Name="CompareGrid" ctl:GridExports.ExportName="Comparison" CanUserSortColumns="True" SelectionMode="Extended"
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IdentityNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <DataGrid x:Name="CompareGrid" ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}" ctl:GridExports.ExportName="Comparison" CanUserSortColumns="True" SelectionMode="Extended"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
@@ -72,6 +88,10 @@
           <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItems}" />
           <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
           <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+          <Separator />
+          <MenuItem Header="Open new objects as a set" Command="{Binding OpenNewCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+          <MenuItem Header="Open dead objects as a set (in the baseline)" Command="{Binding OpenDeadCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+          <MenuItem Header="Open survived objects as a set" Command="{Binding OpenSurvivedCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>
@@ -111,7 +131,61 @@
         <DataGridTextColumn Header="Bytes (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentBytes, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="CurrentBytes" CellStyleClasses="number" />
         <DataGridTextColumn Header="Types (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="100" SortMemberPath="BaselineTypes" CellStyleClasses="number" />
         <DataGridTextColumn Header="Types (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="100" SortMemberPath="CurrentTypes" CellStyleClasses="number" />
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding NewObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="NewObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="New objects" ToolTip.Tip="Current objects with no object of the same type and size at their address in the baseline. An object a collection moved counts as dead and new." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding DeadObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="DeadObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Dead objects" ToolTip.Tip="Baseline objects with nothing of the same type and size at their address now: collected, or moved by a collection." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
+        <DataGridTextColumn Header="Retained (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineRetained, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="BaselineRetained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+        <DataGridTextColumn Header="Retained (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentRetained, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="CurrentRetained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+        <DataGridTextColumn Header="Retained +/-" x:DataType="vm:DiffRowItem" Binding="{Binding RetainedDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="130" SortMemberPath="RetainedDelta" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
+        <DataGridTextColumn Header="Gen0 +/-" x:DataType="vm:DiffRowItem" Binding="{Binding Gen0Delta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="Gen0Delta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="Gen1 +/-" x:DataType="vm:DiffRowItem" Binding="{Binding Gen1Delta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="Gen1Delta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="Gen2 +/-" x:DataType="vm:DiffRowItem" Binding="{Binding Gen2Delta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="Gen2Delta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="LOH +/-" x:DataType="vm:DiffRowItem" Binding="{Binding LohDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="LohDelta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="POH +/-" x:DataType="vm:DiffRowItem" Binding="{Binding PohDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="PohDelta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
       </DataGrid.Columns>
     </DataGrid>
+    </DockPanel>
+
+    <!-- Trend across several snapshots (sprint 3.3). -->
+    <Panel IsVisible="{Binding IsTrendShown}">
+    <DockPanel DataContext="{Binding Trend}" x:DataType="vm:TrendViewModel">
+      <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Choices}" Margin="0,0,8,6">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:TrendSnapshotItem">
+            <CheckBox Content="{Binding Snapshot.Title}" IsChecked="{Binding IsIncluded, Mode=TwoWay}" Margin="0,0,12,0" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap" />
+      <ctl:NoteText DockPanel.Dock="Top" Text="{Binding OrderNote}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap" />
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+        <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+        <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
+        <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
+        <TextBox x:Name="TrendFilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center" />
+        <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
+      </WrapPanel>
+      <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
+      <DataGrid x:Name="TrendGrid" ctl:GridExports.ExportName="Trend" CanUserSortColumns="True"
+                ctl:GridBehaviors.ResultColumns="{Binding Columns}"
+                ctl:GridBehaviors.Rows="{Binding Rows}"
+                ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
+                ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                ToolTip.Tip="Objects and bytes in each ticked snapshot, oldest first; GrowthSteps counts the steps a row's bytes grew in. Double-click or Enter opens the type's objects in the last snapshot." />
+    </DockPanel>
+    </Panel>
+    </Grid>
   </DockPanel>
 </UserControl>

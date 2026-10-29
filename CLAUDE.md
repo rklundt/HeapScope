@@ -71,13 +71,14 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 - Builds per system: `bash build/publish.sh <win-x64|linux-x64|osx-arm64|osx-x64> <folder>`
 - CLI: `dotnet run --project src/HeapScope.Cli -- --version` (also `list`, `capture --pid <id> [--kind full|gcdump]`, `open <dump>`,
   `summary <dump> [--group type|namespace|assembly|interface] [--filter] [--sort] [--retained] [--format table|csv|json]`, `diff <baseline> <current>
-  [--fail-on-growth 50MB|10%]` (exit 2 when it grew more; usage errors exit 64), `instances <dump> --type <name>
+  [--match-objects] [--retained] [--fail-on-growth 50MB|10%] [--growth-of total|gen0|gen1|gen2|loh|poh] [--fail-on-growth-per-row]`
+  (exit 2 when it grew more; usage errors exit 64), `trend <dump> <dump> [<dump>...] [--group] [--filter] [--sort]` (sprint 3.3), `instances <dump> --type <name>
   [--module] [--filter] [--sort] [--retained] [--format]`, `object <dump> <address> [--references N] [--retained] [--format text|json]`,
   `referrers <snapshot> --address <hex> | --type <name> [--module] [--sort] [--format]`,
   `paths <snapshot> --address <hex> | --type <name> [--module] [--max N] [--expand] [--format text|json]`,
   `retainers <snapshot> [--address <hex>] [--group none|type|namespace] [--depth N] [--top N] [--format]`,
   `retained-by <snapshot> <type> [--module] [--top|--all] [--format]`,
-  `set <snapshot> --type|--namespace|--assembly|--interface|--address|--inspection --row [--similar-group N] [--retained] [--view types|instances|generations|dominators|retained|paths|similar]` (sprint 3.1; interface, groups, paths and similar since 3.2),
+  `set <snapshot> --type|--namespace|--assembly|--interface|--address|--inspection --row [--compared-with <dump> --change new|dead|survived] [--similar-group N] [--retained] [--view types|instances|generations|dominators|retained|paths|similar]` (sprint 3.1; interface, groups, paths and similar since 3.2),
   `inspect <dump> [<name>] [--baseline <dump>] [--top|--all] [--format]` (the 2.6 leak detectors are inspections), `monitor --pid <id> [--every] [--above] [--growth] [--rearm]
   [--max] [--duration] [--kind full|gcdump]`,
   `trace --pid <id> [--duration]

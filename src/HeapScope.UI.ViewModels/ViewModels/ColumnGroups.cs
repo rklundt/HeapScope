@@ -35,6 +35,9 @@ public static class ColumnGroups
     /// <summary>Bytes per generation (sprint 1.3).</summary>
     public const string Generations = "Generations";
 
+    /// <summary>New and dead objects by address (sprint 3.3).</summary>
+    public const string Identity = "Identity";
+
     /// <summary>The groups whose flag is set, in a list a view binds.</summary>
     public static IReadOnlyList<string> Of(params (string Group, bool Shown)[] groups) =>
         [.. (groups ?? []).Where(g => g.Shown).Select(g => g.Group)];

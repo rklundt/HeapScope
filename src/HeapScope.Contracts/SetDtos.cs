@@ -59,6 +59,26 @@ public enum ObjectSetKind
     /// is the rank it was listed at, for the log and as a hint.
     /// </summary>
     RetentionGroup = 7,
+
+    /// <summary>
+    /// The members of <see cref="ObjectSetSpec.Inner"/> that are new, dead or survived (<see cref="ObjectSetSpec.Change"/>)
+    /// against the other snapshot <see cref="ObjectSetSpec.Baseline"/>, matched by address and type (sprint 3.3, ADR-032).
+    /// New and survived objects live in the later snapshot, dead ones in the earlier: the set is queried there.
+    /// </summary>
+    Compared = 8,
+}
+
+/// <summary>How an object fared between two snapshots of one process, matched by address and type (ADR-032).</summary>
+public enum ObjectChange
+{
+    /// <summary>In the later snapshot with no object of its type at its address in the earlier one.</summary>
+    New = 0,
+
+    /// <summary>In the earlier snapshot with no object of its type at its address in the later one.</summary>
+    Dead = 1,
+
+    /// <summary>In the later snapshot and at the same address, with the same type, in the earlier one.</summary>
+    Survived = 2,
 }
 
 /// <summary>A type by name and module file name (null or empty for none), the key of the summary rows (ADR-018).</summary>
@@ -76,7 +96,11 @@ public sealed record TypeKeyDto(string Name, string? Module);
 /// </param>
 /// <param name="Addresses">The objects of <see cref="ObjectSetKind.Objects"/>, at most <see cref="ObjectSetLimits.MaxAddresses"/>.</param>
 /// <param name="Row">The inspection row's index, in the order the inspection lists its rows; a Similar Retention group's rank.</param>
-/// <param name="Baseline">The inspection's baseline snapshot, for the rows of a detector that uses one.</param>
+/// <param name="Baseline">
+/// The other snapshot: an inspection row's baseline (a detector that uses one), or what a <see cref="ObjectSetKind.Compared"/>
+/// set is compared with (sprint 3.3, the 3.1 review's M6).
+/// </param>
+/// <param name="Change">What a <see cref="ObjectSetKind.Compared"/> set selects.</param>
 /// <param name="Inner">The set whose retained objects <see cref="ObjectSetKind.RetainedBy"/> selects, or whose Similar Retention group <see cref="ObjectSetKind.RetentionGroup"/> selects.</param>
 public sealed record ObjectSetSpec(
     ObjectSetKind Kind,
@@ -85,7 +109,8 @@ public sealed record ObjectSetSpec(
     IReadOnlyList<ulong>? Addresses = null,
     int Row = -1,
     Guid? Baseline = null,
-    ObjectSetSpec? Inner = null)
+    ObjectSetSpec? Inner = null,
+    ObjectChange? Change = null)
 {
     public static ObjectSetSpec OfTypes(IEnumerable<TypeKeyDto> types) => new(ObjectSetKind.Types, Types: [.. types]);
 
@@ -103,6 +128,10 @@ public sealed record ObjectSetSpec(
     public static ObjectSetSpec RetainedByOf(ObjectSetSpec inner) => new(ObjectSetKind.RetainedBy, Inner: inner);
 
     public static ObjectSetSpec OfInterface(string name) => new(ObjectSetKind.Interface, Name: name);
+
+    /// <summary>The <paramref name="change"/> objects of <paramref name="inner"/> against <paramref name="other"/> (sprint 3.3).</summary>
+    public static ObjectSetSpec ComparedOf(ObjectSetSpec inner, ObjectChange change, Guid? other = null) =>
+        new(ObjectSetKind.Compared, Baseline: other, Inner: inner, Change: change);
 
     public static ObjectSetSpec RetentionGroupOf(ObjectSetSpec inner, RetentionGroupDto group) =>
         new(ObjectSetKind.RetentionGroup, Name: group?.Key ?? throw new ArgumentNullException(nameof(group)), Row: group.Rank, Inner: inner);
@@ -135,6 +164,7 @@ public static class ObjectSetSpecs
             ObjectSetKind.RetainedBy => $"retained by {spec.Inner?.Shape}",
             ObjectSetKind.Interface => $"interface {spec.Name}",
             ObjectSetKind.RetentionGroup => $"similar retention group {spec.Row + 1} (pattern #{spec.Name}) of {spec.Inner?.Shape}",
+            ObjectSetKind.Compared => $"{spec.Change?.ToString().ToLowerInvariant()} objects (by address) of {spec.Inner?.Shape} compared with snapshot {spec.Baseline}",
             _ => spec.Kind.ToString(),
         };
 
@@ -171,6 +201,7 @@ public static class ObjectSetSpecs
             ObjectSetKind.RetainedBy => "R|" + spec.Inner?.CacheKey,
             ObjectSetKind.Interface => "F|" + spec.Name,
             ObjectSetKind.RetentionGroup => $"G|{spec.Name}|{spec.Inner?.CacheKey}",
+            ObjectSetKind.Compared => $"C|{spec.Change}|{spec.Baseline}|{spec.Inner?.CacheKey}",
             _ => throw new ArgumentException($"Unknown set kind {(int)spec.Kind}."),
         };
     }

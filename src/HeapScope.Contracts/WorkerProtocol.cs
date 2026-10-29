@@ -48,7 +48,9 @@ public static class WorkerProtocol
     /// Version 15 (sprint 2.7): result columns say whether they are hidden and whether they carry values.
     /// Version 16 (sprint 3.1): object sets (a set on instances, type summaries and set retention; a set's dominators).
     /// Version 17 (sprint 3.2): Similar Retention, a set's key paths, interface grouping, interface and retention group sets.
-    public const int Version = 17;
+    /// Version 18 (sprint 3.3): object identity by address in diffs (New and Dead columns, the Compared set kind), retained
+    /// bytes and per-kind deltas in diffs, and trends across several snapshots.
+    public const int Version = 18;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

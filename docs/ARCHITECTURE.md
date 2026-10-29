@@ -207,6 +207,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
   signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
   grouping in `TypeGroups` (`GroupKey.Interface`, `InterfaceKeys`, `MatchInterface`) and `TypeDiff` [3.2].
+  `ObjectIdentity` (two snapshots' objects matched by address and type in one merge, a bit per object of each side),
+  `TypeDiff`'s `DiffExtras` (New and Dead per row, retained bytes per group of each side, bytes per heap kind) and
+  `TypeTrend` (rows across several snapshots) [3.3].
 - **Storage.** The index cache format, reader and writer (section 7); the metadata records the loader version that
   built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
@@ -289,7 +292,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `WorkerService.RetentionViews.cs` (Similar Retention, a retention group resolved as a set, and each snapshot's
   interfaces per type, read once from the dump through one object per type and dropped with the snapshot), the two new
   set kinds in `WorkerService.Sets.cs`, a set's key paths in `QueryTypePathsAsync`, and interface grouping in summaries
-  and diffs [3.2].
+  and diffs [3.2]. `WorkerService.Comparison.cs` (a diff's extras: objects matched when both snapshots are of one process,
+  both snapshots' group retention, kinds; the `Compared` set kind resolved under both leases; trends) and
+  `TypeTrendSource` [3.3].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -307,7 +312,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
-  and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2].
+  and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2]; a diff's `matchObjects` and `includeRetained`,
+  `QueryTypeTrendAsync` over any number of snapshots (`UseManyAsync`), and `ObjectSetQuery.Baseline` as a compared set's
+  other snapshot [3.3].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). `Services/`: `IUiDispatcher` (post to the UI
   thread, `YieldToRenderAsync`) with `ImmediateUiDispatcher` for tests, `IUserInteraction` (asynchronous dialogs; opening a file or showing it in its folder since the timeline row) with
   `AutomaticUserInteraction` for smoke runs. `ViewModels/`: the shell, pages and jobs [0.3]; `GridQueryViewModel<TRow>`
@@ -348,6 +355,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   (`SimilarRetentionViewModel` with `RetentionGroupItem`; a group opens as a set), `KeyPathDiagram` (key paths merged
   into a layered graph, toolkit independent), the Paths subject's diagram switch and Similar Retention command,
   `NavigationTarget.SetView` (the view a set opens on), and `TypeGridViewModel.GroupNote` for the interface grouping.
+  Sprint 3.3: Compare's New and Dead, retained and per-generation columns (`ColumnGroups.Identity`), a row's new, dead
+  or survived objects as sets, and `TrendViewModel` (the ticked open snapshots, oldest first, as a dynamic-column grid).
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -636,6 +645,10 @@ Rules:
   Version 17 (sprint 3.2, ADR-031): `QuerySimilarRetentionAsync` (`SimilarRetentionRequest`, `SimilarRetentionResult`,
   `RetentionGroupDto`, `SimilarRetentionLimits`), `TypePathsRequest.Set`, `TypeGrouping.Interface` with
   `TypeSummaryColumns.NoInterface`, and set kinds `Interface` and `RetentionGroup`.
+  Version 18 (sprint 3.3, ADR-032): `TypeDiffRequest.MatchObjects` and `IncludeRetained`, the New, Dead, retained and
+  per-kind delta columns, `TypeDiffResult`'s identity, kind deltas and dominators, the set kind `Compared` with
+  `ObjectChange` (the spec's `Baseline` is now "the other snapshot"), and `QueryTypeTrendAsync` (`TypeTrendRequest`,
+  `TypeTrendColumns`, `TypeTrendResult`).
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1361,7 +1374,8 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   detector tables, outside the reservations' total; letting the reservations evict that cache before refusing is in the
   Backlog. Similar Retention (sprint 3.2) reserves `SimilarRetention.WorkingBytes`: 4 bytes per member, 200 per possible
   pattern (at most 1,000,000) and the path signature memo's cap (8 million objects at 48 bytes, the resize peak),
-  then compacts; a retention group set reserves the same plus a set's working bytes.
+  then compacts; a retention group set reserves the same plus a set's working bytes. Matching two snapshots' objects
+  (sprint 3.3) reserves a bit per object of each.
 
 ## 10. Scale targets and budgets
 
@@ -1555,6 +1569,11 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   type entries, how many were not read and the first 20 of them with the reason; an interface set logs the first 20
   matching type names and the unread count. A set's key paths log the set's shape in place of the type. A growth gate
   logs its grouping.
+- Comparison (sprint 3.3): a diff logs whether it matched objects and why not, the New, Dead and survived totals, whether
+  retained bytes were added and where each side's dominators came from, and its column count; a compared set logs its
+  change, the other snapshot, how many of the inner set's objects it kept and the survivors in all; a trend logs its
+  snapshots in order, grouping, rows and the first rows' growth; the CLI's growth gate logs what it checked (total or a
+  heap kind, per row or summed) and how many rows exceeded.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -1791,7 +1810,7 @@ sprint 0.1.
   both files embed the same `@(#)Version` string. A DAC matched by build id is the exact build, so ClrMD's own version
   check, which reads some core files' version as 0.0, is skipped for it.
 
-### ADR-018 Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4)
+### ADR-018 Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4; amended by ADR-032)
 - Context: dotMemory's comparison splits objects into survived, new and dead, using its profiler's allocation
   tracking. Two dumps carry no object identity: compaction moves objects between snapshots and freed addresses are
   reused, so matching by address would report wrong survivors with confidence. Dumps and gcdumps have no allocation
@@ -2149,6 +2168,34 @@ sprint 0.1.
   is unread. COM objects show their metadata interfaces only. The back pointer check climbs 256 steps of the referrer's
   shortest path: a back pointer deeper in a chain still counts, and a child also held elsewhere whose shortest path runs
   through the member is skipped (an exact test is in the Backlog).
+
+### ADR-032 Objects of two snapshots matched by address (added in sprint 3.3, amends ADR-018)
+- Context: ADR-018 compares per-type totals only, because dumps carry no object identity: collections move objects, and
+  freed addresses are reused. dotMemory's comparison shows New, Dead and Survived objects per type and opens them as
+  sets; the product owner asked for that depth in Phase 3.
+- Decision: within one run of a process, an object keeps its address until a collection moves it. Two complete full
+  dumps of one process (same process id and name, the current captured later) are matched by one merge of their sorted
+  addresses: a current object Survived when the baseline has, at its address, an object of the same method table and
+  type key, the same size, the same heap area (small object heap, LOH, POH, frozen), the current object in the same or
+  an older generation (a collection that demotes an object, rare, makes a real survivor Dead and New); New
+  otherwise. A baseline object with no such object at its address is Dead. A match whose baseline frozen objects (which
+  never move or die in one run) are mostly not found is refused as "not one run" (a reused process id, such as a
+  container's pid 1; frozen objects exist from .NET 8 on, so on earlier runtimes only the low-survivor caution
+  remains). gcdumps (objects after a forced collection, no process id), incomplete dumps and dumps of other
+  processes are refused with the reason. Compare asks for it with a switch; counts, column tooltips and set titles say
+  "by address". New and Survived sets live in the later snapshot, Dead sets in the earlier, each naming the other
+  snapshot (`ObjectSetSpec.Baseline`, which is "the other snapshot", bound to the current ids at each call).
+- Consequences: what the counts mean. Gen0 and Gen1 collections move their survivors (except regions promoted in place),
+  so objects that were young in the baseline usually count as Dead and New; Gen2 (swept by background collections), LOH
+  (unless compacted), POH and frozen objects keep their addresses, and that is where Survived is trustworthy. A new object
+  of the same type and size allocated where a dead one was, in the same or an older generation, still counts as
+  Survived: the check catches a different size, area, method table or a younger generation, not every reuse. Full dumps
+  hold unreachable objects, so New and Survived include garbage not yet collected. A forced GC (or a gcdump captured)
+  between the two dumps moves most objects: the result then carries a caution when under a tenth of the objects kept
+  their address. New is never less than a type's growth. Matching costs a bit per object of each snapshot and one pass,
+  and runs again for each diff and compared set (keeping it per pair is in the Backlog). The capture advice of a growth
+  gate (force a full GC first) and of New and Dead (do not force one between the dumps) differ: DEVELOPER.md says which
+  goes with which.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

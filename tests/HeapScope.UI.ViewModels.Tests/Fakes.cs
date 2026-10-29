@@ -841,6 +841,15 @@ internal sealed class FakeWorkerService : IWorkerService
             ? (request.Descending ? matching.OrderByDescending(r => r[column], StringComparer.OrdinalIgnoreCase) : matching.OrderBy(r => r[column], StringComparer.OrdinalIgnoreCase))
             : (request.Descending ? matching.OrderByDescending(r => long.Parse(r[column]!, System.Globalization.CultureInfo.InvariantCulture)) : matching.OrderBy(r => long.Parse(r[column]!, System.Globalization.CultureInfo.InvariantCulture)));
         List<IReadOnlyList<string?>> rows = [.. ordered.ThenBy(r => r[0], StringComparer.Ordinal)];
+
+        // Sprint 3.3: New and Dead objects (1 and 0 per row) when asked and not refused by IdentityNote.
+        var matched = request.MatchObjects && IdentityNote is null;
+        if (matched)
+        {
+            names = [.. names, TypeDiffColumns.NewObjects, TypeDiffColumns.DeadObjects];
+            rows = [.. rows.Select(r => (IReadOnlyList<string?>)[.. r, "1", "0"])];
+        }
+
         var id = Guid.NewGuid();
         _sets[id] = rows;
         DiffSets.Add(id);
@@ -857,7 +866,52 @@ internal sealed class FakeWorkerService : IWorkerService
             Sum(rows, 5),
             Sum(rows, 7),
             0.1,
-            DiffExact);
+            DiffExact,
+            matched,
+            request.MatchObjects && !matched ? IdentityNote : null,
+            matched ? rows.Count : 0,
+            0);
+    }
+
+    /// <summary>Why the fake refuses to match objects (null: it matches, sprint 3.3).</summary>
+    public string? IdentityNote { get; set; }
+
+    /// <summary>Trend queries received (sprint 3.3).</summary>
+    public List<TypeTrendRequest> TrendQueries { get; } = [];
+
+    /// <summary>The trend's rows: a name, then objects per snapshot (bytes are ten times the objects).</summary>
+    public List<(string Name, long[] Objects)> TrendRows { get; } = [];
+
+    public Task<TypeTrendResult> QueryTypeTrendAsync(TypeTrendRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        TrendQueries.Add(request);
+        var n = request.SnapshotIds.Count;
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        ResultColumn[] columns =
+        [
+            new(TypeTrendColumns.Name, ResultColumnKind.Text, IsKey: true),
+            .. Enumerable.Range(1, n).Select(i => new ResultColumn(TypeTrendColumns.Objects(i), ResultColumnKind.Integer)),
+            .. Enumerable.Range(1, n).Select(i => new ResultColumn(TypeTrendColumns.Bytes(i), ResultColumnKind.Bytes)),
+            new(TypeTrendColumns.ObjectsDelta, ResultColumnKind.SignedInteger),
+            new(TypeTrendColumns.BytesDelta, ResultColumnKind.SignedInteger),
+            new(TypeTrendColumns.GrowthSteps, ResultColumnKind.Integer),
+            new(TypeTrendColumns.TypeName, ResultColumnKind.Text, IsHidden: true),
+            new(TypeTrendColumns.Module, ResultColumnKind.Text, IsHidden: true),
+        ];
+        List<IReadOnlyList<string?>> rows = [.. TrendRows.Select(r => (IReadOnlyList<string?>)
+        [
+            r.Name,
+            .. r.Objects.Take(n).Select(o => o.ToString(invariant)),
+            .. r.Objects.Take(n).Select(o => (o * 10).ToString(invariant)),
+            (r.Objects[n - 1] - r.Objects[0]).ToString(invariant),
+            ((r.Objects[n - 1] - r.Objects[0]) * 10).ToString(invariant),
+            Enumerable.Range(1, n - 1).Count(i => r.Objects[i] > r.Objects[i - 1]).ToString(invariant),
+            r.Name,
+            "App.dll",
+        ])];
+        var id = Guid.NewGuid();
+        _sets[id] = rows;
+        return Task.FromResult(new TypeTrendResult(new ResultSetInfo(id, rows.Count, columns), [.. Enumerable.Repeat(100L, n)], rows.Count, 0.1, true));
     }
 
     public async Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)

@@ -30,6 +30,12 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
   holders, not only the shortest one), each group with its most different paths; a group opens as a set of its own.
   Key retention paths can be shown as a diagram, the paths merged into one graph from the roots down. A type's "Why
   alive" page has a Similar retention button.
+- **Comparison depth.** Compare can show each type's New and Dead objects, matched by address for two dumps of one
+  process (an object a compacting GC moved counts as dead and new), and open a row's new, dead or survived objects as a
+  set; each type's retained bytes in both snapshots; and the change per generation. "Trend across snapshots" puts the
+  objects and bytes of any number of ticked snapshots side by side, with how often each type grew. The CLI's `diff`
+  matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one generation (`--growth-of
+  gen2`) or each row on its own (`--fail-on-growth-per-row`); `trend` compares several dumps.
 - **Group by interface.** The types grid and Compare group by interface on full dumps: a type counts under each
   interface it implements, so the rows overlap. An interface row opens as a set.
 - **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;
