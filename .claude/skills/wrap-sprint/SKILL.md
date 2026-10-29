@@ -1,6 +1,6 @@
 ---
 name: wrap-sprint
-description: Wrap up the active HeapScope sprint. Builds and tests, runs the solution-architect, senior-dev and gc-specialist reviewers in parallel, writes docs/reviews/sprint-X.Y.md, fixes High findings, gets Moderate findings decided, updates all docs, and sets the sprint to Wrapping.
+description: Wrap up the active HeapScope sprint. Builds and tests, runs the solution-architect, senior-dev, gc-specialist and support-engineer reviewers in parallel, writes docs/reviews/sprint-X.Y.md, fixes High findings, gets Moderate findings decided, then sweeps every tracked Markdown file so the docs match what was built, and sets the sprint to Wrapping.
 ---
 
 # /wrap-sprint
@@ -11,10 +11,10 @@ Follow these steps exactly.
    be zero warnings) and `dotnet test --solution HeapScope.sln`. Fix any failure before continuing.
 2. **Change set.** Find the latest `sprint-*` tag (`git describe --tags --abbrev=0 --match "sprint-*"`) and
    list the changes since it: `git diff --stat <tag>` plus untracked files (`git status --porcelain`).
-3. **Review.** Launch the three reviewer subagents in parallel, in one message: `solution-architect`,
-   `senior-dev`, `gc-specialist` (definitions in `.claude/agents/`). Give each: the sprint id, the list of
-   changed and new files, the sprint section of SPRINTS.md, a pointer to ARCHITECTURE.md and DEVELOPER.md, and
-   the severity rubric (DEVELOPER.md section 10). Reviewers report only; they never edit.
+3. **Review.** Launch the four reviewer subagents in parallel, in one message: `solution-architect`,
+   `senior-dev`, `gc-specialist`, `support-engineer` (definitions in `.claude/agents/`). Give each: the sprint id,
+   the list of changed and new files, the sprint section of SPRINTS.md, a pointer to ARCHITECTURE.md and
+   DEVELOPER.md, and the severity rubric (DEVELOPER.md section 10). Reviewers report only; they never edit.
 4. **Consolidate.** Dedupe overlapping findings, keep the highest severity on conflicts, number them
    (H1, M1, L1...), and write `docs/reviews/sprint-X.Y.md` grouped by severity. Each finding: severity,
    reviewer(s), file and line or area, what is wrong, why it matters, suggested fix, status.
@@ -30,8 +30,17 @@ Follow these steps exactly.
    Add ADRs for significant decisions made during the sprint. Move anything durable from `CURRENT-CONTEXT.md`
    (decisions, measurements, findings) into these docs, and update `CURRENT-CONTEXT.md` to say the sprint is
    Wrapping.
-9. **Finish.** Run build and tests one last time. Set the sprint status to Wrapping. Tell the human it is ready
-   for `/close-sprint`.
+9. **Markdown sweep.** Only after steps 5 to 8, so the sweep sees the code as corrected. List every tracked
+   Markdown file (`git ls-files "*.md"`) and read each against the code as it now stands. Fix anything stale: names of
+   projects, types, commands, options, files or folders that changed; counts and versions (app version, worker
+   protocol, test totals); the UI toolkit and platforms; the review process itself, including the reviewer briefs in
+   `.claude/agents/` and the skills in `.claude/skills/`. Check THIRD-PARTY-NOTICES.md against the packages and any
+   vendored code. Never edit LICENSE, ADDITIONAL-TERMS.md or COMMERCIAL.md (report a problem there to the human).
+   Past review files (`docs/reviews/sprint-*.md` other than this sprint's) are records: leave them as written. Search
+   every changed file for em and en dashes (U+2014, U+2013). Record in the review file which files the sweep changed
+   (or that none needed it).
+10. **Finish.** Run build and tests one last time. Set the sprint status to Wrapping. Tell the human it is ready
+    for `/close-sprint`.
 
 ## Autonomous mode
 When the product owner has granted autonomy for the current phase, step 6 does not wait: apply the
