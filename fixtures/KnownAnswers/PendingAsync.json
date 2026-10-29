@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "name": "PendingAsync",
+  "kind": "detected",
+  "description": "Async methods awaiting TaskCompletionSources nothing sets, the sources kept in a static list (sprint 3.5).",
+  "types": [
+    { "type": "Fixtures.Leaks.PendingWork", "perItem": 1 }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.PendingAsyncLeak", "field": "s_signals", "itemType": "Fixtures.Leaks.PendingWork" } ],
+  "detections": [
+    { "detector": "pending-async-methods", "key": "Fixtures.Leaks.PendingAsyncLeak.WaitForSignalAsync", "perItem": 1 },
+    { "detector": "type-growth", "key": "Fixtures.Leaks.PendingWork", "perItem": 1 }
+  ],
+  "notes": "Each call of WaitForSignalAsync awaits its source's task: the runtime boxes the state machine (AsyncStateMachineBox) and registers it as the task's continuation, so the static list holds every waiting call, and each call's PendingWork, through TaskCompletionSource, Task and the box. The boxes' state flags say none has ended. The clean run keeps 1,500 finished async calls' tasks, which the detector must leave out."
+}

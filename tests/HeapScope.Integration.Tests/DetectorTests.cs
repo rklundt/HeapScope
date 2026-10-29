@@ -87,6 +87,9 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
         ["event-handler-leaks"] = "Subscribers",
         ["timer-leaks"] = "Timers",
         ["disposed-but-referenced"] = "Objects",
+        ["pending-async-methods"] = "Objects",
+        ["finalizer-backlog"] = "Objects",
+        ["type-growth"] = "Growth",
     };
 
     private readonly DetectorRuns _runs;
@@ -113,6 +116,27 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
         disposed.Count.ShouldBe(items);
         disposed.ShouldAllBe(o => o.ReadField<bool>("_disposedValue"));
         dump.Instances("Fixtures.Leaks.UndisposedResource").ShouldAllBe(o => !o.ReadField<bool>("<IsDisposed>k__BackingField"));
+
+        // Sprint 3.5: every waiting call's work is reachable, and every finalizable item waits on the finalizer queue.
+        dump.Instances("Fixtures.Leaks.PendingWork").Count(o => reachable.Contains(o.Address)).ShouldBe(items);
+        dump.Heap.EnumerateFinalizerRoots().Count(r => r.Object.Type?.Name == "Fixtures.Leaks.FinalizableItem").ShouldBe(items);
+    }
+
+    [Fact]
+    public async Task The_unreachable_set_is_the_objects_no_root_reaches()
+    {
+        // Sprint 3.5: the garbage a full dump holds, as a set; ClrMD's own walk from the roots is the reference. Objects
+        // waiting for their finalizer are dead (HeapScope's walk does not start from the finalizer queue): the fixture's
+        // finalizer backlog is in the set.
+        var current = await _session.StartOpen(_runs.LeakyCurrent).Result;
+        var set = await _session.QueryInstancesAsync(current, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfUnreachable())), null, Ct);
+
+        using var dump = DumpAnalysis.Open(_runs.LeakyCurrent);
+        var reachable = dump.ReachableFromRoots(finalizerQueue: false);
+        var expected = dump.Heap.EnumerateObjects().LongCount(o => !o.IsFree && !reachable.Contains(o.Address));
+        expected.ShouldBeGreaterThan(0, "a dump taken between collections holds garbage");
+        Math.Abs(set.Result.TotalObjects - expected).ShouldBeLessThanOrEqualTo(expected / 100, $"HeapScope's walk ({set.Result.TotalObjects}) and ClrMD's ({expected}) agree to within 1%");
+        set.Result.TotalBytes.ShouldBeGreaterThan(0);
     }
 
     [Fact]

@@ -31,7 +31,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 //   Leaks:ItemsPerRequest  items each enabled leak grows by on POST /work (default: 100)
 //   Leaks:PayloadBytes     payload per item (default: 64)
 //   Leaks:Publishers       publishers of the EventHandler leak (default: 16384)
-//   Leaks:Detected         all | none | comma separated: the 2.6 detector leaks (Timer, DisposedReferenced; default: none)
+//   Leaks:Detected         all | none | comma separated: the 2.6 and 3.5 detector leaks (Timer, DisposedReferenced, PendingAsync, FinalizerBacklog; default: none)
 //   Clean:Enabled          true to also run the clean workload on POST /work (sprint 2.6; default: false)
 //   ParentPid              exit when this process exits
 // Prints "READY pid=<pid> url=<first bound url>" when listening, so callers can use port 0.

@@ -1170,6 +1170,331 @@ internal sealed class UndisposedServiceScopesDetector : IInspection
     }
 }
 
+/// <summary>
+/// Async methods that never complete (sprint 3.5): at least <see cref="MinPending"/> reachable state machines of one
+/// async method whose task has not ended. An await on a task nothing completes (a TaskCompletionSource never set, a
+/// channel never written) keeps the method's state machine, and everything its locals hold, alive.
+/// </summary>
+internal sealed class PendingAsyncMethodsDetector : IInspection
+{
+    public const long MinPending = 1_000;
+
+    // Task.m_stateFlags: the task ran to completion, faulted or was canceled.
+    private const long Ended = 0x1000000 | 0x200000 | 0x400000;
+
+    public string Name => "pending-async-methods";
+
+    public string Title => "Async methods that never complete";
+
+    public string Cause => "Many calls of one async method wait on something that never happens: each waiting call keeps its state machine and what its locals hold alive.";
+
+    public string Fix => "Complete or cancel what the method awaits (set the TaskCompletionSource, pass a CancellationToken, add a timeout), and do not keep tasks of abandoned work.";
+
+    public SnapshotCapabilities Requires => SnapshotCapabilities.FieldValues;
+
+    public InspectionKind Kind => InspectionKind.Leak;
+
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinPending={MinPending};Ended=m_stateFlags & 0x1600000");
+
+    public InspectionResult Run(InspectionContext context)
+    {
+        var graph = context.Graph;
+        var reader = Readers.Of(context);
+        var reachable = Reachability.For(graph, context.CancellationToken);
+        var methods = new string?[graph.Types.Count];
+        var boxes = DetectorGraph.TypeMask(graph, t => (methods[t] = AsyncMethods.MethodOf(graph.Types.GetName(t))) is not null);
+        var found = new Dictionary<string, Method>(StringComparer.Ordinal);
+        long ended = 0, unreadable = 0;
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, boxes, context, "Reading async state machines"))
+        {
+            var flags = Fields.Integer(reader, graph.Addresses[obj], "m_stateFlags");
+            if (flags is null)
+            {
+                unreadable++;
+                continue;
+            }
+
+            if ((flags.Value & Ended) != 0)
+            {
+                ended++;
+                continue;
+            }
+
+            var type = graph.TypeIndices[obj];
+            var key = methods[type]!;
+            if (!found.TryGetValue(key, out var method))
+            {
+                found[key] = method = new Method(graph.Types.GetName(type), DetectorGraph.Module(graph, type));
+            }
+
+            method.Members.Add(obj);
+            method.Bytes += (long)graph.GetSize(obj);
+        }
+
+        var rows = found.Where(m => m.Value.Members.Count >= MinPending)
+            .OrderByDescending(m => m.Value.Members.Count).ThenBy(m => m.Key, StringComparer.Ordinal)
+            .Select(m => new DetectorTypeRow(m.Key, m.Value.BoxType, m.Value.Members.Count, m.Value.Bytes, m.Value.BoxType, m.Value.Module, [.. m.Value.Members]))
+            .ToArray();
+        var note = rows.Length > 0
+            ? "Calls in flight wait by design (requests being served, background loops): compare these counts with the work in flight when the dump was taken. The bytes are the state machines' own; open a row's retained size to see what their locals hold."
+            : null;
+        var pending = found.Sum(m => (long)m.Value.Members.Count);
+        var basis = string.Create(CultureInfo.InvariantCulture, $"{pending} reachable async state machines waiting in {found.Count} methods, {ended} ended but still referenced, {unreadable} unreadable; largest: {DetectorGraph.Top(found.ToDictionary(m => m.Key, m => (long)m.Value.Members.Count))}; {Reachability.Describe(reachable)}");
+        return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, note, DetectorTables.Types(rows, "StateMachine"), basis);
+    }
+
+    private sealed class Method(string boxType, string module)
+    {
+        public string BoxType { get; } = boxType;
+
+        public string Module { get; } = module;
+
+        public List<int> Members { get; } = [];
+
+        public long Bytes { get; set; }
+    }
+}
+
+/// <summary>Names of async methods from the runtime's state machine boxes (sprint 3.5).</summary>
+public static class AsyncMethods
+{
+    /// <summary>The runtime's box of an async method's state machine: <c>...+AsyncStateMachineBox&lt;TStateMachine&gt;</c>.</summary>
+    public const string BoxMarker = "+AsyncStateMachineBox<";
+
+    /// <summary>
+    /// The async method a state machine box runs, as <c>Namespace.Type.Method</c> (from the compiler's
+    /// <c>&lt;Method&gt;d__N</c> state machine), or the state machine's name when it does not follow that pattern; null for
+    /// other types.
+    /// </summary>
+    public static string? MethodOf(string typeName)
+    {
+        var at = typeName.IndexOf(BoxMarker, StringComparison.Ordinal);
+        if (at < 0 || !typeName.EndsWith('>'))
+        {
+            return null;
+        }
+
+        var machine = typeName[(at + BoxMarker.Length)..^1];
+        var plus = machine.LastIndexOf("+<", StringComparison.Ordinal);
+        var end = machine.LastIndexOf(">d__", StringComparison.Ordinal);
+        return plus >= 0 && end > plus + 2 ? machine[..plus] + "." + machine[(plus + 2)..end] : machine;
+    }
+}
+
+/// <summary>
+/// A finalizer backlog (sprint 3.5): at least <see cref="MinReady"/> objects dead and waiting on the finalizer queue. The
+/// finalizer thread runs them one at a time; when one blocks or they arrive faster than it runs them, they and everything
+/// they reference stay alive.
+/// </summary>
+internal sealed class FinalizerBacklogDetector : IInspection
+{
+    public const long MinReady = 1_000;
+
+    public string Name => "finalizer-backlog";
+
+    public string Title => "Finalizer backlog";
+
+    public string Cause => "Objects wait for the finalizer thread, which is blocked or too slow: each one, and what it references, stays alive until its finalizer runs.";
+
+    public string Fix => "Find what blocks the finalizer thread (its stack in a debugger: a lock, a wait, a call to a single-threaded COM object); dispose these objects and call GC.SuppressFinalize so they need no finalizer.";
+
+    public SnapshotCapabilities Requires => SnapshotCapabilities.RootDetails;
+
+    public InspectionKind Kind => InspectionKind.Leak;
+
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinReady={MinReady}");
+
+    public InspectionResult Run(InspectionContext context)
+    {
+        var graph = context.Graph;
+        var ready = Finalization.ReadyObjects(graph);
+        var types = new Dictionary<int, List<int>>();
+        foreach (var obj in ready.Order())
+        {
+            var type = graph.TypeIndices[obj];
+            if (!types.TryGetValue(type, out var members))
+            {
+                types[type] = members = [];
+            }
+
+            members.Add(obj);
+        }
+
+        DetectorTypeRow[] rows = ready.Count >= MinReady
+            ? [.. types.Select(t => (Type: t.Key, Members: t.Value, Bytes: t.Value.Sum(o => (long)graph.GetSize(o))))
+                .OrderByDescending(t => t.Members.Count).ThenByDescending(t => t.Bytes).ThenBy(t => graph.Types.GetName(t.Type), StringComparer.Ordinal)
+                .Select(t => new DetectorTypeRow(graph.Types.GetName(t.Type), string.Empty, t.Members.Count, t.Bytes, graph.Types.GetName(t.Type), DetectorGraph.Module(graph, t.Type), [.. t.Members]))]
+            : [];
+        var note = rows.Length > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{ready.Count:N0} objects wait for their finalizer. The bytes are the objects' own; what they reference stays alive too until their finalizers have run.")
+            : null;
+        var basis = string.Create(CultureInfo.InvariantCulture, $"{ready.Count} objects on the finalizer queue in {types.Count} types (threshold {MinReady}); largest: {DetectorGraph.Top(types.ToDictionary(t => graph.Types.GetName(t.Key), t => (long)t.Value.Count))}");
+        return new InspectionResult(rows.Length, rows.Sum(r => r.Bytes), null, note, DetectorTables.Types(rows, null), basis);
+    }
+}
+
+/// <summary>
+/// Types that grow (sprint 3.5, dotMemory's "types growth"): with a baseline snapshot, the application's types whose
+/// reachable objects grew by at least <see cref="MinGrowth"/> and by at least <see cref="MinGrowthShare"/> of the
+/// baseline's. Types are matched by name and module (ADR-018); the framework's own types are left out, so a steady
+/// service's pools and caches stay quiet (the growing static collections detector covers those).
+/// </summary>
+internal sealed class TypeGrowthDetector : IInspection
+{
+    public const long MinGrowth = 1_000;
+    public const double MinGrowthShare = 0.5;
+
+    private static readonly InspectionColumn[] s_columns =
+    [
+        new(InspectionColumns.Type, InspectionColumnKind.Text, IsKey: true),
+        new(InspectionColumns.Objects, InspectionColumnKind.Integer),
+        new(InspectionColumns.Baseline, InspectionColumnKind.Integer),
+        new(InspectionColumns.Growth, InspectionColumnKind.Integer),
+        new(InspectionColumns.Bytes, InspectionColumnKind.Bytes),
+        new(InspectionColumns.TypeName, InspectionColumnKind.Text),
+        new(InspectionColumns.Module, InspectionColumnKind.Text),
+        new(InspectionColumns.Scope, InspectionColumnKind.Text),
+    ];
+
+    public string Name => "type-growth";
+
+    public string Title => "Growing types";
+
+    public string Cause => "The application keeps more and more objects of these types: what was created since the baseline is still reachable.";
+
+    public string Fix => "Open the type's objects and their retention paths or Similar Retention: find what holds the new ones, then remove them when their work is done or bound what keeps them.";
+
+    public SnapshotCapabilities Requires => SnapshotCapabilities.ObjectGraph;
+
+    public InspectionKind Kind => InspectionKind.Leak;
+
+    public bool UsesBaseline => true;
+
+    public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinGrowth={MinGrowth};MinGrowthShare={MinGrowthShare:P0};Framework=left out");
+
+    public InspectionResult Run(InspectionContext context)
+    {
+        if (context.Baseline is not { } baseline)
+        {
+            return new InspectionResult(0, 0, null, "Growth needs a baseline: choose an earlier snapshot of the same process (in the CLI, --baseline).", Table([]), "no baseline");
+        }
+
+        var graph = context.Graph;
+        var reachable = Reachability.For(graph, context.CancellationToken);
+        var current = Census(graph, reachable, context, "Counting reachable objects per type");
+        var before = Census(baseline.Graph, Reachability.For(baseline.Graph, context.CancellationToken), context, "Counting the baseline's reachable objects per type");
+        var rows = new List<Row>();
+        var nearMisses = new List<Row>();
+        long framework = 0;
+        foreach (var (key, now) in current)
+        {
+            if (DetectorGraph.IsFramework(key.Name))
+            {
+                framework++;
+                continue;
+            }
+
+            var then = before.TryGetValue(key, out var old) ? old.Objects : 0;
+            var growth = now.Objects - then;
+            var row = new Row(key.Name, key.Module, now.Objects, then, growth, now.Bytes, []);
+            if (growth >= MinGrowth && growth >= MinGrowthShare * Math.Max(then, 1))
+            {
+                rows.Add(row);
+            }
+            else if (growth > 0)
+            {
+                nearMisses.Add(row);
+            }
+        }
+
+        var ordered = rows.OrderByDescending(r => r.Growth).ThenBy(r => r.Name, StringComparer.Ordinal).ToArray();
+
+        // The reported types' objects only, so a row opens what it counted without keeping the whole heap's indices.
+        var byKey = ordered.ToDictionary(r => (r.Name, r.Module), TypeKeyComparer.Type);
+        var keys = Keys(graph);
+        var mask = DetectorGraph.TypeMask(graph, t => byKey.ContainsKey(keys[t]));
+        foreach (var obj in DetectorGraph.ReachableOf(graph, reachable, mask, context, "Collecting the growing types' objects"))
+        {
+            byKey[keys[graph.TypeIndices[obj]]].Members.Add(obj);
+        }
+
+        var basis = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{current.Count} types reachable now, {before.Count} in the baseline, {framework} framework types left out; reported: {Describe(ordered)}; largest growth below the thresholds: {Describe(nearMisses.OrderByDescending(r => r.Growth).Take(5))}");
+        return new InspectionResult(ordered.Length, ordered.Sum(r => r.Bytes), null, GrowingStaticCollectionsDetector.BaselineWarning(context.Info, baseline.Info), Table(ordered), basis);
+    }
+
+    private static RowTable<Row> Table(Row[] rows) => new(s_columns, rows, 120, (row, cells) =>
+    {
+        cells[0] = row.Name;
+        cells[1] = InspectionRows.Number(row.Objects);
+        cells[2] = InspectionRows.Number(row.Before);
+        cells[3] = InspectionRows.Number(row.Growth);
+        cells[4] = InspectionRows.Number(row.Bytes);
+        cells[5] = row.Name;
+        cells[6] = row.Module;
+        cells[7] = InspectionScopes.Reachable;
+    }, row => row.Members);
+
+    private static string Describe(IEnumerable<Row> rows)
+    {
+        var text = string.Join("; ", rows.Select(r => string.Create(CultureInfo.InvariantCulture, $"{r.Name} {r.Objects} (was {r.Before})")));
+        return text.Length == 0 ? "none" : text;
+    }
+
+    private static (string Name, string Module)[] Keys(HeapGraph graph)
+    {
+        var keys = new (string Name, string Module)[graph.Types.Count];
+        for (var t = 0; t < keys.Length; t++)
+        {
+            keys[t] = (graph.Types.GetName(t), DetectorGraph.Module(graph, t));
+        }
+
+        return keys;
+    }
+
+    /// <summary>Reachable objects and bytes per type key.</summary>
+    private static Dictionary<(string Name, string Module), Count> Census(HeapGraph graph, Reachability reachable, InspectionContext context, string phase)
+    {
+        var keys = Keys(graph);
+        var counts = new Dictionary<(string Name, string Module), Count>(TypeKeyComparer.Type);
+        var typeIndices = graph.TypeIndices.Span;
+        for (var i = 0; i < typeIndices.Length; i++)
+        {
+            if ((i & 0xFFFF) == 0)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                context.Report(phase, i, typeIndices.Length);
+            }
+
+            if (!reachable.IsReachable(i))
+            {
+                continue;
+            }
+
+            var key = keys[typeIndices[i]];
+            if (!counts.TryGetValue(key, out var count))
+            {
+                counts[key] = count = new Count();
+            }
+
+            count.Objects++;
+            count.Bytes += (long)graph.GetSize(i);
+        }
+
+        return counts;
+    }
+
+    private sealed class Count
+    {
+        public long Objects { get; set; }
+
+        public long Bytes { get; set; }
+    }
+
+    private sealed record Row(string Name, string Module, long Objects, long Before, long Growth, long Bytes, List<int> Members);
+}
+
 /// <summary>The detectors' type tables: a type, its objects and bytes, an optional detail, and what a row opens.</summary>
 internal static class DetectorTables
 {

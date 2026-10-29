@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "name": "FinalizerBacklog",
+  "kind": "detected",
+  "description": "Finalizable items dropped behind a finalizer that blocks the finalizer thread for good (sprint 3.5).",
+  "types": [
+    { "type": "Fixtures.Leaks.FinalizableItem", "perItem": 1 }
+  ],
+  "roots": [ { "kind": "FinalizerQueue" } ],
+  "detections": [
+    { "detector": "finalizer-backlog", "key": "Fixtures.Leaks.FinalizableItem", "perItem": 1 }
+  ],
+  "notes": "The first growth drops a FinalizerBlocker and waits until the finalizer thread is inside its finalizer, which never returns. Every FinalizableItem is dropped at once and each growth runs a full collection, so all of them are on the finalizer queue (ready for finalization) when the dump is taken, with their payloads. No application reference holds them: they are dead, waiting only for their finalizer, so HeapScope's reachability (which does not start from the finalizer queue) leaves them out of type growth and puts them in the unreachable set."
+}

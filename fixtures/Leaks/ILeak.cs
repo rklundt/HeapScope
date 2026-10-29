@@ -52,13 +52,16 @@ public static class LeakCatalog
     ];
 
     /// <summary>
-    /// The leaks sprint 2.6's detectors name besides the five (a timer leak, disposed but referenced objects), with
-    /// their own switch so the five's exact known answers are untouched by them.
+    /// The leaks sprint 2.6's detectors name besides the five (a timer leak, disposed but referenced objects), and sprint
+    /// 3.5's (async methods that never complete, a finalizer backlog), with their own switch so the five's exact known
+    /// answers are untouched by them.
     /// </summary>
     public static IReadOnlyList<ILeak> Detected { get; } =
     [
         new TimerLeak(),
         new DisposedReferencedLeak(),
+        new PendingAsyncLeak(),
+        new FinalizerBacklogLeak(),
     ];
 
     /// <summary>Resolves "all", "none" or a comma separated list of names (case insensitive) from <paramref name="catalog"/> (default <see cref="All"/>).</summary>

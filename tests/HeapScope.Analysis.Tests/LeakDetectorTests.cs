@@ -38,12 +38,12 @@ public sealed class LeakDetectorTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public void The_detectors_are_leak_inspections_and_only_the_static_collections_use_a_baseline()
+    public void The_detectors_are_leak_inspections_and_only_the_growth_detectors_use_a_baseline()
     {
         var detectors = InspectionCatalog.All.Where(i => i.Kind == InspectionKind.Leak).Select(i => i.Name).ToList();
 
-        detectors.ShouldBe(["growing-static-collections", "event-handler-leaks", "timer-leaks", "disposed-but-referenced", "httpclient-instances", "undisposed-service-scopes"]);
-        InspectionCatalog.All.Where(i => i.UsesBaseline).Select(i => i.Name).ShouldBe(["growing-static-collections"]);
+        detectors.ShouldBe(["growing-static-collections", "event-handler-leaks", "timer-leaks", "disposed-but-referenced", "httpclient-instances", "undisposed-service-scopes", "pending-async-methods", "finalizer-backlog", "type-growth"]);
+        InspectionCatalog.All.Where(i => i.UsesBaseline).Select(i => i.Name).ShouldBe(["growing-static-collections", "type-growth"]);
         InspectionCatalog.All.Where(i => i.UsesReferrers).Select(i => i.Name).ShouldBe(["event-handler-leaks"]);
         InspectionCatalog.All.Where(i => i.Kind == InspectionKind.Leak).ShouldAllBe(i => i.Parameters.Length > 0);
     }
@@ -410,6 +410,104 @@ public sealed class LeakDetectorTests
         result.Bytes.ShouldBe(550 * 72);
         result.Basis!.ShouldStartWith("550 reachable scopes not disposed, 50 disposed, 1 root, 0 unreadable; ");
         result.Note!.ShouldContain("requests in flight");
+    }
+
+    [Theory]
+    [InlineData("System.Runtime.CompilerServices.AsyncTaskMethodBuilder<System.Threading.Tasks.VoidTaskResult>+AsyncStateMachineBox<App.Worker+<RunAsync>d__4>", "App.Worker.RunAsync")]
+    [InlineData("System.Runtime.CompilerServices.AsyncTaskMethodBuilder<System.Int32>+AsyncStateMachineBox<App.Outer+Inner+<GetAsync>d__12>", "App.Outer+Inner.GetAsync")]
+    [InlineData("System.Runtime.CompilerServices.AsyncTaskMethodBuilder<System.Int32>+AsyncStateMachineBox<App.Machine>", "App.Machine")]
+    [InlineData("App.AsyncStateMachineBoxLookalike", null)]
+    public void A_state_machine_box_is_named_by_its_async_method(string type, string? method) =>
+        AsyncMethods.MethodOf(type).ShouldBe(method);
+
+    [Fact]
+    public void Async_methods_waiting_by_the_thousand_are_named_and_finished_or_few_are_not()
+    {
+        // Sprint 3.5.
+        const string Waiting = "System.Runtime.CompilerServices.AsyncTaskMethodBuilder<System.Threading.Tasks.VoidTaskResult>+AsyncStateMachineBox<App.Jobs+<WaitAsync>d__2>";
+        const string Finished = "System.Runtime.CompilerServices.AsyncTaskMethodBuilder<System.Int32>+AsyncStateMachineBox<App.Jobs+<GetAsync>d__3>";
+        const string Few = "System.Runtime.CompilerServices.AsyncTaskMethodBuilder<System.Threading.Tasks.VoidTaskResult>+AsyncStateMachineBox<App.Jobs+<PollAsync>d__4>";
+        var builder = new SyntheticGraphBuilder();
+        var reader = new FakeReader();
+        var root = builder.Object("App.Jobs");
+        builder.Root(root, detail: "App.Jobs.s_pending");
+        void Add(string type, int count, long flags)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var box = builder.Object(type, 96);
+                builder.Reference(root, box);
+                reader.Fields[(box.Address, "m_stateFlags")] = Integer(flags);
+            }
+        }
+
+        Add(Waiting, 1_200, 0x2000400);
+        Add(Finished, 1_500, 0x1000000);
+        Add(Few, 999, 0);
+        builder.Object(Waiting, 96); // garbage: no root reaches it
+
+        var result = Run("pending-async-methods", builder.Build(), reader);
+
+        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Jobs.WaitAsync", "1200", "115200", Waiting], Compare.Prefix);
+        result.Rows.MembersOf(0).ShouldNotBeNull().Count.ShouldBe(1_200);
+        result.Basis!.ShouldStartWith("2199 reachable async state machines waiting in 2 methods, 1500 ended but still referenced, 0 unreadable");
+    }
+
+    [Fact]
+    public void A_finalizer_backlog_is_named_by_type_and_a_short_queue_is_not()
+    {
+        // Sprint 3.5.
+        static HeapGraph Queue(int items)
+        {
+            var builder = new SyntheticGraphBuilder();
+            for (var i = 0; i < items; i++)
+            {
+                builder.Root(builder.Object(i % 4 == 0 ? "App.Handle" : "App.Connection", 40), RootKind.FinalizerQueue);
+            }
+
+            return builder.Build();
+        }
+
+        var result = Run("finalizer-backlog", Queue(1_200), new FakeReader());
+
+        Rows(result).Select(r => (r[0], r[1])).ShouldBe([("App.Connection", "900"), ("App.Handle", "300")]);
+        result.Note!.ShouldContain("1,200 objects wait");
+        Run("finalizer-backlog", Queue(999), new FakeReader()).Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Types_that_grew_since_the_baseline_are_named_and_framework_or_small_growth_is_not()
+    {
+        // Sprint 3.5.
+        static HeapGraph Census(int orders, int sessions, int strings, int garbage)
+        {
+            var builder = new SyntheticGraphBuilder();
+            var root = builder.Object("App.Store");
+            builder.Root(root, detail: "App.Store.s_items");
+            foreach (var (type, count) in new[] { ("App.Order", orders), ("App.Session", sessions), ("System.String", strings) })
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    builder.Reference(root, builder.Object(type, 32));
+                }
+            }
+
+            for (var i = 0; i < garbage; i++)
+            {
+                builder.Object("App.Order", 32);
+            }
+
+            return builder.Build();
+        }
+
+        var baseline = new InspectionBaseline(Census(orders: 500, sessions: 3_000, strings: 100, garbage: 0), s_info, null);
+        var result = Run("type-growth", Census(orders: 2_000, sessions: 4_100, strings: 9_000, garbage: 5_000), new FakeReader(), baseline);
+
+        Rows(result).ShouldHaveSingleItem().ShouldBe(["App.Order", "2000", "500", "1500", "64000"], Compare.Prefix);
+        result.Rows.MembersOf(0).ShouldNotBeNull().Count.ShouldBe(2_000, "the reachable orders, not the garbage ones");
+        result.Basis!.ShouldContain("largest growth below the thresholds: App.Session 4100 (was 3000)");
+        var without = Run("type-growth", Census(2_000, 0, 0, 0), new FakeReader());
+        (without.Count, without.Note).ShouldBe((0, "Growth needs a baseline: choose an earlier snapshot of the same process (in the CLI, --baseline)."));
     }
 
     private static (HeapGraph Graph, FakeReader Reader) Clients(int owning, int sharing, bool sharedHandler = false)

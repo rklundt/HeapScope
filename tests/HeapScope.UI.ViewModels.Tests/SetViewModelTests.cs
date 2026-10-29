@@ -259,6 +259,21 @@ public sealed class SetViewModelTests : IDisposable
         (set.Set.Spec.Kind, set.Title).ShouldBe((ObjectSetKind.Interface, "Interface App.Order"));
     }
 
+    [Fact]
+    public async Task The_objects_no_root_reaches_open_as_a_set_from_a_full_dumps_types()
+    {
+        // Sprint 3.5.
+        await OpenAsync("app.dmp");
+        var types = _snapshots.Types;
+        types.CanOpenUnreachable.ShouldBeTrue();
+
+        types.OpenUnreachableCommand.Execute(null);
+
+        var set = Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (set.Set.Spec.Kind, set.Title).ShouldBe((ObjectSetKind.Unreachable, "Unreachable objects"));
+        set.Types.CanOpenUnreachable.ShouldBeFalse("a set's own Types view does not offer it");
+    }
+
     public void Dispose()
     {
         try

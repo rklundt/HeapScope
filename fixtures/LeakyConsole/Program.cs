@@ -48,7 +48,7 @@ foreach (var leak in LeakCatalog.Resolve(leakNames))
     leak.Grow(count, payload);
 }
 
-// The 2.6 detector leaks (Timer, DisposedReferenced) only when asked for: --detected all|Name.
+// The 2.6 and 3.5 detector leaks (Timer, DisposedReferenced, PendingAsync, FinalizerBacklog) only when asked for: --detected all|Name.
 foreach (var leak in LeakCatalog.Resolve(Arg("--detected"), LeakCatalog.Detected))
 {
     leak.Grow(count, payload);

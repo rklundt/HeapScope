@@ -185,6 +185,21 @@ internal sealed partial class WorkerService
             case ObjectSetKind.RetentionGroup:
                 (set, detail) = await ResolveRetentionGroupAsync(snapshotId, snapshot, spec, progress, cancellationToken, depth).ConfigureAwait(false);
                 break;
+            case ObjectSetKind.Unreachable:
+                if (snapshot.Info.Kind == SnapshotKind.GcDump)
+                {
+                    throw new ArgumentException("A gcdump holds only what survived its collection: no object in it is unreachable. Open a full dump (.dmp) to see the garbage it still holds.");
+                }
+
+                (set, detail) = await Task.Run(
+                    () =>
+                    {
+                        var reachable = Reachability.For(graph, cancellationToken);
+                        var unreachable = Reserved(snapshotId, graph, () => ObjectSet.Unreachable(graph, reachable, cancellationToken));
+                        return (unreachable, string.Create(CultureInfo.InvariantCulture, $"{reachable.Count} objects reachable of {graph.ObjectCount}"));
+                    },
+                    cancellationToken).ConfigureAwait(false);
+                break;
             case ObjectSetKind.Namespace:
             case ObjectSetKind.Assembly:
                 var grouping = spec.Kind == ObjectSetKind.Namespace ? GroupKey.Namespace : GroupKey.Assembly;

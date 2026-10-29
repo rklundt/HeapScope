@@ -237,6 +237,9 @@ public static class InspectionCatalog
         new DisposedButReferencedDetector(),
         new HttpClientInstancesDetector(),
         new UndisposedServiceScopesDetector(),
+        new PendingAsyncMethodsDetector(),
+        new FinalizerBacklogDetector(),
+        new TypeGrowthDetector(),
     ];
 
     public static IInspection? Find(string name) => All.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));

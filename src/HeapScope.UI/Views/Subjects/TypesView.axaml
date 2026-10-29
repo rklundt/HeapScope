@@ -76,6 +76,9 @@
       <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding !IsSet}"
                 IsChecked="{Binding ShowRetained, Mode=TwoWay}"
                 ToolTip.Tip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
+      <Button Content="Unreachable objects" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding CanOpenUnreachable}"
+              Command="{Binding OpenUnreachableCommand}"
+              ToolTip.Tip="Open the objects no root reaches as a set: garbage the dump still holds because no collection removed it yet. They retain nothing and have no retention path." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
     </WrapPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />

@@ -66,6 +66,12 @@ public enum ObjectSetKind
     /// New and survived objects live in the later snapshot, dead ones in the earlier: the set is queried there.
     /// </summary>
     Compared = 8,
+
+    /// <summary>
+    /// The objects no root reaches (sprint 3.5): garbage a full dump still holds because no collection has removed it yet.
+    /// Full dumps only (a gcdump's collection removed them).
+    /// </summary>
+    Unreachable = 9,
 }
 
 /// <summary>How an object fared between two snapshots of one process, matched by address and type (ADR-032).</summary>
@@ -133,6 +139,9 @@ public sealed record ObjectSetSpec(
     public static ObjectSetSpec ComparedOf(ObjectSetSpec inner, ObjectChange change, Guid? other = null) =>
         new(ObjectSetKind.Compared, Baseline: other, Inner: inner, Change: change);
 
+    /// <summary>The objects no root reaches (sprint 3.5).</summary>
+    public static ObjectSetSpec OfUnreachable() => new(ObjectSetKind.Unreachable);
+
     public static ObjectSetSpec RetentionGroupOf(ObjectSetSpec inner, RetentionGroupDto group) =>
         new(ObjectSetKind.RetentionGroup, Name: group?.Key ?? throw new ArgumentNullException(nameof(group)), Row: group.Rank, Inner: inner);
 
@@ -165,6 +174,7 @@ public static class ObjectSetSpecs
             ObjectSetKind.Interface => $"interface {spec.Name}",
             ObjectSetKind.RetentionGroup => $"similar retention group {spec.Row + 1} (pattern #{spec.Name}) of {spec.Inner?.Shape}",
             ObjectSetKind.Compared => $"{spec.Change?.ToString().ToLowerInvariant()} objects (by address) of {spec.Inner?.Shape} compared with snapshot {spec.Baseline}",
+            ObjectSetKind.Unreachable => "objects no root reaches",
             _ => spec.Kind.ToString(),
         };
 
@@ -202,6 +212,7 @@ public static class ObjectSetSpecs
             ObjectSetKind.Interface => "F|" + spec.Name,
             ObjectSetKind.RetentionGroup => $"G|{spec.Name}|{spec.Inner?.CacheKey}",
             ObjectSetKind.Compared => $"C|{spec.Change}|{spec.Baseline}|{spec.Inner?.CacheKey}",
+            ObjectSetKind.Unreachable => "U",
             _ => throw new ArgumentException($"Unknown set kind {(int)spec.Kind}."),
         };
     }
