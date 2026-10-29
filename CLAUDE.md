@@ -57,7 +57,8 @@ This project is AGPLv3 only with additional terms (see LICENSE, ADDITIONAL-TERMS
 ## Sprint workflow
 1. `/start-sprint [id]`: analyze, ask, plan the tasks in SPRINTS.md, set In Progress.
 2. Implement task by task with tests, build green throughout.
-3. `/wrap-sprint`: build, test, three reviewers, fix High, decide Moderate, update docs, set Wrapping.
+3. `/wrap-sprint`: build, test, four reviewers, fix High, decide Moderate, update docs, then sweep every tracked
+   Markdown file against the corrected code, set Wrapping.
 4. `/close-sprint`: verify Definition of Done, check every doc describes what was built, set Closed and the
    version, commit on `sprint/X.Y`, PR into `develop`, merge (autonomous mode), tag, reset `CURRENT-CONTEXT.md`.
 5. Next sprint.

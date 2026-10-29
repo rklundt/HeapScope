@@ -17,7 +17,8 @@ Follow these steps exactly.
    - The docs describe what was built. Check each against the change set (`git diff --stat <last sprint tag>`) and
      update it now if it lags: ARCHITECTURE.md (code map, protocol version, ADRs, measurements, privacy),
      DEVELOPER.md (commands, workflows), SPRINTS.md (tasks ticked, Decisions, Review summary, Backlog), CLAUDE.md
-     (commands, rules), and any README the sprint touched (for example `fixtures/KnownAnswers/README.md`).
+     (commands, rules), and any README the sprint touched (for example `fixtures/KnownAnswers/README.md`). The review
+     file records `/wrap-sprint`'s Markdown sweep of every tracked .md file.
    - Anything in `CURRENT-CONTEXT.md` worth keeping (decisions, measurements, findings, backlog items) is in the
      committed docs, since step 6 resets it.
    - The architecture test passed in the run above.

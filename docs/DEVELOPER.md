@@ -427,9 +427,11 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
    the sprint, asks clarifying questions in one numbered batch with defaults, writes the task breakdown and
    decisions into SPRINTS.md, sets In Progress, and implements after go-ahead.
 2. Implement task by task, tests alongside code, build green at every step.
-3. `/wrap-sprint`: full build and tests, three reviewer subagents (solution-architect, senior-dev,
-   gc-specialist) in parallel, consolidated review file in `docs/reviews/sprint-X.Y.md`, High findings fixed
-   and confirmed, Moderate findings decided by the human, docs updated, status Wrapping.
+3. `/wrap-sprint`: full build and tests, four reviewer subagents (solution-architect, senior-dev,
+   gc-specialist, support-engineer; briefs in `.claude/agents/`) in parallel, consolidated review file in
+   `docs/reviews/sprint-X.Y.md`, High findings fixed and confirmed, Moderate findings decided by the human, docs
+   updated, then a sweep of every tracked Markdown file against the corrected code (reviewer briefs and skills
+   included; past review files, LICENSE, ADDITIONAL-TERMS.md and COMMERCIAL.md left alone), status Wrapping.
 4. `/close-sprint`: verifies the Definition of Done, sets Closed and the version, commits on `sprint/X.Y`, opens
    the PR into `develop`, merges it (autonomous mode) and tags `sprint-X.Y` on `develop`, summarizes, offers the next
    sprint.
@@ -445,7 +447,8 @@ owner still apply.
 - All tests pass, including integration tests relevant to the sprint.
 - Acceptance criteria in SPRINTS.md are all met, or explicitly deferred by the human.
 - Review file exists in `docs/reviews/`, with all High findings resolved and every Moderate finding decided.
-- ARCHITECTURE.md, DEVELOPER.md, SPRINTS.md and CLAUDE.md reflect what was actually built.
+- ARCHITECTURE.md, DEVELOPER.md, SPRINTS.md and CLAUDE.md reflect what was actually built, and the Markdown sweep
+  of `/wrap-sprint` found every other tracked Markdown file current.
 - No layering violations (architecture test passes).
 
 ## 10. Severity rubric
