@@ -160,7 +160,8 @@ internal sealed class SmokeRunner(IServiceProvider services)
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         live.SelectedProcess = new ProcessRow(Environment.ProcessId, "synthetic", string.Empty, string.Empty, 0, string.Empty, false);
         live.WriteTimeline = false;
-        live.StartCommand.Execute(null);
+        live.RecordRuns = false;
+        await live.StartCommand.ExecuteAsync(null);
         if (live.Run is { } run)
         {
             await run.Completion;

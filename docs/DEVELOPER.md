@@ -195,6 +195,16 @@ dotnet test --solution HeapScope.sln
   When a run stops, a row shows its timeline file with Open (the system's app for CSV), Show in folder (Explorer and
   Finder select the file; elsewhere the folder opens) and Delete (asks first; the run's snapshots are kept). The log
   says which was used and how it went, never the path.
+  Since 3.4: Get snapshot captures the process now as one of the run's snapshots; Force GC asks first (the target
+  pauses, finalizers do not run), then runs a full blocking collection in it (a dotted line on the chart, only when its
+  end was seen; .NET 5 or later); "Record allocations" records an allocation trace for the whole run, up to 1 GB or
+  until the disk has 1 GB free (Open allocations shows it on the Allocations page); "Past runs of this session" reopens
+  a run's timeline, markers and snapshot cards read only. A capture or Force GC of a process already being captured is
+  refused with the reason, from any page; a rule due meanwhile fires at the next free sample. The Snapshots page's
+  "Close and delete..." deletes a session snapshot with its index caches; the Home page deletes a session ("Delete...")
+  or the sessions not opened for N days ("Clean up old sessions..."); each lists the files and asks first, only files
+  inside the session folder go, and the current session and sessions with an open snapshot, a capture or a run are
+  kept. The Live smoke run records nothing in the session library (`RecordRuns` off).
 - Inspections (sprint 1.6): the Snapshots page's Inspections tab runs the selected snapshot's inspections the first
   time it is shown (one at a time, in the worker): a tile per inspection with its finding, cause and fix (or why it is
   unavailable), fragmentation bars per heap, and the selected inspection's rows; double-click or Enter opens a row's

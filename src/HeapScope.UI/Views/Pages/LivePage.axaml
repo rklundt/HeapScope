@@ -63,9 +63,31 @@
         <TextBox Width="50" Text="{Binding MaxSnapshots, Mode=TwoWay}" VerticalAlignment="Center" />
         <CheckBox Content="as gcdumps" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDumps, Mode=TwoWay}"
                   ToolTip.Tip="Rules capture gcdumps: the object graph only, much smaller. Each one runs a full garbage collection in the process, which the chart shows." />
+        <CheckBox Content="Record allocations" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding RecordAllocations, Mode=TwoWay}"
+                  ToolTip.Tip="Record an allocation trace for the whole run (sampled allocations with call stacks), opened on the Allocations page when the run stops." />
         <Button Content="Start" Margin="16,0,0,0" Padding="16,3" Command="{Binding StartCommand}" VerticalAlignment="Center" />
         <Button Content="Stop" Margin="8,0,0,0" Padding="16,3" Command="{Binding StopCommand}" VerticalAlignment="Center" />
+        <Button x:Name="GetSnapshotButton" Content="Get snapshot" Margin="16,0,0,0" Command="{Binding GetSnapshotCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Capture the monitored process now (the run's kind), as one of the run's snapshots." />
+        <Button x:Name="ForceGcButton" Content="Force GC" Margin="8,0,0,0" Command="{Binding ForceGcCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Run a full blocking garbage collection in the process (a dotted line on the chart). It moves objects: a comparison by address across it shows them as dead and new." />
       </WrapPanel>
+      <WrapPanel Margin="0,0,0,6">
+        <TextBlock Text="Past runs of this session" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+        <ComboBox x:Name="PastRuns" Width="420" ItemsSource="{Binding PastRuns}" VerticalAlignment="Center">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:PastRunItem">
+              <TextBlock Text="{Binding Title}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button Content="Show" Margin="6,0,0,0" Command="{Binding OpenPastRunCommand}" CommandParameter="{Binding #PastRuns.SelectedItem}" VerticalAlignment="Center"
+                ToolTip.Tip="Show the run's timeline, snapshots and forced collections, read only." />
+        <Button Content="Refresh" Margin="6,0,0,0" Command="{Binding RefreshRunsCommand}" VerticalAlignment="Center" />
+        <Button Content="Open allocations" Margin="16,0,0,0" Command="{Binding OpenTraceCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Open the run's allocation trace on the Allocations page." />
+      </WrapPanel>
+      <ctl:NoteText Text="{Binding PastRunShown}" TextWrapping="Wrap" Margin="0,0,0,4" Classes="subtle" />
       <ctl:NoteText Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
       <WrapPanel Margin="0,0,0,6" IsVisible="{Binding HasTimeline}">
         <TextBlock Text="Timeline:" VerticalAlignment="Center" Margin="0,0,6,0"
@@ -92,7 +114,7 @@
         <Border Width="10" Height="10" Background="{DynamicResource HeapKind.LargeObjectHeap}" Margin="0,0,4,0" /><TextBlock Text="LOH" Margin="0,0,10,0" FontSize="11" />
         <Border Width="10" Height="10" Background="{DynamicResource HeapKind.PinnedObjectHeap}" Margin="0,0,4,0" /><TextBlock Text="POH" Margin="0,0,10,0" FontSize="11" />
         <Border Width="10" Height="10" Background="{DynamicResource HeapKind.Unknown}" Margin="0,0,4,0" /><TextBlock Text="allocated since the last GC" Margin="0,0,10,0" FontSize="11" />
-        <TextBlock Text="(generations as of the last GC; dashed line: snapshot)" FontSize="11" Classes="subtle" />
+        <TextBlock Text="(generations as of the last GC; dashed line: snapshot; dotted line: forced GC)" FontSize="11" Classes="subtle" />
       </StackPanel>
     </StackPanel>
     <ScrollViewer DockPanel.Dock="Right" Width="300" Margin="8,0,0,0" VerticalScrollBarVisibility="Auto">
@@ -113,7 +135,7 @@
       </ItemsControl>
     </ScrollViewer>
     <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="4">
-      <ctl:TimelineChart x:Name="Chart" Samples="{Binding Samples}" Markers="{Binding Markers}" Version="{Binding ChartVersion}" />
+      <ctl:TimelineChart x:Name="Chart" Samples="{Binding Samples}" Markers="{Binding Markers}" GcMarkers="{Binding GcMarkers}" Version="{Binding ChartVersion}" />
     </Border>
   </DockPanel>
 </UserControl>

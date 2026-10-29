@@ -31,6 +31,7 @@ using HeapScope.Application.Sessions;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using HeapScope.UI.Services;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.UI.ViewModels;
 
@@ -38,9 +39,158 @@ namespace HeapScope.UI.ViewModels;
 /// Home page: open a dump (sprint 1.2), recent sessions with their snapshots (sprint 1.1, dotMemory's workspace list)
 /// and the synthetic diagnostic job (sprint 0.3).
 /// </summary>
-public sealed partial class HomeViewModel(WorkerOperations operations, SnapshotsViewModel? snapshots = null, SessionLibrary? library = null) : ObservableObject
+public sealed partial class HomeViewModel(WorkerOperations operations, SnapshotsViewModel? snapshots = null, SessionLibrary? library = null, IUserInteraction? interaction = null, Microsoft.Extensions.Logging.ILogger<HomeViewModel>? logger = null) : ObservableObject
 {
     private readonly WorkerOperations _operations = operations ?? throw new ArgumentNullException(nameof(operations));
+
+    /// <summary>Sessions not opened for this many days are offered by "Clean up old sessions" (sprint 3.4).</summary>
+    [ObservableProperty]
+    private int _cleanupDays = 30;
+
+    /// <summary>
+    /// Deletes a session with its snapshots and their caches (sprint 3.4, decision 6), after the user confirms the files;
+    /// refused for the current session, one with an open snapshot, and one something writes into. Every step is logged.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteSessionAsync(SessionSummary? summary)
+    {
+        if (summary is null || library is null || interaction is null)
+        {
+            return;
+        }
+
+        if (WhyKept(summary) is { } why)
+        {
+            logger?.LogInformation("Deleting session {Folder} refused: {Reason}", summary.Folder, why);
+            SessionStatus = why;
+            return;
+        }
+
+        Deletion plan;
+        try
+        {
+            plan = await Task.Run(() => library.PlanSessionDeletion(summary.Folder));
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            logger?.LogInformation("Deleting session {Folder} refused: {Reason}", summary.Folder, ex.Message);
+            SessionStatus = ex.Message;
+            return;
+        }
+
+        var question = string.Create(CultureInfo.CurrentCulture, $"Delete the session {summary.Name} with its {summary.SnapshotCount} snapshots and their caches, {plan.Files.Count} files ({Format.Bytes(plan.Bytes)})? This cannot be undone.");
+        var yes = await interaction.ConfirmAsync("Delete session", question + Environment.NewLine + DeletionText.Files(plan));
+        logger?.LogInformation("Asked to delete session {Folder} ({Files} files, {Bytes} bytes, {Kept} kept outside it); the user answered {Answer}", summary.Folder, plan.Files.Count, plan.Bytes, plan.Kept?.Count ?? 0, yes ? "yes" : "no");
+        if (!yes)
+        {
+            return;
+        }
+
+        var outcome = await DeleteAsync([summary]);
+        await RefreshSessionsAsync();
+        SessionStatus = outcome;
+    }
+
+    /// <summary>
+    /// Proposes the sessions not opened for <see cref="CleanupDays"/> days, each with its size, and deletes them after
+    /// confirmation (sprint 3.4); the cutoff, what was proposed, what was kept and why, and the answer are logged.
+    /// </summary>
+    [RelayCommand]
+    private async Task CleanUpAsync()
+    {
+        if (library is null || interaction is null)
+        {
+            return;
+        }
+
+        var days = Math.Max(1, CleanupDays);
+        var old = await Task.Run(() => library.ListOlderThan(TimeSpan.FromDays(days)));
+        var deletable = new List<SessionSummary>();
+        foreach (var session in old)
+        {
+            if (WhyKept(session) is { } why)
+            {
+                logger?.LogInformation("Clean up keeps session {Folder}: {Reason}", session.Folder, why);
+            }
+            else
+            {
+                deletable.Add(session);
+            }
+        }
+
+        logger?.LogInformation("Clean up of sessions not opened for {Days} days: {Old} found, {Proposed} proposed: {Folders}", days, old.Count, deletable.Count, string.Join("; ", deletable.Select(s => s.Folder)));
+        if (deletable.Count == 0)
+        {
+            SessionStatus = string.Create(CultureInfo.CurrentCulture, $"No session was left unopened for {days} days{(old.Count > deletable.Count ? " (sessions in use are kept)" : string.Empty)}.");
+            return;
+        }
+
+        var names = string.Join(Environment.NewLine, deletable.Take(10).Select(s => string.Create(CultureInfo.CurrentCulture, $"  {s.Name}: {s.SnapshotCount} snapshots, {Format.Bytes(s.SizeBytes)}, last opened {s.LastOpenedUtc.LocalDateTime:d}")))
+            + (deletable.Count > 10 ? string.Create(CultureInfo.CurrentCulture, $"{Environment.NewLine}  and {deletable.Count - 10} more") : string.Empty);
+        var yes = await interaction.ConfirmAsync("Clean up old sessions", string.Create(CultureInfo.CurrentCulture, $"Delete {deletable.Count} sessions not opened for {days} days ({Format.Bytes(deletable.Sum(s => s.SizeBytes))})? This cannot be undone. Dumps a session recorded outside its folder are kept.{Environment.NewLine}{names}"));
+        logger?.LogInformation(
+            "Asked to clean up {Count} sessions ({Bytes} bytes): {Sessions}; the user answered {Answer}",
+            deletable.Count,
+            deletable.Sum(s => s.SizeBytes),
+            string.Join("; ", deletable.Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.Folder} {s.SizeBytes} bytes, last opened {s.LastOpenedUtc:O}"))),
+            yes ? "yes" : "no");
+        if (!yes)
+        {
+            return;
+        }
+
+        var outcome = await DeleteAsync(deletable);
+        await RefreshSessionsAsync();
+        SessionStatus = outcome;
+    }
+
+    /// <summary>Why a session is not deleted now, or null (the library refuses the same, under its own checks).</summary>
+    private string? WhyKept(SessionSummary summary)
+    {
+        var folder = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(summary.Folder));
+        if (string.Equals(library?.CurrentFolder, folder, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{summary.Name} is the current session (new captures go into it), so it is kept. Open another session first.";
+        }
+
+        if (library?.InUseBy(folder) is { } user)
+        {
+            return $"{summary.Name} is in use: {user} writes into it. Stop it first.";
+        }
+
+        var under = folder + System.IO.Path.DirectorySeparatorChar;
+        return snapshots?.Snapshots.Any(s => System.IO.Path.GetFullPath(s.Handle.Path).StartsWith(under, StringComparison.OrdinalIgnoreCase)) == true
+            ? $"{summary.Name} has a snapshot open. Close it on the Snapshots page first."
+            : null;
+    }
+
+    private async Task<string> DeleteAsync(IReadOnlyList<SessionSummary> sessions)
+    {
+        long freed = 0;
+        var failed = new List<string>();
+        foreach (var session in sessions)
+        {
+            try
+            {
+                var deletion = await Task.Run(() => library!.DeleteSession(session.Folder));
+                freed += deletion.Bytes;
+                DeletionText.Log(logger, "session " + session.Folder, deletion);
+                if (!deletion.Complete)
+                {
+                    failed.Add(System.IO.File.Exists(System.IO.Path.Combine(session.Folder, SessionLibrary.DocumentName))
+                        ? $"{session.Name} ({deletion.Failed!.Count} files are in use: {string.Join("; ", deletion.Failed)}; it is still listed and can be deleted again)"
+                        : $"{session.Name} (its files are deleted but its folder could not be removed: {string.Join("; ", deletion.Failed!)}; delete it yourself)");
+                }
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+            {
+                logger?.LogWarning(ex, "Deleting session {Folder} was refused or failed", session.Folder);
+                failed.Add($"{session.Name} ({ex.Message})");
+            }
+        }
+
+        return string.Create(CultureInfo.CurrentCulture, $"Deleted {sessions.Count - failed.Count} sessions, {Format.Bytes(freed)} freed.") + (failed.Count == 0 ? string.Empty : " Not deleted: " + string.Join("; ", failed));
+    }
 
     /// <summary>Sessions, most recently opened first (name, created, last opened, snapshots, size).</summary>
     public ObservableCollection<SessionSummary> RecentSessions { get; } = [];

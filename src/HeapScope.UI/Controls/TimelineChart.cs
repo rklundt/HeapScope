@@ -45,18 +45,28 @@ public sealed class TimelineChart : Control
     public static readonly StyledProperty<IReadOnlyList<DateTimeOffset>?> MarkersProperty =
         AvaloniaProperty.Register<TimelineChart, IReadOnlyList<DateTimeOffset>?>(nameof(Markers));
 
+    /// <summary>When the target was made to collect (sprint 3.4), drawn as dotted lines.</summary>
+    public static readonly StyledProperty<IReadOnlyList<DateTimeOffset>?> GcMarkersProperty =
+        AvaloniaProperty.Register<TimelineChart, IReadOnlyList<DateTimeOffset>?>(nameof(GcMarkers));
+
     public static readonly StyledProperty<int> VersionProperty =
         AvaloniaProperty.Register<TimelineChart, int>(nameof(Version));
 
     static TimelineChart()
     {
-        AffectsRender<TimelineChart>(SamplesProperty, MarkersProperty, VersionProperty);
+        AffectsRender<TimelineChart>(SamplesProperty, MarkersProperty, GcMarkersProperty, VersionProperty);
     }
 
     public IReadOnlyList<HeapSample>? Samples
     {
         get => GetValue(SamplesProperty);
         set => SetValue(SamplesProperty, value);
+    }
+
+    public IReadOnlyList<DateTimeOffset>? GcMarkers
+    {
+        get => GetValue(GcMarkersProperty);
+        set => SetValue(GcMarkersProperty, value);
     }
 
     public IReadOnlyList<DateTimeOffset>? Markers
@@ -108,6 +118,15 @@ public sealed class TimelineChart : Control
             if (TimelineLayout.XOf(samples, at, width) is { } x)
             {
                 context.DrawLine(marker, new Point(x, 0), new Point(x, height));
+            }
+        }
+
+        var gc = new Pen(Brush("Brush.Growth") ?? Brushes.OrangeRed, 1, DashStyle.Dot);
+        foreach (var at in GcMarkers ?? [])
+        {
+            if (TimelineLayout.XOf(samples, at, width) is { } x)
+            {
+                context.DrawLine(gc, new Point(x, 0), new Point(x, height));
             }
         }
 
