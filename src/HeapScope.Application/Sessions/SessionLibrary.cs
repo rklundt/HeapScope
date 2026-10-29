@@ -85,13 +85,43 @@ public sealed record SessionDocument(
     string Name,
     DateTimeOffset CreatedUtc,
     DateTimeOffset LastOpenedUtc,
-    IReadOnlyList<SessionSnapshot> Snapshots)
+    IReadOnlyList<SessionSnapshot> Snapshots,
+    IReadOnlyList<SessionRun>? Runs = null)
 {
     public const int CurrentFormatVersion = 1;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
+
+/// <summary>
+/// A monitoring run recorded in its session (sprint 3.4, decision 5): what was watched and how, when, and the files and
+/// snapshots it produced (paths relative to the session folder). <see cref="EndedUtc"/> is null while it runs (or when the
+/// app ended without recording its end).
+/// </summary>
+/// <param name="Rules">The rules as the user wrote them (labels), for the record.</param>
+/// <param name="ForcedGcs">When the run forced a garbage collection in the target.</param>
+public sealed record SessionRun(
+    Guid Id,
+    string? ProcessName,
+    int ProcessId,
+    double IntervalSeconds,
+    string Rules,
+    SnapshotKindDto CaptureKind,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset? EndedUtc,
+    string? Timeline,
+    string? Trace,
+    IReadOnlyList<Guid> SnapshotIds,
+    IReadOnlyList<DateTimeOffset>? ForcedGcs = null)
+{
+    /// <summary>Members written by a newer HeapScope, kept when this build saves the document.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
+}
+
+/// <summary>What a deletion removed (sprint 3.4): the files and their bytes.</summary>
+public sealed record Deletion(IReadOnlyList<string> Files, long Bytes);
 
 /// <summary>A session folder and its document.</summary>
 public sealed record Session(string Folder, SessionDocument Document)
@@ -245,6 +275,125 @@ public sealed class SessionLibrary
 
     /// <summary>Marks a session as opened now.</summary>
     public Session Touch(string folder) => Update(folder, document => document with { LastOpenedUtc = _time.GetUtcNow() });
+
+    /// <summary>Records a monitoring run, replacing the record with its id (sprint 3.4: written at its start and end).</summary>
+    public Session RecordRun(string folder, SessionRun run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        return Update(folder, document =>
+        {
+            // A newer build's members on the record survive (forward compatibility, like the document's own).
+            var existing = document.Runs?.FirstOrDefault(r => r.Id == run.Id);
+            var kept = run.Extra is null && existing?.Extra is { } extra ? run with { Extra = extra } : run;
+            return document with { Runs = [.. (document.Runs ?? []).Where(r => r.Id != run.Id), kept] };
+        });
+    }
+
+    /// <summary>
+    /// Deletes a snapshot of a session (sprint 3.4, decision 6): its file, its partial and DAC leftovers, its index caches
+    /// and sidecars (next to it and in <paramref name="cacheFallbackRoot"/>), and its entry. The caller has made sure it is
+    /// not open. A file that cannot be deleted fails the call after the others are gone; the entry stays then.
+    /// </summary>
+    public Deletion DeleteSnapshot(string folder, Guid snapshotId, string? cacheFallbackRoot = null)
+    {
+        var session = TryRead(folder) ?? throw new IOException($"{folder} is not a readable HeapScope session.");
+        var snapshot = session.Document.Snapshots.FirstOrDefault(s => s.Id == snapshotId)
+            ?? throw new ArgumentException("The snapshot is not in this session.", nameof(snapshotId));
+        var deletion = DeleteFiles(SnapshotFiles(session.PathOf(snapshot), cacheFallbackRoot));
+        Update(folder, document => document with { Snapshots = [.. document.Snapshots.Where(s => s.Id != snapshotId)] });
+        return deletion;
+    }
+
+    /// <summary>
+    /// Deletes a whole session (sprint 3.4): its snapshots' caches in the fallback root, then its folder. The caller has made
+    /// sure none of its snapshots is open and nothing captures into it.
+    /// </summary>
+    public Deletion DeleteSession(string folder, string? cacheFallbackRoot = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(folder);
+        var full = Path.GetFullPath(folder);
+        if (!full.StartsWith(Path.GetFullPath(Root), StringComparison.OrdinalIgnoreCase) || TryRead(full) is not { } session)
+        {
+            throw new ArgumentException("Only a session of this library can be deleted.", nameof(folder));
+        }
+
+        lock (_gate)
+        {
+            if (HasCurrent && string.Equals(Path.GetFullPath(Current.Folder), full, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The current session cannot be deleted while it is current: start a new session first.");
+            }
+        }
+
+        var files = session.Document.Snapshots.SelectMany(s => IndexCachePaths.Existing(session.PathOf(s), cacheFallbackRoot)).Where(f => !IsUnder(f, full)).ToList();
+        var outside = DeleteFiles(files);
+        var inside = Directory.EnumerateFiles(full, "*", SearchOption.AllDirectories).ToList();
+        var bytes = inside.Sum(f => new FileInfo(f).Length);
+        Directory.Delete(full, recursive: true);
+        return new Deletion([.. outside.Files, .. inside], outside.Bytes + bytes);
+    }
+
+    /// <summary>The session that records the snapshot at <paramref name="path"/>, with its entry, or null (sprint 3.4).</summary>
+    public (Session Session, SessionSnapshot Snapshot)? FindSnapshot(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        var full = Path.GetFullPath(path);
+        foreach (var summary in ListRecent(int.MaxValue))
+        {
+            if (TryRead(summary.Folder) is { } session
+                && session.Document.Snapshots.FirstOrDefault(s => string.Equals(Path.GetFullPath(session.PathOf(s)), full, StringComparison.OrdinalIgnoreCase)) is { } snapshot)
+            {
+                return (session, snapshot);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The bytes a snapshot's deletion would free: its file and its caches (sprint 3.4, for the confirmation).</summary>
+    public static long SizeOf(string path, string? cacheFallbackRoot = null) =>
+        SnapshotFiles(path, cacheFallbackRoot).Sum(f => new FileInfo(f).Length);
+
+    /// <summary>
+    /// Sessions not opened for <paramref name="age"/> (sprint 3.4, "Clean up old sessions"), oldest first, the current one
+    /// left out. Nothing is deleted here.
+    /// </summary>
+    public IReadOnlyList<SessionSummary> ListOlderThan(TimeSpan age)
+    {
+        var cutoff = _time.GetUtcNow() - age;
+        var current = HasCurrent ? Path.GetFullPath(Current.Folder) : null;
+        return [.. ListRecent(int.MaxValue).Where(s => s.LastOpenedUtc < cutoff && !string.Equals(Path.GetFullPath(s.Folder), current, StringComparison.OrdinalIgnoreCase)).OrderBy(s => s.LastOpenedUtc)];
+    }
+
+    /// <summary>A snapshot's files: itself, its partial file, and its index caches and sidecars.</summary>
+    private static IEnumerable<string> SnapshotFiles(string path, string? cacheFallbackRoot) =>
+        new[] { path, path + ".partial" }.Where(File.Exists).Concat(IndexCachePaths.Existing(path, cacheFallbackRoot));
+
+    private static Deletion DeleteFiles(IEnumerable<string> files)
+    {
+        var deleted = new List<string>();
+        long bytes = 0;
+        List<Exception>? failures = null;
+        foreach (var file in files.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var size = new FileInfo(file).Length;
+                File.Delete(file);
+                deleted.Add(file);
+                bytes += size;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+
+        return failures is null ? new Deletion(deleted, bytes) : throw new IOException($"{failures.Count} files could not be deleted (they may be in use): {failures[0].Message}", failures[0]);
+    }
+
+    private static bool IsUnder(string file, string folder) =>
+        Path.GetFullPath(file).StartsWith(folder.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Removes a session folder that holds no snapshots and no files (a capture that failed after creating it).</summary>
     public void DeleteIfEmpty(string folder)

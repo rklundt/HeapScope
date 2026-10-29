@@ -125,13 +125,21 @@ public sealed class SyntheticCounterSource(int count, int perSecond) : ICounterS
 /// How to monitor: the sample interval, the snapshot rules, whether to write the timeline file, and what rules capture
 /// (sprint 1.8: full dumps, or gcdumps, which are smaller but force a full GC in the target that shows in its counters).
 /// </summary>
-public sealed record MonitorOptions(TimeSpan Interval, MonitorRules Rules, bool WriteTimeline = true, SnapshotKindDto CaptureKind = SnapshotKindDto.FullDump)
+/// <param name="RecordAllocations">Records an allocation trace for the whole run (sprint 3.4, decision 4).</param>
+/// <param name="ProcessName">The target's name, for the run's record.</param>
+public sealed record MonitorOptions(TimeSpan Interval, MonitorRules Rules, bool WriteTimeline = true, SnapshotKindDto CaptureKind = SnapshotKindDto.FullDump, bool RecordAllocations = false, string? ProcessName = null)
 {
     public static MonitorOptions Default { get; } = new(TimeSpan.FromSeconds(1), MonitorRules.None);
 }
 
 /// <summary>A snapshot a rule took: when, which rule, and the capture or why it failed.</summary>
 public sealed record MonitorCapture(DateTimeOffset At, string Rule, CaptureResult? Result, string? Error);
+
+/// <summary>A garbage collection the run forced in its target (sprint 3.4), or why it failed.</summary>
+public sealed record MonitorForcedGc(DateTimeOffset At, ForcedGcResult? Result, string? Error);
+
+/// <summary>Records an allocation trace of a process into a file until canceled (sprint 3.4; the trace service by default).</summary>
+public delegate Task<TraceResult> AllocationRecorder(int processId, string path, CancellationToken cancellationToken);
 
 /// <summary>A sample as the run saw it: the counters, and whether GC pressure is high.</summary>
 public sealed record MonitorSample(HeapSample Counters, bool HighGcPressure, long? Baseline);
@@ -140,11 +148,13 @@ public sealed record MonitorSample(HeapSample Counters, bool HighGcPressure, lon
 /// Starts monitoring runs (sprint 1.7): counters every interval, snapshot rules turned into captures in the current
 /// session (<see cref="SnapshotSource.Timed"/>, labeled with the rule), and a timeline file in the session folder.
 /// </summary>
-public sealed class MonitorService(ICaptureService capture, ICounterSource? counters = null, ILogger<MonitorService>? logger = null)
+public sealed class MonitorService(ICaptureService capture, ICounterSource? counters = null, ILogger<MonitorService>? logger = null, AllocationRecorder? allocations = null, TimeProvider? timeProvider = null)
 {
     private readonly ICaptureService _capture = capture ?? throw new ArgumentNullException(nameof(capture));
     private readonly ICounterSource _counters = counters ?? new EventPipeCounterSource();
     private readonly ILogger _logger = logger ?? NullLogger<MonitorService>.Instance;
+    private readonly AllocationRecorder _allocations = allocations ?? ((pid, path, ct) => new TraceService().RecordAsync(pid, path, TraceKind.Allocations, TimeSpan.FromDays(20), ct));
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
     /// <summary>
     /// Starts monitoring <paramref name="processId"/>; the run ends when stopped or when the process exits.
@@ -153,17 +163,19 @@ public sealed class MonitorService(ICaptureService capture, ICounterSource? coun
     public MonitorRun Start(int processId, MonitorOptions options, Action<MonitorRun>? attach = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var run = new MonitorRun(processId, options, _capture, _logger);
+        var run = new MonitorRun(processId, options, _capture, _logger, _allocations, _time);
 
         // What the run will do, so a later automatic capture can be traced to its rule (sprint 2.3.7 review M4).
         _logger.LogInformation(
-            "Monitoring pid {Pid} started: every {IntervalSeconds:N1} s, rules {Rules}, at most {Max} snapshots, capture {Kind}, timeline {Timeline}",
+            "Monitoring pid {Pid} started (run {RunId}): every {IntervalSeconds:N1} s, rules {Rules}, at most {Max} snapshots, capture {Kind}, timeline {Timeline}, allocations {Allocations}",
             processId,
+            run.Id,
             options.Interval.TotalSeconds,
             options.Rules.Rules.Count == 0 ? "none" : string.Join("; ", options.Rules.Rules.Select(Describe)),
             options.Rules.MaxSnapshots?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unlimited",
             options.CaptureKind,
-            options.WriteTimeline);
+            options.WriteTimeline,
+            options.RecordAllocations);
         attach?.Invoke(run);
         run.Begin(_counters);
         return run;
@@ -194,19 +206,87 @@ public sealed class MonitorRun : IAsyncDisposable
     private bool _timelineFailed;
     private string? _folder;
     private Task? _capturing;
+    private readonly AllocationRecorder _allocations;
+    private readonly TimeProvider _time;
+    private readonly List<DateTimeOffset> _forcedGcs = [];
+    private readonly DateTimeOffset _started;
+    private Task<TraceResult>? _trace;
+    private string? _tracePath;
 
-    internal MonitorRun(int processId, MonitorOptions options, ICaptureService capture, ILogger logger)
+    internal MonitorRun(int processId, MonitorOptions options, ICaptureService capture, ILogger logger, AllocationRecorder allocations, TimeProvider time)
     {
         ProcessId = processId;
         Options = options;
         _capture = capture;
         _logger = logger;
+        _allocations = allocations;
+        _time = time;
+        _started = time.GetUtcNow();
         _rules = new SnapshotRuleEngine(options.Rules);
     }
 
     public event EventHandler<MonitorSample>? SampleReceived;
 
     public event EventHandler<MonitorCapture>? Captured;
+
+    /// <summary>Raised when a forced collection ends (sprint 3.4), on a background thread.</summary>
+    public event EventHandler<MonitorForcedGc>? GcForced;
+
+    /// <summary>The run's id in its session's record (sprint 3.4).</summary>
+    public Guid Id { get; } = Guid.NewGuid();
+
+    /// <summary>The session folder the run records into, when it has one.</summary>
+    public string? SessionFolder => _folder;
+
+    /// <summary>The allocation trace, once the run ended with one (sprint 3.4).</summary>
+    public string? TracePath { get; private set; }
+
+    /// <summary>Why the allocation trace was not recorded, when asked for and it failed.</summary>
+    public string? TraceError { get; private set; }
+
+    /// <summary>
+    /// Takes a snapshot now (sprint 3.4, the Live page's Get snapshot): a manual capture of the run's process with the run's
+    /// kind, recorded as the run's card and timeline marker. Refused (a failed card) while a capture of it runs.
+    /// </summary>
+    public Task<MonitorCapture> CaptureNowAsync()
+    {
+        Task<MonitorCapture> capture;
+        lock (_gate)
+        {
+            capture = Task.Run(() => CaptureAsync(null, "manual", _time.GetUtcNow(), null));
+            _capturing = capture;
+        }
+
+        return capture;
+    }
+
+    /// <summary>Forces a full collection in the run's process (sprint 3.4), marked on the timeline.</summary>
+    public async Task<MonitorForcedGc> ForceGcAsync(CancellationToken cancellationToken)
+    {
+        var at = _time.GetUtcNow();
+        MonitorForcedGc result;
+        try
+        {
+            result = new MonitorForcedGc(at, await _capture.ForceGcAsync(ProcessId, cancellationToken).ConfigureAwait(false), null);
+        }
+        catch (CaptureFailedException ex)
+        {
+            result = new MonitorForcedGc(at, null, ex.Message);
+        }
+
+        lock (_gate)
+        {
+            if (result.Result is not null)
+            {
+                _forcedGcs.Add(at);
+            }
+
+            WriteEvent(at, result.Result is not null ? "gc forced" : "gc not forced: " + result.Error);
+        }
+
+        Raise(GcForced, result);
+        return result;
+    }
 
     public int ProcessId { get; }
 
@@ -289,7 +369,70 @@ public sealed class MonitorRun : IAsyncDisposable
             }
         }
 
+        if (Options.RecordAllocations)
+        {
+            StartTrace();
+        }
+
+        Record(ended: null);
         Completion = RunAsync(counters);
+    }
+
+    /// <summary>Starts the allocation trace in the run's session folder; a refusal is recorded, the run goes on.</summary>
+    private void StartTrace()
+    {
+        try
+        {
+            var folder = _folder ?? _capture.Library.Current.Folder;
+            _tracePath = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"allocations-{ProcessId}-{DateTime.Now:yyyyMMdd-HHmmss}.nettrace"));
+            _trace = _allocations(ProcessId, _tracePath, _stop.Token);
+            _logger.LogInformation("Monitoring pid {Pid} (run {RunId}): recording allocations to {Path}", ProcessId, Id, _tracePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CaptureFailedException)
+        {
+            TraceError = ex.Message;
+            _logger.LogWarning(ex, "Monitoring pid {Pid}: the allocation trace could not start", ProcessId);
+        }
+    }
+
+    /// <summary>The run's record in its session (decision 5): at the start, and with its end, files and snapshots.</summary>
+    private void Record(DateTimeOffset? ended)
+    {
+        if (_folder is null)
+        {
+            return;
+        }
+
+        try
+        {
+            string? Relative(string? path) => path is null ? null : Path.GetRelativePath(_folder, path);
+            List<Guid> snapshots;
+            List<DateTimeOffset> forced;
+            lock (_gate)
+            {
+                snapshots = [.. _captures.Select(c => c.Result?.SnapshotId).OfType<Guid>()];
+                forced = [.. _forcedGcs];
+            }
+
+            _capture.Library.RecordRun(_folder, new SessionRun(
+                Id,
+                Options.ProcessName,
+                ProcessId,
+                Options.Interval.TotalSeconds,
+                Options.Rules.Rules.Count == 0 ? "none" : string.Join("; ", Options.Rules.Rules.Select(r => r.Label)),
+                Options.CaptureKind,
+                _started,
+                ended,
+                Relative(TimelinePath),
+                Relative(TracePath),
+                snapshots,
+                forced));
+            _logger.LogInformation("Monitoring run {RunId} recorded in {Folder} ({State}: {Snapshots} snapshots, {Forced} forced collections, trace {Trace})", Id, _folder, ended is null ? "started" : "ended", snapshots.Count, forced.Count, TracePath ?? "none");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "The monitoring run {RunId} could not be recorded in its session", Id);
+        }
     }
 
     private async Task RunAsync(ICounterSource counters)
@@ -323,6 +466,22 @@ public sealed class MonitorRun : IAsyncDisposable
                 await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
 
+            // The allocation trace stops with the run (the token): keep what it wrote.
+            if (_trace is { } trace)
+            {
+                try
+                {
+                    var written = await trace.ConfigureAwait(false);
+                    TracePath = written.Path;
+                    _logger.LogInformation("Monitoring pid {Pid} (run {RunId}): allocation trace {Path}, {Bytes} bytes over {Seconds:N0} s", ProcessId, Id, written.Path, written.Bytes, written.Duration.TotalSeconds);
+                }
+                catch (Exception ex) when (ex is CaptureFailedException or OperationCanceledException or IOException)
+                {
+                    TraceError = ex.Message;
+                    _logger.LogWarning(ex, "Monitoring pid {Pid}: the allocation trace failed", ProcessId);
+                }
+            }
+
             StreamWriter? timeline;
             lock (_gate)
             {
@@ -341,6 +500,8 @@ public sealed class MonitorRun : IAsyncDisposable
                     _logger.LogWarning(ex, "The monitoring timeline could not be closed");
                 }
             }
+
+            Record(_time.GetUtcNow());
         }
     }
 
@@ -352,14 +513,15 @@ public sealed class MonitorRun : IAsyncDisposable
         {
             // After Stop no rule fires: the user asked for no more dumps (review of 1.7).
             var stopped = _stop.IsCancellationRequested;
-            fired = stopped ? null : _rules.Evaluate(sample, captureRunning: _capturing is { IsCompleted: false });
+            // A capture of this process from anywhere (the Processes page, Get snapshot) counts as running (decision 3).
+            fired = stopped ? null : _rules.Evaluate(sample, captureRunning: _capturing is { IsCompleted: false } || _capture.IsBusy(ProcessId));
             seen = new MonitorSample(sample, _rules.HighGcPressure, _rules.Baseline);
             WriteRow(sample, null);
             if (fired is not null)
             {
                 // Started outside the lock: a capture logs and adds a job, which raises events.
                 var decision = _rules.LastDecision;
-                _capturing = Task.Run(() => CaptureAsync(fired, sample.At, decision));
+                _capturing = Task.Run(() => CaptureAsync(fired, fired.Label, sample.At, decision));
             }
             else if (_rules.AtMaximum && !_maximumLogged)
             {
@@ -371,35 +533,36 @@ public sealed class MonitorRun : IAsyncDisposable
         Raise(SampleReceived, seen);
     }
 
-    private async Task CaptureAsync(SnapshotRule rule, DateTimeOffset at, RuleDecision? decision)
+    private async Task<MonitorCapture> CaptureAsync(SnapshotRule? rule, string label, DateTimeOffset at, RuleDecision? decision)
     {
         MonitorCapture result;
         try
         {
-            _logger.LogInformation("Monitoring pid {Pid}: {Rule} fired at {At:O}, capturing: {Decision}", ProcessId, rule.Label, at, decision?.ToString() ?? "no decision recorded");
-            var captured = await _capture.StartCapture(ProcessId, label: rule.Label, source: SnapshotSource.Timed, kind: Options.CaptureKind).Result.ConfigureAwait(false);
-            result = new MonitorCapture(at, rule.Label, captured, null);
+            _logger.LogInformation("Monitoring pid {Pid}: {Rule} {How} at {At:O}, capturing: {Decision}", ProcessId, label, rule is null ? "asked for" : "fired", at, decision?.ToString() ?? "no decision recorded");
+            var captured = await _capture.StartCapture(ProcessId, label: label, source: rule is null ? SnapshotSource.Manual : SnapshotSource.Timed, kind: Options.CaptureKind).Result.ConfigureAwait(false);
+            result = new MonitorCapture(at, label, captured, null);
         }
         catch (CaptureFailedException ex)
         {
-            _logger.LogWarning(ex, "Monitoring pid {Pid}: the {Rule} capture failed", ProcessId, rule.Label);
-            result = new MonitorCapture(at, rule.Label, null, ex.Message);
+            _logger.LogWarning(ex, "Monitoring pid {Pid}: the {Rule} capture failed", ProcessId, label);
+            result = new MonitorCapture(at, label, null, ex.Message);
         }
         catch (OperationCanceledException)
         {
             // Canceled from the jobs panel, or when the app closes: recorded like a failure, the run goes on.
-            _logger.LogInformation("Monitoring pid {Pid}: the {Rule} capture was canceled", ProcessId, rule.Label);
-            result = new MonitorCapture(at, rule.Label, null, "Canceled.");
+            _logger.LogInformation("Monitoring pid {Pid}: the {Rule} capture was canceled", ProcessId, label);
+            result = new MonitorCapture(at, label, null, "Canceled.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Monitoring pid {Pid}: the {Rule} capture failed unexpectedly", ProcessId, rule.Label);
-            result = new MonitorCapture(at, rule.Label, null, "The capture failed. Details are in the log.");
+            _logger.LogError(ex, "Monitoring pid {Pid}: the {Rule} capture failed unexpectedly", ProcessId, label);
+            result = new MonitorCapture(at, label, null, "The capture failed. Details are in the log.");
         }
 
         lock (_gate)
         {
-            if (result.Result is not null)
+            // A manual snapshot does not count toward the rules' maximum.
+            if (result.Result is not null && rule is not null)
             {
                 _rules.Taken();
             }
@@ -409,6 +572,7 @@ public sealed class MonitorRun : IAsyncDisposable
         }
 
         Raise(Captured, result);
+        return result;
     }
 
     /// <summary>Raises an event; a listener that throws is logged and never ends the run (review of 1.7).</summary>
@@ -429,6 +593,25 @@ public sealed class MonitorRun : IAsyncDisposable
             {
                 _logger.LogWarning(ex, "A monitoring listener failed");
             }
+        }
+    }
+
+    /// <summary>A timeline row holding only an event (a forced collection), its text quoted for CSV.</summary>
+    private void WriteEvent(DateTimeOffset at, string text)
+    {
+        if (!Options.WriteTimeline || _timelineFailed || _folder is null || _timeline is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _timeline.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{at:O},,,,,,,,,,,,,\"{text.Replace("\"", "\"\"", StringComparison.Ordinal)}\""));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "The monitoring timeline could not be written; the run goes on without it");
+            _timelineFailed = true;
         }
     }
 

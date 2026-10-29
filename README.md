@@ -36,6 +36,11 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
   objects and bytes of any number of ticked snapshots side by side, with how often each type grew. The CLI's `diff`
   matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one generation (`--growth-of
   gen2`) or each row on its own (`--fail-on-growth-per-row`); `trend` compares several dumps.
+- **Live workflow.** The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
+  garbage collection (Force GC, a dotted line on the chart), records an allocation trace for the whole run when asked,
+  and lists the session's past runs to reopen their timelines and snapshots. One capture per process runs at a time,
+  from any page or rule. Snapshots can be closed and deleted with their caches, sessions deleted, and old sessions
+  cleaned up from the Home page; each asks first.
 - **Group by interface.** The types grid and Compare group by interface on full dumps: a type counts under each
   interface it implements, so the rows overlap. An interface row opens as a set.
 - **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;

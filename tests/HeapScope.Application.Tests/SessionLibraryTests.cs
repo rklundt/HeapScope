@@ -54,6 +54,80 @@ public sealed class SessionLibraryTests : IDisposable
     }
 
     [Fact]
+    public void Deleting_a_snapshot_removes_its_file_caches_and_sidecars_next_to_it_and_in_the_fallback_folder()
+    {
+        // Sprint 3.4 (decision 6).
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        var dump = Path.Combine(folder, "app.dmp");
+        var other = Path.Combine(folder, "app.dmp.other.dmp");
+        File.WriteAllBytes(dump, new byte[100]);
+        File.WriteAllBytes(other, new byte[10]);
+        var fallback = Path.Combine(_root, "cache");
+        Directory.CreateDirectory(fallback);
+        string[] caches = [dump + ".hsidx", dump + ".rev.hsidx", HeapScope.Core.IndexCachePaths.InFallback(dump, fallback), HeapScope.Core.IndexCachePaths.Sidecar(HeapScope.Core.IndexCachePaths.InFallback(dump, fallback), "dom")];
+        foreach (var cache in caches)
+        {
+            File.WriteAllBytes(cache, new byte[7]);
+        }
+
+        File.WriteAllBytes(other + ".hsidx", new byte[3]);
+        var snapshot = Snapshot(dump);
+        library.AddToCurrent(snapshot);
+        library.AddToCurrent(Snapshot(other));
+
+        var deletion = library.DeleteSnapshot(folder, snapshot.Id, fallback);
+
+        deletion.Files.Order().ShouldBe([dump, .. caches], ignoreOrder: true);
+        deletion.Bytes.ShouldBe(100 + (4 * 7));
+        File.Exists(other).ShouldBeTrue();
+        File.Exists(other + ".hsidx").ShouldBeTrue("another dump's cache that shares the name's start is left alone");
+        SessionLibrary.TryRead(folder)!.Document.Snapshots.ShouldHaveSingleItem().File.ShouldBe("app.dmp.other.dmp");
+    }
+
+    [Fact]
+    public void A_session_is_deleted_whole_but_never_the_current_one_and_old_ones_are_listed_oldest_first()
+    {
+        var library = new SessionLibrary(_root, _time);
+        var old = library.CreateSession("old");
+        File.WriteAllBytes(Path.Combine(old.Folder, "a.dmp"), new byte[50]);
+        library.AddTo(old.Folder, Snapshot(Path.Combine(old.Folder, "a.dmp")));
+        _time.Advance(TimeSpan.FromDays(40));
+        var recent = library.CreateSession("recent");
+        library.Open(recent.Folder).ShouldNotBeNull();
+        _time.Advance(TimeSpan.FromDays(1));
+
+        library.ListOlderThan(TimeSpan.FromDays(30)).Select(s => s.Name).ShouldBe(["old"]);
+        Should.Throw<InvalidOperationException>(() => library.DeleteSession(recent.Folder));
+        Should.Throw<ArgumentException>(() => library.DeleteSession(Path.GetTempPath()));
+
+        var deletion = library.DeleteSession(old.Folder, Path.Combine(_root, "cache"));
+
+        Directory.Exists(old.Folder).ShouldBeFalse();
+        deletion.Bytes.ShouldBeGreaterThanOrEqualTo(50);
+        library.ListOlderThan(TimeSpan.FromDays(30)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_run_record_keeps_members_a_newer_build_wrote()
+    {
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        var run = new SessionRun(Guid.NewGuid(), "app", 7, 1, "none", HeapScope.Contracts.SnapshotKindDto.FullDump, _time.GetUtcNow(), null, "counters.csv", null, []);
+        library.RecordRun(folder, run);
+        var path = Path.Combine(folder, SessionLibrary.DocumentName);
+        var json = JsonNode.Parse(File.ReadAllText(path))!;
+        json["Runs"]![0]!["FutureField"] = 3;
+        File.WriteAllText(path, json.ToJsonString());
+
+        library.RecordRun(folder, run with { EndedUtc = _time.GetUtcNow() });
+
+        var saved = JsonNode.Parse(File.ReadAllText(path))!["Runs"]!.AsArray().ShouldHaveSingleItem()!;
+        saved["FutureField"]!.GetValue<int>().ShouldBe(3, "a newer build's member survives an update by id");
+        SessionLibrary.TryRead(folder)!.Document.Runs!.Single().EndedUtc.ShouldNotBeNull();
+    }
+
+    [Fact]
     public void Session_folders_and_documents_are_the_users_alone_off_windows()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Windows keeps the user profile's ACL.");

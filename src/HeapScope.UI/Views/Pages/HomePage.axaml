@@ -36,6 +36,10 @@
       <Button Content="Open dump..." HorizontalAlignment="Left" Padding="16,4" Margin="0,0,0,24" Command="{Binding OpenDumpCommand}" />
       <DockPanel Margin="0,0,0,4">
         <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
+        <Button DockPanel.Dock="Right" Content="Clean up old sessions..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}"
+                ToolTip.Tip="Delete the sessions not opened for the days given (asks first; the current session and sessions with an open snapshot are kept)." />
+        <NumericUpDown DockPanel.Dock="Right" Width="110" Minimum="1" Maximum="3650" Increment="1" FormatString="0" Value="{Binding CleanupDays, Mode=TwoWay}" Margin="0,0,6,0"
+                       ToolTip.Tip="Days a session was not opened" />
         <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
       </DockPanel>
       <ctl:NoteText Text="{Binding SessionStatus}" Classes="subtle" Margin="0,0,0,4" />
@@ -46,12 +50,17 @@
           <DataGridTextColumn Header="Last opened" x:DataType="sessions:SessionSummary" Binding="{Binding LastOpenedUtc.LocalDateTime, StringFormat='{}{0:g}'}" Width="140" />
           <DataGridTextColumn Header="Snapshots" x:DataType="sessions:SessionSummary" Binding="{Binding SnapshotCount}" Width="90" CellStyleClasses="number" />
           <DataGridTextColumn Header="Bytes" x:DataType="sessions:SessionSummary" Binding="{Binding SizeBytes, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number" />
-          <DataGridTemplateColumn Width="80">
+          <DataGridTemplateColumn Width="150">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="sessions:SessionSummary">
-                <Button Content="Open" Padding="8,0" Margin="2,1"
-                        Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).OpenSessionCommand}"
-                        CommandParameter="{Binding}" />
+                <StackPanel Orientation="Horizontal">
+                  <Button Content="Open" Padding="8,0" Margin="2,1"
+                          Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).OpenSessionCommand}"
+                          CommandParameter="{Binding}" />
+                  <Button Content="Delete..." Padding="8,0" Margin="2,1"
+                          Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).DeleteSessionCommand}"
+                          CommandParameter="{Binding}" />
+                </StackPanel>
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
           </DataGridTemplateColumn>

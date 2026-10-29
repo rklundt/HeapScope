@@ -36,7 +36,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
-| 3.4 | Live workflow and housekeeping | Planned | | |
+| 3.4 | Live workflow and housekeeping | In Progress | | |
 | 3.5 | Leak detection depth | Planned | | |
 
 ---
@@ -2683,11 +2683,66 @@ while monitoring (from 2.5); timelines recorded in `session.json` and reopening 
 snapshots and sessions with their index caches, refused while open, and a retention rule for old sessions (from 1.1);
 one capture per target at a time across pages (1.7 M4).
 
-**Acceptance criteria**: to be set at /start-sprint.
+**Acceptance criteria**:
+- On the Live page, Get snapshot captures the monitored process (the run's kind) into the run, with a card and a timeline
+  marker; Force GC triggers a full blocking collection in the target (its Gen2 collection count goes up) and marks the
+  timeline. Both are refused with the reason while a capture of that process runs.
+- One capture per process at a time across the app: a second capture of the same process, from any page or a rule, is
+  refused (a rule skips its firing and logs why) while the first runs; captures of different processes still run
+  together.
+- With "Record allocations" ticked, a monitoring run records an allocation trace for its whole length into the session,
+  and the trace opens on the Allocations page.
+- Each monitoring run is recorded in `session.json` (process, interval, rules, kind, start and end, timeline, trace and
+  the snapshots it took); the Live page lists past runs and reopens one's timeline, markers and cards read only.
+- A closed snapshot can be deleted with its index caches (next to it or in the fallback folder, sidecars included) and
+  removed from its session; an open one is refused with the reason. A session can be deleted the same way. "Clean up
+  old sessions" lists the sessions not opened for N days with their sizes and deletes them after confirmation, skipping
+  the current session and any with an open snapshot.
 
 **Dependencies**: 1.7, 2.5.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously, 2026-10-29, Phase 3 autonomy):
+1. Force GC: an EventPipe session with the runtime provider's GC keyword and GC heap collect keyword triggers an induced
+   full blocking collection in the target, as a gcdump capture does, without writing a dump. Targets of .NET 5 or later
+   with a diagnostics port; elsewhere refused with the reason. Logged with the target and the time taken. It moves
+   objects, so the run's markers say "GC forced" (3.3's New and Dead objects across it are mostly dead and new).
+2. Get snapshot on the Live page captures through the same capture service as the Processes page and the rules, recorded
+   as a manual capture of the run.
+3. One capture per process at a time: the capture service holds a gate per process id. A second capture or a Force GC of
+   that process fails at once with "a capture of this process is running" (a new `CaptureFailure.Busy`); a rule's firing
+   is skipped and logged. Different processes are not serialized.
+4. Allocations while monitoring: a "Record allocations" switch starts an allocation trace (2.5's recorder) with the run
+   and stops it with the run; the trace is written to the session folder and recorded in the run; the Live page opens it
+   on the Allocations page. Refused for targets the recorder refuses, with the reason; the run goes on without it.
+5. Runs in `session.json`: a `Runs` member (format version stays 1: older builds keep unknown members) with an id, the
+   process, the interval, the rules as text, the capture kind, start and end, the timeline and trace files (relative to
+   the session folder) and the ids of the snapshots it took. Written when the run starts and again when it ends. The
+   Live page lists the current session's runs and opens one read only from its timeline CSV (the counters, its events
+   as markers, its snapshots as cards).
+6. Deleting: `SessionLibrary` deletes a snapshot (its file, index caches and sidecars, its partial files, its entry) and
+   a session (its folder and its snapshots' caches in the fallback folder). The front end refuses a snapshot that is
+   open, and a session with an open snapshot, a running capture or monitoring run; every deletion is confirmed by the
+   user, lists what goes and its size, and is logged (paths and sizes, never contents). No automatic deletion:
+   "Clean up old sessions" on the Home page proposes the sessions not opened for 30 days (or the days the user picks) and
+   deletes only after confirmation.
+7. Logging: Force GC, Get snapshot, a refused capture (Busy), the allocation trace's start and end, run records written,
+   a past run opened, and every deletion (what, size, why refused) are logged.
+
+**Task breakdown**:
+1. [x] Capture and Application: `GcTrigger` (Force GC), the per-process capture gate and `CaptureFailure.Busy`, rules
+   skipping a busy target. Tests: two captures of one pid, one refused; different pids both run; a rule skips.
+2. [x] Application: run records in `session.json` (`SessionRun`), written at start and end with the snapshots and the
+   trace; the timeline CSV reader; deleting snapshots and sessions with their caches; old sessions listed. Tests: round
+   trips with unknown members kept; deletions of caches next to a dump and in the fallback folder; refusals.
+3. [x] Monitoring: allocation trace with the run; Force GC and Get snapshot during a run as markers and cards. Tests:
+   fakes for the counter source and the recorder.
+4. [x] View models and UI: Live page buttons (Get snapshot, Force GC), Record allocations, past runs list and read-only
+   reopening, the trace opened on the Allocations page; Snapshots page "Close and delete"; Home page delete session and
+   "Clean up old sessions". Tests: view model tests with fakes, view tests, no binding errors.
+5. [x] Integration: Force GC on LeakyConsole raises its Gen2 count; Get snapshot; one capture per target; deletion of a
+   real dump's caches; a past run reopened. Tests: integration on the fixture.
+6. [x] Docs: ARCHITECTURE (ADR-033 capture gate and run records, session format, logging), DEVELOPER, README, this
+   section.
 
 **Review summary**: to be filled by /wrap-sprint.
 

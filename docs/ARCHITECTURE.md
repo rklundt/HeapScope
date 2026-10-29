@@ -88,7 +88,11 @@ Capture and sessions (sprint 1.1):
   root is under `%LOCALAPPDATA%\HeapScope`), one folder per session (`yyyyMMdd-HHmmss[-name]`, claimed by creating its
   `session.json` exclusively, so parallel runs never share one) with `session.json` (format version 1: name, created,
   last opened, snapshots with id, file, label, kind, source, process, runtime version and folder, capture time, size;
-  unknown members are kept on save, so an older build never drops what a newer one wrote). Every change is a
+  since 3.4 `Runs`, the monitoring runs with their process, interval, rules, kind, start and end, timeline and trace
+  files and the ids of their snapshots and forced collections; unknown members are kept on save, on the document and on
+  each run, so an older build never drops what a newer one wrote). Since 3.4 a snapshot of a session is deleted with
+  its index caches and sidecars (next to it and in the fallback folder, named by Core's `IndexCachePaths`), and a session
+  whole; the front end refuses open snapshots and the current session and confirms every deletion. Every change is a
   read-modify-write under a cross-process lock file (`session.lock`) with a unique temporary file flushed to disk.
   The current session is created when the first capture passes its checks (a refused capture leaves no folder), or
   chosen with `Open` (Home's Open, CLI `--session`). `CaptureService` (behind `ICaptureService`) lists processes off
@@ -304,7 +308,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   (`EventPipeCounterSource`, and `SyntheticCounterSource` for the smoke run), `SnapshotRules.cs` (`EveryRule`,
   `AboveRule`, `GrowthRule`, `RearmMode`, `MonitorRules`, `SnapshotRuleEngine` with the GC pressure flag, on
   `HeapSample.RuleBytes`, the heap after the last GC) and `MonitorService` with `MonitorRun` (samples and captures as
-  events, one capture at a time, the counters timeline in the session folder) [1.7]. `ICaptureService.StartCapture`
+  events, one capture at a time, the counters timeline in the session folder) [1.7]. Since 3.4 a run is recorded in
+  its session (`SessionRun`) at its start and end, takes a snapshot now (`CaptureNowAsync`) or forces a collection
+  (`ForceGcAsync`, marked on the timeline), records an allocation trace for its whole length when asked, and
+  `TimelineFile` reads a timeline back; `CaptureService` keeps one capture or forced collection per process at a time
+  (`CaptureFailure.Busy`) and forces collections through Capture's `GcTrigger` [3.4]. `ICaptureService.StartCapture`
   records a source (`SnapshotSource.Timed` for rules) and takes a `SnapshotKindDto` [1.7, 1.8]. `Exports/CsvExport`:
   a result set or in-memory rows as CSV, page by page, without hidden columns and, unless opted in, without value
   columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
@@ -1574,6 +1582,11 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   change, the other snapshot, how many of the inner set's objects it kept and the survivors in all; a trend logs its
   snapshots in order, grouping, rows and the first rows' growth; the CLI's growth gate logs what it checked (total or a
   heap kind, per row or summed) and how many rows exceeded.
+- Live workflow (sprint 3.4): a forced collection logs the target, whether its end was seen and the time; a refused
+  capture or collection logs what it was, why it was asked and what was running; a run logs its id at the start, the
+  allocation trace's path, size and length, and each time it is recorded in its session (snapshots, forced collections);
+  reopening a past run logs its id, samples, events and snapshots; every deletion logs the paths and bytes removed (paths
+  of the user's own files, never their contents) or why it was refused.
 - Leak detectors (sprint 2.6): the inspection line carries the rule's version and thresholds, the baseline used (or
   none), the elapsed time, and the basis: what was scanned (static collections counted and in the baseline, delegate
   types, subscribers and publishers read, timers by state, types probed for a disposed flag, clients and scopes by
@@ -2196,6 +2209,21 @@ sprint 0.1.
   and runs again for each diff and compared set (keeping it per pair is in the Backlog). The capture advice of a growth
   gate (force a full GC first) and of New and Dead (do not force one between the dumps) differ: DEVELOPER.md says which
   goes with which.
+
+### ADR-033 One capture per process at a time; runs recorded in their session (added in sprint 3.4)
+- Context: the Processes page, the Live page and monitoring rules could each start a capture of one process at once,
+  doubling the pause and the disk use (1.7 M4); a monitoring run's timeline was a loose CSV with no record of what it
+  watched (1.7 M3); and sessions grew without a way to remove them from the app.
+- Decision: `CaptureService` holds a gate per process id for captures and forced collections; a second one fails at once
+  with `CaptureFailure.Busy` naming what runs, and rules see a busy process as a capture running. Forcing a collection is
+  an EventPipe session with the runtime's GC heap collect keyword (`GcTrigger`), like a gcdump without the heap walk.
+  Monitoring runs are recorded in `session.json` (`Runs`) when they start and when they end, with their files and
+  snapshots, so a past run reopens read only from its timeline. Deletion is explicit only: a snapshot of a session (file,
+  caches, sidecars, entry), a session, or the sessions not opened for N days, each confirmed and logged; never a dump
+  outside the library, never automatically.
+- Consequences: different processes still capture together. A forced collection moves objects (ADR-032's comparisons
+  across it see them as dead and new); the timeline and the run record mark it. A run that ends with the app recorded no
+  end (its `EndedUtc` stays null). Cache file names are Core's, so Storage and Application agree on them.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

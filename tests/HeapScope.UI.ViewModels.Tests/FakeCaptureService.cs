@@ -48,6 +48,25 @@ internal sealed class FakeCaptureService(string sessionsRoot, JobTracker jobs) :
     /// <summary>The kinds of the captures started, in order (sprint 1.8).</summary>
     public List<SnapshotKindDto> Kinds { get; } = [];
 
+    /// <summary>Processes reported busy (sprint 3.4).</summary>
+    public HashSet<int> Busy { get; } = [];
+
+    /// <summary>Forced collections asked for, by process id (sprint 3.4).</summary>
+    public List<int> ForcedGcs { get; } = [];
+
+    public bool IsBusy(int processId) => Busy.Contains(processId);
+
+    public Task<ForcedGcResult> ForceGcAsync(int processId, CancellationToken cancellationToken)
+    {
+        if (Busy.Contains(processId))
+        {
+            throw new CaptureFailedException(CaptureFailure.Busy, "A capture of process " + processId + " is running. Wait for it to finish, then try again.", null);
+        }
+
+        ForcedGcs.Add(processId);
+        return Task.FromResult(new ForcedGcResult(processId, true, TimeSpan.FromMilliseconds(5)));
+    }
+
     public TrackedJob<CaptureResult> StartCapture(int processId, string? outputPath = null, string? label = null, SnapshotSource source = SnapshotSource.Manual, SnapshotKindDto kind = SnapshotKindDto.FullDump) =>
         jobs.Start($"Capture pid {processId}", async (progress, ct) =>
         {
@@ -65,7 +84,8 @@ internal sealed class FakeCaptureService(string sessionsRoot, JobTracker jobs) :
 
             var path = outputPath ?? Path.Combine(Library.Current.Folder, $"{process.Name}-{processId}{(kind == SnapshotKindDto.GcDump ? ".gcdump" : ".dmp")}");
             await File.WriteAllBytesAsync(path, new byte[128], ct);
-            var session = Library.AddToCurrent(new SessionSnapshot(Guid.NewGuid(), path, process.Name, processId, process.RuntimeVersion, DateTimeOffset.UtcNow, 128, Kind: kind, Label: label));
-            return new CaptureResult(path, 128, process, session, Kind: kind);
+            var id = Guid.NewGuid();
+            var session = Library.AddToCurrent(new SessionSnapshot(id, path, process.Name, processId, process.RuntimeVersion, DateTimeOffset.UtcNow, 128, Kind: kind, Label: label));
+            return new CaptureResult(path, 128, process, session, Kind: kind, SnapshotId: id);
         });
 }

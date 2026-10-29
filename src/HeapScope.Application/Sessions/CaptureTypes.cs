@@ -74,7 +74,13 @@ public enum CaptureFailure
 
     /// <summary>Listing and capturing processes is not available on this system yet (Linux, macOS; ADR-025).</summary>
     NotSupportedOnThisSystem = 7,
+
+    /// <summary>A capture or forced collection of this process is running already (sprint 3.4: one at a time per process).</summary>
+    Busy = 8,
 }
+
+/// <summary>A forced garbage collection (sprint 3.4): whether its end was seen, and how long it took.</summary>
+public sealed record ForcedGcResult(int ProcessId, bool Completed, TimeSpan Elapsed);
 
 /// <summary>The capture use cases front ends depend on (faked in their tests).</summary>
 public interface ICaptureService
@@ -105,6 +111,15 @@ public interface ICaptureService
         string? label = null,
         SnapshotSource source = SnapshotSource.Manual,
         SnapshotKindDto kind = SnapshotKindDto.FullDump);
+
+    /// <summary>
+    /// Forces a full blocking garbage collection in the process (sprint 3.4); fails with <see cref="CaptureFailedException"/>
+    /// (<see cref="CaptureFailure.Busy"/> while a capture of it runs).
+    /// </summary>
+    Task<ForcedGcResult> ForceGcAsync(int processId, CancellationToken cancellationToken);
+
+    /// <summary>Whether a capture or forced collection of the process is running (sprint 3.4: rules wait for it).</summary>
+    bool IsBusy(int processId);
 }
 
 /// <summary>A capture failed; the message is plain language with a next step.</summary>

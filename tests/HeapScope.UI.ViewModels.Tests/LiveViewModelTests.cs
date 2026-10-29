@@ -84,6 +84,47 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Get_snapshot_and_force_gc_mark_the_run_and_a_past_run_reopens_read_only()
+    {
+        // Sprint 3.4 (decisions 2, 1 and 5).
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+        _live.GetSnapshotCommand.CanExecute(null).ShouldBeFalse("only while monitoring");
+
+        _live.StartCommand.Execute(null);
+        await _feed.SendAsync(100 * Mb, timeInGc: 2);
+        await _live.GetSnapshotCommand.ExecuteAsync(null);
+        _live.Status.ShouldBe("Snapshot taken.");
+        await _live.ForceGcCommand.ExecuteAsync(null);
+        _live.Status!.ShouldStartWith("A full garbage collection ran");
+        await _feed.SendAsync(120 * Mb, timeInGc: 2);
+        _capture.Busy.Add(42);
+        await _live.ForceGcCommand.ExecuteAsync(null);
+        _live.Status!.ShouldContain("Wait for it to finish");
+        _capture.Busy.Clear();
+
+        (_live.Snapshots.ShouldHaveSingleItem().Rule, _live.Markers.Count, _live.GcMarkers.Count, _capture.ForcedGcs.Count).ShouldBe(("manual", 1, 1, 1));
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning && _live.PastRuns.Count == 1);
+
+        var past = _live.PastRuns.ShouldHaveSingleItem();
+        past.Title.ShouldContain("app 42, 1 snapshots");
+        _live.StartCommand.Execute(null);
+        _live.OpenPastRunCommand.CanExecute(past).ShouldBeFalse("not while monitoring");
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+
+        await _live.OpenPastRunCommand.ExecuteAsync(past);
+
+        _live.Samples.Count.ShouldBe(2);
+        (_live.Markers.Count, _live.GcMarkers.Count, _live.Snapshots.Count).ShouldBe((1, 1, 1));
+        _live.PastRunShown.ShouldBe(past.Title);
+        _live.Status!.ShouldStartWith("Showing a past run");
+    }
+
+    [Fact]
     public async Task Rules_capture_gcdumps_when_asked()
     {
         await _live.RefreshCommand.ExecuteAsync(null);

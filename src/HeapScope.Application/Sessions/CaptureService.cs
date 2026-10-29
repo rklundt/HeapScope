@@ -39,7 +39,7 @@ namespace HeapScope.Application.Sessions;
 /// <param name="Session">The session it was recorded in, or null when recording failed (the dump is kept).</param>
 /// <param name="Warning">A problem after the dump was written (for example the session could not be updated).</param>
 /// <param name="Kind">What was captured: a full dump or a gcdump (sprint 1.8).</param>
-public sealed record CaptureResult(string Path, long SizeBytes, ProcessEntry Process, Session? Session, string? Warning = null, SnapshotKindDto Kind = SnapshotKindDto.FullDump)
+public sealed record CaptureResult(string Path, long SizeBytes, ProcessEntry Process, Session? Session, string? Warning = null, SnapshotKindDto Kind = SnapshotKindDto.FullDump, Guid? SnapshotId = null)
 {
     /// <summary>Shown once per capture (ARCHITECTURE.md 12).</summary>
     public string SecretsNote => Kind == SnapshotKindDto.GcDump
@@ -62,6 +62,9 @@ public sealed class CaptureService : ICaptureService
     private readonly IElevationProbe _elevation;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+
+    // One capture or forced collection per process at a time, across every page and rule (sprint 3.4, decision 3).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _busy = new();
 
     public CaptureService(
         IProcessDiscovery discovery,
@@ -126,6 +129,7 @@ public sealed class CaptureService : ICaptureService
         var title = string.Create(CultureInfo.InvariantCulture, $"Capture {profile.TitlePrefix}pid {processId}");
         return Jobs.Start(title, async (progress, ct) =>
         {
+            using var gate = EnterGate(processId, "a capture", label ?? source.ToString());
             var stopwatch = Stopwatch.StartNew();
             progress.Report(new JobProgress("Finding process", 0, null));
             DotNetProcess? found;
@@ -209,10 +213,11 @@ public sealed class CaptureService : ICaptureService
 
             try
             {
+                var snapshotId = Guid.NewGuid();
                 var session = Library.AddTo(sessionFolder ?? Library.Current.Folder, new SessionSnapshot(
-                    Guid.NewGuid(), path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
+                    snapshotId, path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
                     Kind: kind, Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
-                return new CaptureResult(path, size, ToEntry(process), session, Kind: kind);
+                return new CaptureResult(path, size, ToEntry(process), session, Kind: kind, SnapshotId: snapshotId);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -221,6 +226,63 @@ public sealed class CaptureService : ICaptureService
                 return new CaptureResult(path, size, ToEntry(process), null, $"The snapshot was written, but the session could not be updated: {ex.Message}", kind);
             }
         });
+    }
+
+    public bool IsBusy(int processId) => _busy.ContainsKey(processId);
+
+    public async Task<ForcedGcResult> ForceGcAsync(int processId, CancellationToken cancellationToken)
+    {
+        if (CapturePlatform.UnsupportedReason() is { } reason)
+        {
+            throw Failure(CaptureFailure.NotSupportedOnThisSystem, reason, null);
+        }
+
+        using var gate = EnterGate(processId, "a forced collection", "Force GC");
+        try
+        {
+            var forced = await GcTrigger.CollectAsync(processId, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Forced a full garbage collection in pid {Pid}: {Outcome} (collection {Number}) in {Seconds:0.00} s",
+                processId,
+                forced.Completed ? "finished" : "its end was not seen within 30 s",
+                forced.GcNumber,
+                forced.Elapsed.TotalSeconds);
+            return new ForcedGcResult(processId, forced.Completed, forced.Elapsed);
+        }
+        catch (Exception ex) when (Translate(ex) is { } failure)
+        {
+            _logger.LogWarning(ex, "Forcing a garbage collection in pid {Pid} failed: {Reason}", processId, failure.Reason);
+            throw failure;
+        }
+    }
+
+    /// <summary>
+    /// Takes the process's gate, or fails with <see cref="CaptureFailure.Busy"/> naming what holds it (decision 3); the
+    /// refusal is logged, so a skipped rule or a refused button can be backed up.
+    /// </summary>
+    private IDisposable EnterGate(int processId, string what, string why)
+    {
+        if (!_busy.TryAdd(processId, what))
+        {
+            var holder = _busy.TryGetValue(processId, out var running) ? running : "a capture";
+            _logger.LogInformation("Refused {What} of pid {Pid} ({Why}): {Holder} of it is running", what, processId, why, holder);
+            throw Failure(CaptureFailure.Busy, string.Create(CultureInfo.InvariantCulture, $"{char.ToUpperInvariant(holder[0])}{holder[1..]} of process {processId} is running. Wait for it to finish, then try again."), null);
+        }
+
+        return new Gate(() => _busy.TryRemove(processId, out _));
+    }
+
+    private sealed class Gate(Action leave) : IDisposable
+    {
+        private int _left;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _left, 1) == 0)
+            {
+                leave();
+            }
+        }
     }
 
     /// <summary>
