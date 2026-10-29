@@ -52,6 +52,7 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
     private readonly Action? _beforeOpen;
     private readonly Lock _gate = new();
     private DataTarget? _target;
+    private InterfaceNames? _interfaceNames;
     private ClrRuntime? _runtime;
     private bool _disposed;
 
@@ -283,6 +284,8 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
         lock (_gate)
         {
             _disposed = true;
+            _interfaceNames?.Clear();
+            _interfaceNames = null;
             _runtime?.Dispose();
             _target?.Dispose();
             _runtime = null;
@@ -298,6 +301,43 @@ public sealed class ClrMdObjectReader : IObjectReader, IDisposable
         return fieldName.StartsWith('<') && fieldName.EndsWith(Suffix, StringComparison.Ordinal)
             ? fieldName[1..^Suffix.Length]
             : fieldName;
+    }
+
+    public IReadOnlyList<string>? ReadInterfaces(ulong address)
+    {
+        lock (_gate)
+        {
+            // ClrMD lists a type's own non-generic InterfaceImpl rows (the 3.2 review): base types' interfaces and generic
+            // instantiations (from the module's metadata) are added here. Interfaces an interface extends come with the
+            // class's own rows (compilers list the closure); BaseInterface is walked in case a module does not.
+            if (Object(address).Type is not { } type)
+            {
+                return null;
+            }
+
+            var names = new SortedSet<string>(StringComparer.Ordinal);
+            _interfaceNames ??= new InterfaceNames(_target!);
+            for (var current = type; current is not null; current = current.BaseType)
+            {
+                foreach (var generic in _interfaceNames.GenericInterfaces(current))
+                {
+                    names.Add(generic);
+                }
+
+                foreach (var implemented in current.EnumerateInterfaces())
+                {
+                    for (var i = implemented; i is not null; i = i.BaseInterface)
+                    {
+                        if (!string.IsNullOrEmpty(i.Name))
+                        {
+                            names.Add(i.Name);
+                        }
+                    }
+                }
+            }
+
+            return [.. names];
+        }
     }
 
     private ClrObject Object(ulong address)

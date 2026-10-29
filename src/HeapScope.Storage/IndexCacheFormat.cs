@@ -72,6 +72,18 @@ public enum IndexSection
 
     /// <summary>Reverse references sidecar (sprint 2.1): referrer object index per reference.</summary>
     InEdges = 19,
+
+    /// <summary>Dominators sidecar (sprint 2.3): each object's immediate dominator (an object index, or a marker).</summary>
+    ImmediateDominators = 21,
+
+    /// <summary>Dominators sidecar (sprint 2.3): each object's retained size in bytes.</summary>
+    RetainedSizes = 22,
+
+    /// <summary>Dominators sidecar (sprint 2.4): the dominator tree's row offsets, one per object plus two (the virtual root's and the end).</summary>
+    DominatorChildStarts = 23,
+
+    /// <summary>Dominators sidecar (sprint 2.4): the dominator tree's children, each vertex's largest retained size first.</summary>
+    DominatorChildren = 24,
 }
 
 /// <summary>
@@ -79,7 +91,12 @@ public enum IndexSection
 /// present and no other may appear. The base cache and each optional index (a sidecar next to it) have their own layout.
 /// </summary>
 /// <param name="Name">The file's kind in messages ("reverse references").</param>
-public sealed record IndexFileLayout(string Name, IReadOnlyDictionary<IndexSection, int> ElementSizes)
+/// <param name="SemanticsVersion">
+/// The version of the rules a sidecar's contents were computed under (sprint 2.3, from the 2.1 review): a file written
+/// under another version is refused and rebuilt, like a cache from an older loader. 0 for the base cache and the reverse
+/// references.
+/// </param>
+public sealed record IndexFileLayout(string Name, IReadOnlyDictionary<IndexSection, int> ElementSizes, int SemanticsVersion = 0)
 {
     /// <summary>The base index cache: the graph (ARCHITECTURE.md 7).</summary>
     public static IndexFileLayout Base { get; } = new("base", new Dictionary<IndexSection, int>
@@ -110,6 +127,18 @@ public sealed record IndexFileLayout(string Name, IReadOnlyDictionary<IndexSecti
         [IndexSection.InEdgeStarts] = sizeof(int),
         [IndexSection.InEdges] = sizeof(int),
     });
+
+    /// <summary>
+    /// The dominators sidecar (<c>.dom.hsidx</c>, sprint 2.3) computed under the rules of <paramref name="semanticsVersion"/>
+    /// (a factory, so no caller can forget the version; review L).
+    /// </summary>
+    public static IndexFileLayout ForDominators(int semanticsVersion) => new("dominators", new Dictionary<IndexSection, int>
+    {
+        [IndexSection.ImmediateDominators] = sizeof(int),
+        [IndexSection.RetainedSizes] = sizeof(ulong),
+        [IndexSection.DominatorChildStarts] = sizeof(int),
+        [IndexSection.DominatorChildren] = sizeof(int),
+    }, semanticsVersion);
 }
 
 /// <summary>The fixed part of the header, at offset 0. 64 bytes. Sidecars use the same header (sprint 2.1).</summary>
@@ -120,7 +149,9 @@ internal struct FileHeader
     public int FormatVersion;
     public int HeaderRegionLength;
     public int SectionCount;
-    public int Reserved;
+
+    /// <summary>The version of the rules a sidecar was computed under (sprint 2.3); 0 otherwise (reserved and 0 before).</summary>
+    public int SemanticsVersion;
     public long SourceLength;
     public long SourceLastWriteUtcTicks;
     public ulong SourceContentHash;

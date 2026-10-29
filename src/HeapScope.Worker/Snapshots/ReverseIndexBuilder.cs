@@ -21,7 +21,6 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
-using System.Diagnostics;
 using HeapScope.Contracts;
 using HeapScope.Core.Graph;
 using HeapScope.Storage;
@@ -41,9 +40,9 @@ internal sealed record ReverseIndexTarget(string? Sidecar, ulong BaseIdentity, S
 
 /// <summary>
 /// Opens a snapshot's reverse references index from its sidecar or builds it from the graph (sprint 2.1, ARCHITECTURE.md
-/// 6.4 and 7). A built index is written as a sidecar when there is one to write; to go mapped, the sidecar is mapped first
-/// and the built arrays are dropped only once that worked (review M2), and the collection that returns them is neither
-/// aggressive nor compacting, so no live graph array is copied and other snapshots' queries pause briefly.
+/// 6.4 and 7). With a sidecar to write, the index is built straight into the mapped sidecar file and then opened in the
+/// chosen mode (sprint 2.3, from the 2.1 review M2), so a mapped index never holds a managed copy; without one, or when the
+/// file cannot be written, it is built in managed arrays and stays in memory.
 /// </summary>
 internal sealed class ReverseIndexBuilder(ILogger logger)
 {
@@ -95,31 +94,20 @@ internal sealed class ReverseIndexBuilder(ILogger logger)
         }
 
         progress?.Report(new JobProgress(BuildPhase, 0, graph.ObjectCount));
-        ReverseReferences? built = ReverseReferences.Build(graph, new PhaseProgress(progress, graph.ObjectCount), cancellationToken);
-        if (target.Sidecar is null || !TryWrite(target.Sidecar, target, built, cancellationToken))
+        if (target.Sidecar is not null && TryBuildIntoSidecar(target.Sidecar, target, graph, progress, cancellationToken))
         {
-            return new ReverseIndex(built, FromSidecar: false, MemoryMode.InMemory, SidecarWritten: false);
+            // Built straight into the file (sprint 2.3, 2.1 review M2): no managed copy exists; open it in the chosen mode.
+            progress?.Report(new JobProgress("Opening the incoming references index", 0, null));
+            if (TryOpen(target.Sidecar, target, graph, target.Mode, cancellationToken) is { } written)
+            {
+                return new ReverseIndex(written, FromSidecar: false, target.Mode, SidecarWritten: true);
+            }
+
+            logger.LogWarning("Reverse references sidecar {Path} could not be opened after writing it; the index is built in memory", target.Sidecar);
         }
 
-        if (target.Mode == MemoryMode.InMemory)
-        {
-            return new ReverseIndex(built, FromSidecar: false, MemoryMode.InMemory, SidecarWritten: true);
-        }
-
-        progress?.Report(new JobProgress("Mapping the incoming references index", 0, null));
-        if (TryOpen(target.Sidecar, target, graph, MemoryMode.Mapped, cancellationToken) is not { } mapped)
-        {
-            logger.LogWarning("Reverse references sidecar {Path} could not be mapped after writing it; the index stays in memory", target.Sidecar);
-            return new ReverseIndex(built, FromSidecar: false, MemoryMode.InMemory, SidecarWritten: true);
-        }
-
-        // Return the built arrays to the OS (ADR-015), without compacting: compaction would copy any in-memory graph's
-        // arrays, and with regions the freed large regions are decommitted anyway.
-        var stopwatch = Stopwatch.StartNew();
-        built = null;
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
-        logger.LogInformation("Reverse references built arrays released in {Milliseconds:N0} ms", stopwatch.Elapsed.TotalMilliseconds);
-        return new ReverseIndex(mapped, FromSidecar: false, MemoryMode.Mapped, SidecarWritten: true);
+        var built = ReverseReferences.Build(graph, new PhaseProgress(progress, graph.ObjectCount), cancellationToken);
+        return new ReverseIndex(built, FromSidecar: false, MemoryMode.InMemory, SidecarWritten: false);
     }
 
     /// <summary>The index from its sidecar, or null when the sidecar is missing, stale or damaged (it is then rebuilt).</summary>
@@ -153,19 +141,23 @@ internal sealed class ReverseIndexBuilder(ILogger logger)
         return null;
     }
 
-    private bool TryWrite(string sidecar, ReverseIndexTarget target, ReverseReferences reverse, CancellationToken cancellationToken)
+    /// <summary>Builds the index into its sidecar file; false when the file cannot be written (it is then built in memory).</summary>
+    private bool TryBuildIntoSidecar(string sidecar, ReverseIndexTarget target, HeapGraph graph, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         try
         {
-            using var writer = IndexCacheFileWriter.Create(sidecar, cancellationToken: cancellationToken);
-            writer.WriteSection(IndexSection.InEdgeStarts, reverse.InEdgeStarts.Span);
-            writer.WriteSection(IndexSection.InEdges, reverse.InEdges.Span);
+            using var writer = MappedIndexFileWriter.Create(
+                sidecar,
+                [new(IndexSection.InEdgeStarts, sizeof(int), graph.ObjectCount + 1), new(IndexSection.InEdges, sizeof(int), graph.EdgeCount)],
+                cancellationToken);
+            ReverseReferences.Fill(graph, writer.GetSection<int>(IndexSection.InEdgeStarts), writer.GetSection<int>(IndexSection.InEdges), new PhaseProgress(progress, graph.ObjectCount), cancellationToken);
+            progress?.Report(new JobProgress("Saving the incoming references index", 0, null));
             writer.Commit(target.Fingerprint, target.BaseIdentity);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The index stays in memory and is built again on the next open.
+            // The index is built in memory instead, and again on the next open.
             logger.LogWarning(ex, "Reverse references sidecar {Path} could not be written", sidecar);
             return false;
         }

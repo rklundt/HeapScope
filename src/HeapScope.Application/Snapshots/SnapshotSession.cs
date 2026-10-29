@@ -25,6 +25,8 @@ using System.Globalization;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.Application.Snapshots;
 
@@ -72,9 +74,10 @@ public sealed class SnapshotHandle
 /// <see cref="UseAsync{T}"/>, which reopens it after a worker restart (stale ids fail with
 /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/> in the worker).
 /// </summary>
-public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<PhysicalMemory>? memory = null)
+public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<PhysicalMemory>? memory = null, ILogger<SnapshotSession>? logger = null)
 {
     private readonly Func<PhysicalMemory> _memory = memory ?? PhysicalMemory.Current;
+    private readonly ILogger _logger = logger ?? (ILogger)NullLogger.Instance;
 
     private readonly object _gate = new();
     private readonly List<SnapshotHandle> _snapshots = [];
@@ -111,6 +114,16 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
                 handle.Update(descriptor, generation);
             }
 
+            // The worker's identity line (sprint 2.3.7 review H2) has the details; this ties the front end's snapshot to it.
+            _logger.LogInformation(
+                "Snapshot {Path} opened as worker snapshot {WorkerSnapshotId} (worker generation {Generation}, {Source}, cache identity {Identity:x16}, rebuild {Rebuild}, mode {Mode})",
+                descriptor.Path,
+                descriptor.SnapshotId,
+                generation,
+                descriptor.FromCache ? "index cache" : "dump",
+                descriptor.CacheIdentity,
+                rebuild,
+                descriptor.Mode);
             SnapshotsChanged?.Invoke(this, EventArgs.Empty);
             return handle;
         });
@@ -148,6 +161,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             handle.IsClosed = true;
         }
 
+        _logger.LogInformation("Snapshot {Path} (worker snapshot {WorkerSnapshotId}) closed", handle.Path, handle.WorkerSnapshotId);
         SnapshotsChanged?.Invoke(this, EventArgs.Empty);
         if (handle.Generation == worker.Generation && worker.State == WorkerState.Running)
         {
@@ -159,22 +173,39 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// A type summary with grouping, filter and sort (sprint 1.3). The rows come back as a <see cref="ResultSetHandle"/>
     /// that runs the query again (reopening the snapshot if the worker restarted) when the set is gone.
     /// </summary>
-    public async Task<TypeSummary> QueryTypeSummaryAsync(
+    public Task<TypeSummary> QueryTypeSummaryAsync(
         SnapshotHandle handle,
         TypeGrouping groupBy,
         string? filter,
         string? sortColumn,
         bool descending,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        QueryTypeSummaryAsync(handle, groupBy, filter, sortColumn, descending, includeRetained: false, progress, cancellationToken);
+
+    /// <summary>
+    /// A type summary, with a retained bytes column when <paramref name="includeRetained"/> is set (sprint 2.3; the first
+    /// such query of a snapshot computes its dominators).
+    /// </summary>
+    public async Task<TypeSummary> QueryTypeSummaryAsync(
+        SnapshotHandle handle,
+        TypeGrouping groupBy,
+        string? filter,
+        string? sortColumn,
+        bool descending,
+        bool includeRetained,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken,
+        ObjectSetQuery? set = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
         TypeSummaryResult? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
-            latest = await UseAsync(
+            latest = await UseWithSetAsync(
                 handle,
-                (service, id, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending), progress, innerCt),
+                set,
+                (service, id, spec, innerCt) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id, groupBy, filter, sortColumn, descending, includeRetained, spec), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -182,7 +213,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new TypeSummary(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new TypeSummary(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>
@@ -198,7 +229,9 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         string? sortColumn,
         bool descending,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool matchObjects = false,
+        bool includeRetained = false)
     {
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(current);
@@ -209,7 +242,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
                 baseline,
                 current,
                 (service, baselineId, currentId, innerCt) => service.QueryTypeDiffAsync(
-                    new TypeDiffRequest(baselineId, currentId, groupBy, filter, sortColumn, descending), progress, innerCt),
+                    new TypeDiffRequest(baselineId, currentId, groupBy, filter, sortColumn, descending, matchObjects, includeRetained), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -217,7 +250,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new SnapshotDiff(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new SnapshotDiff(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>
@@ -246,10 +279,11 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         InstancesResult? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
-            latest = await UseAsync(
+            latest = await UseWithSetAsync(
                 handle,
-                (service, id, innerCt) => service.QueryInstancesAsync(
-                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs),
+                query.Set,
+                (service, id, spec, innerCt) => service.QueryInstancesAsync(
+                    new InstancesRequest(id, query.TypeName, query.Module, query.Filter, query.SortColumn, query.Descending, query.Scope, query.SameValueAs, query.IncludeRetained, spec),
                     progress,
                     innerCt),
                 ct).ConfigureAwait(false);
@@ -259,7 +293,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new InstanceList(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new InstanceList(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
@@ -268,23 +302,26 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
 
     /// <summary>
     /// Runs an inspection (sprint 1.6). Its rows re-run it when the set is gone, reopening the snapshot after a worker
-    /// restart, like any query.
+    /// restart, like any query. <paramref name="baseline"/> is an earlier snapshot for the inspections that measure growth
+    /// (sprint 2.6); both are reopened together when needed.
     /// </summary>
-    public async Task<InspectionRun> RunInspectionAsync(SnapshotHandle handle, string name, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    public async Task<InspectionRun> RunInspectionAsync(SnapshotHandle handle, string name, IProgress<JobProgress>? progress, CancellationToken cancellationToken, SnapshotHandle? baseline = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentException.ThrowIfNullOrEmpty(name);
         InspectionResultDto? latest = null;
         async Task<ResultSetInfo> RunAsync(CancellationToken ct)
         {
-            latest = await UseAsync(handle, (service, id, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name), progress, innerCt), ct).ConfigureAwait(false);
+            latest = baseline is null
+                ? await UseAsync(handle, (service, id, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name), progress, innerCt), ct).ConfigureAwait(false)
+                : await UseBothAsync(handle, baseline, (service, id, baselineId, innerCt) => service.RunInspectionAsync(new InspectionRequest(id, name, baselineId), progress, innerCt), ct).ConfigureAwait(false);
             return latest.Rows;
         }
 
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new InspectionRun(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new InspectionRun(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>One object's details and, when the snapshot reads its dump, its fields (sprint 1.5).</summary>
@@ -298,7 +335,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         Task<ResultSetInfo> RunAsync(CancellationToken ct) =>
             UseAsync(handle, (service, id, innerCt) => service.QueryReferencesAsync(new ReferencesRequest(id, address), progress, innerCt), ct);
 
-        return new ResultSetHandle(worker, await RunAsync(cancellationToken).ConfigureAwait(false), RunAsync);
+        return new ResultSetHandle(worker, await RunAsync(cancellationToken).ConfigureAwait(false), RunAsync, _logger);
     }
 
     /// <summary>
@@ -318,7 +355,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
 
         // RunAsync just completed, so it set latest; the compiler cannot see through the local function.
-        return new ReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new ReferrerList(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
 
     /// <summary>The objects referencing a type's objects, grouped by their own type (sprint 2.1).</summary>
@@ -344,8 +381,116 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         }
 
         var info = await RunAsync(cancellationToken).ConfigureAwait(false);
-        return new TypeReferrerList(new ResultSetHandle(worker, info, RunAsync), latest!);
+        return new TypeReferrerList(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
     }
+
+    /// <summary>
+    /// The dominator tree's rows (sprint 2.4): the top level (the biggest retainers) or the tree below
+    /// <paramref name="focusAddress"/>, with the <paramref name="expanded"/> rows expanded. A re-run after a worker restart
+    /// keeps the expansion: the keys are addresses and group names. A node lists at most <paramref name="maxChildren"/>
+    /// children before a "more" row; the answer says at which row <paramref name="revealKey"/> landed.
+    /// </summary>
+    public async Task<DominatorTreeAnswer> QueryDominatorTreeAsync(
+        SnapshotHandle handle,
+        IReadOnlyList<string> expanded,
+        DominatorGroupingDto grouping,
+        ulong focusAddress,
+        int maxChildren,
+        string? revealKey,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(expanded);
+        string[] keys = [.. expanded];
+        DominatorTreeResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryDominatorTreeAsync(new DominatorTreeRequest(id, keys, grouping, focusAddress, maxChildren, revealKey), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new DominatorTreeAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>The icicle chart below <paramref name="focusAddress"/> (0 for the whole reachable heap). Sprint 2.4.</summary>
+    public Task<IcicleResult> QueryIcicleAsync(SnapshotHandle handle, ulong focusAddress, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.QueryIcicleAsync(new IcicleRequest(id, focusAddress), progress, ct), cancellationToken);
+
+    /// <summary>
+    /// What every object of a type retains together, exactly (sprint 2.4), by type; the totals next to the type summary's
+    /// lower bound.
+    /// </summary>
+    public async Task<RetainedBySetAnswer> QueryRetainedBySetAsync(SnapshotHandle handle, string typeName, string? module, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        RetainedBySetResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseAsync(
+                handle,
+                (service, id, innerCt) => service.QueryRetainedBySetAsync(new RetainedBySetRequest(id, typeName, module), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Types;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new RetainedBySetAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>What the members of any object set retain together, exactly (sprint 3.1), by type.</summary>
+    public async Task<RetainedBySetAnswer> QueryRetainedBySetAsync(SnapshotHandle handle, ObjectSetQuery set, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(set);
+        RetainedBySetResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseWithSetAsync(
+                handle,
+                set,
+                (service, id, spec, innerCt) => service.QueryRetainedBySetAsync(new RetainedBySetRequest(id, string.Empty, null, spec), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Types;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new RetainedBySetAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>The members of a set that no other member dominates, with what each retains (sprint 3.1).</summary>
+    public async Task<SetDominatorsAnswer> QuerySetDominatorsAsync(SnapshotHandle handle, ObjectSetQuery set, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(set);
+        SetDominatorsResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseWithSetAsync(
+                handle,
+                set,
+                (service, id, spec, innerCt) => service.QuerySetDominatorsAsync(new SetDominatorsRequest(id, spec!), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new SetDominatorsAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="call"/> with the snapshot's id and the set's spec bound to the current ids (sprint 3.1): a set
+    /// with an inspection baseline uses both snapshots, so either one is reopened after a worker restart.
+    /// </summary>
+    private Task<T> UseWithSetAsync<T>(SnapshotHandle handle, ObjectSetQuery? set, Func<IWorkerService, Guid, ObjectSetSpec?, CancellationToken, Task<T>> call, CancellationToken cancellationToken) =>
+        set?.Baseline is { } baseline
+            ? UseBothAsync(handle, baseline, (service, id, baselineId, ct) => call(service, id, set.Bind(baselineId), ct), cancellationToken)
+            : UseAsync(handle, (service, id, ct) => call(service, id, set?.Spec, ct), cancellationToken);
 
     /// <summary>
     /// Why one object is alive (sprint 2.2): its shortest paths from up to <paramref name="maxRoots"/> roots. The first such
@@ -354,11 +499,29 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     public Task<ObjectPathsResult> QueryObjectPathsAsync(SnapshotHandle handle, ulong address, int maxRoots, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.QueryObjectPathsAsync(new ObjectPathsRequest(id, address, maxRoots), progress, ct), cancellationToken);
 
+    /// <summary>One object's retained size and immediate dominator (sprint 2.3).</summary>
+    public Task<RetainedResult> QueryRetainedAsync(SnapshotHandle handle, ulong address, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
+        UseAsync(handle, (service, id, ct) => service.QueryRetainedAsync(new RetainedRequest(id, address), progress, ct), cancellationToken);
+
     /// <summary>Why the objects of a type are alive (sprint 2.2): their key retention paths, largest first.</summary>
     public Task<TypePathsResult> QueryTypePathsAsync(SnapshotHandle handle, string typeName, string? module, int maxPaths, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(typeName);
         return UseAsync(handle, (service, id, ct) => service.QueryTypePathsAsync(new TypePathsRequest(id, typeName, module, maxPaths), progress, ct), cancellationToken);
+    }
+
+    /// <summary>The key paths of a set's members (sprint 3.2).</summary>
+    public Task<TypePathsResult> QuerySetPathsAsync(SnapshotHandle handle, ObjectSetQuery set, int maxPaths, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        return UseWithSetAsync(handle, set, (service, id, spec, ct) => service.QueryTypePathsAsync(new TypePathsRequest(id, string.Empty, null, maxPaths, spec), progress, ct), cancellationToken);
+    }
+
+    /// <summary>A set's members grouped by retention pattern (sprint 3.2, ADR-031).</summary>
+    public Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SnapshotHandle handle, ObjectSetQuery set, int maxGroups, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        return UseWithSetAsync(handle, set, (service, id, spec, ct) => service.QuerySimilarRetentionAsync(new SimilarRetentionRequest(id, spec!, maxGroups), progress, ct), cancellationToken);
     }
 
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
@@ -389,6 +552,67 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             ThrowIfClosed(handle);
             await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
             return await worker.InvokeAsync((service, ct) => call(service, handle.WorkerSnapshotId, ct), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// A trend across <paramref name="snapshots"/> in the order given (sprint 3.3). The rows re-run the query, reopening any
+    /// snapshot after a worker restart, when the set is gone.
+    /// </summary>
+    public async Task<SnapshotTrend> QueryTypeTrendAsync(
+        IReadOnlyList<SnapshotHandle> snapshots,
+        TypeGrouping groupBy,
+        string? filter,
+        string? sortColumn,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        TypeTrendResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseManyAsync(
+                snapshots,
+                (service, ids, innerCt) => service.QueryTypeTrendAsync(new TypeTrendRequest(ids, groupBy, filter, sortColumn, descending), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new SnapshotTrend(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>Like <see cref="UseBothAsync"/> for any number of snapshots (sprint 3.3, trends).</summary>
+    private async Task<T> UseManyAsync<T>(IReadOnlyList<SnapshotHandle> handles, Func<IWorkerService, IReadOnlyList<Guid>, CancellationToken, Task<T>> call, CancellationToken cancellationToken)
+    {
+        foreach (var handle in handles)
+        {
+            ThrowIfClosed(handle);
+        }
+
+        await worker.EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var handle in handles.Distinct())
+        {
+            if (handle.Generation != worker.Generation)
+            {
+                await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        try
+        {
+            return await worker.InvokeAsync((service, ct) => call(service, [.. handles.Select(h => h.WorkerSnapshotId)], ct), cancellationToken).ConfigureAwait(false);
+        }
+        catch (WorkerOperationException ex) when (ex.ErrorCode == HeapScopeErrorCode.SnapshotNotLoaded)
+        {
+            foreach (var handle in handles.Distinct())
+            {
+                ThrowIfClosed(handle);
+                await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
+            }
+
+            return await worker.InvokeAsync((service, ct) => call(service, [.. handles.Select(h => h.WorkerSnapshotId)], ct), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -439,13 +663,31 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     private async Task ReopenAsync(SnapshotHandle handle, CancellationToken cancellationToken)
     {
         var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true);
-        var (descriptor, generation) = await OpenInWorkerAsync(request, null, cancellationToken).ConfigureAwait(false);
+        var previous = (handle.WorkerSnapshotId, handle.Generation);
+        _logger.LogInformation("Reopening {Path} after a worker restart (was worker snapshot {WorkerSnapshotId}, generation {Generation})", handle.Path, previous.WorkerSnapshotId, previous.Generation);
+        (SnapshotDescriptor Descriptor, int Generation) reopened;
+        try
+        {
+            reopened = await OpenInWorkerAsync(request, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WorkerOperationException ex)
+        {
+            _logger.LogInformation("Reopening {Path} failed ({Code}): {Message}", handle.Path, ex.ErrorCode, ex.Message);
+            throw;
+        }
+
+        var (descriptor, generation) = reopened;
 
         // A cache rebuilt meanwhile (another front end, a newer loader, --rebuild) is a different graph: the handle's rows,
         // totals and addresses would no longer match it (sprint 2.1 review M10).
         var opened = handle.Descriptor.CacheIdentity;
         if (opened != 0 && descriptor.CacheIdentity != 0 && descriptor.CacheIdentity != opened)
         {
+            _logger.LogInformation(
+                "Not reopening {Path}: its index cache was rebuilt since it was opened (identity {Opened:x16}, now {Now:x16})",
+                handle.Path,
+                opened,
+                descriptor.CacheIdentity);
             await worker.InvokeAsync((service, ct) => service.CloseSnapshotAsync(descriptor.SnapshotId, ct), CancellationToken.None).ConfigureAwait(false);
             throw new WorkerOperationException(
                 HeapScopeErrorCode.SnapshotChanged,
@@ -463,6 +705,13 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             }
         }
 
+        _logger.LogInformation(
+            "Snapshot {Path} reopened: worker snapshot {OldId} (generation {OldGeneration}) is now {NewId} (generation {NewGeneration})",
+            handle.Path,
+            previous.WorkerSnapshotId,
+            previous.Generation,
+            descriptor.SnapshotId,
+            generation);
         if (closedMeanwhile)
         {
             // Closed while the reopen was running: do not leave an orphaned snapshot in the worker.

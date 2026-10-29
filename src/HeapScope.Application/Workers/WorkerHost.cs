@@ -24,6 +24,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Pipes;
+using System.Security.Cryptography;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -222,8 +223,10 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
                 SetState(WorkerState.NotStarted, null);
                 throw;
             }
-            catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+            catch (Exception ex) when (ex is WorkerException)
             {
+                // The banner shows the message; the log keeps it too (sprint 2.3.7 review H4).
+                _logger.LogWarning(ex, "The analysis worker could not be started: {Message}", ex.Message);
                 SetState(WorkerState.Crashed, ex.Message);
                 throw;
             }
@@ -261,6 +264,11 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         string pipeName;
         if (_options.AttachPipeName is { Length: > 0 } attach)
         {
+            if (PipeNameProblem(attach, OperatingSystem.IsWindows(), Path.GetTempPath()) is { } problem)
+            {
+                throw new WorkerStartException(problem);
+            }
+
             pipeName = attach;
             _logger.LogInformation("Attaching to the worker on pipe {Pipe}", pipeName);
         }
@@ -272,7 +280,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
                 throw new WorkerStartException($"The analysis worker was not found at {path}. Rebuild HeapScope or set Worker:WorkerPath.");
             }
 
-            pipeName = WorkerProtocol.PipeNamePrefix + Guid.NewGuid().ToString("N");
+            pipeName = NewPipeName();
             process = StartProcess(path, pipeName);
         }
 
@@ -283,7 +291,11 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_options.ConnectTimeout);
             await ConnectAsync(pipe, process, timeout.Token, cancellationToken).ConfigureAwait(false);
-            rpc = new JsonRpc(new HeaderDelimitedMessageHandler(pipe, pipe, new JsonMessageFormatter()));
+            // Requests carry the current activity's trace context to the worker (sprint 2.3.7 review M1).
+            rpc = new JsonRpc(new HeaderDelimitedMessageHandler(pipe, pipe, new JsonMessageFormatter()))
+            {
+                ActivityTracingStrategy = new ActivityTracingStrategy(),
+            };
             var service = rpc.Attach<IWorkerService>();
             rpc.StartListening();
 
@@ -315,6 +327,23 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             process?.Dispose();
             throw;
         }
+    }
+
+    /// <summary>A new worker pipe name: the prefix and 24 random hex digits (96 bits), short enough for macOS's socket paths.</summary>
+    public static string NewPipeName() => WorkerProtocol.PipeNamePrefix + RandomNumberGenerator.GetHexString(24, lowercase: true);
+
+    /// <summary>
+    /// Why <paramref name="name"/> cannot name a pipe on this system, or null (2.3.5 review L16): off Windows a pipe is a
+    /// Unix domain socket at <c>&lt;temp&gt;/CoreFxPipe_&lt;name&gt;</c>, whose path holds at most 103 characters on macOS.
+    /// </summary>
+    public static string? PipeNameProblem(string name, bool isWindows, string tempPath)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        const int MaxSocketPath = 103;
+        var socket = Path.Combine(tempPath ?? string.Empty, "CoreFxPipe_" + name);
+        return isWindows || socket.Length <= MaxSocketPath
+            ? null
+            : string.Create(CultureInfo.InvariantCulture, $"The pipe name '{name}' is too long for this system: its socket path {socket} has {socket.Length} characters, and at most {MaxSocketPath} are allowed. Use a shorter name.");
     }
 
     /// <summary>Connects to the pipe within the connect timeout, failing fast when the worker exits during startup.</summary>
@@ -414,14 +443,21 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             info.ArgumentList.Add("true");
         }
 
+        if (_options.WorkerLogLevel != LogLevel.Information)
+        {
+            info.ArgumentList.Add("--log-level");
+            info.ArgumentList.Add(_options.WorkerLogLevel.ToString());
+        }
+
         if (_options.EnableTestHooks)
         {
             info.ArgumentList.Add("--enable-test-hooks");
         }
 
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
-        process.ErrorDataReceived += (_, e) => WorkerLogForwarder.Forward(_workerLog, e.Data);
-        process.OutputDataReceived += (_, e) => WorkerLogForwarder.Forward(_workerLog, e.Data);
+        var generation = Generation + 1;
+        process.ErrorDataReceived += (_, e) => WorkerLogForwarder.Forward(_workerLog, e.Data, SafeId(process), generation);
+        process.OutputDataReceived += (_, e) => WorkerLogForwarder.Forward(_workerLog, e.Data, SafeId(process), generation);
         try
         {
             process.Start();
@@ -432,10 +468,28 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             throw new WorkerStartException($"The analysis worker at {path} could not be started: {ex.Message}", ex);
         }
 
-        process.BeginErrorReadLine();
-        process.BeginOutputReadLine();
-        _logger.LogInformation("Started worker process {Pid} on pipe {Pipe}", process.Id, pipeName);
+        // The readers start without this context: a forwarded line carries the worker's own scopes (its trace id per
+        // request), not the trace of whatever happened to start the worker.
+        using (ExecutionContext.SuppressFlow())
+        {
+            process.BeginErrorReadLine();
+            process.BeginOutputReadLine();
+        }
+
+        _logger.LogInformation("Started worker process {Pid} (generation {Generation}) from {Path} on pipe {Pipe}", process.Id, generation, path, pipeName);
         return process;
+    }
+
+    private static int SafeId(Process process)
+    {
+        try
+        {
+            return process.Id;
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
     }
 
     private void OnSessionLost(WorkerSession session, string reason)
@@ -446,10 +500,16 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         }
 
         var exitCode = session.TryGetExitCode();
+        var meaning = exitCode is int known ? WorkerLogForwarder.ExplainExitCode(known) : null;
         var message = exitCode is int code
-            ? $"The analysis worker stopped unexpectedly (exit code {code.ToString(CultureInfo.InvariantCulture)}): {reason}."
+            ? $"The analysis worker stopped unexpectedly (exit code {code.ToString(CultureInfo.InvariantCulture)}{(meaning is null ? string.Empty : ", " + meaning)}): {reason}."
             : $"The connection to the analysis worker was lost: {reason}.";
-        _logger.LogWarning("{Message}", message);
+        _logger.LogWarning(
+            "Worker lost: exit code {ExitCode} ({Meaning}); {Reason}; generation {Generation}",
+            exitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown",
+            meaning ?? "no known cause",
+            reason,
+            Generation);
         if (ReferenceEquals(Volatile.Read(ref _session), session))
         {
             SetState(WorkerState.Crashed, message);

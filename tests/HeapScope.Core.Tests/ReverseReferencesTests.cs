@@ -125,6 +125,22 @@ public sealed class ReverseReferencesTests
     }
 
     [Fact]
+    public void Filling_given_spans_overwrites_them_and_checks_their_lengths()
+    {
+        using var graph = SyntheticGraphs.Diamond();
+        using var built = ReverseReferences.Build(graph, cancellationToken: TestContext.Current.CancellationToken);
+        var starts = Enumerable.Repeat(99, graph.ObjectCount + 1).ToArray();
+        var edges = new int[graph.EdgeCount];
+
+        ReverseReferences.Fill(graph, starts, edges, cancellationToken: TestContext.Current.CancellationToken);
+
+        starts.ShouldBe(built.InEdgeStarts.Span.ToArray());
+        edges.ShouldBe(built.InEdges.Span.ToArray());
+        Should.Throw<ArgumentException>(() => ReverseReferences.Fill(graph, new int[graph.ObjectCount], edges));
+        Should.Throw<ArgumentException>(() => ReverseReferences.Fill(graph, starts, new int[graph.EdgeCount + 1]));
+    }
+
+    [Fact]
     public void Columns_from_a_file_must_match_the_graph()
     {
         using var graph = SyntheticGraphs.Chain(3);

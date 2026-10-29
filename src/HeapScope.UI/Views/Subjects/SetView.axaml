@@ -1,0 +1,142 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- An object set (sprint 3.1, ADR-030): its views (Types, Instances, Generations, Dominators; Paths and Similar Retention since 3.2) and what it retains. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:dto="using:HeapScope.Contracts"
+             xmlns:subjects="using:HeapScope.UI.Views.Subjects"
+             x:Class="HeapScope.UI.Views.Subjects.SetView"
+             x:DataType="vm:SetViewModel">
+  <DockPanel>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+      <Button DockPanel.Dock="Right" Content="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedCommand}"
+              ToolTip.Tip="What the set's objects keep alive together, exactly, on the Retainers tab." />
+      <TextBlock Text="Set" Classes="subtle" VerticalAlignment="Center" Margin="0,0,6,0" />
+      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+    </DockPanel>
+
+    <!-- The view switcher: one list item per view, keyboard reachable (arrow keys). -->
+    <ListBox x:Name="ViewList" DockPanel.Dock="Top" ItemsSource="{Binding Views}" SelectedItem="{Binding View, Mode=TwoWay}"
+             AutomationProperties.Name="Set views" Margin="0,0,8,6">
+      <ListBox.ItemsPanel>
+        <ItemsPanelTemplate>
+          <StackPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+      </ListBox.ItemsPanel>
+    </ListBox>
+
+    <Grid>
+      <Panel IsVisible="{Binding IsTypesShown}">
+        <subjects:TypesView DataContext="{Binding Types}" />
+      </Panel>
+
+      <Panel IsVisible="{Binding IsInstancesShown}">
+        <subjects:InstancesView DataContext="{Binding Instances}" />
+      </Panel>
+
+      <!-- Generations: the set's objects and bytes per heap kind, from its Types query. -->
+      <Panel IsVisible="{Binding IsGenerationsShown}">
+        <StackPanel DataContext="{Binding Types}" x:DataType="vm:TypeSummaryViewModel">
+          <ctl:NoteText Text="{Binding GenerationsExplanation}" TextWrapping="Wrap" Classes="subtle" Margin="0,0,0,6" />
+          <ItemsControl ItemsSource="{Binding HeapKinds}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:HeapKindShare">
+                <Grid ColumnDefinitions="16,170,130,150,*" Margin="0,2">
+                  <Border Width="10" Height="10" VerticalAlignment="Center" Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Label}" />
+                  <TextBlock Grid.Column="2" Text="{Binding Objects, StringFormat='{}{0:N0} objects'}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Column="3" Text="{Binding Bytes, StringFormat='{}{0:N0} bytes'}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Column="4" Text="{Binding Fraction, StringFormat='{}{0:P1}'}" Margin="12,0,0,0" Classes="subtle" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Panel>
+
+      <!-- Dominators: the members no other member holds, with what each retains. -->
+      <Panel IsVisible="{Binding IsDominatorsShown}">
+        <DockPanel DataContext="{Binding Dominators}" x:DataType="vm:SetDominatorsViewModel">
+          <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,0,8,4" />
+          <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
+          <DataGrid x:Name="SetDominatorsGrid" ctl:GridExports.ExportName="SetDominators" CanUserSortColumns="False"
+                    ctl:GridBehaviors.ResultColumns="{Binding Columns}"
+                    ctl:GridBehaviors.Rows="{Binding Rows}"
+                    ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                    ToolTip.Tip="Double-click or Enter opens the object; right-click shows it in the dominator tree.">
+            <DataGrid.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #SetDominatorsGrid.SelectedItem}" />
+              </ContextMenu>
+            </DataGrid.ContextMenu>
+          </DataGrid>
+        </DockPanel>
+      </Panel>
+
+      <!-- Paths: the members' key retention paths, as a list or a diagram (sprint 3.2). -->
+      <Panel IsVisible="{Binding IsPathsShown}">
+        <subjects:TypePathsView DataContext="{Binding Paths}" />
+      </Panel>
+
+      <!-- Similar Retention: the members grouped by how they are retained (sprint 3.2). -->
+      <Panel IsVisible="{Binding IsSimilarRetentionShown}">
+        <DockPanel DataContext="{Binding SimilarRetention}" x:DataType="vm:SimilarRetentionViewModel">
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
+            <CheckBox DockPanel.Dock="Right" Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
+          </DockPanel>
+          <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
+          <Grid RowDefinitions="*,Auto,*">
+            <DataGrid x:Name="SimilarRetentionGrid" ctl:GridExports.ExportName="SimilarRetention" ItemsSource="{Binding Groups}"
+                      SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="False"
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenGroupCommand}"
+                      ToolTip.Tip="Double-click or Enter opens the group as a set; right-click opens its first object.">
+              <DataGrid.ContextMenu>
+                <ContextMenu>
+                  <MenuItem Header="Open as set" Command="{Binding OpenGroupCommand}" CommandParameter="{Binding #SimilarRetentionGrid.SelectedItem}" />
+                  <MenuItem Header="Open an example object" Command="{Binding OpenExampleCommand}" CommandParameter="{Binding #SimilarRetentionGrid.SelectedItem}" />
+                </ContextMenu>
+              </DataGrid.ContextMenu>
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Group" x:DataType="vm:RetentionGroupItem" Binding="{Binding Number}" Width="70" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Objects" x:DataType="vm:RetentionGroupItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Bytes" x:DataType="vm:RetentionGroupItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathCount, StringFormat='{}{0:N0}'}" Width="70" CellStyleClasses="number" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:RetentionGroupItem" Binding="{Binding TypeText}" Width="*" />
+                <DataGridTextColumn Header="The most different paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathsText}" Width="3*" />
+              </DataGrid.Columns>
+            </DataGrid>
+            <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" />
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+              <ctl:KeyPathDiagramView x:Name="SimilarDiagram" Diagram="{Binding Diagram}" AutomationProperties.Name="The selected group's paths as a diagram" />
+            </ScrollViewer>
+          </Grid>
+        </DockPanel>
+      </Panel>
+    </Grid>
+  </DockPanel>
+</UserControl>

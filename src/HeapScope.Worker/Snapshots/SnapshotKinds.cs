@@ -63,12 +63,13 @@ internal abstract class SnapshotKindHandler
 }
 
 /// <summary>The handlers of every kind, chosen by kind or by a file's first bytes.</summary>
-internal sealed class SnapshotKinds(WorkerOptions options)
+/// <param name="dacChosen">Told which DAC each full dump's runtime was created with (sprint 2.3.7).</param>
+internal sealed class SnapshotKinds(WorkerOptions options, Action<DacChoice>? dacChosen = null)
 {
     // For what does not depend on the worker's options (texts, name forms, versions): explanations and diffs.
     private static readonly SnapshotKinds s_descriptions = new(new WorkerOptions(string.Empty, null));
 
-    private readonly SnapshotKindHandler[] _handlers = [new FullDumpKind(options), new GcDumpKind()];
+    private readonly SnapshotKindHandler[] _handlers = [new FullDumpKind(options, dacChosen), new GcDumpKind()];
 
     /// <summary>The handler of <paramref name="kind"/> for texts, name forms and versions (not for loading).</summary>
     public static SnapshotKindHandler Describe(SnapshotKind kind) => s_descriptions.For(kind);
@@ -81,7 +82,7 @@ internal sealed class SnapshotKinds(WorkerOptions options)
     public SnapshotKindHandler ForFile(string path) =>
         SnapshotFileSignature.Detect(path) is { } kind ? For(kind) : throw new SnapshotFormatException(SnapshotFileSignature.DescribeUnknown(path));
 
-    private sealed class FullDumpKind(WorkerOptions options) : SnapshotKindHandler
+    private sealed class FullDumpKind(WorkerOptions options, Action<DacChoice>? dacChosen) : SnapshotKindHandler
     {
         public override SnapshotKind Kind => SnapshotKind.FullDump;
 
@@ -100,6 +101,11 @@ internal sealed class SnapshotKinds(WorkerOptions options)
             {
                 notes.Add("Parts of the managed heap could not be read from this dump, so some objects may be missing and counts are not exact. The dump may be truncated or damaged; capture another full dump if results look wrong.");
             }
+
+            if (metadata.Info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile))
+            {
+                notes.Add("This core dump does not record when it was taken; its capture time is the file's time, which a copy of the file can change.");
+            }
         }
 
         public override string ExplainMissingFact(string title) =>
@@ -113,6 +119,7 @@ internal sealed class SnapshotKinds(WorkerOptions options)
         {
             DacFolder = options.DacFolder,
             AllowMicrosoftSymbolServer = options.AllowMicrosoftSymbolServer,
+            DacChosen = dacChosen,
         };
     }
 

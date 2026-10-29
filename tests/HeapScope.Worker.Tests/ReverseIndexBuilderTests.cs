@@ -83,7 +83,28 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         using var _ = index.References;
         (index.FromSidecar, index.Mode, index.SidecarWritten).ShouldBe((false, MemoryMode.Mapped, true));
         AssertMatchesGraph(index.References);
-        Should.Throw<IOException>(() => File.Delete(Sidecar), "the mapping holds the sidecar open");
+        if (OperatingSystem.IsWindows())
+        {
+            // Linux and macOS allow deleting a mapped file (the mapping keeps it); Windows refuses.
+            Should.Throw<IOException>(() => File.Delete(Sidecar), "the mapping holds the sidecar open");
+        }
+    }
+
+    [Fact]
+    public void The_sidecar_built_in_place_equals_one_written_from_managed_arrays()
+    {
+        // Sprint 2.3 (2.1 review M2): the index goes straight into the mapped file; the file is the one 2.1 wrote.
+        _builder.OpenOrBuild(_graph, new ReverseIndexTarget(Sidecar, 0x42, s_fingerprint, MemoryMode.InMemory), null, Ct).References.Dispose();
+        using var expected = ReverseReferences.Build(_graph, cancellationToken: Ct);
+        var streamed = Path.Combine(_folder, "streamed.rev.hsidx");
+        using (var writer = IndexCacheFileWriter.Create(streamed, cancellationToken: Ct))
+        {
+            writer.WriteSection(IndexSection.InEdgeStarts, expected.InEdgeStarts.Span);
+            writer.WriteSection(IndexSection.InEdges, expected.InEdges.Span);
+            writer.Commit(s_fingerprint, 0x42);
+        }
+
+        File.ReadAllBytes(Sidecar).ShouldBe(File.ReadAllBytes(streamed));
     }
 
     [Fact]
@@ -160,18 +181,18 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         var late = new List<JobProgress>();
         using (derived.ReverseProgress.Subscribe(new InlineProgress(first.Add)))
         {
-            var a = derived.GetOrStartReverseReferences(Compute);
+            using var a = derived.JoinReverseReferences(Compute);
             derived.ReverseProgress.Report(new JobProgress("Indexing incoming references", 1, 4));
             using (derived.ReverseProgress.Subscribe(new InlineProgress(late.Add)))
             {
-                var b = derived.GetOrStartReverseReferences(Compute);
+                using var b = derived.JoinReverseReferences(Compute);
                 derived.ReverseProgress.Report(new JobProgress("Indexing incoming references", 2, 4));
-                b.ShouldBeSameAs(a);
+                b.Task.ShouldBeSameAs(a.Task);
             }
 
             derived.ReverseProgress.Report(new JobProgress("Indexing incoming references", 3, 4));
             gate.SetResult(new ReverseIndex(ReverseReferences.Build(_graph, cancellationToken: Ct), false, MemoryMode.InMemory, false));
-            (await a).References.Dispose();
+            (await a.Task).References.Dispose();
         }
 
         started.ShouldBe(1);
@@ -195,17 +216,17 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         var reports = new List<JobProgress>();
         using (derived.RootPathProgress.Subscribe(new InlineProgress(reports.Add)))
         {
-            var a = derived.GetOrStartRootPaths(Compute);
-            var b = derived.GetOrStartRootPaths(Compute);
+            using var a = derived.JoinRootPaths(Compute);
+            using var b = derived.JoinRootPaths(Compute);
             derived.RootPathProgress.Report(new JobProgress("Finding every object's shortest path from a root", 1, 2));
             gate.SetResult(HeapScope.Analysis.Retention.RootPathTree.Build(_graph, cancellationToken: Ct));
-            (await a).ShouldBeSameAs(await b);
+            (await a.Task).ShouldBeSameAs(await b.Task);
         }
 
         builds.ShouldBe(1);
         reports.ShouldHaveSingleItem();
         derived.Close();
-        _ = derived.GetOrStartRootPaths(Compute);
+        using var again = derived.JoinRootPaths(Compute);
         builds.ShouldBe(2, "closing drops the tree, so the next caller builds again");
     }
 

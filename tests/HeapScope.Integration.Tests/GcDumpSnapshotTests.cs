@@ -157,6 +157,19 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
     }
 
     [Fact]
+    public async Task Grouping_a_gcdump_by_interface_is_refused_with_the_reason()
+    {
+        // Sprint 3.2: a gcdump records no interfaces.
+        var handle = await Session.StartOpen(StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder)).Result;
+
+        var ex = await Should.ThrowAsync<WorkerOperationException>(() => Session.QueryTypeSummaryAsync(handle, TypeGrouping.Interface, null, null, true, null, Ct));
+
+        ex.ErrorCode.ShouldBe(HeapScopeErrorCode.CapabilityNotSupported);
+        ex.Message.ShouldContain("is a gcdump, which records no interfaces");
+        ex.Message.ShouldContain("capture a full dump");
+    }
+
+    [Fact]
     public async Task A_value_filter_on_a_gcdump_is_refused_but_an_address_filter_works()
     {
         var handle = await Session.StartOpen(StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder)).Result;

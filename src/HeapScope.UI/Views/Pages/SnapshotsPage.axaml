@@ -1,0 +1,124 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:pages="using:HeapScope.UI.Views.Pages"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             x:Class="HeapScope.UI.Views.Pages.SnapshotsPage"
+             x:DataType="vm:SnapshotsViewModel">
+  <DockPanel Margin="4">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+      <TextBlock FontSize="20" Text="Snapshots" VerticalAlignment="Center" />
+      <Button Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}" />
+      <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
+      <Button Content="Close and delete..." Margin="8,0,0,0" Command="{Binding CloseAndDeleteCommand}" CommandParameter="{Binding Selected}"
+              ToolTip.Tip="Close the snapshot and delete its dump and index caches from its HeapScope session (asks first)." />
+      <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" MaxWidth="600" />
+    </StackPanel>
+    <!-- The open snapshots, the selected one's analysis path (sprint 2.7) and the bookmarks of every open snapshot. -->
+    <Grid DockPanel.Dock="Left" Width="260" Margin="0,0,16,0" RowDefinitions="Auto,*,Auto,2*,Auto,*">
+      <ListBox Grid.Row="0" x:Name="SnapshotList" MaxHeight="220" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+               AutomationProperties.Name="Open snapshots">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:SnapshotItemViewModel">
+            <StackPanel Margin="2,4">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" />
+              <TextBlock Text="{Binding Process}" Classes="subtle" FontSize="11" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="2" Text="Analysis path" FontWeight="SemiBold" Margin="0,12,0,4"
+                 ToolTip.Tip="Every step taken in this snapshot. Opening something from an earlier step starts a branch; the later steps stay. Ctrl+L (Cmd+L) comes here." />
+      <ListBox Grid.Row="3" x:Name="PathList" DataContext="{Binding Navigator}" x:DataType="vm:NavigatorViewModel"
+               ItemsSource="{Binding Steps}" SelectedItem="{Binding CurrentStep, Mode=TwoWay}" AutomationProperties.Name="Analysis path">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:AnalysisStep">
+            <DockPanel Margin="{Binding Depth, Converter={x:Static ctl:IndentConverter.Instance}}">
+              <Button DockPanel.Dock="Right" Content="x" Padding="4,0" Margin="4,0,0,0" FontSize="11"
+                      IsVisible="{Binding Parent, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Command="{Binding $parent[ListBox].((vm:NavigatorViewModel)DataContext).CloseStepCommand}" CommandParameter="{Binding}"
+                      ToolTip.Tip="Close this step and the steps opened from it" />
+              <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+            </DockPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="4" Text="Bookmarks" FontWeight="SemiBold" Margin="0,12,0,4"
+                 ToolTip.Tip="Objects marked with Ctrl+D (Cmd+D) in any open snapshot; kept for the next time the snapshot is opened." />
+      <DockPanel Grid.Row="5" DataContext="{Binding Bookmarks}" x:DataType="vm:BookmarksViewModel">
+        <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" Classes="subtle" TextWrapping="Wrap"
+                   IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Button DockPanel.Dock="Bottom" Content="Open as a set" Margin="0,4,0,0" HorizontalAlignment="Left"
+                Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #BookmarkList.SelectedItem}" IsVisible="{Binding !!Items.Count}"
+                ToolTip.Tip="The bookmarks of the selected bookmark's snapshot as one set of objects, with every set view." />
+        <TextBlock DockPanel.Dock="Top" Text="None yet. Ctrl+D (Cmd+D) marks the shown object or the selected row's object." Classes="subtle" TextWrapping="Wrap"
+                   IsVisible="{Binding !Items.Count}" />
+        <ListBox x:Name="BookmarkList" ItemsSource="{Binding Items}" AutomationProperties.Name="Bookmarks"
+                 ctl:ListBehaviors.OpenCommand="{Binding OpenCommand}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:BookmarkItem">
+              <DockPanel ToolTip.Tip="{Binding SnapshotTitle}">
+                <Button DockPanel.Dock="Left" Width="14" Height="14" Padding="0" Margin="0,0,6,0" VerticalAlignment="Center"
+                        Background="{Binding ColorKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}"
+                        Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).CycleColorCommand}" CommandParameter="{Binding}"
+                        ToolTip.Tip="Change the color" AutomationProperties.Name="Change the color" />
+                <Button DockPanel.Dock="Right" Content="x" Padding="4,0" FontSize="11" Margin="4,0,0,0"
+                        Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).RemoveCommand}" CommandParameter="{Binding}"
+                        ToolTip.Tip="Remove the bookmark" />
+                <StackPanel>
+                  <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="subtle" FontSize="11">
+                    <Run Text="{Binding AddressText}" /><Run Text=" in " /><Run Text="{Binding SnapshotTitle}" />
+                  </TextBlock>
+                </StackPanel>
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Grid>
+    <TabControl SelectedIndex="{Binding SelectedTab, Mode=TwoWay}">
+      <TabItem Header="Snapshot">
+        <pages:SnapshotTab />
+      </TabItem>
+      <!-- Comparison of two open snapshots (sprint 1.4, ADR-018): per-type deltas, no object identity. -->
+      <TabItem Header="Compare">
+        <pages:CompareTab />
+      </TabItem>
+      <!-- Inspections of the selected snapshot (sprint 1.6, ADR-020): tiles with finding, cause and fix, fragmentation
+           bars, and the selected inspection's rows; double-click opens a row's objects on the Snapshot tab. -->
+      <TabItem Header="Inspections">
+        <pages:InspectionsTab />
+      </TabItem>
+      <!-- The dominator tree of the selected snapshot (sprint 2.4, ADR-027): the biggest retainers, the icicle and what a
+           type's objects retain together. -->
+      <TabItem Header="Retainers">
+        <pages:RetainersTab />
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</UserControl>

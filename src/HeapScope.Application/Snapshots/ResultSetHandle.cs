@@ -23,6 +23,7 @@
 
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Application.Snapshots;
 
@@ -37,17 +38,19 @@ public sealed class ResultSetHandle
 {
     private readonly IWorkerClient _worker;
     private readonly Func<CancellationToken, Task<ResultSetInfo>> _query;
+    private readonly ILogger? _logger;
 
     // Serializes re-queries and the release. Never disposed: it is not used through AvailableWaitHandle, so it holds
     // no kernel object.
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile bool _released;
 
-    internal ResultSetHandle(IWorkerClient worker, ResultSetInfo info, Func<CancellationToken, Task<ResultSetInfo>> query)
+    internal ResultSetHandle(IWorkerClient worker, ResultSetInfo info, Func<CancellationToken, Task<ResultSetInfo>> query, ILogger? logger = null)
     {
         _worker = worker;
         Info = info;
         _query = query;
+        _logger = logger;
     }
 
     /// <summary>The current result set (replaced when the query had to run again).</summary>
@@ -104,6 +107,18 @@ public sealed class ResultSetHandle
         }
     }
 
+    /// <summary>
+    /// Releases the set without waiting, for a view that moved on (sprint 2.3.7 review M12): a failure only means the set
+    /// is already gone with its worker, so it is logged at Debug and nothing else happens.
+    /// </summary>
+    public void ReleaseInBackground(ILogger? logger) =>
+        _ = ReleaseAsync(CancellationToken.None).ContinueWith(
+            static (t, state) => (state as ILogger)?.LogDebug(t.Exception, "Releasing a result set failed"),
+            logger,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+
     private async Task RequeryAsync(Guid failedId, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -116,6 +131,15 @@ public sealed class ResultSetHandle
             {
                 Info = await _query(cancellationToken).ConfigureAwait(false);
                 Requeries++;
+
+                // The rows shown from here on come from a new run (sprint 2.3.7 review M20); the worker logged its answer.
+                _logger?.LogInformation(
+                    "Result set {OldId} was gone (evicted, or the worker restarted); the query ran again as {NewId} with {Rows} rows (re-run {Count}, worker generation {Generation})",
+                    failedId,
+                    Info.Id,
+                    Info.TotalCount,
+                    Requeries,
+                    _worker.Generation);
             }
         }
         finally
@@ -134,7 +158,10 @@ public sealed record TypeSummary(ResultSetHandle Rows, TypeSummaryResult Result)
 /// <summary>The objects of a type: their pageable rows and the totals of the first run (sprint 1.5).</summary>
 public sealed record InstanceList(ResultSetHandle Rows, InstancesResult Result);
 
-/// <summary>An instances query: a type key, a filter and sort, and the scope within the type (sprint 1.6).</summary>
+/// <summary>
+/// An instances query: a type key, a filter and sort, the scope within the type (sprint 1.6), and whether to add retained
+/// bytes (sprint 2.3).
+/// </summary>
 public sealed record InstancesQuery(
     string TypeName,
     string? Module,
@@ -142,7 +169,9 @@ public sealed record InstancesQuery(
     string? SortColumn = null,
     bool Descending = true,
     InstanceScope Scope = InstanceScope.All,
-    ulong SameValueAs = 0);
+    ulong SameValueAs = 0,
+    bool IncludeRetained = false,
+    ObjectSetQuery? Set = null);
 
 /// <summary>An inspection that ran: its rows and its summary (sprint 1.6).</summary>
 public sealed record InspectionRun(ResultSetHandle Rows, InspectionResultDto Result);
@@ -150,8 +179,37 @@ public sealed record InspectionRun(ResultSetHandle Rows, InspectionResultDto Res
 /// <summary>A snapshot comparison: its pageable rows and the totals of the first run (sprint 1.4).</summary>
 public sealed record SnapshotDiff(ResultSetHandle Rows, TypeDiffResult Result);
 
+/// <summary>A trend across several snapshots: its pageable rows and the totals of the first run (sprint 3.3).</summary>
+public sealed record SnapshotTrend(ResultSetHandle Rows, TypeTrendResult Result);
+
 /// <summary>The objects referencing one object: their pageable rows and the totals of the first run (sprint 2.1).</summary>
 public sealed record ReferrerList(ResultSetHandle Rows, ReferrersResult Result);
 
 /// <summary>The objects referencing a type's objects, by their type: pageable rows and the first run's totals (sprint 2.1).</summary>
 public sealed record TypeReferrerList(ResultSetHandle Rows, TypeReferrersResult Result);
+
+/// <summary>The dominator tree's rows and the answer of their first run (sprint 2.4).</summary>
+public sealed record DominatorTreeAnswer(ResultSetHandle Rows, DominatorTreeResult Result);
+
+/// <summary>What a set retains, by type, and the answer of the first run (sprint 2.4).</summary>
+public sealed record RetainedBySetAnswer(ResultSetHandle Rows, RetainedBySetResult Result);
+
+/// <summary>A set's top members and the answer of the first run (sprint 3.1).</summary>
+public sealed record SetDominatorsAnswer(ResultSetHandle Rows, SetDominatorsResult Result);
+
+/// <summary>
+/// An object set as the client keeps it (sprint 3.1, ADR-030): the spec, and the snapshot an inspection row's baseline is,
+/// held as a handle because the worker's snapshot ids change when it restarts. The session puts the baseline's current
+/// id into the spec at each call.
+/// </summary>
+public sealed record ObjectSetQuery(ObjectSetSpec Spec, SnapshotHandle? Baseline = null)
+{
+    /// <summary>The spec with <paramref name="baselineId"/> as every inspection row's baseline.</summary>
+    public ObjectSetSpec Bind(Guid? baselineId) => Bind(Spec, baselineId);
+
+    private static ObjectSetSpec Bind(ObjectSetSpec spec, Guid? baselineId) => spec with
+    {
+        Baseline = spec.Kind is ObjectSetKind.InspectionRow or ObjectSetKind.Compared && baselineId is not null ? baselineId : spec.Baseline,
+        Inner = spec.Inner is null ? null : Bind(spec.Inner, baselineId),
+    };
+}

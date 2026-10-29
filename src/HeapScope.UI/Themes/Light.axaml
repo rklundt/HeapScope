@@ -1,0 +1,64 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- HeapScope light theme (sprint 1.3, Avalonia since 2.3.6). Both themes define the same keys; a test checks it. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="Brush.Window" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Brush.Text" Color="#FF1F2328" />
+  <SolidColorBrush x:Key="Brush.Subtle" Color="#FF57606A" />
+  <SolidColorBrush x:Key="Brush.Border" Color="#FFD0D7DE" />
+  <SolidColorBrush x:Key="Brush.Surface" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Brush.AltRow" Color="#FFF6F8FA" />
+  <SolidColorBrush x:Key="Brush.Selection" Color="#FFDDF4FF" />
+  <SolidColorBrush x:Key="Brush.Note.Background" Color="#FFFFF8C5" />
+  <SolidColorBrush x:Key="Brush.Note.Border" Color="#FFD4A72C" />
+  <SolidColorBrush x:Key="Brush.Info.Background" Color="#FFDDF4FF" />
+  <SolidColorBrush x:Key="Brush.Info.Border" Color="#FF54AEFF" />
+  <SolidColorBrush x:Key="Brush.Error.Background" Color="#FFFDECEA" />
+  <SolidColorBrush x:Key="Brush.Error.Border" Color="#FFD93025" />
+  <!-- Bookmark marks (sprint 2.7). -->
+  <SolidColorBrush x:Key="Brush.Mark.Red" Color="#FFD93025" />
+  <SolidColorBrush x:Key="Brush.Mark.Orange" Color="#FFE37400" />
+  <SolidColorBrush x:Key="Brush.Mark.Green" Color="#FF188038" />
+  <SolidColorBrush x:Key="Brush.Mark.Blue" Color="#FF1A73E8" />
+  <SolidColorBrush x:Key="Brush.Mark.Purple" Color="#FF8430CE" />
+  <!-- Diff deltas (sprint 1.4): growth and shrinkage. -->
+  <SolidColorBrush x:Key="Brush.Growth" Color="#FFCF222E" />
+  <SolidColorBrush x:Key="Brush.Shrink" Color="#FF1A7F37" />
+  <!-- The icicle chart (sprint 2.4): alternate levels, and the path to the selected bar. -->
+  <SolidColorBrush x:Key="Icicle.Bar1" Color="#FFB6D4F2" />
+  <SolidColorBrush x:Key="Icicle.Bar2" Color="#FF9CC3EA" />
+  <SolidColorBrush x:Key="Icicle.Path" Color="#FFF2C46D" />
+  <!-- Allocations timeline (sprint 2.5): the bars and the selected interval, green as in the dotMemory research. -->
+  <SolidColorBrush x:Key="Allocation.Bar" Color="#FF6FA3D6" />
+  <SolidColorBrush x:Key="Allocation.Interval" Color="#5548B860" />
+  <SolidColorBrush x:Key="HeapKind.Unknown" Color="#FF9E9E9E" />
+  <SolidColorBrush x:Key="HeapKind.Gen0" Color="#FF4CAF50" />
+  <SolidColorBrush x:Key="HeapKind.Gen1" Color="#FF2196F3" />
+  <SolidColorBrush x:Key="HeapKind.Gen2" Color="#FF673AB7" />
+  <SolidColorBrush x:Key="HeapKind.LargeObjectHeap" Color="#FFFF9800" />
+  <SolidColorBrush x:Key="HeapKind.PinnedObjectHeap" Color="#FFE91E63" />
+  <SolidColorBrush x:Key="HeapKind.Frozen" Color="#FF607D8B" />
+</ResourceDictionary>

@@ -1,0 +1,141 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- The Live page (sprint 1.7): a process's GC heap every interval, and rules that take snapshots into the current session. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             x:Class="HeapScope.UI.Views.Pages.LivePage"
+             x:DataType="vm:LiveViewModel">
+  <DockPanel Margin="4">
+    <StackPanel DockPanel.Dock="Top">
+      <TextBlock FontSize="20" Text="Live" />
+      <TextBlock Text="Watch a process's GC heap every interval, and take full dumps into the current session when a rule fires." Classes="subtle" Margin="0,0,0,8" />
+      <Border Classes="info" IsVisible="{Binding Unavailable, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <SelectableTextBlock TextWrapping="Wrap" Text="{Binding Unavailable}" />
+      </Border>
+      <WrapPanel Margin="0,0,0,6">
+        <TextBlock Text="Process" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <ComboBox Width="320" ItemsSource="{Binding Processes}" SelectedItem="{Binding SelectedProcess, Mode=TwoWay}" VerticalAlignment="Center">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ProcessRow">
+              <TextBlock><Run Text="{Binding Name}" /><Run Text=" (pid " /><Run Text="{Binding ProcessId}" /><Run Text=")" /></TextBlock>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button Content="Refresh" Margin="8,0,0,0" Command="{Binding RefreshCommand}" VerticalAlignment="Center" />
+        <TextBlock Text="Sample every (s)" VerticalAlignment="Center" Margin="16,0,6,0" />
+        <TextBox Width="50" Text="{Binding IntervalSeconds, Mode=TwoWay}" VerticalAlignment="Center" />
+      </WrapPanel>
+      <WrapPanel Margin="0,0,0,6">
+        <TextBlock Text="Snapshot every (min)" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <TextBox Width="60" Text="{Binding Every, Mode=TwoWay}" VerticalAlignment="Center" />
+        <TextBlock Text="when above" VerticalAlignment="Center" Margin="12,0,6,0" />
+        <TextBox Width="80" Text="{Binding Above, Mode=TwoWay}" VerticalAlignment="Center" ToolTip.Tip="A size such as 500MB or 2GB." />
+        <TextBlock Text="or grown by" VerticalAlignment="Center" Margin="12,0,6,0" />
+        <TextBox Width="80" Text="{Binding Growth, Mode=TwoWay}" VerticalAlignment="Center" ToolTip.Tip="Over the first sample: a size such as 100MB or a percent such as 50%." />
+        <TextBlock Text="then" VerticalAlignment="Center" Margin="12,0,6,0" />
+        <ComboBox Width="90" ItemsSource="{Binding RearmModes}" SelectedItem="{Binding Rearm, Mode=TwoWay}" VerticalAlignment="Center"
+                  ToolTip.Tip="below: again after the heap falls back under the threshold. once: never again. step: again for each further step." />
+        <TextBlock Text="at most" VerticalAlignment="Center" Margin="12,0,6,0" />
+        <TextBox Width="50" Text="{Binding MaxSnapshots, Mode=TwoWay}" VerticalAlignment="Center" />
+        <CheckBox Content="as gcdumps" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDumps, Mode=TwoWay}"
+                  ToolTip.Tip="Rules capture gcdumps: the object graph only, much smaller. Each one runs a full garbage collection in the process, which the chart shows." />
+        <CheckBox Content="Record allocations" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding RecordAllocations, Mode=TwoWay}"
+                  ToolTip.Tip="Record an allocation trace for the whole run (sampled allocations with call stacks), opened on the Allocations page when the run stops." />
+        <Button Content="Start" Margin="16,0,0,0" Padding="16,3" Command="{Binding StartCommand}" VerticalAlignment="Center" />
+        <Button Content="Stop" Margin="8,0,0,0" Padding="16,3" Command="{Binding StopCommand}" VerticalAlignment="Center" />
+        <Button x:Name="GetSnapshotButton" Content="Get snapshot" Margin="16,0,0,0" Command="{Binding GetSnapshotCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Capture the monitored process now (the run's kind), as one of the run's snapshots." />
+        <Button x:Name="ForceGcButton" Content="Force GC" Margin="8,0,0,0" Command="{Binding ForceGcCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Run a full blocking garbage collection in the process (a dotted line on the chart). It moves objects: a comparison by address across it shows them as dead and new." />
+      </WrapPanel>
+      <WrapPanel Margin="0,0,0,6">
+        <TextBlock Text="Past runs of this session" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
+        <ComboBox x:Name="PastRuns" Width="420" ItemsSource="{Binding PastRuns}" VerticalAlignment="Center">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:PastRunItem">
+              <TextBlock Text="{Binding Title}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button Content="Show" Margin="6,0,0,0" Command="{Binding OpenPastRunCommand}" CommandParameter="{Binding #PastRuns.SelectedItem}" VerticalAlignment="Center"
+                ToolTip.Tip="Show the run's timeline, snapshots and forced collections, read only." />
+        <Button Content="Refresh" Margin="6,0,0,0" Command="{Binding RefreshRunsCommand}" VerticalAlignment="Center" />
+        <Button Content="Open allocations" Margin="16,0,0,0" Command="{Binding OpenTraceCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Open the run's allocation trace on the Allocations page." />
+      </WrapPanel>
+      <ctl:NoteText Text="{Binding PastRunShown}" TextWrapping="Wrap" Margin="0,0,0,4" Classes="subtle" />
+      <ctl:NoteText Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
+      <WrapPanel Margin="0,0,0,6" IsVisible="{Binding HasTimeline}">
+        <TextBlock Text="Timeline:" VerticalAlignment="Center" Margin="0,0,6,0"
+                   ToolTip.Tip="One row per sample (heap sizes, GC counts, time in GC) and one per snapshot, as CSV. Counters only, none of the process's data." />
+        <SelectableTextBlock Text="{Binding TimelinePath}" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <Button Content="Open" Command="{Binding OpenTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0"
+                ToolTip.Tip="Open the timeline in the app for CSV files, such as a spreadsheet." />
+        <Button Content="Show in folder" Command="{Binding ShowTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <Button Content="Delete..." Command="{Binding DeleteTimelineCommand}" VerticalAlignment="Center"
+                ToolTip.Tip="Delete the timeline file. The run's snapshots are kept." />
+      </WrapPanel>
+      <DockPanel Margin="0,0,0,6">
+        <Border DockPanel.Dock="Right" Background="{DynamicResource Brush.Growth}" CornerRadius="3" Padding="8,1"
+                IsVisible="{Binding HighGcPressure}"
+                ToolTip.Tip="The process spent 10 percent or more of the last ten intervals in garbage collection.">
+          <TextBlock Text="High GC pressure" Foreground="White" FontWeight="SemiBold" />
+        </Border>
+        <TextBlock Text="{Binding Latest}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Latest}" Classes="subtle" />
+      </DockPanel>
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+        <Border Width="10" Height="10" Background="{DynamicResource HeapKind.Gen0}" Margin="0,0,4,0" /><TextBlock Text="Gen0" Margin="0,0,10,0" FontSize="11" />
+        <Border Width="10" Height="10" Background="{DynamicResource HeapKind.Gen1}" Margin="0,0,4,0" /><TextBlock Text="Gen1" Margin="0,0,10,0" FontSize="11" />
+        <Border Width="10" Height="10" Background="{DynamicResource HeapKind.Gen2}" Margin="0,0,4,0" /><TextBlock Text="Gen2" Margin="0,0,10,0" FontSize="11" />
+        <Border Width="10" Height="10" Background="{DynamicResource HeapKind.LargeObjectHeap}" Margin="0,0,4,0" /><TextBlock Text="LOH" Margin="0,0,10,0" FontSize="11" />
+        <Border Width="10" Height="10" Background="{DynamicResource HeapKind.PinnedObjectHeap}" Margin="0,0,4,0" /><TextBlock Text="POH" Margin="0,0,10,0" FontSize="11" />
+        <Border Width="10" Height="10" Background="{DynamicResource HeapKind.Unknown}" Margin="0,0,4,0" /><TextBlock Text="allocated since the last GC" Margin="0,0,10,0" FontSize="11" />
+        <TextBlock Text="(generations as of the last GC; dashed line: snapshot; dotted line: forced GC)" FontSize="11" Classes="subtle" />
+      </StackPanel>
+    </StackPanel>
+    <ScrollViewer DockPanel.Dock="Right" Width="300" Margin="8,0,0,0" VerticalScrollBarVisibility="Auto">
+      <ItemsControl ItemsSource="{Binding Snapshots}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:SnapshotCard">
+            <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="8,4" Margin="0,0,0,6">
+              <StackPanel>
+                <TextBlock><Run Text="{Binding Time}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Rule}" /></TextBlock>
+                <TextBlock Text="{Binding Summary}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" Classes="subtle" />
+                <Button Content="Show in folder" FontSize="11" Padding="6,1" Margin="0,4,0,0" HorizontalAlignment="Left"
+                        IsVisible="{Binding Path, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        Command="{Binding $parent[ItemsControl].((vm:LiveViewModel)DataContext).ShowSnapshotCommand}" CommandParameter="{Binding}" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+    <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="4">
+      <ctl:TimelineChart x:Name="Chart" Samples="{Binding Samples}" Markers="{Binding Markers}" GcMarkers="{Binding GcMarkers}" Version="{Binding ChartVersion}" />
+    </Border>
+  </DockPanel>
+</UserControl>

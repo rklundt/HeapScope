@@ -67,4 +67,10 @@ public enum SnapshotFacts
     /// gcdump does not record registrations, so a finalizable count there would silently be zero.
     /// </summary>
     FinalizerRegistrations = 1 << 2,
+
+    /// <summary>
+    /// <see cref="SnapshotInfo.CapturedAtUtc"/> is the file's write time, not a time the dump recorded (sprint 2.3.5 review:
+    /// a Linux or macOS core file records none), so a copy of the file can change it.
+    /// </summary>
+    CaptureTimeFromFile = 1 << 3,
 }

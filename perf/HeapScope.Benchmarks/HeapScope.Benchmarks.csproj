@@ -3,12 +3,15 @@
     <OutputType>Exe</OutputType>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- LibraryImport for the working set cap of the dominators benchmark (sprint 2.3 review M14). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Analysis\HeapScope.Analysis.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Core\HeapScope.Core.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Loaders.ClrMd\HeapScope.Loaders.ClrMd.csproj" />
+    <ProjectReference Include="..\..\src\HeapScope.Loaders.Trace\HeapScope.Loaders.Trace.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Baseline measurements of raw ClrMD heap walks for the 1.2 loader budgets. -->

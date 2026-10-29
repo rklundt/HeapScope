@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Analysis.Sets;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Analysis;
@@ -135,6 +136,41 @@ public sealed class TypeAggregation
             result.TotalBytes += bytes;
         }
 
+        return result;
+    }
+
+    /// <summary>
+    /// Aggregates the members of <paramref name="set"/> only (sprint 3.1): a set's Types and Generations views. One pass over
+    /// the members; the totals are the set's.
+    /// </summary>
+    public static TypeAggregation Compute(HeapGraph graph, ObjectSet set, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(set);
+        var result = new TypeAggregation(graph.Types.Count);
+        var types = graph.TypeIndices.Span;
+        var kinds = graph.HeapKinds.Span;
+        var members = set.Members;
+        for (var m = 0; m < members.Length; m++)
+        {
+            if ((m & 0xFFFF) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            var i = members[m];
+            var type = types[i];
+            var size = graph.GetSize(i);
+            var kind = (int)kinds[i];
+            result.Counts[type]++;
+            result.Bytes[type] += size;
+            result.BytesByKind[(type * HeapKindSlots) + kind] += size;
+            result.KindObjects[kind]++;
+            result.KindBytes[kind] += size;
+            result.TotalBytes += size;
+        }
+
+        result.TotalObjects = members.Length;
         return result;
     }
 

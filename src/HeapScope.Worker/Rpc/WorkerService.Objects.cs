@@ -26,6 +26,7 @@ using System.Globalization;
 using HeapScope.Analysis.Inspections;
 using HeapScope.Contracts;
 using HeapScope.Core;
+using HeapScope.Worker.Snapshots;
 
 namespace HeapScope.Worker.Rpc;
 
@@ -39,7 +40,7 @@ internal sealed partial class WorkerService
     private const int MaxInspectedText = 10_000;
 
     public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             var stopwatch = Stopwatch.StartNew();
@@ -54,10 +55,21 @@ internal sealed partial class WorkerService
                     throw new CapabilityNotSupportedException(InspectionAvailability.Explain("Listing finalizable objects", snapshot.Info));
                 }
 
+                DominatorIndex? dominators = null;
+                DominatorIndexInfo? info = null;
+                // Sprint 2.3 review M7: a bad request is refused, and a type with no objects answered, before any dominators.
+                var valid = InstancesSource.Validate(snapshot.Graph, request);
+                var set = request.Set is { } spec ? await ResolveSetAsync(request.SnapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false) : null;
+                if (valid && request.IncludeRetained)
+                {
+                    // Sprint 2.3: attached to the graph, so the set's lease keeps them while its pages are read.
+                    (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
+                }
+
                 var throttled = new ThrottledProgress<JobProgress>(progress);
-                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled), cancellationToken).ConfigureAwait(false);
+                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators, set), cancellationToken).ConfigureAwait(false);
                 var rows = resultSets.Add(source, lease);
-                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds);
+                return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds, info, source.Note);
             }
             catch (CapabilityNotSupportedException ex) when (ex.Missing != SnapshotCapabilities.None)
             {
@@ -75,7 +87,7 @@ internal sealed partial class WorkerService
         });
 
     public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             progress?.Report(new JobProgress("Reading the object", 0, null));
@@ -120,7 +132,7 @@ internal sealed partial class WorkerService
         });
 
     public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             progress?.Report(new JobProgress("Naming references", 0, null));

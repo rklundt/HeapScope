@@ -23,6 +23,7 @@
 
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker;
 
@@ -43,6 +44,9 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
     /// <summary>Opt-in: let ClrMD download a missing DAC from Microsoft's symbol server (<c>--allow-symbol-server true</c>).</summary>
     public bool AllowMicrosoftSymbolServer { get; init; }
 
+    /// <summary>The lowest level the worker logs (<c>--log-level</c>; the client passes its file log's level).</summary>
+    public LogLevel LogLevel { get; init; } = LogLevel.Information;
+
     /// <summary>How long the worker waits for its client before giving up.</summary>
     public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
@@ -53,6 +57,7 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
         ["--parent-pid"] = $"{SectionName}:ParentPid",
         ["--dac-folder"] = $"{SymbolsSectionName}:DacFolder",
         ["--allow-symbol-server"] = $"{SymbolsSectionName}:AllowMicrosoftSymbolServer",
+        ["--log-level"] = $"{SectionName}:LogLevel",
     };
 
     /// <summary>
@@ -94,8 +99,17 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
             return false;
         }
 
+        var rawLevel = section["LogLevel"];
+        var level = LogLevel.Information;
+        if (rawLevel is not null && (!Enum.TryParse(rawLevel, ignoreCase: true, out level) || level is < LogLevel.Trace or > LogLevel.Critical))
+        {
+            error = $"Invalid --log-level '{rawLevel}': expected Trace, Debug, Information, Warning, Error or Critical.";
+            return false;
+        }
+
         options = new WorkerOptions(pipe, parentPid, enableTestHooks)
         {
+            LogLevel = level,
             DacFolder = string.IsNullOrWhiteSpace(symbols["DacFolder"]) ? null : symbols["DacFolder"],
             AllowMicrosoftSymbolServer = allow,
         };

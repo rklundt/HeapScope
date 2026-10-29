@@ -44,19 +44,26 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
 
     private readonly ClrMdLoaderOptions _options = options ?? new ClrMdLoaderOptions();
 
-    /// <summary>Loads <paramref name="dumpPath"/>; the caller owns the returned graph.</summary>
-    /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
-    /// <exception cref="SnapshotFormatException">The file is not a readable .NET dump.</exception>
     /// <summary>
-    /// 2 since sprint 1.8: truncated dumps lose CompleteGraph and ExactCounts, finalizer registrations are a fact. Caches
-    /// written before (version 0) are rebuilt.
+    /// 2 since sprint 1.8: truncated dumps lose CompleteGraph and ExactCounts, finalizer registrations are a fact. 3 since
+    /// sprint 2.3.5: core files get their own truncation check and the runtime version ClrMD reads as 0.0 is named by the
+    /// runtime's folder. Caches written before are rebuilt.
     /// </summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
+
+    /// <summary>The ClrMD library's version, for the worker's versions line (sprint 2.3.7).</summary>
+    public static string LibraryVersion { get; } =
+        System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Microsoft.Diagnostics.Runtime.ClrRuntime).Assembly)?.InformationalVersion
+        ?? typeof(Microsoft.Diagnostics.Runtime.ClrRuntime).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
 
     public SnapshotKind Kind => SnapshotKind.FullDump;
 
     public int Version => CurrentVersion;
 
+    /// <summary>Loads <paramref name="dumpPath"/>; the caller owns the returned graph.</summary>
+    /// <exception cref="RuntimeComponentMissingException">The matching DAC is not on this machine.</exception>
+    /// <exception cref="SnapshotFormatException">The file is not a readable .NET dump.</exception>
     public LoadResult Load(string dumpPath, IProgress<LoadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(dumpPath);
@@ -68,10 +75,13 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
 
         var stopwatch = Stopwatch.StartNew();
         progress?.Report(new LoadProgress("Opening dump", 0, null));
-        var header = MinidumpHeader.Read(fullPath);
+        // A Linux or macOS core file (sprint 2.3.5) has no minidump header: its capture time is the file's write time (a
+        // load note says so), and its truncation check reads its own headers (CoreFileHeader).
+        var minidump = IsMinidump(fullPath);
+        MinidumpHeader? header = minidump ? MinidumpHeader.Read(fullPath) : null;
         using var target = ClrMdDump.OpenDataTarget(fullPath, _options);
         var clr = ClrMdDump.FirstRuntime(target, fullPath);
-        using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options);
+        using var runtime = ClrMdDump.CreateRuntime(clr, fullPath, _options, out var dac);
         ClrHeap heap;
         try
         {
@@ -126,21 +136,22 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             fullPath,
             ProcessName(target),
             ProcessId(target),
-            clr.Version.ToString(),
+            DacLocator.RuntimeVersion(clr.Version, Path.GetDirectoryName(clr.ModuleInfo.FileName)),
             target.DataReader.PointerSize,
-            header.CapturedAtUtc,
+            header is { } h ? h.CapturedAtUtc : new DateTimeOffset(File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero),
             freeBytes,
-            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations);
+            SnapshotFacts.FreeSpace | SnapshotFacts.ReferenceArrayMarks | SnapshotFacts.FinalizerRegistrations
+                | (header is null ? SnapshotFacts.CaptureTimeFromFile : SnapshotFacts.None));
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
-        var capabilities = unreadable > 0 || incompleteSegments > 0 || MinidumpHeader.IsTruncated(fullPath)
+        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump ? MinidumpHeader.IsTruncated(fullPath) : CoreFileHeader.IsTruncated(fullPath))
             ? SnapshotCapabilities.FullDump & ~(SnapshotCapabilities.CompleteGraph | SnapshotCapabilities.ExactCounts)
             : SnapshotCapabilities.FullDump;
         return new LoadResult(
             graph,
             info,
             capabilities,
-            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments),
+            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments, dac),
             new LoadTimings(open, objects, references, roots, build));
     }
 
@@ -203,7 +214,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
                         type.MethodTable,
                         (uint)type.StaticSize,
                         (uint)type.ComponentSize,
-                        type.Module?.Name is { } module ? Path.GetFileName(module) : null,
+                        type.Module?.Name is { } module ? RecordedPath.FileName(module) : null,
                         KindOf(type));
                     typeIndices.Add(type.MethodTable, typeIndex);
                 }
@@ -491,7 +502,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         {
             if ((module.DebuggingMode & DebuggableAttribute.DebuggingModes.DisableOptimizations) != 0 && !module.IsDynamic)
             {
-                result.Add(Path.GetFileName(module.Name ?? module.AssemblyName ?? "?"));
+                result.Add(RecordedPath.FileName(module.Name ?? module.AssemblyName ?? "?"));
             }
         }
 
@@ -555,12 +566,20 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         return kind;
     }
 
+    /// <summary>Whether the file is a Windows minidump rather than a Linux or macOS core file.</summary>
+    private static bool IsMinidump(string path)
+    {
+        Span<byte> start = stackalloc byte[4];
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return stream.ReadAtLeast(start, 4, throwOnEndOfStream: false) == 4 && SnapshotFileSignature.IsMinidump(start);
+    }
+
     private static string? ProcessName(DataTarget target)
     {
         foreach (var module in target.EnumerateModules())
         {
             // The first module of a process dump is the executable.
-            return Path.GetFileNameWithoutExtension(module.FileName);
+            return Path.GetFileNameWithoutExtension(RecordedPath.FileName(module.FileName ?? string.Empty));
         }
 
         return null;

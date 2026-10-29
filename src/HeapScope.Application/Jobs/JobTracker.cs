@@ -21,7 +21,11 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Diagnostics;
+using HeapScope.Application.Workers;
 using HeapScope.Contracts;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.Application.Jobs;
 
@@ -155,8 +159,13 @@ public sealed class TrackedJob<T> : TrackedJob
 }
 
 /// <summary>Tracks long-running jobs, their progress and cancellation (ARCHITECTURE.md 4.5). UI-agnostic.</summary>
-public sealed class JobTracker(TimeProvider timeProvider)
+public sealed class JobTracker(TimeProvider timeProvider, ILogger<JobTracker>? logger = null)
 {
+    /// <summary>The activity each job runs under: its trace id is a scope of every log line the job causes, in this process and, through StreamJsonRpc, in the worker (sprint 2.3.7 review M1).</summary>
+    public const string ActivityName = "HeapScope.Job";
+
+    private readonly ILogger _logger = logger ?? (ILogger)NullLogger.Instance;
+
     private readonly object _gate = new();
     private readonly List<TrackedJob> _jobs = [];
 
@@ -207,24 +216,42 @@ public sealed class JobTracker(TimeProvider timeProvider)
         }
     }
 
+    // Every job's start and end are logged with its id, title, time and outcome (sprint 2.3.7 review H4): opening, capturing
+    // and running an inspection all go through here. The message shown to the user is logged as it was shown.
     private async Task<T> RunAsync<T>(TrackedJob<T> job, Func<IProgress<JobProgress>, CancellationToken, Task<T>> work, IProgress<JobProgress> progress)
     {
+        // Started directly, not through an ActivitySource: there is no listener, and the trace id is all that is needed.
+        using var activity = new Activity(ActivityName).SetTag("job.id", job.Id).SetTag("job.title", job.Title).Start();
+        var started = Stopwatch.GetTimestamp();
+        _logger.LogInformation("Job {JobId} started: {Title}", job.Id, job.Title);
         try
         {
             var result = await work(progress, job.CancellationToken).ConfigureAwait(false);
             job.Finish(JobStatus.Completed, null);
+            _logger.LogInformation("Job {JobId} completed in {Seconds:N2} s: {Title}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title);
             JobChanged?.Invoke(this, job);
             return result;
         }
         catch (OperationCanceledException)
         {
             job.Finish(JobStatus.Canceled, null);
+            _logger.LogInformation("Job {JobId} canceled after {Seconds:N2} s: {Title}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title);
             JobChanged?.Invoke(this, job);
             throw;
         }
         catch (Exception ex)
         {
             job.Finish(JobStatus.Failed, ex.Message);
+            if (ex is WorkerOperationException coded)
+            {
+                // A refusal or failure the worker explained; the worker logged its side with the same trace id.
+                _logger.LogInformation("Job {JobId} failed after {Seconds:N2} s ({Code}): {Title}: {Message}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, coded.ErrorCode, job.Title, ex.Message);
+            }
+            else
+            {
+                _logger.LogWarning(ex, "Job {JobId} failed after {Seconds:N2} s: {Title}: {Message}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title, ex.Message);
+            }
+
             JobChanged?.Invoke(this, job);
             throw;
         }

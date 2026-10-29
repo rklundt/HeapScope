@@ -24,6 +24,8 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using HeapScope.Analysis;
+using HeapScope.Analysis.Retention;
+using HeapScope.Analysis.Sets;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
@@ -47,17 +49,25 @@ internal sealed class InstancesSource : IResultSource
         new(InstanceColumns.Type, ResultColumnKind.Text),
         new(InstanceColumns.Bytes, ResultColumnKind.Bytes),
         new(InstanceColumns.Generation, ResultColumnKind.Text),
-        new(InstanceColumns.Value, ResultColumnKind.Text),
+        new(InstanceColumns.Value, ResultColumnKind.Text, HasValues: true),
     ];
+
+    private static readonly ResultColumn[] s_columnsWithRetained = [.. s_columns, new(InstanceColumns.Retained, ResultColumnKind.Bytes)];
+
+    /// <summary>The largest sort key: 33 bits, so retained sizes up to 8 GB sort exactly and a position fits beside them.</summary>
+    private const ulong MaxSortKey = (1UL << 33) - 1;
 
     private readonly HeapGraph _graph;
     private readonly IObjectReader? _reader;
     private readonly int[] _objects;
     private readonly string?[]? _values;
+    private readonly Dominators? _dominators;
 
-    private InstancesSource(HeapGraph graph, IObjectReader? reader, int[] objects, string?[]? values, long totalObjects, long totalBytes, int matchedTypes)
+    private InstancesSource(HeapGraph graph, IObjectReader? reader, int[] objects, string?[]? values, long totalObjects, long totalBytes, int matchedTypes, Dominators? dominators, string? note = null)
     {
+        Note = note;
         _graph = graph;
+        _dominators = dominators;
         _reader = reader;
         _objects = objects;
         _values = values;
@@ -67,7 +77,7 @@ internal sealed class InstancesSource : IResultSource
         EstimatedBytes = (4L * objects.Length) + (values is null ? 0 : values.Sum(v => 24L + (2L * (v?.Length ?? 0))));
     }
 
-    public IReadOnlyList<ResultColumn> Columns => s_columns;
+    public IReadOnlyList<ResultColumn> Columns => _dominators is null ? s_columns : s_columnsWithRetained;
 
     public int Count => _objects.Length;
 
@@ -80,6 +90,12 @@ internal sealed class InstancesSource : IResultSource
     public int MatchedTypes { get; }
 
     /// <summary>
+    /// What the filter could not test (sprint 2.3.7 review M10): strings that could not be read and regular expression
+    /// matches that timed out are left out; null when nothing was.
+    /// </summary>
+    public string? Note { get; }
+
+    /// <summary>
     /// Lists the objects of the types keyed by <paramref name="request"/>, filtered and sorted. Memory stays at one
     /// <see cref="int"/> per listed object plus, while sorting, one <see cref="ulong"/> key each; string values are read
     /// and tested one at a time and kept only for a sort by value, which is limited to <see cref="MaxValueSort"/>
@@ -88,22 +104,103 @@ internal sealed class InstancesSource : IResultSource
     /// <exception cref="ArgumentException">The filter is not a valid regular expression, the sort column is unknown, or a
     /// sort by value covers too many strings.</exception>
     /// <exception cref="CapabilityNotSupportedException">The filter or sort needs string text and there is no reader.</exception>
-    public static InstancesSource Create(HeapGraph graph, IObjectReader? reader, InstancesRequest request, CancellationToken cancellationToken, IProgress<JobProgress>? progress = null)
+    /// <summary>
+    /// Checks <paramref name="request"/>'s sort column and filter, and whether any type matches, before the worker computes
+    /// the dominators for it (sprint 2.3 review M7: a typo must not cost seconds of dominators). Returns false when no
+    /// type matches, so the retained column is not worth computing.
+    /// </summary>
+    /// <exception cref="ArgumentException">The sort column is unknown or the filter is not a valid regular expression.</exception>
+    public static bool Validate(HeapGraph graph, InstancesRequest request)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(request);
         var sortColumn = request.SortColumn ?? InstanceColumns.Bytes;
-        if (!s_columns.Any(c => c.Name == sortColumn))
+        var columns = request.IncludeRetained ? s_columnsWithRetained : s_columns;
+        if (!columns.Any(c => c.Name == sortColumn))
         {
-            throw new ArgumentException($"Unknown sort column {sortColumn}. Sort by one of: {string.Join(", ", s_columns.Select(c => c.Name))}.");
+            throw new ArgumentException($"Unknown sort column {sortColumn}. Sort by one of: {string.Join(", ", columns.Select(c => c.Name))}.");
+        }
+
+        InstanceFilter.Parse(request.Filter);
+        if (request.Set is not null)
+        {
+            if (request.Scope != InstanceScope.All)
+            {
+                throw new ArgumentException("A set's members are listed without a scope.");
+            }
+
+            return true;
+        }
+
+        TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matchedTypes);
+        return matchedTypes > 0;
+    }
+
+    /// <summary>
+    /// The objects of a type in a scope, in address order (sprint 3.1): what an inspection row without its own member list
+    /// opens as a set, the same objects its instances list shows.
+    /// </summary>
+    public static int[] Select(HeapGraph graph, IObjectReader? reader, string typeName, string? module, InstanceScope scope, ulong sameValueAs, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        var matches = TypeGroups.MatchTypes(graph, typeName, module, out _);
+        var types = graph.TypeIndices.Span;
+
+        // Count first, then fill an exact array (the 3.1 review: no doubling list of per-object data).
+        var count = 0;
+        for (var i = 0; i < types.Length; i++)
+        {
+            if ((i & 0xFFFF) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            count += matches[types[i]] ? 1 : 0;
+        }
+
+        var objects = new int[count];
+        for (int i = 0, filled = 0; filled < count; i++)
+        {
+            if (matches[types[i]])
+            {
+                objects[filled++] = i;
+            }
+        }
+
+        return scope == InstanceScope.All
+            ? objects
+            : Scoped(graph, reader, objects, new InstancesRequest(Guid.Empty, typeName, module, Scope: scope, SameValueAs: sameValueAs), cancellationToken);
+    }
+
+    /// <param name="dominators">The snapshot's dominators, for the retained bytes column (sprint 2.3); null without it.</param>
+    /// <param name="set">The resolved <see cref="InstancesRequest.Set"/> (sprint 3.1): its members are listed instead of a type's objects.</param>
+    public static InstancesSource Create(HeapGraph graph, IObjectReader? reader, InstancesRequest request, CancellationToken cancellationToken, IProgress<JobProgress>? progress = null, Dominators? dominators = null, ObjectSet? set = null)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(request);
+        var sortColumn = request.SortColumn ?? InstanceColumns.Bytes;
+        var columns = dominators is null ? s_columns : s_columnsWithRetained;
+        if (!columns.Any(c => c.Name == sortColumn))
+        {
+            throw new ArgumentException($"Unknown sort column {sortColumn}. Sort by one of: {string.Join(", ", columns.Select(c => c.Name))}.");
         }
 
         var filter = InstanceFilter.Parse(request.Filter);
-        var matches = TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matchedTypes);
+        if (set is null && request.Set is not null)
+        {
+            throw new ArgumentException("The set has not been resolved.", nameof(set));
+        }
+
+        // A set's members (all, or those of one type) take the place of a type's objects (sprint 3.1).
+        var matches = set is not null && string.IsNullOrEmpty(request.TypeName)
+            ? MembersTypes(graph, set)
+            : TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out _);
         var strings = false;
+        var matchedTypes = 0;
         for (var t = 0; t < matches.Length; t++)
         {
             strings |= matches[t] && graph.Types.Kinds[t].HasFlag(TypeKind.String);
+            matchedTypes += matches[t] ? 1 : 0;
         }
 
         // Without string text a value filter or sort on strings would silently match or order nothing.
@@ -114,15 +211,17 @@ internal sealed class InstancesSource : IResultSource
 
         // Count first, then fill an array of exactly that size: no doubling copies of per-object data.
         var types = graph.TypeIndices.Span;
+        var candidates = set?.Members;
+        var length = candidates?.Length ?? types.Length;
         var total = 0;
-        for (var i = 0; i < types.Length; i++)
+        for (var k = 0; k < length; k++)
         {
-            if ((i & 0xFFFF) == 0)
+            if ((k & 0xFFFF) == 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            if (matches[types[i]])
+            if (matches[types[candidates?[k] ?? k]])
             {
                 total++;
             }
@@ -131,8 +230,9 @@ internal sealed class InstancesSource : IResultSource
         var objects = new int[total];
         long totalBytes = 0;
         var filled = 0;
-        for (var i = 0; i < types.Length && filled < total; i++)
+        for (var k = 0; k < length && filled < total; k++)
         {
+            var i = candidates?[k] ?? k;
             if (matches[types[i]])
             {
                 objects[filled++] = i;
@@ -152,8 +252,10 @@ internal sealed class InstancesSource : IResultSource
             }
         }
 
-        // Filter in place: the kept objects move to the front, still in address order.
+        // Filter in place: the kept objects move to the front, still in address order. Strings that cannot be read are
+        // counted, so a filter that silently missed them says so (sprint 2.3.7 review M10).
         var kept = total;
+        var unreadable = 0;
         if (filter.IsActive)
         {
             kept = 0;
@@ -166,7 +268,13 @@ internal sealed class InstancesSource : IResultSource
                 }
 
                 var obj = objects[k];
-                if (filter.IsMatch(graph.Addresses[obj], filter.NeedsValues ? Value(graph, reader, obj) : null))
+                var value = filter.NeedsValues ? Value(graph, reader, obj) : null;
+                if (filter.NeedsValues && value is null && graph.Types.Kinds[graph.TypeIndices[obj]].HasFlag(TypeKind.String))
+                {
+                    unreadable++;
+                }
+
+                if (filter.IsMatch(graph.Addresses[obj], value))
                 {
                     objects[kept++] = obj;
                 }
@@ -175,16 +283,37 @@ internal sealed class InstancesSource : IResultSource
             Array.Resize(ref objects, kept);
         }
 
+        var note = (unreadable, filter.Timeouts) switch
+        {
+            (0, 0) => null,
+            (_, 0) => string.Create(CultureInfo.InvariantCulture, $"{unreadable:N0} strings could not be read from the dump, so the filter could not test them; they are left out."),
+            (0, _) => string.Create(CultureInfo.InvariantCulture, $"The pattern took too long on {filter.Timeouts:N0} values (over 100 ms each); they are left out."),
+            _ => string.Create(CultureInfo.InvariantCulture, $"{unreadable:N0} strings could not be read and the pattern took too long on {filter.Timeouts:N0} values; both are left out."),
+        };
+
         if (sortColumn == InstanceColumns.Value && strings)
         {
-            return SortedByText(graph, reader, objects, request.Descending, total, totalBytes, matchedTypes, progress, cancellationToken);
+            return SortedByText(graph, reader, objects, request.Descending, total, totalBytes, matchedTypes, dominators, progress, cancellationToken, note);
         }
 
-        SortByKey(graph, objects, sortColumn, request.Descending, cancellationToken);
-        return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes);
+        SortByKey(graph, dominators, objects, sortColumn, request.Descending, cancellationToken);
+        return new InstancesSource(graph, reader, objects, null, total, totalBytes, matchedTypes, dominators, note);
     }
 
-    /// <summary>The objects of the scope: on the large object heap, still to be finalized, or strings equal to one string.</summary>
+    /// <summary>The types the members of <paramref name="set"/> have.</summary>
+    private static bool[] MembersTypes(HeapGraph graph, ObjectSet set)
+    {
+        var types = graph.TypeIndices.Span;
+        var present = new bool[graph.Types.Count];
+        foreach (var member in set.Members)
+        {
+            present[types[member]] = true;
+        }
+
+        return present;
+    }
+
+    /// <summary>The objects of the scope: on the large object heap, still to be finalized, strings equal to one string, or reachable from a root.</summary>
     private static int[] Scoped(HeapGraph graph, IObjectReader? reader, int[] objects, InstancesRequest request, CancellationToken cancellationToken)
     {
         switch (request.Scope)
@@ -194,6 +323,9 @@ internal sealed class InstancesSource : IResultSource
             case InstanceScope.Finalizable:
                 var ready = HeapScope.Analysis.Inspections.Finalization.ReadyObjects(graph);
                 return [.. objects.Where(o => graph.Flags[o].HasFlag(ObjectFlags.HasFinalizer) || ready.Contains(o))];
+            case InstanceScope.Reachable:
+                var reachable = HeapScope.Analysis.Retention.Reachability.For(graph, cancellationToken);
+                return [.. objects.Where(reachable.IsReachable)];
             case InstanceScope.SameValue:
                 if (reader is null)
                 {
@@ -228,8 +360,10 @@ internal sealed class InstancesSource : IResultSource
         long total,
         long totalBytes,
         int matchedTypes,
+        Dominators? dominators,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? note)
     {
         var count = objects.Length;
         if (count > MaxValueSort)
@@ -266,15 +400,15 @@ internal sealed class InstancesSource : IResultSource
             sortedValues[k] = values[positions[k]];
         }
 
-        return new InstancesSource(graph, reader, sortedObjects, sortedValues, total, totalBytes, matchedTypes);
+        return new InstancesSource(graph, reader, sortedObjects, sortedValues, total, totalBytes, matchedTypes, dominators, note);
     }
 
     /// <summary>
-    /// Sorts objects (in address order) by a 32-bit key in the high half of a <see cref="ulong"/> and their position in
-    /// the low half, so ties keep address order and one primitive sort does it all. Arrays sort by value numerically,
-    /// by their length.
+    /// Sorts objects (in address order) by a 33-bit key in the high bits of a <see cref="ulong"/> and their position in
+    /// the low 31, so ties keep address order and one primitive sort does it all. Arrays sort by value numerically,
+    /// by their length; retained sizes above 8 GB tie at the top.
     /// </summary>
-    private static void SortByKey(HeapGraph graph, int[] objects, string sortColumn, bool descending, CancellationToken cancellationToken)
+    private static void SortByKey(HeapGraph graph, Dominators? dominators, int[] objects, string sortColumn, bool descending, CancellationToken cancellationToken)
     {
         if (sortColumn == InstanceColumns.Address)
         {
@@ -297,12 +431,13 @@ internal sealed class InstancesSource : IResultSource
             var obj = objects[k];
             var primary = sortColumn switch
             {
-                InstanceColumns.Type => (uint)graph.TypeIndices[obj],
-                InstanceColumns.Generation => (uint)graph.HeapKinds[obj],
-                InstanceColumns.Value => (uint)Math.Min(ArrayLength(graph, obj) ?? 0, uint.MaxValue),
-                _ => (uint)Math.Min(graph.GetSize(obj), uint.MaxValue),
+                InstanceColumns.Type => (ulong)graph.TypeIndices[obj],
+                InstanceColumns.Generation => (ulong)graph.HeapKinds[obj],
+                InstanceColumns.Value => (ulong)Math.Min(ArrayLength(graph, obj) ?? 0, uint.MaxValue),
+                InstanceColumns.Retained => Math.Min(dominators!.RetainedSize(obj), MaxSortKey),
+                _ => Math.Min(graph.GetSize(obj), MaxSortKey),
             };
-            keys[k] = ((ulong)(descending ? uint.MaxValue - primary : primary) << 32) | (uint)k;
+            keys[k] = ((descending ? MaxSortKey - primary : primary) << 31) | (uint)k;
         }
 
         Array.Sort(keys, objects);
@@ -316,6 +451,10 @@ internal sealed class InstancesSource : IResultSource
         cells[2] = _graph.GetSize(obj).ToString(CultureInfo.InvariantCulture);
         cells[3] = _graph.HeapKinds[obj].ToString();
         cells[4] = _values is not null ? _values[index] : Value(_graph, _reader, obj);
+        if (_dominators is not null)
+        {
+            cells[5] = _dominators.IsReachable(obj) ? _dominators.RetainedSize(obj).ToString(CultureInfo.InvariantCulture) : null;
+        }
     }
 
     /// <summary>A string's text (shortened), or an array's length, or nothing. An unreadable string is nothing.</summary>
@@ -370,6 +509,9 @@ internal sealed class InstancesSource : IResultSource
 
         public bool NeedsValues => _regex is not null || _text is not null;
 
+        /// <summary>Values the pattern timed out on (left out).</summary>
+        public int Timeouts { get; private set; }
+
         public bool IsActive => NeedsValues || _addressPrefix is not null;
 
         public static InstanceFilter Parse(string? filter)
@@ -385,7 +527,9 @@ internal sealed class InstancesSource : IResultSource
                 var hex = text[2..].TrimStart('0');
                 if (!hex.All(Uri.IsHexDigit))
                 {
-                    throw new ArgumentException($"{text} is not a hexadecimal address.");
+                    // The filter's text stays out of the message: the worker logs refusals, and a filter may be a value
+                    // copied from the dump (sprint 2.3.7 review M6).
+                    throw new ArgumentException("The filter starts with 0x but is not a hexadecimal address.");
                 }
 
                 return new InstanceFilter(hex.ToLowerInvariant(), null, null);
@@ -397,9 +541,9 @@ internal sealed class InstancesSource : IResultSource
                 {
                     return new InstanceFilter(null, new Regex(text[1..^1], RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)), null);
                 }
-                catch (ArgumentException ex)
+                catch (RegexParseException ex)
                 {
-                    throw new ArgumentException($"{text} is not a valid regular expression: {ex.Message}", ex);
+                    throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"The filter is not a valid regular expression: {ex.Error} at position {ex.Offset}."));
                 }
             }
 
@@ -421,6 +565,7 @@ internal sealed class InstancesSource : IResultSource
                 }
                 catch (RegexMatchTimeoutException)
                 {
+                    Timeouts++;
                     return false;
                 }
             }

@@ -117,7 +117,81 @@ public interface IWorkerService
     /// </summary>
     Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// One object's retained size and immediate dominator (sprint 2.3). The first retained query of a snapshot computes its
+    /// dominators (after its reverse references index), or opens them from their sidecar; later queries reuse them. An
+    /// address with no object fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>; dominators that would not fit the
+    /// worker's memory budget fail with <see cref="HeapScopeErrorCode.InsufficientMemory"/>.
+    /// </summary>
+    Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The dominator tree as a flattened, paged list (sprint 2.4, ADR-027): its top level (the biggest retainers) or the
+    /// tree below a focus object, with the requested rows expanded and each node's children as objects or groups. Computes
+    /// or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A focus with no object, or one no root
+    /// reaches, fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The objects every object of a type retains together, exactly (sprint 2.4): one reachability pass from the roots that
+    /// skips the set. Computes or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A type that
+    /// matches nothing fails with <see cref="HeapScopeErrorCode.InvalidArgument"/> before anything is computed.
+    /// </summary>
+    Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The members of an object set that no other member dominates, with what each retains (sprint 3.1, ADR-030). Computes
+    /// or opens the dominators on first use like <see cref="QueryRetainedAsync"/>. A set that selects nothing fails with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rows of several snapshots side by side (sprint 3.3): objects and bytes per snapshot in the order given, the change
+    /// first to last and the steps it grew in. 2 to <see cref="TypeTrendColumns.MaxSnapshots"/> snapshots.
+    /// </summary>
+    Task<TypeTrendResult> QueryTypeTrendAsync(TypeTrendRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A set's members grouped by retention pattern (sprint 3.2, ADR-031). Builds the root path tree and the reverse
+    /// references on first use. A set that selects nothing fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SimilarRetentionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The icicle chart below a focus object or the whole reachable heap (sprint 2.4). Fails like
+    /// <see cref="QueryDominatorTreeAsync"/> for a focus with no object or none a root reaches.
+    /// </summary>
+    Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     /// <summary>The inspections for a snapshot, with why each unavailable one cannot run (sprint 1.6).</summary>
+    /// <summary>
+    /// Reads the sampled allocations of an EventPipe trace (sprint 2.5, ADR-028). A file that is not a trace fails with
+    /// <see cref="HeapScopeErrorCode.SnapshotFormat"/>; one too large for the memory budget with
+    /// <see cref="HeapScopeErrorCode.InsufficientMemory"/>.
+    /// </summary>
+    Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>Closes a trace; closing an unknown trace does nothing.</summary>
+    Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sampled bytes per stretch of the trace. This and the other allocation queries fail with
+    /// <see cref="HeapScopeErrorCode.TraceNotLoaded"/> for an unknown trace and with
+    /// <see cref="HeapScopeErrorCode.InvalidArgument"/> for an empty interval or a type no sample has.
+    /// </summary>
+    Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The types allocated in an interval, most sampled bytes first.</summary>
+    Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The call stacks with the most sampled bytes in an interval.</summary>
+    Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The call tree or back traces of an interval, flattened from the open keys.</summary>
+    Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken);
 
     /// <summary>

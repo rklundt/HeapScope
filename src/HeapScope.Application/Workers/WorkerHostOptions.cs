@@ -68,10 +68,19 @@ public sealed class WorkerHostOptions
     /// <summary>Starts the worker with its crash and hang test hooks enabled (tests only).</summary>
     public bool EnableTestHooks { get; set; }
 
+    /// <summary>The lowest level the worker logs; the front ends set their file log's level (sprint 2.3.7).</summary>
+    public Microsoft.Extensions.Logging.LogLevel WorkerLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Information;
+
     /// <summary>Protocol version the client announces in the handshake. Tests override it to exercise mismatches.</summary>
     internal int ClientProtocolVersion { get; set; } = WorkerProtocol.Version;
 
+    /// <summary>
+    /// The worker's executable name on this system: <c>HeapScope.Worker.exe</c> on Windows, <c>HeapScope.Worker</c>
+    /// elsewhere, where .NET's application host has no extension (sprint 2.3.5).
+    /// </summary>
+    public static string WorkerExecutableName => OperatingSystem.IsWindows() ? "HeapScope.Worker.exe" : "HeapScope.Worker";
+
     /// <summary>The worker path to launch.</summary>
     public string ResolveWorkerPath() =>
-        WorkerPath ?? Path.Combine(AppContext.BaseDirectory, "worker", "HeapScope.Worker.exe");
+        WorkerPath ?? Path.Combine(AppContext.BaseDirectory, "worker", WorkerExecutableName);
 }

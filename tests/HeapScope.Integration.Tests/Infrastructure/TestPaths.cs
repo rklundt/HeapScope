@@ -39,7 +39,7 @@ internal static class TestPaths
 
     public static string CliExe => Path.Combine(CliOutput, "heapscope-cli.exe");
 
-    public static string UiOutput => Path.Combine(RepoRoot, "src", "HeapScope.UI.Wpf", "bin", Configuration, "net10.0-windows");
+    public static string UiOutput => Path.Combine(RepoRoot, "src", "HeapScope.UI", "bin", Configuration, "net10.0");
 
     public static string UiExe => Path.Combine(UiOutput, "HeapScope.exe");
 

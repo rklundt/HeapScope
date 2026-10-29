@@ -48,7 +48,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<WorkerOperations>();
         services.AddSingleton<Snapshots.SnapshotSession>();
         services.AddOptions<Sessions.SessionOptions>();
-        services.TryAddSingleton<Capture.IElevationProbe>(Capture.WindowsElevationProbe.Instance);
+        services.TryAddSingleton(_ => Capture.CapturePlatform.ElevationProbe());
         services.TryAddSingleton<Capture.IProcessDiscovery>(sp => new Capture.ProcessDiscovery(sp.GetRequiredService<Capture.IElevationProbe>()));
         services.TryAddSingleton(sp => new Capture.DumpCapturer(sp.GetRequiredService<Capture.IElevationProbe>()));
         services.TryAddSingleton(sp => new Capture.GcDumpCapturer(
@@ -57,6 +57,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton(sp => new Sessions.SessionLibrary(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Sessions.SessionOptions>>().Value.Root,
             sp.GetRequiredService<TimeProvider>()));
+        // Bookmarks live beside the session library (sprint 2.7), so a test's or smoke run's library keeps them too.
+        services.TryAddSingleton(sp => new Bookmarks.BookmarkStore(Path.GetDirectoryName(sp.GetRequiredService<Sessions.SessionLibrary>().Root)));
         services.AddSingleton(sp => new Sessions.CaptureService(
             sp.GetRequiredService<Capture.IProcessDiscovery>(),
             sp.GetRequiredService<Capture.DumpCapturer>(),
@@ -68,6 +70,13 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<Capture.GcDumpCapturer>()));
         services.AddSingleton<Sessions.ICaptureService>(sp => sp.GetRequiredService<Sessions.CaptureService>());
         services.AddSingleton<Sessions.TraceService>();
+        services.AddSingleton(sp => new Allocations.AllocationSession(
+            sp.GetRequiredService<IWorkerClient>(),
+            sp.GetRequiredService<JobTracker>(),
+            sp.GetRequiredService<Sessions.TraceService>(),
+            sp.GetRequiredService<Sessions.SessionLibrary>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Allocations.AllocationSession>>()));
         services.TryAddSingleton<Monitoring.ICounterSource, Monitoring.EventPipeCounterSource>();
         services.AddSingleton(sp => new Monitoring.MonitorService(
             sp.GetRequiredService<Sessions.ICaptureService>(),

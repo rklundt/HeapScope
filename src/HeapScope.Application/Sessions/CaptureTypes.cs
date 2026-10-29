@@ -71,6 +71,24 @@ public enum CaptureFailure
 
     /// <summary>The runtime could not write the dump (disk full, the target's account cannot write the folder).</summary>
     WriteFailed = 6,
+
+    /// <summary>Listing and capturing processes is not available on this system yet (Linux, macOS; ADR-025).</summary>
+    NotSupportedOnThisSystem = 7,
+
+    /// <summary>A capture or forced collection of this process is running already (sprint 3.4: one at a time per process).</summary>
+    Busy = 8,
+}
+
+/// <summary>A forced garbage collection (sprint 3.4): whether its end was seen, and how long it took.</summary>
+public sealed record ForcedGcResult(int ProcessId, bool Completed, TimeSpan Elapsed, int GcNumber = -1)
+{
+    /// <summary>
+    /// The outcome in words (review of 3.4): finished, never started (the runtime ignored the request, or the target did
+    /// not answer in time), or started without its end seen.
+    /// </summary>
+    public string Outcome => Completed
+        ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"finished (collection {GcNumber})")
+        : GcNumber < 0 ? "no induced collection was seen" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"collection {GcNumber} started but its end was not seen");
 }
 
 /// <summary>The capture use cases front ends depend on (faked in their tests).</summary>
@@ -81,6 +99,12 @@ public interface ICaptureService
 
     /// <summary>True when this HeapScope process runs as administrator and can capture elevated processes.</summary>
     bool IsHeapScopeElevated { get; }
+
+    /// <summary>
+    /// Why listing and capturing processes is not available on this system, or null where it is (sprint 2.3.6): front ends
+    /// say so instead of offering commands that fail.
+    /// </summary>
+    string? UnavailableReason { get; }
 
     /// <summary>The .NET processes HeapScope can see, read off the calling thread.</summary>
     Task<IReadOnlyList<ProcessEntry>> ListProcessesAsync(CancellationToken cancellationToken);
@@ -96,6 +120,15 @@ public interface ICaptureService
         string? label = null,
         SnapshotSource source = SnapshotSource.Manual,
         SnapshotKindDto kind = SnapshotKindDto.FullDump);
+
+    /// <summary>
+    /// Forces a full blocking garbage collection in the process (sprint 3.4); fails with <see cref="CaptureFailedException"/>
+    /// (<see cref="CaptureFailure.Busy"/> while a capture of it runs).
+    /// </summary>
+    Task<ForcedGcResult> ForceGcAsync(int processId, CancellationToken cancellationToken);
+
+    /// <summary>Whether a capture or forced collection of the process is running (sprint 3.4: rules wait for it).</summary>
+    bool IsBusy(int processId);
 }
 
 /// <summary>A capture failed; the message is plain language with a next step.</summary>

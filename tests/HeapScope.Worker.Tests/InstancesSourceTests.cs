@@ -57,6 +57,7 @@ public sealed class InstancesSourceTests : IDisposable
         Rows(source).Select(r => r[2]).ShouldBe(["300", "100"], "largest first by default");
         Rows(source)[0][3].ShouldBe("Gen0");
         Rows(source)[0][4].ShouldBeNull("not a string or an array");
+        source.Columns.Where(c => c.HasValues).Select(c => c.Name).ShouldBe([InstanceColumns.Value], "values are marked for exports (ADR-026)");
         Create(new InstancesRequest(Guid.Empty, "Plugin.Cache", "fork.DLL")).Count.ShouldBe(1, "module file names ignore case");
         Create(new InstancesRequest(Guid.Empty, "Plugin.Cache", null)).Count.ShouldBe(0);
     }

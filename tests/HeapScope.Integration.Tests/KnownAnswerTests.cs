@@ -38,6 +38,7 @@ public sealed class AllLeaksDump : IAsyncLifetime
     public const int SemanticItems = 500;
     public const int RuntimeItems = 20;
     public const int LateGarbageItems = 300;
+    public const int RetentionItems = 200;
 
     private readonly TempFolder _folder = new();
 
@@ -56,6 +57,7 @@ public sealed class AllLeaksDump : IAsyncLifetime
             "--semantics", SemanticItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--runtime-semantics", RuntimeItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--late-garbage", LateGarbageItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--retention-patterns", RetentionItems.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--inspection",
             "--waste"))
         {
@@ -78,7 +80,7 @@ public sealed class AllLeaksDump : IAsyncLifetime
 [Trait("Category", "Integration")]
 public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLeaksDump>
 {
-    private static readonly string[] s_semanticNames = ["ConditionalWeakTable", "EmbeddedStruct", "Inspection", "LateGarbage", "RuntimeKinds", "Waste"];
+    private static readonly string[] s_semanticNames = ["ConditionalWeakTable", "EmbeddedStruct", "Inspection", "LateGarbage", "RetentionPatterns", "RuntimeKinds", "Waste"];
 
     private const uint FinalizerRunBit = 0x4000_0000;
 
@@ -91,7 +93,7 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
     [Fact]
     public void Every_fixture_has_a_known_answer_and_no_answer_is_orphaned()
     {
-        var expected = LeakCatalog.All.Select(l => l.Name).Concat(s_semanticNames).Order(StringComparer.Ordinal);
+        var expected = LeakCatalog.All.Concat(LeakCatalog.Detected).Select(l => l.Name).Concat(s_semanticNames).Append("Clean").Order(StringComparer.Ordinal);
 
         KnownAnswer.AllNames().Order(StringComparer.Ordinal).ShouldBe(expected);
         foreach (var name in KnownAnswer.AllNames())
@@ -99,8 +101,23 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
             var answer = KnownAnswer.Load(name);
             answer.FormatVersion.ShouldBe(KnownAnswer.CurrentFormatVersion, name);
             answer.Name.ShouldBe(name);
-            answer.Types.ShouldNotBeEmpty();
-            answer.Kind.ShouldBeOneOf("leak", "semantics", "inspection");
+            answer.Kind.ShouldBeOneOf("leak", "semantics", "inspection", "detected", "clean");
+            if (answer.Kind != "clean")
+            {
+                answer.Types.ShouldNotBeEmpty(name);
+            }
+
+            if (answer.Kind is "leak" or "detected")
+            {
+                answer.Detections.ShouldNotBeNull(name).ShouldNotBeEmpty(name);
+                answer.Roots.ShouldNotBeNull(name);
+            }
+
+            if (answer.Kind == "clean")
+            {
+                answer.Detections.ShouldNotBeNull(name).ShouldBeEmpty(name);
+            }
+
             if (answer.Kind == "inspection")
             {
                 answer.Findings.ShouldNotBeNull(name);
@@ -222,6 +239,29 @@ public sealed class KnownAnswerTests(AllLeaksDump shared) : IClassFixture<AllLea
         {
             counts[type.Type].ShouldBe((long)AllLeaksDump.Items * type.PerItem, $"{leak}: {type.Type}");
         }
+    }
+
+    [Fact]
+    public void Retention_pattern_items_are_held_by_exactly_the_known_patterns()
+    {
+        // Sprint 3.2: which roots each PatternItem needs, told apart by leaving each root out in turn.
+        var answer = KnownAnswer.Load("RetentionPatterns");
+        Dump.CountTypes(answer.Types.Select(t => t.Type)).ShouldBe(answer.Types.ToDictionary(t => t.Type, t => (long)AllLeaksDump.RetentionItems * t.PerItem), ignoreOrder: true);
+        var item = answer.Types[0].Type;
+        var items = Dump.Instances(item).Select(o => o.Address).ToHashSet();
+        var roots = answer.Roots!.ToDictionary(r => r.Field, r => Dump.ReadStatic(r.DeclaringType, r.Field).Address);
+        var needs = items.ToDictionary(a => a, _ => new SortedSet<string>(StringComparer.Ordinal));
+        foreach (var (field, address) in roots)
+        {
+            var with = Dump.ReachableFromRoots(roots.Values.Where(v => v != address).ToHashSet());
+            foreach (var a in items.Where(a => with.Contains(a)))
+            {
+                needs[a].Add(field);
+            }
+        }
+
+        var groups = needs.Values.GroupBy(n => string.Join(",", n)).ToDictionary(g => g.Key, g => (long)g.Count());
+        groups.ShouldBe(answer.RetentionGroups!.ToDictionary(g => string.Join(",", g.Paths.Order(StringComparer.Ordinal)), g => (long)AllLeaksDump.RetentionItems * g.PerItem), ignoreOrder: true);
     }
 
     [Theory]

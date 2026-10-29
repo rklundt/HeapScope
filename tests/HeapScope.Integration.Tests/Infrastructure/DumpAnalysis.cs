@@ -112,12 +112,15 @@ public sealed class DumpAnalysis : IDisposable
         Walk([start], followDependentHandles, skip: null).Count(o => Heap.GetObject(o).Type?.Name == typeName);
 
     /// <summary>
-    /// Objects reachable from the retaining GC roots (ClrMD's root enumeration; weak handles are not roots), following
-    /// dependent handles only from reachable primaries, never entering <paramref name="skip"/>.
+    /// Objects reachable from the retaining GC roots (ClrMD's root enumeration; weak handles are not roots) and from every
+    /// object in a frozen segment, which is never collected (ADR-024, sprint 2.3 review M12), following dependent handles
+    /// only from reachable primaries, never entering <paramref name="skip"/>. Without <paramref name="finalizerQueue"/>, the
+    /// objects waiting for their finalizer are not roots: HeapScope's own walk counts them as dead (sprint 3.5).
     /// </summary>
-    public HashSet<ulong> ReachableFromRoots(ISet<ulong>? skip = null)
+    public HashSet<ulong> ReachableFromRoots(ISet<ulong>? skip = null, bool finalizerQueue = true)
     {
-        var starts = Heap.EnumerateRoots().Select(r => r.Object).Where(o => !o.IsNull);
+        var frozen = Heap.Segments.Where(s => s.Kind == GCSegmentKind.Frozen).SelectMany(s => s.EnumerateObjects());
+        var starts = Heap.EnumerateRoots().Where(r => finalizerQueue || r.RootKind != ClrRootKind.FinalizerQueue).Select(r => r.Object).Concat(frozen).Where(o => !o.IsNull);
         return Walk(starts, followDependentHandles: true, skip);
     }
 
@@ -132,6 +135,32 @@ public sealed class DumpAnalysis : IDisposable
         foreach (var address in Walk([anchor], followDependentHandles: true, skip: null))
         {
             if (!withoutAnchor.Contains(address))
+            {
+                total += Heap.GetObject(address).Size;
+            }
+        }
+
+        return total;
+    }
+
+    /// <summary>
+    /// What every object of <paramref name="typeName"/> retains together (sprint 2.4, the 2.4 review), by brute force: the
+    /// bytes reachable from the roots now, less those still reachable without entering the set. <paramref name="reachable"/>
+    /// is <see cref="ReachableFromRoots"/>, passed in so several sets share one walk.
+    /// </summary>
+    public ulong SetRetainedBytes(string typeName, HashSet<ulong> reachable) => SetRetainedBytes([typeName], reachable);
+
+    /// <summary>What every object of any of <paramref name="typeNames"/> retains together (sprint 3.1, a set of types).</summary>
+    public ulong SetRetainedBytes(IReadOnlyCollection<string> typeNames, HashSet<ulong> reachable)
+    {
+        ArgumentNullException.ThrowIfNull(typeNames);
+        ArgumentNullException.ThrowIfNull(reachable);
+        var set = Heap.EnumerateObjects().Where(o => o.Type?.Name is { } name && typeNames.Contains(name)).Select(o => o.Address).ToHashSet();
+        var without = ReachableFromRoots(set);
+        ulong total = 0;
+        foreach (var address in reachable)
+        {
+            if (!without.Contains(address))
             {
                 total += Heap.GetObject(address).Size;
             }

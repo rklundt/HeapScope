@@ -43,16 +43,25 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 });
 builder.Configuration.AddCommandLine(configArgs, WorkerOptions.CreateSwitchMappings());
 
+// Options come from the command line only, never from environment variables or settings files: the client decides,
+// so a privacy-relevant switch (symbol server downloads, ADR-017) cannot be turned on behind its back.
+var commandLine = new ConfigurationBuilder().AddCommandLine(configArgs, WorkerOptions.CreateSwitchMappings()).Build();
+var optionsValid = WorkerOptions.TryRead(commandLine, enableTestHooks, out var options, out var optionsError);
+
 // The worker logs single-line records to stderr only; the client forwards each line into its own log
-// (ARCHITECTURE.md 4.3 and 11).
+// (ARCHITECTURE.md 4.3 and 11). Scopes carry the client's trace id, which StreamJsonRpc sends with each request, so a
+// worker line can be joined to the UI or CLI action that caused it (sprint 2.3.7 review M1).
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(o =>
 {
     o.SingleLine = true;
+    o.IncludeScopes = true;
     o.ColorBehavior = LoggerColorBehavior.Disabled;
     o.TimestampFormat = "HH:mm:ss.fff ";
 });
 builder.Services.Configure<ConsoleLoggerOptions>(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+builder.Logging.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.TraceId);
+builder.Logging.SetMinimumLevel(options?.LogLevel ?? LogLevel.Information);
 builder.Logging.AddDebug();
 
 // Heavy analysis must never starve the UI or the profiled application of CPU (ARCHITECTURE.md 4.1, 8).
@@ -61,16 +70,13 @@ using (var self = System.Diagnostics.Process.GetCurrentProcess())
     self.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
 }
 
-// Options come from the command line only, never from environment variables or settings files: the client decides,
-// so a privacy-relevant switch (symbol server downloads, ADR-017) cannot be turned on behind its back.
-var commandLine = new ConfigurationBuilder().AddCommandLine(configArgs, WorkerOptions.CreateSwitchMappings()).Build();
-var optionsValid = WorkerOptions.TryRead(commandLine, enableTestHooks, out var options, out var optionsError);
 if (options is not null)
 {
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new ResultSetStore());
     builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator());
     builder.Services.AddSingleton<HeapScope.Worker.Snapshots.SnapshotStore>();
+    builder.Services.AddSingleton<HeapScope.Worker.Traces.TraceStore>();
     builder.Services.AddSingleton<WorkerService>();
     builder.Services.AddHostedService<ParentProcessWatcher>();
     builder.Services.AddHostedService<WorkerRpcServer>();
@@ -79,21 +85,48 @@ if (options is not null)
 using var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("HeapScope.Worker");
 
+// A crash leaves one structured line before the process dies, with the memory it had reached (sprint 2.3.7 review M19):
+// the client sees only the exit code.
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    using var self = System.Diagnostics.Process.GetCurrentProcess();
+    logger.LogCritical(
+        e.ExceptionObject as Exception,
+        "Worker terminating on an unhandled exception: peak working set {PeakMb:N0} MB, GC heap {HeapMb:N0} MB",
+        self.PeakWorkingSet64 / (1024 * 1024),
+        GC.GetTotalMemory(forceFullCollection: false) / (1024 * 1024));
+};
+
 if (!optionsValid || options is null)
 {
     logger.LogError("{Error}", optionsError);
     return UsageError;
 }
 
+// The GC's own view of its settings (sprint 2.3.6 review): whether dynamic adaptation (DATAS) is on next to the heap count
+// the client sets (ARCHITECTURE.md 9). The build, system, architecture and runtime: an architecture mismatch or a
+// self-contained worker's own DAC depend on them (sprint 2.3.7 review H4).
+var gc = GC.GetConfigurationVariables();
 logger.LogInformation(
-    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, server GC {ServerGc}, test hooks {TestHooks}",
+    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, protocol {Protocol}; {Environment}; path {Path}; server GC {ServerGc}, GC heaps {GcHeaps}, GC dynamic adaptation {Datas}; DAC folder {DacFolder}; log level {LogLevel}; test hooks {TestHooks}",
     ProductInfo.Name,
-    ProductInfo.Version,
+    ProductInfo.InformationalVersion,
     Environment.ProcessId,
     options.Pipe,
     options.ParentPid,
+    WorkerProtocol.Version,
+    RuntimeEnvironment.Summary,
+    Environment.ProcessPath,
     GCSettings.IsServerGC,
+    gc.GetValueOrDefault("HeapCount"),
+    gc.GetValueOrDefault("GCDynamicAdaptationMode"),
+    options.DacFolder ?? "(none)",
+    options.LogLevel,
     options.EnableTestHooks);
+
+// The versions of every rule and format a result depends on (sprint 2.3.7 review M5): a result disputed after an
+// upgrade is traced to the rules that produced it.
+logger.LogInformation("Worker versions: {Versions}", WorkerVersions.Describe());
 
 if (options.AllowMicrosoftSymbolServer)
 {

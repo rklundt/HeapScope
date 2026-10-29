@@ -31,4 +31,5 @@ namespace HeapScope.Core.Loading;
 /// <param name="UnreadableObjects">Heap entries skipped because their type could not be read.</param>
 /// <param name="StaticFieldRoots">Static field roots found by enumerating statics.</param>
 /// <param name="IncompleteSegments">Heap segments whose walk covered less than their object range (missing memory).</param>
-public sealed record LoadDiagnostics(IReadOnlyList<string> DebuggableModules, long UnreadableObjects, int StaticFieldRoots, int IncompleteSegments = 0);
+/// <param name="Dac">The data access component that read the dump and why (full dumps only, sprint 2.3.7).</param>
+public sealed record LoadDiagnostics(IReadOnlyList<string> DebuggableModules, long UnreadableObjects, int StaticFieldRoots, int IncompleteSegments = 0, DacChoice? Dac = null);

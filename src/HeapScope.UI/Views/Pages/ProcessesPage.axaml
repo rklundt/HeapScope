@@ -1,0 +1,65 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             x:Class="HeapScope.UI.Views.Pages.ProcessesPage"
+             x:DataType="vm:ProcessesViewModel">
+  <DockPanel Margin="4">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+      <TextBlock FontSize="20" Text="Processes" VerticalAlignment="Center" />
+      <Button Content="Refresh" Margin="16,0,0,0" Command="{Binding RefreshCommand}" />
+      <Button Content="Capture dump" Margin="8,0,0,0" Command="{Binding CaptureCommand}" />
+      <CheckBox Content="As gcdump" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDump}"
+                ToolTip.Tip="The object graph only: much smaller and quicker to open, but no field values, string text or generations. The process runs one full garbage collection." />
+      <!-- Sprint 2.5: sampled allocations with call stacks, shown on the Allocations page when done. -->
+      <Button Content="Record allocations" Margin="16,0,0,0" Command="{Binding RecordAllocationsCommand}" IsVisible="{Binding CanRecordAllocations}"
+              ToolTip.Tip="Record which types and call stacks allocate, for up to 30 seconds, while you use the application. The process keeps running; Stop keeps what was recorded." />
+      <Button Content="Stop" Margin="8,0,0,0" Command="{Binding StopRecordingCommand}" IsVisible="{Binding IsRecording}" />
+    </StackPanel>
+    <!-- Sprint 2.3.6: where capture is not available (Linux, macOS for now), the page says why and what to do instead. -->
+    <Border DockPanel.Dock="Top" Classes="info" Margin="0,0,0,8"
+            IsVisible="{Binding Unavailable, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+      <SelectableTextBlock TextWrapping="Wrap" Text="{Binding Unavailable}" />
+    </Border>
+    <Border DockPanel.Dock="Top" Classes="info" Margin="0,0,0,8" IsVisible="{Binding ShowElevationHint}">
+      <TextBlock TextWrapping="Wrap"
+                 Text="Processes marked 'Needs administrator' run elevated or as another user. To capture them, run HeapScope as administrator." />
+    </Border>
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
+    <DataGrid ItemsSource="{Binding Processes}" ctl:GridExports.ExportName="Processes" SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="True">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="PID" x:DataType="vm:ProcessRow" Binding="{Binding ProcessId}" Width="70" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Name" x:DataType="vm:ProcessRow" Binding="{Binding Name}" Width="200" />
+        <DataGridTextColumn Header="Runtime" x:DataType="vm:ProcessRow" Binding="{Binding Runtime}" Width="130" />
+        <DataGridTextColumn Header="Elevation" x:DataType="vm:ProcessRow" Binding="{Binding Elevation}" Width="140" />
+        <DataGridTextColumn Header="Working set" x:DataType="vm:ProcessRow" Binding="{Binding WorkingSetBytes, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number" />
+        <!-- A command line can carry secrets: an export leaves it out unless the person opts in (ADR-026, 2.7 review H1). -->
+        <DataGridTextColumn Header="Command line" x:DataType="vm:ProcessRow" Binding="{Binding CommandLine}" Width="*" ctl:GridExports.HasValues="True" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

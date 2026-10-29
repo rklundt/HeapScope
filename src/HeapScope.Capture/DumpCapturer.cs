@@ -123,7 +123,7 @@ public sealed class DumpCapturer(
     /// <summary>Suffix of the file while the runtime writes it.</summary>
     public const string PartialSuffix = ".partial";
 
-    private readonly IElevationProbe _elevation = elevation ?? WindowsElevationProbe.Instance;
+    private readonly IElevationProbe _elevation = elevation ?? CapturePlatform.ElevationProbe();
     private readonly IDiskSpace _disk = disk ?? VolumeDiskSpace.Instance;
     private readonly IDumpWriter _writer = writer ?? DiagnosticsDumpWriter.Instance;
     private readonly Func<DotNetProcess, long> _estimate = estimator ?? DumpSizeEstimator.Estimate;
@@ -160,6 +160,8 @@ public sealed class DumpCapturer(
     public async Task CaptureAsync(DotNetProcess process, string path, IProgress<CaptureProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(process);
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        CapturePlatform.EnsureSupported();
         progress?.Report(new CaptureProgress("Checking"));
         Directory.CreateDirectory(PartialSnapshotFile.DirectoryOf(path, "dump"));
         var estimate = Preflight(process, path);

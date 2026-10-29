@@ -1,7 +1,7 @@
 # HeapScope Sprints
 
-Phases: **0.x** architecture, framework and skeleton; **1.x** quick wins; **2.x** heavy hitters; **Backlog**
-everything else.
+Phases: **0.x** architecture, framework and skeleton; **1.x** quick wins; **2.x** heavy hitters; **3.x** depth to
+match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves out; **Backlog** everything else.
 
 ## Status
 
@@ -24,11 +24,20 @@ everything else.
 | 1.9 | Phase 1 hardening | Closed | 2026-10-24 | sprint-1.9 |
 | 2.1 | Reverse references | Closed | 2026-10-24 | sprint-2.1 |
 | 2.2 | Retention paths | Closed | 2026-10-24 | sprint-2.2 |
-| 2.3 | Dominator tree and retained size | Planned | | |
-| 2.4 | Retention explorer UI | Planned | | |
-| 2.5 | Allocation tracking | Planned | | |
-| 2.6 | Smart leak detectors | Planned | | |
-| 2.7 | Navigation and polish | Planned | | |
+| 2.3 | Dominator tree and retained size | Closed | 2026-10-25 | sprint-2.3 |
+| 2.3.5 | Cross-platform and sharing decision | Closed | 2026-10-25 | sprint-2.3.5 |
+| 2.3.6 | Avalonia port | Closed | 2026-10-26 | sprint-2.3.6 |
+| 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
+| 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
+| 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
+| 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
+| 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
+| 2.8 | Packaging and distribution | Planned | | |
+| 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
+| 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
+| 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
+| 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
+| 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
 
 ---
 
@@ -1563,9 +1572,410 @@ retained sizes for fixtures; Medium within memory budget in both modes.
 
 **Dependencies**: 2.1.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [x] Storage: sidecars record a semantics version (the header's reserved field, written by `Commit`, checked by
+   `IndexCacheFile.Open`; a mismatch is refused and rebuilt; base caches and 2.1 sidecars keep 0, so the format version
+   stays 2). `MappedIndexFileWriter`: sections planned up front, a temporary file mapped read-write, writable spans per
+   section, then checksums, header last, flush and rename (the crash safety of section 7). The dominators layout
+   (`.dom.hsidx`: ImmediateDominators, RetainedSizes). Tests: round trip in both modes, a semantics mismatch refused, a
+   writer that never commits leaves no file, a crash before the header leaves no valid file.
+2. [x] The reverse index is built straight into its sidecar (2.1 review M2): `ReverseReferences.Build` fills given spans;
+   with an index cache it is written through `MappedIndexFileWriter` and then opened in its chosen mode, so a mapped index
+   never holds a managed copy. Tests: the existing reverse index tests; the sidecar's bytes equal the previous writer's.
+3. [x] Analysis: `DominatorTree` (semi-NCA over the CSR and the reverse index, iterative with no stack at all, a virtual root
+   joined to `PathRoots.Sources`), retained sizes in reverse preorder, written into spans the caller gives;
+   `RetainedByGroup`, the lower bound per type or group. Tests: chain, diamond, cycle, self loop, a root reached only
+   through another root, two roots sharing an object, a list held from both ends, a frozen object, a weak handle, a
+   dependent-handle edge, unreachable objects, seeded random graphs against a brute-force dominator check, the group
+   lower bound on nested objects of one type.
+4. [x] Worker and Contracts (protocol 9): the dominators as a derived slot (projected memory checked first, opened from or
+   written into the sidecar, shared progress, its own lease); `IncludeRetained` on type summary and instances requests
+   (a `Retained` column); `QueryRetainedAsync` (an object's retained size and immediate dominator). Tests: worker tests
+   on synthetic snapshots, the sidecar reused on reopen, a stale semantics version rebuilt, the budget refusal.
+5. [x] Application and CLI: `SnapshotSession` methods; `--retained` on `summary`, `instances` and `object`. Tests: CLI
+   integration on a full dump and a gcdump.
+6. [x] UI: a "Retained sizes" switch on the summary and instances views (a column, sortable, computed with progress); the
+   object view's retained size and immediate dominator (a link). Tests: view model tests; `--smoke-open` on the Small dump.
+7. [x] Known answers: every rooted fixture item's retained size equals the independent ClrMD computation and is at least
+   its `minRetainedBytesPerItem`; a leak type's retained lower bound covers its items; late garbage is unreachable.
+8. [x] Measurement: Medium and DenseHeap in memory and mapped (time, peak private bytes, sidecar size, reopen).
+9. [x] Docs: ARCHITECTURE (6.4, 7, code map, protocol 9, section 10, an ADR for the retention semantics shared by paths
+   and dominators, 2.2 review L6), DEVELOPER, CLAUDE.md, the known answers README.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Decisions** (Phase 2 autonomy, one sprint at a time: the product owner said "continue" for 2.3 on 2026-10-25; each
+default below was decided autonomously)
+1. Semi-NCA as chosen in 1.9. The virtual root's successors are exactly `PathRoots.Sources` (retaining roots, then frozen
+   objects). An object no root reaches has no dominator (-1) and a retained size of 0; an object dominated only by the
+   virtual root (a root's own object, or one held by several roots) has -2.
+2. Kept per object: the immediate dominator (4 bytes) and the retained size (8 bytes), in the sidecar `.dom.hsidx`. Its
+   semantics version combines `PathRoots.SemanticsVersion` and the algorithm's own version, so a sidecar computed under
+   older rules is rebuilt.
+3. With an index cache, both optional indices are computed straight into their mapped sidecar file and then opened in
+   the chosen memory mode; without one they stay in managed arrays.
+4. Before computing, the working arrays (13 bytes per object after the review's M4; 21 before) and any managed outputs
+   are checked against what is left of the worker's share; when they do not fit, the worker refuses with InsufficientMemory and suggests reopening
+   the snapshot mapped. A live in-memory graph is not switched to mapped mid-session (Backlog).
+5. Computed on demand, not at open (4 to 13 s on Medium and DenseHeap): when a retained column or value is first asked
+   for; later opens reuse the sidecar.
+6. A type's (or namespace's, or assembly's) retained size is a lower bound: the retained sizes of its objects not dominated
+   by another object of the same group. Shown as such. Exact retention of a set ("objects retained by this set") is 2.4.
+7. The dominator tree drill-down and the biggest retainers tile are 2.4; retained deltas in diffs go to the Backlog.
+8. gcdumps are computed the same way; an incomplete graph is noted, as for referrers.
+9. The known-answer check compares each item's retained size with an independent ClrMD computation on the shared
+   all-leaks dump.
+10. As before, Moderate review findings are decided with their recommendation and logged; the sprint stops and reports
+    after `/close-sprint`.
+
+**Review summary** (`docs/reviews/sprint-2.3.md`): 2 High, 14 Moderate, 21 Low after dedupe.
+
+Both Highs are fixed and confirmed:
+- H1: the dominators benchmark deleted the whole `--out` folder; it now deletes only its own sidecars.
+- H2: a null retained cell crashed the CLI's JSON output; a null cell is now JSON null, and 4.6 says any cell may be null.
+
+Twelve Moderates were fixed, decided autonomously:
+- the budget is checked before the reverse index is built, reserved while computing, re-checked on the fallback, and the
+  sidecar opened after the working arrays are collected; a sidecar another process wrote is used (M1);
+- one worker-wide `MemoryReservations` for concurrent large computations (M2), and a collection after every one (M3);
+- the semidominators and ancestors live in the retained sizes output (13 bytes per object of working arrays instead of
+  21; M4), and the path compression reverses pointers instead of keeping a buffer (M5);
+- notes beside retained sizes for incomplete snapshots and a gcdump's unrooted survivors (M6);
+- requests checked before any dominators (M7); a failed retained query no longer hides the grids' rows (M8);
+- worker tests through `DominatorIndexBuilder` (M9), crash-safety tests of the mapped writer (M10), refusal advice that
+  fits the snapshot (M11), and an oracle that treats frozen objects as alive, checked on three items per fixture (M12).
+
+Deferred at the close: stopping a computation nobody waits for (M13), the 16 GB measurement (M14), and gcdump
+survivors as extra sources (M6's second half). After the close, at the product owner's request: M13 fixed, M14 measured
+under a working set cap (a real 16 GB machine stays in the Backlog), M6's second half kept in the Backlog with a revisit
+trigger and the note now giving the bytes affected (review file, "After the close").
+
+Measured after the review (32 GB machine): Medium reverse index and dominators 3.9 s in memory (peak 3,289 MB) and 5.6 s
+mapped (peak 699 MB); DenseHeap 4.6 s (3,875 MB) and 7.0 s (661 MB). Every rooted fixture item's retained size equals an
+independent ClrMD walk.
+
+---
+
+## Sprint 2.3.5: Cross-platform and sharing decision
+
+**Goal**: decide, before 2.4 adds more UI, how HeapScope reaches Linux and macOS developers and how teams share results.
+
+**Scope**: a spike and a decision, not a port. From the product owner (2026-10-25): the users to reach are Linux developers
+(possibly macOS) and teams sharing results. Today everything but the WPF UI targets plain `net10.0`; the Windows-only parts
+are the UI, capture (process discovery, dump writing, elevation) and a few native calls in Storage and Application. The
+engine stays .NET (ClrMD has no equivalent elsewhere); the open question is the front end.
+- Run the CLI and worker on Linux against a Linux core dump of LeakyConsole and check the known answers.
+- List what capture needs on Linux (createdump, `/proc`) and macOS.
+- Compare the UI routes with one view prototyped each: Avalonia (view models carry over, desktop on all three systems)
+  and a TypeScript web front end over the worker (also opens a shared or hosted view for teams).
+- Sharing results: what a shared result is (an exported analysis, not a dump), how it stays within the privacy rules
+  (ARCHITECTURE 12: snapshot contents are sensitive), and how it relates to the HTML report export in the Backlog.
+
+**Acceptance criteria**: an ADR choosing the UI route and the sharing model; Phase 2 re-planned from 2.4 on accordingly.
+
+**Version**: 2.3.5 (between 2.3.0 and 2.4.0).
+
+**Dependencies**: 2.3.
+
+**Task breakdown**
+1. [x] Portability survey: every Windows-only call outside the UI (capture's process discovery, elevation and disk space
+   checks; the memory status calls, already guarded), the worker's path, the pipe (already current-user only on every
+   system), the DAC locator's local-path rules on Linux and macOS. Written into the ADR.
+2. [x] CI on GitHub's hosted runners (`.github/workflows/ci.yml`): Windows builds the solution and runs the fast tests;
+   Linux (ubuntu-latest) and macOS (macos-latest, informational: an arm64 runner) build the engine, the worker and the
+   CLI, run the engine's unit tests, start LeakyConsole, take a core dump of it with `dotnet-dump` (installed on the
+   runner only), and run `heapscope-cli summary`, `instances --retained` and `paths` on it. Tests: the workflow passes on
+   the sprint PR (Linux required, macOS reported).
+3. [x] Small portability fixes the CI run asks for (the worker's executable name off Windows, the DAC locator's path
+   rules, capture refusing clearly where it is Windows-only). Tests: unit tests for each; the CI run.
+4. [x] Avalonia prototype (`spikes/AvaloniaGrid`, outside `HeapScope.sln`, not shipped): one window that opens a dump
+   through the real `SnapshotSession` and shows the types grid and a type's objects with the existing data-virtualized
+   row lists, sorting and the filter, on MIT packages only. Measured on the Small dump: first show, scrolling 1.5 million
+   rows, the longest UI-thread block. Licenses of every package checked.
+5. [x] Decision: ADR-025 (UI platform: Avalonia, amends ADR-001; the rule for Avalonia updates) and ADR-026 (sharing: an
+   exported analysis, analysis only by default); Phase 2 re-planned with a port sprint before 2.4.
+6. [x] Docs: ARCHITECTURE (ADRs, 12 privacy for exports), DEVELOPER (CI, the prototype), CLAUDE.md (the Avalonia update
+   rule), SPRINTS.
+
+**Decisions** (the product owner answered on 2026-10-25; the rest decided autonomously, marked so)
+1. The Linux and macOS check runs on GitHub's hosted runners ("github"), not on this machine: no WSL or Docker here.
+   It also starts the CI the Backlog asked for.
+2. Avalonia packages may be downloaded for a throwaway prototype (MIT, about 50 MB). The web route is not prototyped:
+   the product owner chose Avalonia after the comparison ("avalonia", "port before 2.4").
+3. Port to Avalonia before 2.4, if the prototype performs and every package used is MIT; otherwise the product owner
+   decides again with the prototype's results.
+4. Before any Avalonia update, check that nothing HeapScope uses moved to a paid license (Avalonia sells "Accelerate"
+   components; TreeDataGrid moved there). Only MIT components are used (product owner, 2026-10-25).
+5. A shared result is an exported analysis, analysis only by default: type summaries, diffs, retained sizes, retention
+   paths with type and field names; never string text or field values unless the person exporting opts in for that
+   export (product owner: "Analysis only").
+6. The prototype lives in `spikes/` outside the solution and is deleted after the port sprint replaces it (decided
+   autonomously).
+7. macOS runs on an arm64 runner while HeapScope targets x64 (ADR-001): its job is informational (continue on error) and
+   its findings go into the ADR (decided autonomously).
+8. CI is not yet a required check on the protected branches; making it one is the product owner's call once it is
+   stable (decided autonomously).
+
+**Review summary** (`docs/reviews/sprint-2.3.5.md`): 2 High, 13 Moderate, 20 Low after dedupe.
+- High, both fixed and confirmed: the local path rule (ADR-017) did nothing on Linux and macOS, now `UnixLocalPath`
+  (the mount holding the path, links resolved, types read from `/proc/self/mountinfo`); Linux and macOS cores had no
+  truncation check, now `CoreFileHeader`.
+- Moderate, fixed (decided autonomously): a DAC paired through `libcoreclr` is checked by its version string outside
+  installed runtimes; the runtime version is named from the runtime's folder when ClrMD reads 0.0; CI asserts the known
+  answers with `jq`; a core's capture time is marked as the file's time; the missing DAC message says where to open a
+  dump of another system or architecture; Unix runtime roots; ADR-026 amended; capture refused off Windows is
+  `CaptureFailure.NotSupportedOnThisSystem`; section 1, ADR-007, ADR-012 and CLAUDE.md updated; 2.3.6 to 2.6 re-planned.
+- Deferred: the grid adapter's enumeration (2.3.6 scope), Compare's baseline with file-time captures, Unix file
+  semantics tests and Capture.Tests on Linux, a Windows CI dump step (Backlog).
+- Measured: CI on GitHub's runners reads a `dotnet-dump` core of LeakyConsole on Linux (required) and macOS arm64
+  (informational) with the known answers: 2,000 objects per leak type, 64,000 bytes and 148 retained per cache entry,
+  the path from `StaticCacheLeak.s_cache`, a complete graph, .NET 10.0.14. The Avalonia prototype on the Small dump:
+  zero row list enumerations, 197 MB private (540 MB before the adapter), scroll stalls at most 36 ms, first show
+  108 to 162 ms (WPF 140 ms). Local gate before the review: 932 tests, 0 failed, 0 warnings.
+
+---
+
+## Sprint 2.3.6: Avalonia port
+
+**Goal**: the HeapScope UI runs on Avalonia on Windows, Linux and macOS, at parity with the WPF UI (ADR-025).
+
+**Scope**: from 2.3.5 (ADR-025):
+- Move the view models out of `HeapScope.UI.Wpf` into a platform-neutral UI library; a new `HeapScope.UI` (Avalonia,
+  Fluent theme, MIT packages only) hosts the views. Every current view: capture, sessions, the types summary, compare,
+  objects and inspection, inspections, monitoring, retention paths and retained sizes, the about box and attribution
+  strip (unchanged, ADR-022).
+- Grids keep the data-virtualized row lists through the `IDataGridCollectionView` pass-through proven in the prototype;
+  no paid Avalonia component (the update rule, ADR-025).
+- The render yield, power throttling (ADR-019, Windows only) and the UI smoke and lag gates move to the Avalonia app;
+  UI tests move to Avalonia's headless test platform.
+- CI: Linux and macOS also build the UI and run its headless tests.
+- Layering: the view model library and the Avalonia UI project get their rows in ARCHITECTURE 3.1 and `LayerRules` (the
+  architecture test refuses unknown projects).
+- From the 2.3.5 review: the grid adapter's enumeration and `CopyTo` pass through to the row list, which makes a
+  placeholder row per index; select all, copy and keyboard paths that enumerate must go through indices or the worker,
+  and a probe test (as `RowListProbe` does) proves no grid path enumerates 1.5 million rows. The render yield moves
+  into `IUiDispatcher` (Wpf, Avalonia, Immediate) instead of the static `TaskSchedulerExtensions.RenderYield`. Front
+  ends ask `ICaptureService` whether capture is available (with the reason) before showing capture views.
+- Capture stays Windows only (the views say so off Windows and point to opening a dump taken with `dotnet-dump`).
+- Retire `HeapScope.UI.Wpf` and `spikes/AvaloniaGrid` once parity is reached; update THIRD-PARTY-NOTICES.
+
+Added by the product owner before the start (2026-10-26, "add 1-7"):
+1. Runnable builds per system: self-contained builds for `win-x64`, `linux-x64`, `osx-arm64` and `osx-x64` (the UI, the
+   worker and the CLI), produced by CI as downloadable artifacts. macOS signing and notarization stay in the Backlog.
+2. Owner-only files off Windows (2.3.5 review L5): sessions, logs, index caches and sidecars are created readable by the
+   user only (files 0600, folders 0700); Windows keeps the profile's ACL.
+3. Light and dark themes in Avalonia (the WPF themes' keys and colors), following the system unless `Ui:Theme` says.
+4. The first-window time is measured in the smoke gate (the Backlog's cold start item gets an Avalonia number).
+5. Compare's default baseline when a capture time is only the file's time (2.3.5 review M4): the snapshot opened first
+   is the baseline, and the view says why.
+6. A Windows CI step that captures LeakyConsole with the CLI and checks the known answers (2.3.5 review M3).
+7. 2.3.5 review cleanups: L2 (one module key in `TypeGroups`), L11 (`ProcessName` through `RecordedPath`), L13 (the
+   socket bound), L14 (one public type per file, guard order, `using`), L16 (attach pipe names checked for length).
+
+**Acceptance criteria**: every WPF view and command has its Avalonia equivalent; the smoke gate (first show, scroll, the
+longest UI-thread block) meets the WPF numbers on the Small dump on Windows; the UI opens a Linux core dump of
+LeakyConsole on the Linux runner (headless) with the known answers; only MIT (or otherwise allowed) packages.
+
+**Version**: 2.3.6.
+
+**Dependencies**: 2.3.5.
+
+**Task breakdown**
+1. [x] Groundwork: Avalonia packages in `Directory.Packages.props` (Avalonia, Desktop, Themes.Fluent and DataGrid as in
+   the prototype; Avalonia.Headless for tests and the headless smoke run), all MIT and checked by the update rule;
+   Avalonia's build telemetry turned off for the repository (an empty `AvaloniaStats` target in
+   `Directory.Build.targets`, and `AVALONIA_TELEMETRY_OPTOUT=1` in CI); THIRD-PARTY-NOTICES. Tests: the build log shows
+   no `AvaloniaStats` task; a repository test checks the override exists.
+2. [x] `HeapScope.UI.ViewModels` (net10.0): the view models, `IUiDispatcher` (with `YieldToRenderAsync`, replacing the
+   static `RenderYield`), `IUserInteraction` made asynchronous (Avalonia's dialogs are), the immediate and automatic
+   implementations; `ICaptureService.UnavailableReason` (null when capture works, else the reason) used by the Processes
+   and Live view models.
+   `HeapScope.UI.Wpf.Tests` becomes `HeapScope.UI.ViewModels.Tests` (net10.0, runs on Linux and macOS). The WPF app uses
+   the library until it is retired. ARCHITECTURE 3.1 and `LayerRules` get the new rows. Tests: the moved view model
+   tests; capture availability; the architecture test.
+3. [x] `HeapScope.UI` (Avalonia, `HeapScope` executable): `Program`, `App` (host start and bounded stop, last-chance
+   handlers, power throttling on Windows per ADR-019), `UiHost`, the services (dispatcher, dialogs, lag watchdog), light
+   and dark themes, and the shell window: navigation, worker crash banner, jobs, status bar, back and forward (mouse
+   buttons, Alt+arrows) and the attribution strip with the same text, link, place, surface and contrast (ADR-022).
+   Tests (`HeapScope.UI.Tests`, headless): the window builds with no binding errors; the attribution checks move to
+   the Avalonia markup; both themes define the same keys.
+4. [x] Grids: the `IDataGridCollectionView` pass-through (from the prototype), through which no grid path enumerates
+   or copies the list (a walk would still make a placeholder row per index, so walks are counted and every smoke run
+   fails on one, review M3), worker-side sorting with header arrows, open by double-click or Enter, highlighted filter matches, columns from a result set's column list, column visibility from
+   the view model, the heap kinds bar. Whole-list walks are counted (`VirtualCollectionViews.Enumerations`) rather than
+   failed, so the tests can prove there are none without breaking the app if a grid path ever does one. Tests
+   (headless, 1.5 million rows): first show, scrolling, select all, copy and keyboard moves enumerate nothing; a header
+   click sends the column to the sort command.
+5. [x] Pages: Home, Processes (capture availability and the `dotnet-dump` hint off Windows), Snapshots (the snapshot
+   tab with types, instances, object, referrers, paths and retained sizes; compare; inspections), Live (the timeline
+   chart), Jobs, About. Tests: each page builds headless with fake view models and no binding errors; the WPF commands
+   and views listed against their Avalonia equivalents in the review file.
+6. [x] Smoke and gates: the smoke runs (`--smoke-synthetic`, `--smoke-open`, `--smoke-compare`, `--smoke-trace`,
+   `--smoke-live`) and the dispatcher lag checks on Avalonia; `--headless` runs them without a display; the first-window
+   time is logged and gated; `build/gate.ps1` runs the Avalonia smoke. Measured on the Small dump against the WPF
+   numbers (first show, scroll, the longest UI-thread block). Tests: the gate's smoke steps.
+7. [x] Compare's baseline with file-time captures (added item 5). Tests: the compare view model picks the first opened
+   and says why.
+8. [x] Owner-only files off Windows (added item 2): one helper creates HeapScope's folders and files with user-only
+   permissions (sessions, logs, index caches, sidecars, partial dumps). Tests: run on Linux and macOS in CI (skipped on
+   Windows).
+9. [x] Builds per system (added item 1): `dotnet publish` self-contained per runtime identifier with the worker and the
+   CLI; builds are AnyCPU and a published build takes its runtime identifier's architecture (decision 10); a CI job
+   builds the four, runs the three it can and uploads them as artifacts. Tests: the CI job; the Windows build passes the smoke gate.
+10. [x] CI: Linux and macOS build the UI and run the UI tests; Linux runs the headless smoke on the LeakyConsole core
+    dump; Windows captures LeakyConsole with the CLI and checks the known answers (added item 6).
+11. [x] Review cleanups (added item 7): L2, L11, L13, L14, L16 of the 2.3.5 review, each with its test where one applies.
+12. [x] Retire `HeapScope.UI.Wpf`, its tests and `spikes/AvaloniaGrid`; docs: ARCHITECTURE (3.1, code map, section 8
+    threading, ADR-019 and ADR-025 amended), DEVELOPER (run, smoke, publish), CLAUDE.md, THIRD-PARTY-NOTICES, SPRINTS.
+
+**Decisions** (decided autonomously from the recommended defaults unless marked otherwise)
+1. Two projects: `HeapScope.UI.ViewModels` (platform neutral, CommunityToolkit.Mvvm) and `HeapScope.UI` (Avalonia,
+   executable `HeapScope`); the tests split the same way. Namespaces drop `Wpf`.
+2. The WPF app is deleted in this sprint once the Avalonia app reaches parity; the two are not shipped side by side.
+3. Dialogs become asynchronous (`IUserInteraction`): Avalonia has no blocking dialogs; a small confirm window replaces
+   `MessageBox`.
+4. The theme follows the system (Avalonia's default variant) unless `Ui:Theme` is Light or Dark, as in WPF.
+5. Avalonia's build telemetry is turned off for the repository: HeapScope sends nothing anywhere (ARCHITECTURE 12), and
+   this extends it to its build. It ran during the 2.3.5 prototype builds before this was noticed (reported to the
+   product owner).
+6. Avalonia.Headless (MIT) is added for tests and for `--headless` smoke runs in CI; covered by the product owner's go
+   on this scope ("UI tests move to Avalonia's headless test platform"). Its download is the only new one.
+7. Builds are self-contained and not single-file (the worker is a separate executable), ReadyToRun on; CI uploads them
+   on pushes to `develop` and `main` and on manual runs, kept 14 days; never anything but build output.
+8. The smoke gate keeps its limits (the dispatcher budget, twice for the smoke). The first-window time is logged by every
+   smoke run and fails it only above 30 s (a start that hangs): measured 2.2 s warm for a Release build here, the same as
+   WPF, and 8 to 15 s for the first launch after a build while its files are scanned, so a tight limit would be noise
+   (first planned at 2 s; revised with the measurement, decided autonomously).
+9. Owner-only permissions apply to files HeapScope creates; a dump written by the runtime (Linux capture, later) and a
+   `--out` folder the user chose keep their own permissions.
+10. Builds are AnyCPU instead of x64 (found by CI: the x64 test assemblies could not load on the arm64 macOS runner, and
+    an osx-arm64 publish mixed arm64 and x64 assemblies): each process runs as its machine's 64-bit architecture, and a
+    published build takes its runtime identifier's (decided autonomously; ADR-001 and ADR-025 amended).
+11. Headless smoke runs (CI) check that every step works and log the UI lags without gating them: on a two-core runner
+    drawing in software the lag measures the machine, not HeapScope (decided autonomously; the Windows smoke gate is
+    unchanged).
+12. Avalonia's dispatcher has no operation hooks, so the longest UI operation is bounded, not timed: smoke runs probe
+    every 10 ms and check an upper bound (the highest-priority probe's wait plus the longest gap between probe ticks)
+    against the 100 ms budget (sprint 2.3.6 review, decided autonomously).
+13. `Avalonia.Fonts.Inter` (a dependency of the headless package, its font under the SIL Open Font License) is kept out
+    of the app's build output: the app uses the system font and the headless runs need no font of their own (decided
+    autonomously).
+
+
+**Review summary**: 1 High, 15 Moderate, 30 Low (docs/reviews/sprint-2.3.6.md). The High (the Linux and macOS builds
+lost their executable modes in the artifact upload, and the package job never ran what it built) was fixed with
+tarballs that CI unpacks and runs (CLI version, a worker ping, the worker's Server GC, a headless smoke), and confirmed
+by solution-architect after a second pass (relative tar names for Git Bash on Windows). Moderates, decided
+autonomously: 14 fixed (space reserved before mapped writes; a sound upper bound for the longest UI operation, decision
+12; smoke runs fail on any whole-list grid walk and log UI memory; one module key for summary, diff and inspections;
+the self-contained worker's own DAC folder instead of a folder beside it; the architecture check before the DAC
+search; the worker's GC settings logged and section 9 corrected (DATAS is off with a heap count); a guarded window
+close; attribution and message window tests with a hit-test fix; the grid dispatcher required; ReadyToRun for every
+published executable; the WPF parity table; TreeView limits documented and the 2.4 plan corrected; the Inter font kept
+out of the app, decision 13), 1 deferred to 2.4 (the grid adapter keyed by an interface). Lows listed. Measured
+(Release, this machine): Small dump checked lag 102 to 105 ms and longest operation at most 64 ms, Medium 71 ms and at
+most 69 ms (WPF, timed exactly: 44 to 68 ms); no whole-list grid walk; UI 219 to 229 MB private; published first window
+1.0 to 1.3 s; builds (CI) 266 to 370 MB unpacked, 112 to 139 MB as tarballs, each run from its unpacked tarball
+(worker ping, headless smoke) except `osx-x64`. Gate: 993 tests, 0 failed, 0 warnings (an earlier run hit the known
+SessionLibrary concurrency flake under load; it passed 5 of 5 alone). CI green on all jobs.
+
+---
+
+## Sprint 2.3.7: Port peer review
+
+**Goal**: a second, wider review of the Avalonia port (2.3.6 changed 173 files) from three perspectives, solution
+architect, developer and support or system analyst, looking for refactoring items and for logging that can back up
+every result HeapScope shows.
+
+**Scope** (product owner, 2026-10-26: "Really look at this for refactor items and also assure logging telemetry is
+solid. If someone contests a finding, we'll need logging to back up why result was proposed."):
+- Review the port's change set (`sprint-2.3.5..sprint-2.3.6`) and the code it touches for refactoring: duplication,
+  misplaced responsibilities, seams 2.4 will need, dead code from the WPF era.
+- Result provenance in the logs: when a user contests a result (an inspection finding, a retained size, a retention
+  path, a diff row, a growth alert, a refused capability, a DAC choice, a cache reuse), the local log shows why it was
+  produced: the snapshot's identity and loader facts, versions, the rule and its thresholds, counts, timings, with ids
+  that tie the UI, the CLI and the worker lines together. Never dump contents (ARCHITECTURE 12): no field values or
+  strings. "Telemetry" here means local diagnostics only; HeapScope sends nothing anywhere.
+- A support perspective: can someone diagnose a user's problem from the log folder alone (where logs are, how long they
+  are kept, what a failure looks like, what is missing).
+- Fix every High; Moderates follow the lead engineer's recommendation (product owner: "Go with your reco for moderate
+  recommendations").
+
+**Acceptance criteria**: docs/reviews/sprint-2.3.7.md with the three perspectives; every High fixed and confirmed;
+every Moderate decided; a test or a logged run shows each fixed provenance gap; docs describe the logging that exists.
+
+**Version**: 2.3.7.
+
+**Dependencies**: 2.3.6.
+
+**Task breakdown** (from docs/reviews/sprint-2.3.7.md; the review ran first, as this sprint's purpose)
+1. [x] Log files per process (H1, M17): `heapscope-yyyyMMdd-<app>-<pid>.log`, each starting with a header (product and
+   informational version, app, pid, system, architecture, runtime, self-contained or not, log folder); lines in ISO 8601
+   with offset; scopes rendered; files kept 14 days; a file rolls at 50 MB; `Logging:File:MinimumLevel` (also passed
+   to the worker). Tests: two providers on one folder keep every line; old files removed; the roll; scopes; the level.
+2. [x] Snapshot identity (H2): one structured line when a snapshot opens (id, path, size, fingerprint, kind,
+   capabilities, facts, runtime, capture time and its source, loader and cache writer versions, cache path and identity,
+   from cache or rebuilt or reopened, memory mode, notes, load timings, loader diagnostics); incomplete segments and
+   static roots kept in the cache metadata (optional fields); the client logs its handle with the worker id on open,
+   reopen and a changed-file refusal. Tests: the line's fields on a fixture open; the metadata round trip.
+3. [x] Result provenance (H3, M5): one structured line per answered query at the worker's RPC boundary (operation,
+   snapshot ids, parameters without filter text, versions and thresholds, outcome counts and flags, elapsed);
+   inspections get a version and parameters; duplicate strings count unreadable strings and say unreachable strings are
+   included; the Compare view model logs how the pair was chosen. Tests: a captured logger sees each result line; the
+   duplicate strings note.
+4. [x] Who ran what (H4, M20): `ProductInfo.InformationalVersion` (with the commit); a start line for the UI, the CLI
+   (with its command and options, never values) and the worker (protocol, system, architecture, runtime, path, rule and
+   format versions); `JobTracker` logs each job's start and end with id, title, elapsed, status and error code; the CLI
+   logs its exit code; worker start failures and the errors shown to the user are logged. Tests: job lines; CLI exit
+   line.
+5. [x] Correlation (M1, M20): an `Activity` per job, CLI command and grid query; StreamJsonRpc's activity tracing on both
+   ends so worker lines carry the client's trace id; scopes in the worker's console log; forwarded worker lines prefixed
+   with the worker pid and generation; result set re-runs logged. Tests: a worker line carries the client's trace id.
+6. [x] Errors and refusals (M2): expected refusals logged at Information without a stack, with operation, snapshot and
+   reason; errors created as codes logged; inspection availability reasons logged; the CLI console shows worker errors
+   only; ARCHITECTURE 4.3 and 11 corrected. Tests: refusal logged without stack.
+7. [x] DAC choice (M3): `DacChoice` (path, rule, folders searched, downloaded) returned through the loader's diagnostics
+   and the reader, logged with the identity line, kept in the cache metadata; each rejected candidate's reason in the
+   failure message; a download logged as a warning. Tests: the rule and the rejection reasons.
+8. [x] Monitoring and the growth gate (M4): run start and end lines with the rules; a fire line with metric, source,
+   baseline, threshold, step and rearm; the same in the timeline marker and the session record; the CLI gate decision
+   logged. Tests: the rule decision; the gate line.
+9. [x] Log content policy (M6): ARCHITECTURE 11 says what logs may hold (paths, names, counts, addresses; never values or
+   strings) and that logs are local evidence, not for publishing; the instances filter text kept out of logged messages.
+   Test: a refused filter's log line has no text.
+10. [x] Instances filter drops (M10): unreadable strings and regex timeouts counted, returned as a note and logged.
+    Tests: the counts.
+11. [x] Smoke runner (M11): shared measuring and step helpers, the failed step named in the log, `ILogger<SmokeRunner>`,
+    the CI-matched lines marked as a contract with event ids; the operation bound and the exit-code verdict extracted and
+    unit tested.
+12. [x] Shared patterns (M12, M15): a `WorkerException` base, `ResultSetHandle.ReleaseInBackground`, a section loader for
+    `ObjectViewModel`; one `AddHeapScopeViewModels` used by the app and the tests.
+13. [x] Support docs (M16): the log folder per system in README and DEVELOPER; the About page shows the log folder,
+    versions and runtime, with a copy action; messages name the actual log folder.
+14. [x] Early and fatal failures (M18, M19): `Main` logs failures before the host exists; Avalonia's warnings reach the
+    log without message text; worker exit codes explained (out of memory kill, abort, unhandled exception); a worker
+    last-chance line.
+15. [x] Docs: ARCHITECTURE 11 (logging and provenance, the policy), 4.3, 12; DEVELOPER (logs, support); CLAUDE.md;
+    SPRINTS 2.4 gets the deferred items (M7, M8, M9, M13, M14, typed fake rows).
+
+**Decisions** (decided autonomously from the recommendations)
+1. One log file per process rather than shared appends: no cross-process locking, and each file says who wrote it.
+2. Provenance is logged now; a provenance record on the result DTOs (protocol 11) waits for the shared analysis export
+   (ADR-026), which needs the same record.
+3. Correlation uses W3C trace ids through StreamJsonRpc's activity tracing, so the protocol does not change.
+
+**Review summary**: 4 High, 20 Moderate, 27 Low (docs/reviews/sprint-2.3.7.md; three perspectives: solution-architect,
+senior-dev, support and system analyst). The Highs were all logging: processes overwrote each other's log lines, a
+snapshot's identity was never logged, no result was ever logged, and there was no trail of versions, jobs or shown
+errors. All four fixed and confirmed by the reviewers that raised them (two gaps from the confirmations fixed too:
+retention path roots in the log, and host build failures). Moderates, decided autonomously: 14 fixed (trace ids from the
+UI or CLI to the worker, refusals logged without stacks, the DAC choice with every candidate's outcome, monitoring rule
+decisions and the CLI growth gate, rule versions and parameters, a log content policy, instance filter drops, the smoke
+runner's steps and tested verdicts, a worker exception base and shared release and section helpers, one view model
+wiring, support docs and the About page, early UI failures and Avalonia's warnings, worker exit codes, job and re-run
+lines), 6 deferred to 2.4 (navigation targets, the dominator tree's worker pieces, exactness on the wire, column groups,
+shared view controls, typed fake rows). Also found: the session lock's 10 second deadline caused the long-standing
+SessionLibrary gate flake (now 30 s). Protocol 11. Measured (Release, Small dump smoke): longest UI operation at most 63
+to 64 ms, lag 101 to 115 ms, UI 227 to 233 MB, about 80 log lines per smoke run. Gate: 1,025 tests, 0 failed, 0
+warnings; CI green on all jobs.
 
 ---
 
@@ -1576,15 +1986,123 @@ retained sizes for fixtures; Medium within memory budget in both modes.
 **Scope**: drill-down dominator tree, biggest retainers, grouping by type and namespace, cross-links between
 summary, diff, inspection and retention views.
 
-From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst in WPF, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+From the dotMemory research (`docs/research/dotmemory-ux.md` 7): a dominator tree with tree and path modes plus an icicle chart (simpler than a sunburst, same data); click highlights a path, double-click zooms; a biggest retainers tile.
+
+From 2.3.5 (ADR-025): built in Avalonia after the port (2.3.6). The tree is built on the free controls (a flattened,
+data-virtualized row list with indentation in the DataGrid), not the paid TreeDataGrid. Avalonia's `TreeView` is not
+virtualized and stays for small, capped trees only (2.3.6 review). A grid whose column set or row count changes on a
+re-query gets an adapter keyed by an interface rather than by row type (2.3.6 review).
+
+From the 2.3.7 peer review (deferred here, decided autonomously):
+- M8 first: one navigation target (snapshot, type key with scope, object, retention node, diff row) and one
+  `Navigate(target)` on the Snapshots view model that picks the tab, a subject interface with a typed trail (no more
+  `List<object>` and reflection binding), tab enums instead of numbers, and the navigator passed to grids by
+  constructor instead of settable commands; `SnapshotTab.axaml` split into a view per subject.
+- M9: decide at the start, as a decision or ADR, how the dominator tree's children are found (a children section in the
+  dominators sidecar, sorted by retained size, or a measured scan per expand), the request shape (expanded node ids;
+  `NodeId`, `ParentId` and `Depth` columns) and the updated memory budget (ARCHITECTURE 6.4).
+- M7: whether a value is exact or a lower bound travels on the wire (a column or result flag), with caveat codes whose
+  texts live in Contracts; the CLI and the view models render from that one source.
+- M13: column groups as one `VisibleColumnGroups` behavior and a generic cell row, with the grid adapter work above.
+- M14: a note text control and a type grid toolbar control (grouping, filter, totals), used by the types grid,
+  Compare and the dominator grid.
+- M15 rest: typed fake rows keyed by the Contracts column names in the view model test fakes.
+
+From 2.3 (decisions 6 and 7): the exact retention of a set ("open objects retained by this set": a reachability pass from
+the roots that skips the set, since a group's retained column is only a lower bound), the biggest retainers tile and the
+dominator tree drill-down build on the dominators sidecar (`Dominators`, `GroupRetention`).
 
 **Acceptance criteria**: every LeakyApi leak is reachable from "biggest retainers" in three clicks or fewer.
 
-**Dependencies**: 2.2, 2.3.
+**Dependencies**: 2.2, 2.3, 2.3.6.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**
+1. [x] Navigation first (2.3.7 M8): a `NavigationTarget` (snapshot, type key with scope, object, dominator node, diff
+   row) and one `Navigate(target)` on the Snapshots view model that picks the tab; `INavigationSubject` with a typed trail
+   (no `List<object>`, no reflection binding); `SnapshotTabs` and `ReferenceTabs` enums instead of numbers; the navigator
+   passed to grid view models by constructor; `SnapshotTab.axaml` split into a view per subject. Tests: the existing
+   navigator and view tests; a navigation target per kind lands on its tab and subject.
+2. [x] Dominator children (2.3.7 M9, ADR-027): the dominator tree's children as a CSR (index order since the review, H5)
+   (`DominatorTree.BuildChildren`), stored as two more sections of the dominators sidecar (semantics version 2, so older
+   sidecars rebuild once) and in memory without one; kept bytes 12 to 20 per object; ARCHITECTURE 6.4 updated. Tests:
+   children order and coverage on synthetic graphs; sidecar round trip; an old sidecar is refused.
+3. [x] Dominator tree query (worker, protocol 12): a flattened, paged tree from the virtual root or a focus object,
+   expanded nodes by key, children as objects or grouped by type or namespace (siblings' retained sizes are disjoint, so
+   group sums are exact), at most 100 children per node plus a "more" row, rows with key, parent key, depth, kind, name,
+   module, address, objects, retained, shallow bytes, share of the heap and child count. Biggest retainers are the root
+   level. Tests: flattening, grouping sums, the "more" row, keys stable across re-runs.
+4. [x] Exactness on the wire (2.3.7 M7): `ResultColumn.Bound` (exact or lower bound) set by the worker, with the
+   texts in Contracts; the CLI and the view models render from it. Tests: the type summary's retained column is a lower
+   bound, the instances' and the tree's exact.
+5. [x] Exact retention of a set: "objects retained by this set" for a type (or a scope) by a reachability pass from the
+   roots that skips the set; totals (exact) next to the group's lower bound, and the retained objects by type as a grid.
+   Tests: synthetic graphs with shared and exclusive children; the known answers' leaks.
+6. [x] Icicle chart query and control: the top levels below a focus with segments of at least 0.1 percent; click
+   selects and highlights the path in the tree, double-click focuses. Tests: layout widths and the threshold; the control
+   builds headless.
+7. [x] Retainers view (UI): a Retainers tab with the biggest retainers, the dominator tree grid (indentation, expand and
+   collapse with a click, Enter, Right and Left keys), grouping and the icicle; cross-links: type rows, diff rows and
+   inspection rows open "show in dominator tree" and "objects retained by this set"; a tree node opens its object,
+   its type's instances and its retention paths. Grid pieces from 2.3.7 M13 and M14: `VisibleColumnGroups`, a generic
+   cell row, a note text control and a type grid toolbar. Tests: headless views bind cleanly; view model tests for
+   expand, group, focus and the links.
+8. [x] CLI: `retainers <dump>` (biggest retainers, `--group`, `--depth`, `--top`, `--format table|json|csv`) and
+   `retained-by <dump> <type>` (exact set retention). Tests: CLI integration on the fixture dump.
+9. [x] Acceptance and smoke: an integration test proves every LeakyConsole leak in the known answers is reachable from
+   the biggest retainers in three clicks or fewer (open the row, expand, see the growing collection or its items); the
+   smoke drill opens the Retainers tab, expands and focuses, checked against the budget. Typed fake rows in the view
+   model tests (2.3.7 M15 rest).
+10. [x] Docs: ARCHITECTURE (6.4, 4.4 protocol 12, the retention explorer, ADR-027), DEVELOPER (CLI commands), README,
+    CLAUDE.md, SPRINTS.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Decisions** (decided autonomously from the recommended defaults)
+1. The children of the dominator tree are stored, not scanned per expand: a scan reads every object's dominator
+   (57.5 million on Medium) per click; stored children cost 8 bytes per object once and make an expand a slice read
+   (the review's H5: kept in index order; a query orders only the rows it shows).
+   They live in the dominators sidecar (new sections, semantics version 2), so existing sidecars are rebuilt once.
+2. Tree rows are keyed by address (objects) and by parent key plus group name (groups), so a re-run after a worker
+   restart keeps the expansion; at most 100 children per node with a "more" row that expands by 100, and at most
+   50,000 rows per answer.
+3. Biggest retainers are the top-level dominators (the virtual root's children), by object or grouped by type; static
+   field values are top-level dominators, so each leak's collection appears there directly.
+4. Group rows sum their members' retained sizes exactly: siblings in the dominator tree retain disjoint sets.
+5. Exact set retention is computed per request (a reachability pass, one bit per object plus a stack), never stored.
+6. The icicle chart replaces the sunburst (research doc 7); it shows six levels below the focus by default.
+7. Exactness travels as a column attribute (`ResultColumn.Bound`), not per row.
+8. Protocol 12.
+9. The Retainers view gets its own tab on the snapshot, next to Types, Compare and Inspections.
+10. During the build (decided autonomously): set retention takes a type (name and module); a namespace or assembly
+    scope is a Backlog item. "Show in dominator tree" from a type row opens the tree grouped by type with the type's
+    top-level group open; from an object it focuses on the object, its dominators as a trail. The links are in a
+    right-click menu on the types, Compare and inspection grids and in buttons on the instances and object views.
+11. The tree is re-queried on every expansion (the worker keeps no view state; the keys are the state), and the client
+    reads its rows by column name.
+12. 2.3.7 M13 and M14: column groups are named by the view model (`VisibleColumnGroups`), one row type serves every
+    result set grid (`CellRowItem`), and status and note lines are one `NoteText` control (21 copies replaced). The type
+    grid toolbar was not extracted: the Retainers tab has no type filter, so no third copy appeared (Backlog).
+13. 2.3.7 M15 rest: the new fakes are typed (`FakeTreeNode`, the set's rows); the older positional fake rows stay
+    (Backlog).
+14. The README has no command list (it points to `--help`), so it needed no change.
+
+**Review summary** (`docs/reviews/sprint-2.4.md`): four reviewers (solution-architect, senior-dev, gc-specialist, and
+a support and system analyst). 5 High, 17 Moderate, 33 Low after dedupe (the re-review of the fixes added 2 Moderates).
+- High, all fixed and confirmed: set retention reserves its memory and uses a chunked stack (H1); the focus trail keeps
+  the top 3 and nearest 20 dominators (H2); the toggled or linked row stays selected and in view in the new rows (H3,
+  `RevealKey` and `RevealIndex`, `OnRowsApplied`, `ScrollToSelection`); the acceptance test also runs on a live LeakyApi
+  dump (H4); the tree's children are kept in index order and only shown rows are ordered (H5: Medium's dominators 13.4
+  to 6.4 s, peak 3,747 to 3,291 MB).
+- Moderate (decided autonomously): 15 fixed now (the re-review's two included: grouped trees without hashing or
+  delegates per object, set retention's peak measured): a message when a type has no top-level group; Contracts owns the
+  tree's kinds, keys and limits; texts from the column's bound and one name for the set action; grouped trees cost what
+  they show; published limits and CLI notes in every format; re-measured docs; provenance of what the user looked at
+  and of each action; reachable versus all members; an unreachable focus's next step; a depth limit; set retention
+  checked against ClrMD; a bar with no loaded row; scoped inspection rows; test and fake fidelity. Deferred: a
+  `ValueBound.Approximate` and caveat codes, one type entry among several of a name (Backlog).
+- Measured (Release, 32 GB machine): Medium dominators with the children 6.4 to 6.9 s in memory (peak 3,291 MB), 11.4 s
+  mapped (697 MB), 1,097 MB kept; DenseHeap 7.3 s in memory (3,877 MB), 10.6 s mapped (658 MB); set retention of 3.2M
+  objects 3.3 s through the CLI, peak 3,300 MB for 16M objects in the benchmark (DenseHeap 3,876 MB); a tree query 0.03 s; the UI smoke run's Retainers drill warm: lag 50 ms, longest operation 32 ms.
+- Both acceptance runs: every leak of LeakyConsole and of LeakyApi is at most three expansions from the biggest
+  retainers (three need none, the unbounded dictionary one, the event handlers three).
 
 ---
 
@@ -1603,11 +2121,79 @@ diff the "new since the baseline" view that dumps alone cannot (ADR-018).
 
 **Acceptance criteria**: LeakyApi's leaking allocation site appears in the top call stacks under LoadGen.
 
-**Dependencies**: 1.7.
+**Dependencies**: 1.7, 2.3.6 (the UI is built in Avalonia, ADR-025). Platform scope: EventPipe allocation sampling works on
+Linux and macOS too, but the trace recorder attaches through capture's process discovery, Windows only until the Linux
+capture item; the sprint says which systems it covers.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously at /start-sprint, 2026-10-26; Phase 2 autonomy, one sprint at a time):
+1. Source: the runtime's `GCAllocationTick` events (one about every 100 KB allocated, with the type name, the bytes
+   since the last one and a call stack), recorded by a new `Allocations` trace profile. It works on .NET 6 and later
+   with no agent. Sizes are estimates: each sample stands for the bytes allocated since the previous one, so columns
+   say "sampled" and the CLI and UI say so once. .NET 10's randomized allocation sampling goes to the Backlog.
+2. The worker reads the trace (ADR-007: heavy data stays out of the front end), through a new loader project
+   `HeapScope.Loaders.Trace` (Core plus TraceEvent, like the other loaders). The model (`AllocationTrace`: frames, a
+   deduplicated stack tree, types, and per-sample time, stack, type and bytes) lives in Core; the aggregations in
+   Analysis. Protocol 13. A new ADR-028 records it.
+3. TraceEvent needs an `.etlx` file to resolve stacks: the worker writes it to a private temporary folder and deletes it
+   after reading; nothing is written next to the trace.
+4. Managed frames are named from the trace's own rundown (no symbol downloads, ADR-017); runs of unnamed native frames
+   collapse into one `[native code]` frame.
+5. Views (an Allocations page, one tab per opened trace): a timeline of sampled bytes per second where dragging selects
+   the interval; a Types grid; Back traces of the selected type (the allocating method, then its callers); a Call tree
+   (top-down) with Total and Own; Top call stacks. Trees are served flattened from the open keys like ADR-027's tree
+   (children by Total, 100 per page and a "more" row, a row limit).
+6. Recording from the UI: the Processes page gets "Record allocations" (30 s by default, stoppable), saved into the
+   session folder and opened when done; any `.nettrace` opens from the Allocations page's Open trace (its own picker,
+   so the dump picker stays for dumps). The CLI's `trace` takes
+   `--profile allocations`; a new `allocations <file>` command prints the top types and top call stacks of an interval.
+7. Linking a trace to the Compare tab ("allocated between the two snapshots") needs the trace and the snapshots on one
+   clock in the session record: Backlog, next to the 1.7 timeline item. Recording from the Live page goes with it.
+8. Platforms: reading and every view work on Windows, Linux and macOS; recording from the UI uses process discovery
+   (Windows only until the Linux capture item); the CLI records wherever the diagnostics port answers.
+9. Logs (ARCHITECTURE 11): each query logs its interval, filters and the rows it answered with (type and method names,
+   counts and bytes), so a disputed stack is traced from the UI action to the worker's answer; never event payloads
+   beyond type names and sizes.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**:
+1. [x] Recording: `TraceProfile.Allocations` and `TraceKind.Allocations` (GC events at verbose with loader and JIT
+   events, rundown on stop); CLI `trace --profile allocations`. Tests: providers unit test; an allocations trace of
+   LeakyApi holds allocation ticks with stacks (integration).
+2. [x] Model and reader: Core `AllocationTrace`; `HeapScope.Loaders.Trace` `AllocationTraceReader` (private `.etlx`
+   deleted after, native runs collapsed, progress and cancellation, bad files refused with a plain message); layering
+   rules updated. Tests: reader on a recorded trace, the `.etlx` is gone, a non-trace file is refused, architecture.
+3. [x] Analysis: `AllocationProfile` (timeline buckets, types over an interval, top stacks, call tree and back-trace
+   rows with paging and limits). Tests: synthetic traces with known answers.
+4. [x] Contracts and worker: protocol 13; open, close, timeline, types, stacks and tree queries; memory reservation;
+   provenance lines. Tests: worker tests, contract mirror.
+5. [x] Application and CLI: the trace handle in the session; recording into the session folder; `allocations`
+   command. Tests: application tests, CLI integration test.
+6. [x] UI: the Allocations page (timeline with interval selection, Types, Back traces, Call tree, Top call stacks),
+   Record allocations on the Processes page, `.nettrace` from the page's Open trace, a smoke step. Tests: view model and view
+   tests, the smoke run.
+7. [x] Acceptance and measurements: LeakyApi under LoadGen, its leaking allocation site in the top call stacks
+   (integration); reading time and peak for a long trace. Docs: ARCHITECTURE (code map, 4.4, ADR-028, 10, 11, 12),
+   DEVELOPER, CLAUDE.md.
+
+**Review summary** (docs/reviews/sprint-2.5.md): four reviewers (solution-architect, senior-dev, gc-specialist, and a
+support and system analyst). 4 High, 25 Moderate, 28 Low after dedupe; the re-review of the fixes added 3 Moderates and
+5 Lows, all fixed.
+- High, fixed and confirmed: managed frames without a name were shown as "[native code]" and merged, with nothing
+  saying why (now `[unresolved frame in <module>]`, counted, with the rundown and TraceEvent's conversion problems in
+  the descriptor, the log and the notes); the read's memory reservation rested on a misreported measurement (now
+  measured with the worker's GC settings on three traces: 96 MB plus 3 bytes per file byte); a trace was read again
+  after a worker restart without checking the file (now refused with `TraceChanged` when its size or write time
+  changed); the CLI labeled all-types totals as one type's.
+- Moderate (decided autonomously): 19 fixed now, among them one re-read per trace for concurrent queries, every stack
+  answered in the log with its stack node, the allocation kind per sample with LOH and POH columns, exact arrays and
+  pooled tree buffers, sorted samples and checked invariants, `.etlx` and partial-trace sweeps, a timeline bucket
+  limit, cancellation through the fast queries and the CLI's read, honest recording cancel and failure messages, one
+  meaning of %; 5 fixed in part with the rest in the Backlog or recorded (the conversion's cancellation, progress on
+  the fast queries, type id and module, the CLI's type text in the request line, more race tests); 1 deferred (one flattened-tree builder for the dominator and
+  allocation trees).
+- Measured (Release, the `allocations` benchmark with the worker's GC settings): a 72 MB, 600 s trace (565,625
+  samples) reads in 1.9 s with 227 MB of growth; whole-trace queries 2 to 13 ms. Acceptance: on LeakyApi under LoadGen
+  the leaking allocation sites are in the top call stacks, through the reader, the worker and the CLI (a 12 s trace
+  listed the five leaks' `Grow` methods as its top five stacks).
 
 ---
 
@@ -1625,11 +2211,82 @@ From the dotMemory research (`docs/research/dotmemory-ux.md` 7): one card per de
 **Acceptance criteria**: every LeakyApi leak is detected with its known answer; no detector fires on a clean
 LeakyApi run.
 
-**Dependencies**: 2.2, 1.4.
+**Dependencies**: 2.2, 1.4, 2.3.6 (the detector cards are built in Avalonia, ADR-025).
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously at /start-sprint, 2026-10-26; the user said "go ahead with sprint 2.6"):
+1. Detectors are inspections (ADR-020) of a new kind, `Leak`: one card each on the Inspections tab, in their own group
+   ("Leak detectors"), with cause, fix and rows that open the objects; `inspect` on the CLI runs them. No new page.
+2. A baseline: the inspection request takes an optional baseline snapshot (another open snapshot, the earlier one), so
+   a detector can measure growth; the Inspections tab gets a baseline picker and the CLI `inspect --baseline <dump>`.
+   Matching across dumps uses stable keys (a static field's declaring type and name, a type name), never addresses
+   (ADR-018). Protocol 14.
+3. The detectors, each with its threshold logged as its parameters (2.3.7 review M5):
+   - `growing-static-collections`: collections a static field holds directly (List, Dictionary, HashSet, Queue,
+     Stack, ArrayList, Hashtable, ConcurrentDictionary, reference arrays; ConcurrentQueue and the others went to the
+     Backlog at review, M5), counted by their own fields. With a baseline: grown by at
+     least 1,000 elements and 10 %. Without: at least 10,000 elements, said to be large, growth unknown.
+   - `event-handler-leaks`: an event field (a delegate field of a publisher type) holding at least 1,000 subscribers
+     across its publishers, named `Publisher.Event`, with the subscribers' types.
+   - `timer-leaks`: at least 500 active timers whose callbacks target one type.
+   - `disposed-but-referenced`: at least 100 reachable objects of one type whose disposed flag is set (the field names
+     the .NET guidelines and templates use).
+   - `httpclient-instances`: at least 20 reachable `HttpClient` or handler instances (create one and reuse it).
+   - `undisposed-service-scopes`: at least 500 reachable dependency injection scopes not disposed (ASP.NET Core).
+   They read field values, so they need a full dump; on a gcdump they are unavailable with the reason (ADR-020).
+4. Fixtures first: two new leaks outside the classic five (so the five's exact known answers stay): `TimerLeak`
+   (timers with an instance callback never disposed, rooted by the runtime's timer queue) and
+   `DisposedReferencedLeak` (objects disposed and still held by a static list); LeakyApi's "all" includes them. A clean
+   workload (`Clean:Enabled`: a bounded cache with eviction, subscribe then unsubscribe, timers disposed, objects
+   disposed and released) for the "no detector fires" run. Known answers gain `detections` (detector, key, minimum
+   count); a `clean` known answer lists none.
+5. Acceptance runs on two LeakyApi dumps each: a baseline after a warm-up and a current one after more load, all leaks
+   enabled, then the clean workload alone.
+6. Logs (ARCHITECTURE 11): each detector logs its rule version, thresholds, what it scanned and each row's key and
+   counts, so a disputed finding is traced; the baseline used is part of the log line. Never field values.
+7. Not in this sprint: WPF binding, collection binding, dependency property and x:Name leaks (a WPF fixture app is
+   needed; Backlog); detectors on gcdumps (no field values).
+8. Found while building (decided autonomously): a `System.Threading.Timer` nothing references is finalized and stops,
+   so the timer leak uses started `System.Timers.Timer`s, the pattern that leaks; the new leaks get their own switch
+   (`Leaks:Detected`, LeakyConsole `--detected`) so the five's exact census, paths and retention checks are untouched;
+   the baseline picker preselects the latest earlier open snapshot of the same process; without a baseline the
+   static collections detector leaves out `System.*`, `Microsoft.*` and `Internal.*` statics (the runtime's own tables,
+   such as `CastHelpers.s_table`, fired on the clean run), and arrays count only when they hold references; the event
+   handler detector reads a publisher type's field name once per delegate type (replaced at review, H2); the tab shows
+   one list with group headings instead of two lists (one selection).
+9. Changed at review (decided autonomously, `docs/reviews/sprint-2.6.md`): byte totals are bytes (subscribers'
+   delegates and targets, timers' objects); the event detector counts field-like events only, names each delegate by
+   its publisher's own field, and leaves out unreachable publishers, self-held handlers, compiler-generated holders and
+   framework callback fields (a multicast in any field of the publisher's own is an event too); the timer detector counts periodic timers in the queue only and attributes static or
+   lambda callbacks to the timer's state; disposed flags may be integers or auto-property backing fields; HttpClient
+   counts distinct handlers owned by clients; the root scope is left out; reachability is computed once per snapshot
+   and leaves out the finalizer queue; detector rows open the type's reachable objects (`InstanceScope.Reachable`), so
+   the whole-type actions stay off; an unusable baseline is refused; a baseline chosen mid-run reruns the growth tile.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Task breakdown**:
+1. [x] Fixtures: `TimerLeak`, `DisposedReferencedLeak`, the clean workload in LeakyApi; known answers with
+   `detections` and `Clean.json`. Tests: known-answer checks for the new fixtures with ClrMD.
+2. [x] Contracts and worker: inspection kind and baseline flag on `InspectionInfo`, `BaselineSnapshotId` on the
+   request, the baseline in `InspectionContext`; protocol 14. Tests: worker and contract mirror.
+3. [x] Detectors in Analysis, each tested on synthetic graphs with a fake reader: the six of decision 3.
+4. [x] Front ends: the Inspections tab's detector group and baseline picker; CLI `inspect --baseline`. Tests: view
+   model and view tests, CLI integration.
+5. [x] Acceptance: every LeakyApi leak detected with its known answer; nothing on the clean run (integration).
+   Measurements on Medium (deferred: the sample dumps need a runtime no longer installed; measured on a 658 MB
+   LeakyApi dump instead). Docs: ARCHITECTURE (ADR-020 amendment, 4.4, 10, 11), DEVELOPER, CLAUDE.md, the known
+   answers README.
+
+**Review summary**: 8 High, 24 Moderate, 33 Low after dedupe (four reviewers: solution-architect, senior-dev,
+gc-specialist, support; `docs/reviews/sprint-2.6.md`). Highs fixed: counts reported as bytes; the event field name
+cached per type pair; any delegate field counted as an event; one-shot, paused and lambda-callback timers counted or
+misattributed; rows opening the whole type; a baseline change mid-run leaving tiles waiting; the disposed probe's
+O(types x objects) scan; a gcdump baseline silently ignored. Moderates fixed now: reachability once per snapshot,
+finalizer queue left out, delegate targets read as the runtime stores them, integer and backing-field disposed flags,
+HttpClient factory clients, the root scope, a clean workload with look-alike patterns, an upper bound in acceptance,
+rerun errors, every row and exclusion logged by name, elapsed time; from the re-review, native-int fields, clients
+sharing one handler, events in private fields, publisher reads limited to types that can fire. All Highs confirmed by
+the reviewers that raised them. Deferred: other collection types, leaky HttpClient and scope fixtures, in-flight scopes,
+the picker refresh (2.7), derived-input descriptions, the shared layout table, threshold edge tests, an exact object
+set for detector rows, the Medium measurement. Tests: 1,126 (3 skipped).
 
 ---
 
@@ -1642,14 +2299,547 @@ export of any grid.
 
 From the dotMemory research (`docs/research/dotmemory-ux.md` 7): an analysis path sidebar (branch from any earlier step), analysis tabs, object marks across snapshots, the full filter syntax, keyboard shortcuts, CSV export.
 
+From 2.3.5 (ADR-026): CSV export is the first form of the shared analysis export, analysis only by default (no string
+text or field values unless the person exporting opts in for that export).
+
+From the 2.6 review: the Inspections tab's baseline picker refreshes as snapshots open and close and matches the
+process by id and start time (M12); its group headings are not selectable (L13).
+
 **Acceptance criteria**: every grid exports to CSV; every view reachable by keyboard; history survives view
 switches.
 
 **Dependencies**: 2.4.
 
+**Decisions** (all decided autonomously, 2026-10-27, Phase 2 autonomy):
+1. History becomes an analysis path per open snapshot, kept while the snapshot is open: switching snapshots, tabs or
+   pages never resets it. It is a tree: opening something from an earlier step adds a branch beside the later steps
+   instead of dropping them (dotMemory's Analysis Path). Back goes to the step's parent, Forward to the child visited
+   last. Links into the Retainers tab are steps too, replayed when chosen. At most 30 steps per snapshot; past that the
+   oldest leaf off the current path is closed. A step can be closed with its branch. The path is a sidebar on the
+   Snapshots page.
+2. Analysis tabs (several analyses side by side) are deferred to the Backlog: the branching path covers coming back to
+   an earlier analysis, and each tab would hold its own worker result sets.
+3. Bookmarks mark objects (snapshot, address, type, one of five colors). They are kept in `bookmarks.json` in the app's
+   data folder (a root the tests replace), keyed by the snapshot file's full path, size and write time, so they come
+   back when the snapshot is opened again; they hold no field values or string text. A Bookmarks list beside the path
+   shows the marks of every open snapshot and opens them; marks of snapshots not open are kept. Types are not bookmarked.
+4. Filter syntax (types and diff grids): space-separated terms must all match; `-term` leaves out names that match;
+   `module:text` (or `m:text`) matches the row's module, and rows without a module (namespace groups) do not match it.
+   Each term keeps the 1.3 rules (smart case, `*`, CamelHumps); highlighting shows the positive terms. The instances
+   filter (string value, address) is unchanged.
+5. Keyboard: one shortcut table (`Shortcuts`) drives the window and a shortcuts list (F1, also on the About page).
+   The command key is Ctrl on Windows and Linux and Cmd on macOS. Command+1 to 7 open the pages in sidebar order;
+   Alt+1 to 4 the Snapshots tabs; Alt+Left and Alt+Right (and the mouse buttons) move along the path; Command+F
+   focuses the current view's filter; Command+E exports the focused grid (else the view's main grid); Command+D
+   bookmarks the shown object or the selected row's object; Command+O opens a dump; Command+L focuses the path; F5
+   refreshes the page; F1 shows the shortcuts list on the About page. Enter, double-click, Right and Left keep their
+   1.5 and 2.4 meaning.
+6. CSV export (the first form of ADR-026's export): every grid has "Export to CSV..." in its context menu and
+   Command+E. It writes all of the grid's rows in its current sort and filter (a tree as currently expanded), not only
+   those loaded, with the result's columns other than hidden link columns. Columns that carry values (the instances'
+   Value, a duplicate string's text) are left out unless the person answers yes for this export, which then says so on
+   its first line. Text cells that a spreadsheet would read as a formula get a leading apostrophe. UTF-8 with a BOM
+   (spreadsheets read it). The file is written off the dispatcher; the log names the grid, rows, columns, the opt-in and
+   the time, never the path or values.
+7. `ResultColumn` gains `IsHidden` and `HasValues` (protocol 15), replacing the naming convention (Backlog: 1.5 L2,
+   1.6 M2); the CLI's `--format csv|json` stays a local view and keeps its columns (ADR-026).
+8. The Inspections tab's baseline picker (2.6 review M12, L13) is taken as planned. Dumps record no process start time,
+   so an earlier capture of the same process matches by process id when both dumps record one, else by name; a
+   baseline the person chose stays chosen while it is open, and selecting a snapshot chooses its default again.
+
+**Task breakdown**:
+1. [x] Result columns say what they are: `ResultColumn.IsHidden` and `HasValues`, protocol 15; every source sets them;
+   the grids, the inspections tab and the CLI table use the flags. Tests: ContractMirrorTests, worker source column
+   tests, InspectionsViewModelTests, CLI output tests.
+2. [x] CSV writing in Application (`CsvExport`): streams a result set's pages (or in-memory rows), quoting, the formula
+   guard, the values opt-in and its first line; the CLI shares the cell quoting. Tests: CsvExportTests (quoting,
+   formulas, hidden and value columns, all pages fetched, cancellation).
+3. [x] Export on every grid: `IGridExport` on each grid's view model, `GridExportService` (save picker, the values
+   question, writing off the dispatcher, logging), `GridBehaviors.Export` adding the context menu item. Tests: view
+   model export tests per source kind; a view test that every DataGrid in every view has an export.
+4. [x] Filter syntax: `NameFilter` terms, negation and `module:`; the worker's types and diff sources pass the module;
+   highlighting. Tests: NameFilterTests, worker filter tests.
+5. [x] Analysis path: `AnalysisPath` (a tree of steps per snapshot) replacing the navigator's list; Retainers steps;
+   the sidebar; closing a branch; the 30-step cap. Tests: AnalysisPathTests, NavigatorViewModelTests (history survives
+   snapshot and tab switches), a view test of the sidebar.
+6. [x] Bookmarks: `BookmarkStore` (file, keyed by snapshot identity), `BookmarksViewModel`, the list, Command+D and a
+   context menu item on object rows. Tests: BookmarkStoreTests, BookmarksViewModelTests.
+7. [x] Keyboard: the `Shortcuts` table, the window's handling (platform command key), focus of filters and the path,
+   the F1 list. Tests: ShortcutsTests; a view test that reaches every page, tab and subject by keyboard only.
+8. [x] Baseline picker: refreshes as snapshots open and close, matches the process by id (else name); headings
+   not selectable. Tests: InspectionsViewModelTests, a view test.
+9. [x] Docs: ARCHITECTURE (code map, protocol 15, ADR-029 for the analysis path and bookmarks, ADR-026 consequences),
+   DEVELOPER, README (shortcuts, filter syntax, export), Backlog (analysis tabs).
+
+**Review summary**: 3 High, 14 Moderate, 27 Low after dedupe (four reviewers: solution-architect, senior-dev,
+gc-specialist, support; `docs/reviews/sprint-2.7.md`). Highs fixed: in-memory grid exports wrote command lines without
+asking (columns now flag values in the view); overlapping filter terms drew wrong names (ranges merged); two windows
+overwrote each other's bookmarks (each change re-reads the file under a lock). Moderates fixed now: export cancel, no
+partial files, errors shown, the export tied to its result set in the log; bounds in CSV headers; the CLI's formula
+guard; the default baseline ignores file times; bookmark toggle races and file problems; in-memory exports keep the
+grid's sort; step and snapshot ids and filter shapes in the log; tests for the path's edges. Deferred: a column
+projection on page requests (values never read for an export without them), releasing and measuring the result sets of
+snapshots not shown, analysis tabs. All Highs confirmed by the reviewers that raised them; seven Lows the re-review
+found in the fixes were fixed too (lock file kept, no path in the export's error line, neutral values wording).
+Tests: 1,205 (3 skipped). Timing tests of untouched areas (a synthetic job's cancellation, a monitoring capture, a
+session concurrency test) failed once each only in full parallel runs on a loaded machine and pass alone.
+
+---
+
+## Sprint 2.8: Packaging and distribution
+
+**Goal**: people install and run HeapScope without building it.
+
+**Scope**: decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
+your proposal for a packaging sprint once you pick audiences and channels"). Options discussed after 2.4:
+- Windows: a self-contained single-file publish (the app and the worker, which is its own process), a
+  framework-dependent zip on a shared runtime, winget, MSIX, code signing.
+- Linux: a self-contained tar.gz with a `.sh` launcher; AppImage, deb or rpm.
+- macOS: an app bundle in a DMG, signed and notarized (needs an Apple developer account).
+- The CLI as a `dotnet tool`.
+- Release builds from CI on a tag, with checksums; releases to `main` stay the product owner's call (DEVELOPER.md 7).
+
+Constraints: every bundled component keeps an allowed license (MIT or allowed), with its notices shipped; the
+attribution strip and the license files ship unchanged (ADR-022); before any Avalonia update, check whether anything
+used has moved to a paid model. Signing certificates, store accounts and paid services need the product owner's OK.
+
+**Open questions for /start-sprint**: audiences (who installs it, on which systems); channels (GitHub Releases only,
+or also winget, a dotnet tool, package feeds); self-contained or shared runtime; signing on which systems; how updates
+reach users; whether CI becomes the release builder.
+
+**Acceptance criteria**: to be set at /start-sprint with the channels; at least a clean machine of each chosen
+system installs the package, runs the app, opens a fixture dump and runs the CLI, with no SDK installed.
+
+**Dependencies**: 2.3.6 (the Avalonia app, ADR-025). Can run before 2.5 if the product owner wants packages earlier.
+
 **Task breakdown**: to be filled by /start-sprint.
 
 **Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Phase 3: depth to match dotMemory
+
+Planned 2026-10-28. The product owner found HeapScope "well under powered for what dotMemory offers" after Phase 2.
+Phase 2 covered most of dotMemory's feature list (`docs/research/dotmemory-ux.md` 7) but each feature shallower. Phase 3
+deepens the analysis in five sprints, ahead of 2.8 Packaging (which still waits for the audiences and channels). The
+product owner agreed to this plan ("lets do your phase 3"); anything it leaves out is listed under Phase 4 candidates.
+Phase 3 runs like Phase 2: autonomously, one sprint at a time, stopping after each close.
+
+---
+
+## Sprint 3.1: Object sets
+
+**Goal**: any selection is a subject with every view, as in dotMemory's object set model.
+
+**Scope**: an object set as the analysis subject: several types (multi-select in the types grid), a namespace or an
+assembly, Compare's New, Dead and Survived counts of a row, an inspection's or a leak detector's row (exactly the objects
+it counted), the bookmarked objects, and the objects retained by a set. Each set shows the views that apply: Types (with
+the groupings), Instances, Dominators (the set's top-level dominators), Generations, and "objects retained by this set".
+Sets join the analysis path as steps.
+
+From the backlog: object set queries; set retention of a namespace or an assembly (2.4); sets narrower than a type (2.4
+M14); detector rows opening exactly the objects they counted (2.6 M24); a types row opening only its own method table's
+objects (1.5 M3); placing a type's objects in the dominator tree (2.4 M1).
+
+**Acceptance criteria**:
+- Each selection above opens as a set: several types, a namespace, an assembly, a Compare row, an inspection row, a leak
+  detector row (exactly the objects it counted), the bookmarks of a snapshot, and what a set retains.
+- On the LeakyConsole fixture each kind of set has known counts and bytes, and the Types, Instances, Generations,
+  Dominators and Retained views of a set agree with the same numbers computed by hand from the graph.
+- A set is a step of the analysis path and replays after its result sets are evicted or the worker restarts.
+- The CLI's `set` command answers the same views as the app.
+
+**Dependencies**: 2.4, 2.6, 2.7.
+
+**Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
+1. A set is described by an `ObjectSetSpec` that the client keeps and the worker resolves into its member objects (ADR-030).
+   There is no set handle on the wire: a spec survives result set eviction and worker restarts, and the analysis path
+   replays it. The worker caches resolved sets per snapshot (a few, memory reserved like other large computations).
+2. Spec kinds: types (one or more name and module keys), a namespace, an assembly, objects (addresses, up to 100,000), an
+   inspection row (inspection, baseline, row), and the objects another set retains. The single-type scopes of 1.6
+   (large object heap, finalizable, same text) stay on Instances; inspection rows reach them through the row kind.
+3. A set's views: Types (by type, namespace or assembly, with filter and sort), Instances (every member, any type),
+   Generations (objects and bytes per heap kind), Dominators (the members no other member dominates, with retained
+   bytes; a row opens the Retainers tab at that object) and Retained (the exact "objects retained by this set").
+   The Types view of a set has no retained lower bound column: per-group bounds need per-object groups, and the
+   Retained view gives the exact figure. A Types row opens the set's members of that type.
+4. Leak detector rows open exactly the objects they counted: inspections can list a row's members; the other
+   inspection rows keep their exact scopes (same text, large object heap, finalizable).
+5. Compare's New, Dead and Survived counts stay in 3.3: telling them apart needs object identity across snapshots,
+   and addresses move (ADR-018). In 3.1 Compare rows open the type keys as a set.
+6. 1.5 M3 (a types row opening only its own method table) stays in the backlog: sets match types by name and module
+   like every other query. 2.4 M1 (placing a type's objects in the dominator tree) is answered by the set's Dominators view.
+7. Logging: every set query logs the spec's shape (kind, key or address count, inspection and row) and the resolved
+   members and bytes, so a disputed number traces to what was counted; never addresses' contents or string values.
+8. Protocol 16.
+
+**Task breakdown**:
+1. [x] Contracts: `ObjectSetSpec` and its kinds, `Set` on `InstancesRequest`, `TypeSummaryRequest` and
+   `RetainedBySetRequest`, a set dominators query, ADR-030, protocol 16. Tests: DTO round trips, protocol version.
+2. [x] Analysis: `ObjectSet` (sorted member indices and a bit mask), aggregation over a set, set retention over an object
+   mask, the set's top dominators. Tests: synthetic graphs with known answers for each.
+3. [x] Inspections: a row's members (`InspectionTable.MembersOf`) for the leak detectors. Tests: each detector's rows
+   list exactly the counted objects on the fixture.
+4. [x] Worker: spec resolution with a per-snapshot cache and reservation, the four queries over a set, logging. Tests:
+   each spec kind on the fixture, cache reuse, bounds (too many addresses, unknown types, unknown inspection row).
+5. [x] Application and CLI: session methods and a `set` command (`--type`, `--namespace`, `--assembly`,
+   `--address`, `--inspection` with `--row`, `--retained`; views `types`, `instances`, `generations`, `dominators`,
+   `retained`). Tests: CLI output on the fixture.
+6. [x] View models: a Set subject with its views, the path step and its replay, and the entry points (types grid multi
+   select and group rows, Compare rows, inspection and detector rows, bookmarks, the retained result). Tests: each entry
+   point opens the expected spec; replay after eviction.
+7. [x] UI: the Set subject view, multi select in the types and Compare grids, the new commands and shortcuts. Tests: view
+   tests by keyboard, no binding errors.
+8. [x] Docs: ARCHITECTURE (code map, protocol, ADR-030, privacy of logs), DEVELOPER, README, this section.
+
+**Review summary** (`docs/reviews/sprint-3.1.md`; four reviewers: solution-architect, senior-dev, gc-specialist and a
+support engineer): 4 High, 15 Moderate, 26 Low (7 from the re-review).
+- High, all fixed: an event row of a multicast event opened the shared multicast delegates instead of its subscribers
+  (H1); the set's Dominators view could use several times the memory it reserved (H2); its rows read the graph without a
+  lease (H3); a disputed set view could not be traced in the logs (H4: sets are now logged by their names, matches and
+  sizes in every query, cache hits included).
+- Moderate, decided autonomously: 12 fixed (specs' texts kept off the wire, reservations and byte budgets for sets and
+  detector tables, one rule for a detector row's members, single resolution per set, client-side limits and unloaded
+  rows, the CLI's `--type`, one pass over the type table, the inspection replay core, the logging of replays, activities
+  for set actions); 3 fixed in part with the rest deferred (the cache evicted by reservations, the "other snapshot"
+  binding for 3.3, three tests).
+- Low: 16 fixed in passing (scoped inspection rows now offer what they retain through their own set, 2.4 M14), 10 to the
+  Backlog. Every High was confirmed by the reviewer that raised it.
+- Deferred to the Backlog: below.
+
+
+---
+
+## Sprint 3.2: Retention views
+
+**Goal**: see why many objects are kept alive at once, not only one path at a time.
+
+**Scope**: Similar Retention (a set's objects grouped by retention pattern, each group with its most different paths to
+roots); key retention paths drawn as a diagram (the distinct paths merged into a graph); group by interface in the types
+grid and Compare.
+
+**Acceptance criteria**:
+- On the RetentionPatterns fixture (objects held by three known patterns: a list only, the list and a dictionary, an
+  array of holders only) Similar Retention of the item type gives exactly three groups with the known counts, each group
+  showing the paths of its pattern; a group opens as a set with exactly its objects.
+- A set has key paths (the 2.2 grouping over its members); for a set of one type they equal the type's key paths.
+- The key paths diagram merges the paths into one node per root and per type, with edges carrying the objects that pass
+  them (view model tests), and is drawn on the type's Paths subject and the set's Paths view.
+- Group by interface in the types grid and Compare: on the fixture each leak class counts under `ILeak` and the
+  disposable fixtures under `System.IDisposable`, matching ClrMD; an interface row opens as a set; gcdumps refuse the
+  grouping with a reason.
+
+**Dependencies**: 3.1 (groups open as sets), 2.2.
+
+**Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
+1. A member's retention pattern is the set of distinct key path signatures (2.2: the shortest path from a root, the
+   types on the way with repeats folded) of its direct referrers that a root reaches, plus its own root when it is one.
+   Members with the same pattern form a group (dotMemory's Similar Retention). At most 16 referrers per member are
+   looked at; the result counts the members that had more.
+2. A group shows how many distinct paths its pattern has and at most two of them: the first, and the one sharing the
+   fewest steps with it ("the most different paths"). Groups rank by objects, then bytes, then their first member; 50
+   by default (1 to 500), the rest summed. Groups are numbered from 1 in the app, the CLI and the logs (review).
+3. A group opens as a set: spec kind `RetentionGroup` (the inner set and the group's pattern fingerprint, its rank as a
+   hint; review). The worker groups the inner set again to resolve it, inside a memory reservation.
+4. A set's key paths: `TypePathsRequest` takes a `Set` (the type name then empty), like `InstancesRequest` in 3.1.
+5. The diagram is built in the view model from the key paths: a node per root (by its description), per type and for the
+   set; an edge per consecutive pair, carrying the summed objects of the paths through it. Layers by first depth; an
+   edge back to an earlier layer is drawn as such. The list stays as the keyboard and screen reader form.
+6. Interfaces are read from the dump (ClrMD's interface map of one object per type, inherited interfaces included), once
+   per type and snapshot, and kept by the worker. A type counts under each interface it implements (the rows overlap;
+   the view says so) and types without one under "(no interface)". gcdumps record no interfaces: the grouping is
+   refused there. The retained column is not offered in this grouping (a type in several groups breaks the lower bound's
+   numbering). Interface rows open as sets (kind `Interface`). Compare groups both snapshots by their own interfaces.
+7. Logging: Similar Retention logs the set's shape, its groups, unreachable and limited members, and the top five groups
+   with their counts, bytes and shown paths (types and roots are metadata); the interface table logs how many types
+   were read and how many failed.
+8. Protocol 17.
+
+**Task breakdown**:
+1. [x] Contracts: `TypeGrouping.Interface`, set kinds `Interface` and `RetentionGroup` (shape, cache key, factories),
+   `TypePathsRequest.Set`, the Similar Retention query and result, protocol 17. Tests: round trips, keys, version.
+2. [x] Analysis: `SimilarRetention` (patterns, groups, the most different pair, a group's members), key paths over a set,
+   interface grouping in `TypeGroups` and `TypeDiff`. Tests: synthetic graphs with known groups and rows.
+3. [x] Reader and fixture: `IObjectReader.ReadInterfaces`; the RetentionPatterns fixture (`--retention-patterns N`) with
+   its known answer. Tests: known answers with ClrMD; interfaces of fixture types.
+4. [x] Worker: the interface table, interface grouping in summaries and diffs (refused for gcdumps), the two new set
+   kinds, set key paths, Similar Retention with logging. Tests: worker tests and integration on the fixture.
+5. [x] Application and CLI: session methods; `--group interface` on `summary` and `diff`; `set` views `paths` and
+   `similar`, and `--group N` for a Similar Retention group. Tests: CLI output on the fixture.
+6. [x] View models: the set's Paths and Similar Retention views, group rows opening as sets, the diagram model, the
+   interface grouping in the types grid and Compare, a Similar Retention command on a type's Paths subject. Tests.
+7. [x] UI: the views, the diagram control, list and diagram switch. Tests: view tests, no binding errors.
+8. [x] Docs: ARCHITECTURE (code map, protocol, ADR-031 Similar Retention, privacy of logs), DEVELOPER, README.
+
+**Review summary** (`docs/reviews/sprint-3.2.md`; four reviewers: solution-architect, senior-dev, gc-specialist and a
+support engineer): 7 High, 15 Moderate, 24 Low (3 Moderate and 5 Low from the re-review).
+- High, all fixed: a back pointer from a member's child counted as retention (H1); interfaces missed inherited and
+  generic ones (H2: base types, base interfaces, and generic instantiations decoded from module metadata, from the module
+  file when the dump does not hold the image); Similar Retention's memory was mostly unreserved (H3); the diagram double
+  counted a group's overlapping paths (H4); a growth gate over overlapping interface rows (H5, refused); the interface
+  table read the graph without a lease (H6, now a derived slot); unread interfaces shown as "(no interface)" (H7, own row).
+- Moderate, decided autonomously: 10 fixed (numbering from 1 everywhere with `--similar-group`, group sets named by
+  their pattern's fingerprint, every group logged, the retained note and sort fallback, refusals with next steps,
+  interface grouping offered only on full dumps, no per-member allocation, edge case and address tests, diagram gaps and
+  set labels, unread types logged), 2 in part (a per-grouping capability table and the result's index info deferred);
+  from the re-review, nested generic types' arguments and the module file's identity fixed, the exact back pointer test
+  deferred. Every High was confirmed by the reviewer that raised it.
+- Low: 12 fixed in passing, 12 listed.
+- Deferred to the Backlog: below ("From the 3.2 review").
+
+
+---
+
+## Sprint 3.3: Comparison depth
+
+**Goal**: comparing snapshots answers what grew and what keeps it, across more than two snapshots.
+
+**Scope**: Compare's counts open their objects as sets (from 3.1, with the snapshot asked where it matters: dead objects
+only exist in the baseline); retained bytes in diffs (a type's retained lower bound in each snapshot and the delta, from
+2.3 decision 7); trends across several snapshots of a session (from the backlog's trend analysis); comparing snapshots of
+different sessions; diff growth by generation (from 1.4). From the 3.1 review (M6): a set's baseline generalized into "the
+other snapshot" (dead objects only exist in the baseline), bound to the current ids at each call like an inspection row's.
+
+**Acceptance criteria**:
+- On two LeakyConsole dumps of one process, a Compare row's New, Dead and Survived objects equal the address matches
+  computed with ClrMD: New and Survived open as sets in the current snapshot, Dead as a set in the baseline, and the
+  grid's New and Dead columns agree with those sets' counts. Dumps of different processes refuse it with the reason.
+- Compare can show each row's retained lower bound in both snapshots and the delta; on the fixture each row equals the
+  type summary's retained column of its snapshot.
+- A trend of three or more snapshots lists each row's objects and bytes in every snapshot, the change from first to last
+  and the steps it grew in; on three fixture dumps with growing leaks the leak types grew in every step.
+- Compare shows per-generation byte deltas when both snapshots have generations, and the CLI's growth gate can check one
+  heap kind (`--growth-of gen2`) and each row on its own (`--fail-on-growth-per-row`).
+- Snapshots from different sessions compare like snapshots of one session.
+
+**Dependencies**: 3.1.
+
+**Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
+1. Object identity across dumps by address (ADR-032, amends ADR-018): only for two complete full dumps of one run of a
+   process (same process id and name, the current captured later, the baseline's frozen objects found; review). A current
+   object is Survived when the baseline has an object of the same method table, type key, size and heap area, in no
+   older generation, at its address (review), otherwise New; a baseline object with no object of its type key at its address in
+   the current snapshot is Dead. A compacting collection moves objects, so a moved survivor counts as Dead and New; the
+   columns and sets say "by address". Computed by one merge of the two snapshots' sorted addresses.
+2. Compare rows grouped by type get New and Dead columns when asked (`TypeDiffRequest.MatchObjects`); a row opens its New
+   or Survived objects as a set in the current snapshot and its Dead objects as a set in the baseline. Spec kind
+   `Compared`: the inner set (the row's types), the change, and the other snapshot. The 3.1 review's M6: an inspection
+   row's baseline and a compared set's other snapshot are one "other snapshot" field, bound to the current ids at each
+   call.
+3. Retained bytes in Compare (from 2.3 decision 7): `TypeDiffRequest.IncludeRetained` computes or opens both snapshots'
+   dominators and adds each row's retained lower bound in both and the delta. Not for interface rows.
+4. Trends (`QueryTypeTrendAsync`): 2 to 20 snapshots of one kind (review) in the order given (the app orders them by capture time), rows per
+   type, namespace, assembly or interface, with objects and bytes per snapshot, the change first to last and the number
+   of steps the bytes grew in. In the app a Trend view beside the two-snapshot comparison uses the open snapshots the
+   user ticks; the CLI's `trend` takes the dumps in order.
+5. Growth by generation (from 1.4): `TypeDiffResult` and the rows carry byte deltas per heap kind when both snapshots
+   have generations (Compare's Generations switch shows them). The CLI's `--growth-of total|gen0|gen1|gen2|loh|poh`
+   picks what the gate checks, and `--fail-on-growth-per-row` fails when any one matching row grows more than the
+   limit (its percent against that row's baseline).
+6. Different sessions: Compare already pairs any two open snapshots; a test states it for two session folders.
+7. Logging: a diff logs whether it matched objects (and why not), the New and Dead totals, whether retained bytes were
+   added and from where; a trend logs its snapshots in order, grouping and row count; the gate logs what it checked.
+8. Protocol 18.
+
+**Task breakdown**:
+1. [x] Contracts: `TypeDiffRequest` `MatchObjects` and `IncludeRetained`, the new diff columns (New, Dead, retained in
+   both and delta, per-kind deltas), the set kind `Compared` with `ObjectChange` and the other snapshot, the trend query,
+   protocol 18. Tests: round trips, cache keys, version.
+2. [x] Analysis: `ObjectIdentity` (the address merge: per type New, Dead and Survived counts, and the members of a change
+   for a set), per-kind deltas and retained columns in `TypeDiff`, `TypeTrend`. Tests: synthetic graphs with known
+   answers, moved objects, different type keys at one address.
+3. [x] Worker: diff with matching, retained and kinds; the `Compared` set kind resolved against the other snapshot under
+   both leases; the trend query; logging. Tests: integration on two fixture dumps of one process (ClrMD address matches),
+   different processes refused.
+4. [x] Application and CLI: session methods (`ObjectSetQuery.Baseline` as the other snapshot), `diff --match-objects --retained --growth-of
+   --fail-on-growth-per-row`, `trend`, `set --compared-with <dump> --change new|dead|survived`. Tests: CLI on the fixture.
+5. [x] View models and UI: Compare's New and Dead columns, retained and generations switches, a row's New, Dead and
+   Survived as sets, the Trend view with its snapshot choice. Tests: view model and view tests, no binding errors.
+6. [x] Docs: ARCHITECTURE (ADR-032, protocol, logging), DEVELOPER, README, this section.
+
+**Review summary** (`docs/reviews/sprint-3.3.md`; four reviewers: solution-architect, senior-dev, gc-specialist and a
+support engineer): 5 High, 14 Moderate, 25 Low (5 from the re-review).
+- High, all fixed: a set kind missing from a test (H1); matching allowed for gcdumps, mixed and incomplete dumps (H2);
+  a reused address counted as a survivor (H3: method table, size, heap area and generation now checked); the per-row
+  gate's log line was false (H4); two runs reusing a process id were matched (H5: frozen objects must be found).
+- Moderate, decided autonomously: 11 fixed (the meaning of the counts stated everywhere, the capture advice reconciled,
+  a percent with a heap kind refused, early sort checks, JSON and stderr provenance, the diff log's first rows, mixed
+  kind trends refused, the Trend view's limits and order, the retained delta an estimate, tests, refusals with next
+  steps), 1 in part (the CLI refuses an inspection row with `--compared-with`), 2 deferred (identity kept per pair and
+  measured; the CLI trend closing each dump in turn).
+- Low: 13 fixed in passing, 12 listed.
+- Deferred to the Backlog: below ("From the 3.3 review").
+
+
+---
+
+## Sprint 3.4: Live workflow and housekeeping
+
+**Goal**: the Live page is where a leak hunt starts and ends, and the session library stays tidy.
+
+**Scope**: a Get snapshot button and Force GC on the Live page (where the runtime allows it); recording allocations
+while monitoring (from 2.5); timelines recorded in `session.json` and reopening a past run (from 1.7 M3); deleting
+snapshots and sessions with their index caches, refused while open, and a retention rule for old sessions (from 1.1);
+one capture per target at a time across pages (1.7 M4).
+
+**Acceptance criteria**:
+- On the Live page, Get snapshot captures the monitored process (the run's kind) into the run, with a card and a timeline
+  marker; Force GC triggers a full blocking collection in the target (its Gen2 collection count goes up) and marks the
+  timeline. Both are refused with the reason while a capture of that process runs.
+- One capture per process at a time across the app: a second capture of the same process, from any page or a rule, is
+  refused (a rule skips its firing and logs why) while the first runs; captures of different processes still run
+  together.
+- With "Record allocations" ticked, a monitoring run records an allocation trace for its whole length into the session,
+  and the trace opens on the Allocations page.
+- Each monitoring run is recorded in `session.json` (process, interval, rules, kind, start and end, timeline, trace and
+  the snapshots it took); the Live page lists past runs and reopens one's timeline, markers and cards read only.
+- A closed snapshot can be deleted with its index caches (next to it or in the fallback folder, sidecars included) and
+  removed from its session; an open one is refused with the reason. A session can be deleted the same way. "Clean up
+  old sessions" lists the sessions not opened for N days with their sizes and deletes them after confirmation, skipping
+  the current session and any with an open snapshot.
+
+**Dependencies**: 1.7, 2.5.
+
+**Decisions** (all decided autonomously, 2026-10-29, Phase 3 autonomy):
+1. Force GC: an EventPipe session with the runtime provider's GC keyword and GC heap collect keyword triggers an induced
+   full blocking collection in the target, as a gcdump capture does, without writing a dump. Targets of .NET 5 or later
+   with a diagnostics port; elsewhere refused with the reason. Logged with the target and the time taken. It moves
+   objects, so the run's markers say "GC forced" (3.3's New and Dead objects across it are mostly dead and new).
+2. Get snapshot on the Live page captures through the same capture service as the Processes page and the rules, recorded
+   as a manual capture of the run.
+3. One capture per process at a time: the capture service holds a gate per process id. A second capture or a Force GC of
+   that process fails at once with "a capture of this process is running" (a new `CaptureFailure.Busy`); a rule's firing
+   is skipped and logged. Different processes are not serialized.
+4. Allocations while monitoring: a "Record allocations" switch starts an allocation trace (2.5's recorder) with the run
+   and stops it with the run; the trace is written to the session folder and recorded in the run; the Live page opens it
+   on the Allocations page. Refused for targets the recorder refuses, with the reason; the run goes on without it.
+5. Runs in `session.json`: a `Runs` member (format version stays 1: older builds keep unknown members) with an id, the
+   process, the interval, the rules as text, the capture kind, start and end, the timeline and trace files (relative to
+   the session folder) and the ids of the snapshots it took. Written when the run starts and again when it ends. The
+   Live page lists the current session's runs and opens one read only from its timeline CSV (the counters, its events
+   as markers, its snapshots as cards).
+6. Deleting: `SessionLibrary` deletes a snapshot (its file, index caches and sidecars, its partial files, its entry) and
+   a session (its folder and its snapshots' caches in the fallback folder). The front end refuses a snapshot that is
+   open, and a session with an open snapshot, a running capture or monitoring run; every deletion is confirmed by the
+   user, lists what goes and its size, and is logged (paths and sizes, never contents). No automatic deletion:
+   "Clean up old sessions" on the Home page proposes the sessions not opened for 30 days (or the days the user picks) and
+   deletes only after confirmation.
+7. Logging: Force GC, Get snapshot, a refused capture (Busy), the allocation trace's start and end, run records written,
+   a past run opened, and every deletion (what, size, why refused) are logged.
+
+**Task breakdown**:
+1. [x] Capture and Application: `GcTrigger` (Force GC), the per-process capture gate and `CaptureFailure.Busy`, rules
+   skipping a busy target. Tests: two captures of one pid, one refused; different pids both run; a rule skips.
+2. [x] Application: run records in `session.json` (`SessionRun`), written at start and end with the snapshots and the
+   trace; the timeline CSV reader; deleting snapshots and sessions with their caches; old sessions listed. Tests: round
+   trips with unknown members kept; deletions of caches next to a dump and in the fallback folder; refusals.
+3. [x] Monitoring: allocation trace with the run; Force GC and Get snapshot during a run as markers and cards. Tests:
+   fakes for the counter source and the recorder.
+4. [x] View models and UI: Live page buttons (Get snapshot, Force GC), Record allocations, past runs list and read-only
+   reopening, the trace opened on the Allocations page; Snapshots page "Close and delete"; Home page delete session and
+   "Clean up old sessions". Tests: view model tests with fakes, view tests, no binding errors.
+5. [x] Integration: Force GC on LeakyConsole raises its Gen2 count; Get snapshot; one capture per target; deletion of a
+   real dump's caches; a past run reopened. Tests: integration on the fixture.
+6. [x] Docs: ARCHITECTURE (ADR-033 capture gate and run records, session format, logging), DEVELOPER, README, this
+   section.
+
+**Review summary** (docs/reviews/sprint-3.4.md): 7 High, 18 Moderate, 27 Low after dedupe across four reviewers
+(solution-architect, senior-dev, gc-specialist, support engineer). All Highs fixed and confirmed by the reviewers that
+raised them: a session written into could be deleted (now registered in use and refused, deleted under its lock);
+deletion could reach outside the library (now only inside the session folder, through no link, root check separator
+safe, outside dumps kept); Start's file work ran on the UI thread; deletions were not backed up by the log and a partial
+failure lost the record (now planned, listed in the confirmation, logged path by path with the answer, `session.json`
+last); a busy rule skip was silent and a once rule could be lost (now logged and re-armed); Stop did not await every
+capture and a late one opened a second timeline (now tracked, refused once stopping, timeline opened at start); the
+run's allocation trace had no limit (now 1 GB or 1 GB free disk). Moderates: 15 fixed (a partly failed snapshot deletion explained, the Live smoke run no longer writes into the user's sessions and awaits Start, trace refusal shown at once, Force
+GC's timeout over the whole call with three outcomes and a confirmation, the .NET 5 check, exact cache names, refusal
+logs, runs recorded without a timeline, Force GC's own messages, log-line tests, run and snapshot ids), 1 in part
+(trace stopped after captures), 2 deferred (runs parsed one by one, a seam to test the real capture gate). Measured: the
+Live workflow integration tests pass on LeakyApi (a forced collection matched by its induced reason, finished in under a
+second).
+
+---
+
+## Sprint 3.5: Leak detection depth
+
+**Goal**: the detectors find the leaks dotMemory's inspections find, and the ones .NET apps commonly have next.
+
+**Scope**: finalizable objects (the finalizer queue, and objects finalized between two snapshots); async state machine
+and `Task` leaks; the objects a raw dump holds that the GC has not collected (unreachable from roots) as a set; a type
+growth detector across two snapshots (from 2.6).
+
+**Acceptance criteria** (set at /start-sprint, 2026-10-29):
+- A "pending-async-methods" detector names async methods with at least 1,000 reachable state machines that have not
+  completed (boxes whose task is neither run to completion, faulted nor canceled), by method, with the objects as a set;
+  the fixture's never-signaled awaits are found with their known count.
+- A "finalizer-backlog" detector names the types of at least 1,000 objects waiting on the finalizer queue (ready for
+  finalization, so the finalizer thread is blocked or slow), by type; the fixture's backlog behind a blocked finalizer is
+  found with its known count.
+- A "type-growth" detector, with a baseline, names the application's types whose reachable objects grew by at least
+  1,000 and by at least half since the baseline (types matched by name and module, ADR-018), with the current objects as
+  a set; each fixture leak's item type is found with the count it grew by.
+- The objects no root reaches in a full dump open as a set (`ObjectSetKind.Unreachable`): from the Types view of a full
+  dump and the CLI's `set --unreachable`, with their count and bytes matching the reachability walk.
+- No new detector fires on the clean LeakyApi run, with or without a baseline.
+
+**Decisions** (all decided autonomously, 2026-10-29, Phase 3 autonomy):
+1. Async leaks: a reachable `AsyncStateMachineBox<T>` is a pending async method unless its task's state flags say it
+   ended (read with field values, so full dumps only); rows are keyed by the method (`Namespace.Type.Method` from the
+   state machine's `<Method>d__N` name), threshold 1,000. Plain `Task` objects never completed (TaskCompletionSource) are
+   the cause the note names; a separate Task detector goes to the Backlog.
+2. Finalizer backlog: the objects the finalizer queue roots (ready for finalization), by type, when at least 1,000 wait.
+   The 1.6 finalizable inspection keeps the full census; this detector is the leak signal. "Objects finalized between two
+   snapshots" is not built in this sprint: it needs the baseline's finalizable objects whose finalizer has not run (the
+   header bit) matched by address against the later dump (ADR-032), which only full dumps of one run allow (Backlog).
+3. Type growth: reachable objects per type key against the baseline's, framework types (System., Microsoft.) left out
+   so a steady service stays quiet; at least 1,000 more objects and at least 50% more. Members are the current reachable
+   objects of the type. Rule version 1.
+4. Unreachable set: `ObjectSetKind.Unreachable = 9`, the objects the retention views' roots do not reach (ADR-024, the
+   finalizer queue included, so members have no path; changed in the review, see H1); refused for gcdumps (their
+   collection removed what no root reaches) and incomplete dumps. Protocol 19. ADR-034.
+5. Fixtures: two detected leaks in `LeakCatalog.Detected` (PendingAsync: awaits on TaskCompletionSources kept in a static
+   list; FinalizerBacklog: a finalizer that blocks the finalizer thread once, then finalizable items queued behind it),
+   with known answers; type-growth detections added to the seven earlier leaks' known answers and PendingAsync's.
+6. Logging: each detector's basis line (objects scanned, unreadable, thresholds, baseline used); the unreachable set's
+   resolution logs its count and bytes.
+
+**Dependencies**: 3.1 (findings open as sets), 2.6.
+
+**Task breakdown**:
+1. [x] Analysis: the three detectors in `LeakDetectors`, registered in the catalog. Tests: synthetic graphs (with a fake
+   reader for task flags), thresholds, the clean case.
+2. [x] Sets: `ObjectSetKind.Unreachable` through Contracts (shape, cache key, factory), the worker (refused for gcdumps),
+   the CLI (`set --unreachable`) and the Types view (Open unreachable objects). Protocol 19. Tests: worker, CLI, view model.
+3. [x] Fixtures and known answers: PendingAsync and FinalizerBacklog leaks, known answer files, type-growth detections.
+   Tests: the fixtures hold their items (raw ClrMD), every detection found, clean run quiet.
+4. [x] Docs: ARCHITECTURE (ADR-034, set kinds, detectors, protocol), DEVELOPER, README, KnownAnswers README, this section.
+
+**Review summary** (docs/reviews/sprint-3.5.md): 3 High, 15 Moderate, 21 Low after dedupe across four reviewers
+(solution-architect, senior-dev, gc-specialist, support engineer). All Highs fixed and confirmed by the reviewers that
+raised them: the unreachable set contradicted the retention views (now the complement of the retention views' roots,
+the finalizer queue included, so members have no path; incomplete dumps refused; its log says what only the finalizer
+queue holds); type growth compared gcdumps with full dumps (now two full dumps only, after a re-review caught that a
+complete gcdump still passed); pending async methods counted the framework's own waiting work (now left out and
+logged). Moderates: 12 fixed (incomplete dumps, exact tests, LeakyConsole's hang, exact counts, cancellation and the
+census, the set's log, every basis row, a later baseline, the wording of type growth and the finalizer backlog, box
+types), 2 in part (memory of the detectors, after a re-review fix of the first attempt), 1 deferred (old-generation
+growth). Measured: the detector integration tests find PendingAsync and FinalizerBacklog with exactly 6,000 each on a
+LeakyApi run, type growth names every leak's item type with its growth, the clean run fires nothing with or without a
+baseline, and the unreachable set matches ClrMD's walk exactly in count and bytes.
+
+---
+
+## Phase 4 candidates
+
+Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Phase 3 does not address).
+- A profiler-style live session: allocation data streamed beside the timeline, and snapshots faster than a full dump.
+- What was allocated between two snapshots in Compare, from a trace recorded between them (from 2.5; needs traces in
+  `session.json` on the snapshots' clock).
+- A sunburst view beside the icicle chart for dominators and call trees.
+- Analysis tabs: several analyses of a snapshot side by side (from 2.7).
+- Capture on Linux and macOS (from 2.3.5, ADR-025).
+- WPF leak detectors with a WPF fixture app (from 2.6).
 
 ---
 
@@ -1661,15 +2851,81 @@ switches.
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
-- Remote git, `develop`/`release` branches, CI pipeline, CI leak checks using the CLI.
+- CI leak checks using the CLI (the remote, `develop` and the CI pipeline exist since 2.3 and 2.3.5; CI already runs the
+  CLI on a fixture dump on Linux and macOS). Making CI a required check is the product owner's call (2.3.5 decision 8).
 - Trend analysis across more than two snapshots.
-- Finalizer queue and finalizable object analysis.
-- Async state machine and Task leak detection.
+- Objects finalized between two snapshots: the baseline's finalizable objects whose finalizer has not run, matched by
+  address (ADR-032) against the later dump (from 3.5's scope). By address it is an upper bound outside gen2, LOH and POH
+  (moved objects count as dead), and it needs a bit per object of each snapshot: add a memory reservation callback to
+  `InspectionContext` first (3.5 review M3). Plain `Task` objects that never complete, without an async method waiting
+  on them (3.5 names the async methods).
+- From the 3.5 review (decided autonomously): type growth with a column of old-generation (gen2, LOH, POH) growth, and
+  required, so load alone cannot look like growth (M13); the finalizer queue counted into a bit set and a memory
+  reservation for detector runs (M14); the finalizer thread's state read from the dump (its top frames) to back a
+  backlog (M11); timings and memory of the three detectors on Medium in section 10 (M6, L8); finalizer backlog's own
+  gcdump refusal text (L5).
 
 **Medium**
+- From the 3.4 review (decided autonomously): `session.json` runs read one by one, an unreadable run kept as its JSON
+  so the session still opens and nothing is lost on save, with the rule that new run members are optional (M8); a seam
+  in front of `DumpCapturer` so the real per-process capture gate is tested deterministically (one pid refused, two pids
+  together, released on failure and cancel) (M13); serializing the Allocations page's recording with a gcdump of the
+  same process, with an integration test counting induced collections across a gcdump and a trace's start and stop on
+  .NET 8 and 10 (M5); the allocation trace's size per minute and the target's slowdown measured on LeakyApi and a
+  high-allocation target, added to section 10 (L17); a reopened run downsampled over its whole length so every marker
+  shows, read as a stream (L1).
+- From the 3.3 review (decided autonomously): the address match kept per snapshot pair with the snapshots (and its
+  reservation held as long), and a Medium measurement of a matched and retained diff against the budgets (M12); the CLI
+  trend aggregating each dump and closing it before the next, measured with 20 dumps (M13); the other snapshot bound per
+  spec node, so an inspection row inside a compared set keeps its own baseline (M9); a type's retained bound per key,
+  not summed per method table (M10, L20); a Frozen delta column (L1); `ObjectChange` in the contract mirror tests (L11);
+  the New and Dead switch disabled from the descriptors with the reason (L13); the Trend view's interface grouping and
+  group note (L14); CLI validator refusals logged (L15); ADR-029 reworded (L12); a `TypeTrendRequest` round trip (L19);
+  process start time compared when a dump records it.
+- From the 3.2 review (decided autonomously): which grouping needs which snapshot feature declared in Contracts, so
+  every front end disables it the same way (M6); the reverse index info on `SimilarRetentionResult` (M12); a test that a
+  weak-handle-only referrer is not a retainer (M8); a reservation around `KeyPaths.ForTypes` and `ForMembers` (from 2.2);
+  interfaces kept in a sidecar so a reopen does not read them again (L16); a dependent-handle marker on path steps (L1);
+  interface rows keyed by name and module (L3); the diagram cached, its back edges inside its bounds and redrawn on a
+  theme change (L13, L14); a request with both a type and a set refused (L15); the `MaxReferrers` constants tied by a
+  test (L12); diagram toggles logged (L5); from the re-review: an exact back pointer test (the member dominates the
+  referrer, or entry and exit numbers over the shortest-path tree) instead of the 256-step climb (M13); module metadata
+  released after the interface table is built (L20); the (group, type) set in the reservation (L22); a cheap check
+  before fingerprinting every pattern (L23); Compare's matching total hidden for interface rows (L24).
+- From the 3.1 review (decided autonomously): the memory reservations evicting the object set cache before they
+  refuse (M2); the baseline of a set generalized into "the other snapshot" for 3.3's dead objects and 3.5's growth
+  (M6, do with 3.3); a view model test of a set replayed after a worker restart, a ClrMD check of a set's Generations
+  and Dominators views, and a test that a set's worker lines carry the UI's trace id (M15); the set dominators of a few
+  objects by climbing their dominators instead of walking the tree, and one retention pass shared by the Retained view
+  and "open as set" (L2); a set's frozen members said apart in its Retained view (L3); the CLI logging `--address` like
+  the worker (L12); an `IOpensAsSet` interface for the shortcut, one type key builder, and one session query helper (L18); from the re-review:
+  a concurrency test of the shared set resolution and a worker test of `MaxTypes + 1` (M15); keeping only the mask of a set
+  too large to cache (L20); an event row's bytes counting a shared target once (L21); the cache add and a snapshot's
+  close made one step (L22); progress and a log line for a query that joins a running resolution (L23); exact arrays
+  for the detectors' member lists (L24); the path step id in the set's log line (L25).
+- From the 2.3.5 review (decided autonomously, deferred; the Compare baseline and the Windows CI dump step were done in
+  2.3.6):
+  - Unix file semantics stated by tests: replacing or deleting a mapped index cache on Linux and macOS succeeds and
+    the open graph keeps reading the old file; the Windows-only tests skip there today. Capture.Tests join the Linux CI
+    job with the Linux capture item.
+- gcdump survivors without a recorded root as path and dominator sources (from the 2.3 review M6; agreed with the
+  product owner on 2026-10-25 to defer the fix). Today they retain nothing, and the note beside retained sizes gives their
+  count and bytes. The fix marks them "root not recorded" sources in `PathRoots.Sources` (so paths and dominators keep
+  agreeing, ADR-024), bumps `PathRoots.SemanticsVersion` so saved dominators are rebuilt, and needs a product decision on
+  how such roots are shown in paths. **Revisit when:** the "gcdumps at scale" item below is scheduled (do them together:
+  sampled gcdumps are where these survivors appear), or as soon as a real gcdump shows a note with more than a few MB.
+- Confirm the mapped dominators on a real 16 GB machine (from the 2.3 review M14; a capped run on 2026-10-25 showed no
+  thrashing, see ARCHITECTURE.md 6.4, but trimmed pages there came back as soft faults, not disk reads). **Revisit
+  when:** a 16 GB machine is available, or before ADR-004's 16 GB baseline is claimed for Phase 2 in a release.
+- Reconsider a live in-memory graph's memory mode when an optional index is computed (from 2.3 decision 4, the 1.9
+  decision): today dominators that do not fit next to an in-memory graph are refused with a suggestion to reopen
+  mapped; switching the open snapshot to mapped (graph and indices) would compute them without asking.
+- Retained bytes in snapshot diffs (from 2.3 decision 7): a type's retained lower bound in each snapshot and the delta,
+  once both snapshots have dominators.
 - gcdumps at scale (from 1.8, ADR-023 in 1.9): move gcdump capture into the worker (the capturing front end peaked at
   1,191 MB near the 10 million node cap), then raise the cap (a vendored change) after measuring a gcdump capture and
-  load of the Medium dump against the budgets (section 10).
+  load of the Medium dump against the budgets (section 10). Do the "gcdump survivors without a recorded root" item
+  above with it.
 - gcdump lost-events check (from 1.8): count the EventPipe session's lost events and fail or mark the capture.
 - gcdump loader memory (from 1.8 review): presize from `NodeIndexLimit`, add references by index rather than address,
   release the MemoryGraph before the build.
@@ -1689,7 +2945,6 @@ switches.
 - Collection inspections: field offsets resolved once per type, bulk reads under one lock, shapes shared by the empty
   and oversized inspections; a single string larger than the reader's lock budget read in several acquisitions (1.6
   M15, M18).
-- A hidden flag on result columns (`ResultColumn`), replacing the naming convention (1.5 L2, 1.6 M2).
 - A types row opens only its own method table's objects (from the 1.5 review M3): a hidden snapshot-local type index
   on summary rows and an optional index on `InstancesRequest`; diff rows keep the name and module key.
 - Slow the dispatcher watchdog's 25 ms probe while the window is idle or in the background outside smoke runs (from
@@ -1728,13 +2983,76 @@ switches.
 - Large scale tier (8 GB+, 100M+ objects): 64-bit edge offsets, chunked disk-backed building.
 - Fragmentation and pinned object analysis.
 - String content search and object set queries.
-- HTML report export.
+- Shared analysis export (ADR-026, from 2.3.5; replaces "HTML report export"): one export model, analysis only by
+  default, written as HTML, JSON or CSV where the user asks; opening a JSON export in HeapScope without the dump. Sprint
+  2.7 wrote the first form, a grid as CSV; the export of a whole analysis (several views, the snapshot's metadata) and
+  JSON and HTML remain.
+- Analysis tabs (from 2.7, decided autonomously): several analyses of a snapshot side by side, each with its own path;
+  the branching analysis path covers coming back to an earlier analysis for now.
+- From the 2.7 review (decided autonomously): a column projection on page requests, so an export without values never
+  reads or sends them (M2, a protocol change); releasing the worker result sets of snapshots not shown, and measuring
+  front end and worker memory with three Medium snapshots open, each with a full analysis path, and trimming the row
+  lists of subjects not shown (M3); export marks for a gcdump's sampled counts (L17).
+- Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
+  dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
+  elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.
+- Linux and macOS packaging (from 2.3.5; the self-contained builds per runtime identifier, arm64 for Apple silicon, came in
+  2.3.6): a macOS app bundle with signing and notarization (needs an Apple developer account, a paid one), Linux
+  packages (a zipped folder from CI today; .deb, .rpm or Flatpak to decide), smaller builds (the app and the worker each carry the
+  runtime: about 356 MB for win-x64 with ReadyToRun).
 - .NET Framework target support.
+
+- Set retention of a namespace or an assembly (from 2.4): "objects retained by this set" takes one type; a scope
+  of several types is the same pass with more types marked.
+- Sets narrower than a type (from the 2.4 review M14): "objects retained by this set" for an inspection's scoped row
+  (the empty collections, one duplicate string's copies); it is off for those rows until then.
+- Place a type's objects in the dominator tree (from the 2.4 review M1): "Show in dominator tree" from a type row opens
+  its top-level group, which a leak's item type rarely has; group its objects by their top-level dominator instead.
+- `ValueBound.Approximate` and caveat codes (from the 2.4 review M3, an ADR-024 amendment): a result on an incomplete
+  graph or a gcdump says its retained values may be overstated through the column, not only in free text.
+- One type entry among several with one name and module (from the 2.4 review M12): the set and the tree's Type grouping
+  take every entry of the name; naming one entry (an unloaded `AssemblyLoadContext`'s stale copy) is an additive field.
+- Reveal an icicle bar's row by opening its dominator path (from the 2.4 review M13).
+- The navigator's history at the Snapshots page level, keyed by `NavigationTarget`, so Back returns from the Retainers
+  tab (from the 2.4 review L14; with 2.7's history).
+- Extract the type grid toolbar (2.3.7 M14 rest, from 2.4): group by, filter and totals are repeated on the types
+  grid and the Compare tab; extract it when a third grid needs it.
+- Typed fake rows for the older fakes (2.3.7 M15 rest, from 2.4): the type, instance and reference fakes still take
+  positional rows; the 2.4 fakes are typed.
+
+- From 2.5 (decided autonomously at /start-sprint and while building): Compare's "allocated between the two
+  snapshots" from a trace recorded between them, which needs traces in `session.json` on the snapshots' clock (with the
+  1.7 timeline item), and Record allocations on the Live page while monitoring; .NET 10's randomized allocation sampling
+  as a second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces (TraceEvent's
+  conversion cannot be canceled and holds about 2 bytes per file byte while it runs; 72 MB read in 1.9 s);
+  choosing a timeline interval from the keyboard (2.7's keyboard work). Compare's link also needs each tick's type id
+  and module (types are joined to diff rows by name and module; a trace keeps names only, ADR-028).
+- From the 2.5 review (decided autonomously): extract one flattened-tree builder (children order, batches, "more"
+  rows, the row limit) and one set of tree keys and limits in Contracts from the dominator and allocation trees when a
+  third tree arrives (2.6 or Compare's link), with their view models' shared parts (M5); progress on the timeline,
+  types and stacks queries (a protocol change; milliseconds on the traces measured) (M4); a tick's type id and module
+  for two types of one name (M6); the smoke step's interval and type checks (L17); the client logging which answers it
+  applied (L27).
+
+- From 2.6 (decided autonomously): WPF leak detectors (binding to a non-INotifyPropertyChanged source, collection
+  bindings, dependency property descriptors, x:Name) with a WPF fixture app; leak detectors on gcdumps where the graph
+  alone suffices (timers and events need field values); a type growth detector across two snapshots (the diff ranked by
+  growth, with retention of the grown objects); measuring the detectors on a Medium-sized dump of the current runtime
+  (the sample dumps need a runtime no longer installed).
+- From the 2.6 review (decided autonomously): the growth detector counting `ConcurrentQueue` (its segments),
+  `ConcurrentBag`, `ConcurrentStack`, `LinkedList`, sorted collections and `Collection<T>`, with one collection layout
+  table shared with the oversized collections inspection and `InspectionRows.ByType` reused (M5, M17); leaky HttpClient
+  and undisposed scope fixtures with known answers (M9); leaving out scopes a request or a Blazor circuit holds, and a
+  row for the root scope's tracked disposables (M7); unit tests for growth exactly at the thresholds and a field missing
+  from the baseline (M10); an `InspectionNeeds` description with a cached derived-data accessor instead of one flag per
+  input (M16); the rule version and parameters on `InspectionInfo` and Kind, elapsed time and baseline in the CLI
+  summary output (L6, L7); detector rows opening exactly the objects they counted, with the object set queries (M24).
 
 **Low**
 - UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first
   job row 130 to 190 ms once per run; first showing of the Compare tab with rows 97 to 238 ms (1.4). Template preloading and deferring startup work remain options (from 0.3).
 - WPF and WinForms specific leak inspections.
 - Unmanaged/native memory overview.
-- Linux dump analysis.
+- Reading a dump on another system or architecture than the one that took it (cross-system DACs), and a Linux arm64
+  worker (from the 2.3.5 review; ADR-025: a dump is read by a worker of its own system and architecture).
 - Attach to processes in containers.

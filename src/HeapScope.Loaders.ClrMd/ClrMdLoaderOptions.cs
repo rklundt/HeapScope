@@ -21,6 +21,8 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Core.Loading;
+
 namespace HeapScope.Loaders.ClrMd;
 
 /// <summary>Options of the full dump loader (ARCHITECTURE.md 6.5, ADR-017).</summary>
@@ -52,4 +54,16 @@ public sealed record ClrMdLoaderOptions
     /// product; tests turn it off to simulate a dump from another machine.
     /// </summary>
     public bool SearchDumpedRuntimeDirectory { get; init; } = true;
+
+    /// <summary>
+    /// The folder of the runtime HeapScope carries when it runs self-contained (sprint 2.3.6), searched last; null when it
+    /// runs on a shared runtime, which is an installed runtime already. Tests pass their own.
+    /// </summary>
+    public string? OwnRuntimeDirectory { get; init; } = DacLocator.RunningSharedFolder() is null ? AppContext.BaseDirectory : null;
+
+    /// <summary>
+    /// Told which DAC each runtime was created with, by the loader and by the field reader, which opens the dump again
+    /// later (sprint 2.3.7 review M3). The worker logs it; the loaders stay free of logging.
+    /// </summary>
+    public Action<DacChoice>? DacChosen { get; init; }
 }

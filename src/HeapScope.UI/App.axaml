@@ -1,0 +1,45 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- The application: Fluent theme, the DataGrid's Fluent theme, HeapScope's light and dark colors and its styles. -->
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="HeapScope.UI.App"
+             Name="HeapScope"
+             RequestedThemeVariant="Default">
+  <Application.Resources>
+    <ResourceDictionary>
+      <!-- Both themes define the same keys; a test checks it (sprint 1.3). The system's choice applies unless Ui:Theme says. -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceInclude x:Key="Light" Source="avares://HeapScope/Themes/Light.axaml" />
+        <ResourceInclude x:Key="Dark" Source="avares://HeapScope/Themes/Dark.axaml" />
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
+    <StyleInclude Source="avares://HeapScope/Themes/Styles.axaml" />
+  </Application.Styles>
+</Application>

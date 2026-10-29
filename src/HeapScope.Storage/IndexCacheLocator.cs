@@ -21,8 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
-using System.Security.Cryptography;
-using System.Text;
+using HeapScope.Core;
 
 namespace HeapScope.Storage;
 
@@ -41,23 +40,16 @@ public sealed class IndexCacheLocator
         _canWrite = canWriteDirectory ?? CanWriteDirectory;
     }
 
-    public static string DefaultFallbackRoot { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "cache");
+    public static string DefaultFallbackRoot => IndexCachePaths.DefaultFallbackRoot;
 
     public string FallbackRoot { get; }
 
     public string GetCachePath(string snapshotPath)
     {
         ArgumentException.ThrowIfNullOrEmpty(snapshotPath);
+        // The names are Core's (IndexCachePaths), so deleting a snapshot finds them (sprint 3.4).
         var full = Path.GetFullPath(snapshotPath);
-        var directory = Path.GetDirectoryName(full)!;
-        if (_canWrite(directory))
-        {
-            return full + IndexCacheFormat.Extension;
-        }
-
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(full.ToUpperInvariant())));
-        return Path.Combine(FallbackRoot, hash + IndexCacheFormat.Extension);
+        return _canWrite(Path.GetDirectoryName(full)!) ? IndexCachePaths.Beside(full) : IndexCachePaths.InFallback(full, FallbackRoot);
     }
 
     /// <summary>
@@ -68,7 +60,7 @@ public sealed class IndexCacheLocator
     {
         ArgumentException.ThrowIfNullOrEmpty(cachePath);
         ArgumentException.ThrowIfNullOrEmpty(kind);
-        return Path.ChangeExtension(cachePath, "." + kind + IndexCacheFormat.Extension);
+        return IndexCachePaths.Sidecar(cachePath, kind);
     }
 
     /// <summary>True when a probe file can be created (and is removed) in <paramref name="directory"/>.</summary>

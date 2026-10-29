@@ -51,9 +51,23 @@ public static class LeakCatalog
         new UnboundedDictionaryLeak(),
     ];
 
-    /// <summary>Resolves "all", "none" or a comma separated list of names (case insensitive).</summary>
-    public static IReadOnlyList<ILeak> Resolve(string? names)
+    /// <summary>
+    /// The leaks sprint 2.6's detectors name besides the five (a timer leak, disposed but referenced objects), and sprint
+    /// 3.5's (async methods that never complete, a finalizer backlog), with their own switch so the five's exact known
+    /// answers are untouched by them.
+    /// </summary>
+    public static IReadOnlyList<ILeak> Detected { get; } =
+    [
+        new TimerLeak(),
+        new DisposedReferencedLeak(),
+        new PendingAsyncLeak(),
+        new FinalizerBacklogLeak(),
+    ];
+
+    /// <summary>Resolves "all", "none" or a comma separated list of names (case insensitive) from <paramref name="catalog"/> (default <see cref="All"/>).</summary>
+    public static IReadOnlyList<ILeak> Resolve(string? names, IReadOnlyList<ILeak>? catalog = null)
     {
+        catalog ??= All;
         if (string.IsNullOrWhiteSpace(names) || names.Equals("none", StringComparison.OrdinalIgnoreCase))
         {
             return [];
@@ -61,14 +75,14 @@ public static class LeakCatalog
 
         if (names.Equals("all", StringComparison.OrdinalIgnoreCase))
         {
-            return All;
+            return catalog;
         }
 
         var result = new List<ILeak>();
         foreach (var name in names.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            result.Add(All.FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"Unknown leak '{name}'. Known: {string.Join(", ", All.Select(l => l.Name))}.", nameof(names)));
+            result.Add(catalog.FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"Unknown leak '{name}'. Known: {string.Join(", ", catalog.Select(l => l.Name))}.", nameof(names)));
         }
 
         return result;

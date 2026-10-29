@@ -1,0 +1,9 @@
+{
+  "formatVersion": 1,
+  "name": "Clean",
+  "kind": "clean",
+  "description": "LeakyApi's clean workload (Clean:Enabled, no leaks): a cache bounded at 1,000 entries that evicts the oldest, subscribers that unsubscribe, timers stopped and disposed, disposables disposed and released (sprint 2.6).",
+  "types": [],
+  "detections": [],
+  "notes": "No leak detector may report anything on a clean LeakyApi run, with or without a baseline snapshot taken earlier in the same run."
+}

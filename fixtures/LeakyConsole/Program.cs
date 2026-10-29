@@ -24,8 +24,9 @@
 using System.Globalization;
 using Fixtures.Leaks;
 
-// Usage: LeakyConsole [--leak all|none|Name1,Name2] [--count N] [--payload BYTES] [--publishers N]
+// Usage: LeakyConsole [--leak all|none|Name1,Name2] [--detected all|none|Name] [--count N] [--payload BYTES] [--publishers N]
 //                     [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+//                     [--retention-patterns N]
 //                     [--parent-pid PID]
 // Leaks the requested items, prints "READY pid=<pid>" and waits until killed (or until the parent exits), so a test
 // can capture a dump. Late garbage is created after the last full collection, so it is present but unreachable.
@@ -35,6 +36,7 @@ var payload = IntArg("--payload", 64);
 var semantics = IntArg("--semantics", 0);
 var runtimeSemantics = IntArg("--runtime-semantics", 0);
 var lateGarbage = IntArg("--late-garbage", 0);
+var retentionPatterns = IntArg("--retention-patterns", 0);
 ParentWatch.ExitWhenParentExits(Arg("--parent-pid") is { } parent ? int.Parse(parent, CultureInfo.InvariantCulture) : null);
 if (Arg("--publishers") is { } publishers)
 {
@@ -42,6 +44,22 @@ if (Arg("--publishers") is { } publishers)
 }
 
 foreach (var leak in LeakCatalog.Resolve(leakNames))
+{
+    leak.Grow(count, payload);
+}
+
+// The 2.6 and 3.5 detector leaks (Timer, DisposedReferenced, PendingAsync, FinalizerBacklog) only when asked for: --detected all|Name.
+// The finalizer backlog blocks the finalizer thread for good, so it grows after the last wait for finalizers below, and
+// not with --waste, whose own backlog blocks the thread first (the 3.5 review).
+var detected = LeakCatalog.Resolve(Arg("--detected"), LeakCatalog.Detected);
+var backlog = detected.OfType<FinalizerBacklogLeak>().FirstOrDefault();
+if (backlog is not null && args.Contains("--waste"))
+{
+    await Console.Error.WriteLineAsync("--detected FinalizerBacklog and --waste both block the finalizer thread; choose one.");
+    Environment.Exit(64);
+}
+
+foreach (var leak in detected.Where(l => l is not FinalizerBacklogLeak))
 {
     leak.Grow(count, payload);
 }
@@ -54,6 +72,11 @@ if (semantics > 0)
 if (runtimeSemantics > 0)
 {
     RuntimeFixtures.Create(runtimeSemantics);
+}
+
+if (retentionPatterns > 0)
+{
+    RetentionPatternFixtures.Create(retentionPatterns);
 }
 
 if (args.Contains("--inspection"))
@@ -76,6 +99,9 @@ if (args.Contains("--waste"))
 {
     WasteFixtures.CreateFinalizerBacklog();
 }
+
+// Its growth runs a full collection, so before the late garbage too.
+backlog?.Grow(count, payload);
 
 if (lateGarbage > 0)
 {

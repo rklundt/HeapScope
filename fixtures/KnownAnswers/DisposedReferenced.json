@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "name": "DisposedReferenced",
+  "kind": "detected",
+  "description": "Objects disposed and then kept in a static List<DisposedResource> (sprint 2.6).",
+  "types": [
+    { "type": "Fixtures.Leaks.DisposedResource", "perItem": 1 }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "Fixtures.Leaks.DisposedReferencedLeak", "field": "s_disposed" } ],
+  "detections": [
+    { "detector": "disposed-but-referenced", "key": "Fixtures.Leaks.DisposedResource", "perItem": 1 },
+    { "detector": "growing-static-collections", "key": "Fixtures.Leaks.DisposedReferencedLeak.s_disposed", "perItem": 1 },
+    { "detector": "type-growth", "key": "Fixtures.Leaks.DisposedResource", "perItem": 1 }
+  ],
+  "notes": "Every DisposedResource has _disposedValue true (the flag the dispose pattern template uses); the list that holds them grows too, so both detectors name it."
+}

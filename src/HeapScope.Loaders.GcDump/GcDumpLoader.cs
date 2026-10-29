@@ -205,7 +205,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
 
                 typeIndices[typeIndex] = builder.Types.GetOrAdd(
                     name,
-                    module: string.IsNullOrEmpty(type.ModuleName) ? null : Path.GetFileName(type.ModuleName),
+                    module: string.IsNullOrEmpty(type.ModuleName) ? null : RecordedPath.FileName(type.ModuleName),
                     kind: TypeNames.KindOf(name));
             }
 

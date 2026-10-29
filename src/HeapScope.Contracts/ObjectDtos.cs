@@ -36,6 +36,9 @@ public static class InstanceColumns
 
     /// <summary>A string's text (when the snapshot has string contents) or an array's length.</summary>
     public const string Value = "Value";
+
+    /// <summary>The object's retained bytes (sprint 2.3, when asked for); empty for an object no root reaches.</summary>
+    public const string Retained = "Retained";
 }
 
 /// <summary>
@@ -47,6 +50,10 @@ public static class InstanceColumns
 /// <param name="SortColumn">A column of <see cref="InstanceColumns"/>; null sorts by bytes.</param>
 /// <param name="Scope">Which of the type's objects (sprint 1.6): all, those on the large object heap, those still to be
 /// finalized, or strings with the same text as the one at <paramref name="SameValueAs"/>.</param>
+/// <param name="IncludeRetained">Adds the <see cref="InstanceColumns.Retained"/> column (sprint 2.3), computing the
+/// snapshot's dominators on first use.</param>
+/// <param name="Set">Lists the members of this set instead (sprint 3.1): all of them when <paramref name="TypeName"/> is
+/// empty, else the members of that type; <paramref name="Scope"/> must then be <see cref="InstanceScope.All"/>.</param>
 public sealed record InstancesRequest(
     Guid SnapshotId,
     string TypeName,
@@ -55,7 +62,9 @@ public sealed record InstancesRequest(
     string? SortColumn = null,
     bool Descending = true,
     InstanceScope Scope = InstanceScope.All,
-    ulong SameValueAs = 0);
+    ulong SameValueAs = 0,
+    bool IncludeRetained = false,
+    ObjectSetSpec? Set = null);
 
 /// <summary>Which objects of a type an instances query lists (sprint 1.6; inspection rows open these).</summary>
 public enum InstanceScope
@@ -66,6 +75,12 @@ public enum InstanceScope
 
     /// <summary>Strings whose text equals the string at <see cref="InstancesRequest.SameValueAs"/>.</summary>
     SameValue = 3,
+
+    /// <summary>
+    /// Objects a root reaches (sprint 2.6 review H5): what a leak detector's row opens. Only part of the type, so the
+    /// whole-type actions (Retained by set) stay off.
+    /// </summary>
+    Reachable = 4,
 }
 
 /// <summary>
@@ -73,7 +88,8 @@ public enum InstanceScope
 /// <see cref="ValuesAvailable"/> is false when the snapshot cannot read string text, so string values are empty and
 /// value filters match nothing.
 /// </summary>
-public sealed record InstancesResult(ResultSetInfo Rows, long TotalObjects, long TotalBytes, int MatchedTypes, bool ValuesAvailable, double ElapsedSeconds);
+/// <param name="Dominators">How the dominators were obtained, when retained bytes were asked for.</param>
+public sealed record InstancesResult(ResultSetInfo Rows, long TotalObjects, long TotalBytes, int MatchedTypes, bool ValuesAvailable, double ElapsedSeconds, DominatorIndexInfo? Dominators = null, string? FilterNote = null);
 
 /// <summary>What an <see cref="ObjectFieldDto"/> holds (mirrors Core's <c>ObjectFieldKind</c>).</summary>
 public enum ObjectFieldKindDto

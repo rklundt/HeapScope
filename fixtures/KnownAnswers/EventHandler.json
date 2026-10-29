@@ -16,5 +16,6 @@
   "growingCollection": "System.Object[]",
   "pathShape": [ "Fixtures.Leaks.EventHandlerLeak.s_publishers", "Fixtures.Leaks.LongLivedPublisher[]", "Fixtures.Leaks.LongLivedPublisher", "System.EventHandler", "System.Object[]?", "System.EventHandler?", "Fixtures.Leaks.LeakySubscriber" ],
   "minRetainedBytesPerItem": { "base": 56, "payloadMultiplier": 1 },
+  "detections": [ { "detector": "event-handler-leaks", "key": "Fixtures.Leaks.LongLivedPublisher.Changed", "perItem": 1 }, { "detector": "type-growth", "key": "Fixtures.Leaks.LeakySubscriber", "perItem": 1 } ],
   "notes": "With more than one subscriber per publisher the event field holds a multicast EventHandler whose invocation list (System.Object[], possibly with spare null slots) holds one EventHandler per subscriber; the subscriber is that delegate's target. The growing collection is the invocation list. An event handler leak detector must name the publisher's Changed event."
 }

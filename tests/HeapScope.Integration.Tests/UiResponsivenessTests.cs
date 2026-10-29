@@ -46,6 +46,9 @@ public sealed class UiResponsivenessTests : IDisposable
         var log = string.Join(Environment.NewLine, Directory.GetFiles(_logDirectory, "*.log").Select(File.ReadAllText));
         ui.Process.ExitCode.ShouldBe(0, log);
         log.ShouldContain("Smoke run: job completed True");
+
+        // Sprint 2.3.6: the cold start is measured in every smoke run (the UI cold start backlog item).
+        log.ShouldContain("First window rendered");
     }
 
     public void Dispose()

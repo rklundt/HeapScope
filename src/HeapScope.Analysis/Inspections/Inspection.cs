@@ -50,16 +50,53 @@ public interface IInspection
     /// <summary>Facts the loader must have recorded (sprint 1.6 review); none for most inspections.</summary>
     SnapshotFacts RequiresFacts => SnapshotFacts.None;
 
+    /// <summary>
+    /// The rule's version: raised whenever what the inspection counts or its thresholds change, so a result disputed
+    /// after an upgrade is traced to the rule that produced it (sprint 2.3.7 review M5). Logged with every result.
+    /// </summary>
+    int Version => 1;
+
+    /// <summary>The thresholds the rule uses, as <c>Name=value</c> pairs for the log; empty when it has none.</summary>
+    string Parameters => string.Empty;
+
+    /// <summary>Memory waste (sprint 1.6) or a leak detector (sprint 2.6), which the front ends show in their own group.</summary>
+    InspectionKind Kind => InspectionKind.Waste;
+
+    /// <summary>Whether a baseline snapshot changes the answer (growth since it); the front ends offer one.</summary>
+    bool UsesBaseline => false;
+
+    /// <summary>Whether it needs the incoming references index (<see cref="InspectionContext.Referrers"/>).</summary>
+    bool UsesReferrers => false;
+
     InspectionResult Run(InspectionContext context);
 }
 
-/// <summary>What an inspection runs over. <see cref="Reader"/> is set when the snapshot has a typed reader.</summary>
+/// <summary>What an inspection finds (sprint 2.6).</summary>
+public enum InspectionKind
+{
+    /// <summary>Memory spent for little (duplicate strings, empty collections...).</summary>
+    Waste = 0,
+
+    /// <summary>A leak pattern named with its cause (event handlers, timers, growing static collections...).</summary>
+    Leak = 1,
+}
+
+/// <summary>An earlier snapshot of the same process, for growth (sprint 2.6); objects are matched by stable keys, never addresses (ADR-018).</summary>
+public sealed record InspectionBaseline(HeapGraph Graph, SnapshotInfo Info, IObjectReader? Reader);
+
+/// <summary>
+/// What an inspection runs over. <see cref="Reader"/> is set when the snapshot has a typed reader; <see cref="Baseline"/>
+/// when the user chose an earlier snapshot and the inspection uses one; <see cref="Referrers"/> when it asked for them
+/// (sprint 2.6, ADR-020's derived data).
+/// </summary>
 public sealed record InspectionContext(
     HeapGraph Graph,
     SnapshotInfo Info,
     IObjectReader? Reader,
     IProgress<InspectionProgress>? Progress,
-    CancellationToken CancellationToken)
+    CancellationToken CancellationToken,
+    InspectionBaseline? Baseline = null,
+    ReverseReferences? Referrers = null)
 {
     public void Report(string phase, long done, long total) => Progress?.Report(new InspectionProgress(phase, done, total));
 }
@@ -69,8 +106,10 @@ public sealed record InspectionProgress(string Phase, long Done, long Total);
 /// <summary>
 /// An inspection's answer: how many findings, the bytes they cover, the bytes they waste (null when "waste" does not
 /// apply, as for the large object heap's contents), a note on what could not be measured, and the rows.
+/// <paramref name="Basis"/> says what the answer rests on (objects scanned, skipped, groups compared), for the log
+/// only: it backs up a disputed result without any value from the dump (sprint 2.3.7 review H3).
 /// </summary>
-public sealed record InspectionResult(long Count, long Bytes, long? WastedBytes, string? Note, InspectionTable Rows);
+public sealed record InspectionResult(long Count, long Bytes, long? WastedBytes, string? Note, InspectionTable Rows, string? Basis = null);
 
 /// <summary>Kinds of inspection columns (mirrored by the worker's result columns).</summary>
 public enum InspectionColumnKind
@@ -83,7 +122,8 @@ public enum InspectionColumnKind
 }
 
 /// <param name="IsKey">The column that identifies a row (an object's address, or a type's name).</param>
-public sealed record InspectionColumn(string Name, InspectionColumnKind Kind, bool IsKey = false);
+/// <param name="HasValues">The column carries the target's data, such as a duplicate string's text (sprint 2.7, ADR-026).</param>
+public sealed record InspectionColumn(string Name, InspectionColumnKind Kind, bool IsKey = false, bool HasValues = false);
 
 /// <summary>
 /// Column names shared by the inspections. <see cref="TypeName"/>, <see cref="Module"/> and <see cref="Scope"/> are
@@ -114,6 +154,17 @@ public static class InspectionColumns
     public const string TypeName = "TypeName";
     public const string Module = "Module";
     public const string Scope = "Scope";
+
+    // The leak detectors' columns (sprint 2.6).
+    public const string Field = "Field";
+    public const string Baseline = "Baseline";
+    public const string Growth = "Growth";
+    public const string Event = "Event";
+    public const string Publishers = "Publishers";
+    public const string Subscribers = "Subscribers";
+    public const string SubscriberTypes = "SubscriberTypes";
+    public const string Target = "Target";
+    public const string Timers = "Timers";
 }
 
 /// <summary>Values of the hidden <see cref="InspectionColumns.Scope"/> column (names of the worker's instance scopes).</summary>
@@ -122,6 +173,9 @@ public static class InspectionScopes
     public const string LargeObjectHeap = "LargeObjectHeap";
     public const string Finalizable = "Finalizable";
     public const string SameValue = "SameValue";
+
+    /// <summary>The objects a root reaches: what a leak detector's row opens (sprint 2.6 review H5).</summary>
+    public const string Reachable = "Reachable";
 }
 
 /// <summary>An inspection's rows, formatted per page like any result set (invariant culture).</summary>
@@ -135,18 +189,33 @@ public abstract class InspectionTable
     public abstract long EstimatedBytes { get; }
 
     public abstract void FormatRow(int index, string?[] cells);
+
+    /// <summary>
+    /// The objects a row counted (sprint 3.1, a leak detector's row opened as a set), as object indices; null when the
+    /// row's hidden columns say what it opens (a type in a scope, or one object).
+    /// </summary>
+    public virtual IReadOnlyList<int>? MembersOf(int index) => null;
+
+    /// <summary>Whether <see cref="MembersOf"/> lists rows' objects (a leak detector); worth keeping for sets.</summary>
+    public virtual bool HasMembers => false;
 }
 
-/// <summary>Rows kept as compact records and formatted on demand.</summary>
-public sealed class RowTable<TRow>(IReadOnlyList<InspectionColumn> columns, TRow[] rows, int bytesPerRow, Action<TRow, string?[]> format) : InspectionTable
+/// <summary>Rows kept as compact records and formatted on demand; <paramref name="members"/> lists a row's objects when it counts specific ones.</summary>
+public sealed class RowTable<TRow>(IReadOnlyList<InspectionColumn> columns, TRow[] rows, int bytesPerRow, Action<TRow, string?[]> format, Func<TRow, IReadOnlyList<int>?>? members = null) : InspectionTable
 {
     public override IReadOnlyList<InspectionColumn> Columns => columns;
 
     public override int Count => rows.Length;
 
-    public override long EstimatedBytes => (long)rows.Length * bytesPerRow;
+    /// <summary>The rows, and the member lists of rows that keep them (the 3.1 review: counted, so caches see them).</summary>
+    public override long EstimatedBytes => ((long)rows.Length * bytesPerRow) + (members is null ? 0 : rows.Sum(r => 4L * (members(r)?.Count ?? 0)));
+
+    /// <summary>Whether rows list the objects they counted.</summary>
+    public override bool HasMembers => members is not null;
 
     public override void FormatRow(int index, string?[] cells) => format(rows[index], cells);
+
+    public override IReadOnlyList<int>? MembersOf(int index) => members?.Invoke(rows[index]);
 }
 
 /// <summary>Every inspection, in the order the overview shows them.</summary>
@@ -162,6 +231,15 @@ public static class InspectionCatalog
         new LargeObjectHeapInspection(),
         new FinalizableObjectsInspection(),
         new FragmentationInspection(),
+        new GrowingStaticCollectionsDetector(),
+        new EventHandlerLeaksDetector(),
+        new TimerLeaksDetector(),
+        new DisposedButReferencedDetector(),
+        new HttpClientInstancesDetector(),
+        new UndisposedServiceScopesDetector(),
+        new PendingAsyncMethodsDetector(),
+        new FinalizerBacklogDetector(),
+        new TypeGrowthDetector(),
     ];
 
     public static IInspection? Find(string name) => All.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));

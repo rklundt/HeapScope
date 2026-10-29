@@ -2,4 +2,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Worker\HeapScope.Worker.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The recording logger of the Application tests (sprint 2.3.7 logging tests). -->
+    <Compile Include="..\HeapScope.Application.Tests\RecordingLogger.cs" Link="Shared\RecordingLogger.cs" />
+    <Compile Include="..\HeapScope.Application.Tests\RecordingLoggerOfT.cs" Link="Shared\RecordingLoggerOfT.cs" />
+  </ItemGroup>
 </Project>

@@ -47,6 +47,39 @@ public sealed record DiffRow(
     string? Module = null,
     bool ComparesCopies = true)
 {
+    /// <summary>Current objects with no object of their type at their address in the baseline (sprint 3.3), when matched.</summary>
+    public long? NewObjects { get; init; }
+
+    /// <summary>Baseline objects with no object of their type at their address in the current snapshot, when matched.</summary>
+    public long? DeadObjects { get; init; }
+
+    /// <summary>The row's retained lower bound in the baseline (sprint 3.3), when asked for.</summary>
+    public ulong? BaselineRetained { get; init; }
+
+    /// <summary>The row's retained lower bound in the current snapshot, when asked for.</summary>
+    public ulong? CurrentRetained { get; init; }
+
+    /// <summary>The row's bytes per heap kind in the baseline (<see cref="TypeAggregation.HeapKindSlots"/>).</summary>
+    public ulong[]? BaselineKinds { get; init; }
+
+    /// <summary>The row's bytes per heap kind in the current snapshot.</summary>
+    public ulong[]? CurrentKinds { get; init; }
+
+    public long? RetainedDelta => BaselineRetained is { } before && CurrentRetained is { } after ? (long)after - (long)before : null;
+
+    /// <summary>The byte delta of one heap kind (a side without the row counts 0).</summary>
+    public long KindDelta(HeapKind kind) => (long)(CurrentKinds?[(int)kind] ?? 0) - (long)(BaselineKinds?[(int)kind] ?? 0);
+
+    /// <summary>Rows are equal by value, their per-kind bytes compared element by element.</summary>
+    public bool Equals(DiffRow? other) =>
+        other is not null
+        && (Name, BaselineCount, BaselineBytes, CurrentCount, CurrentBytes, BaselineTypes, CurrentTypes, TypeName, Module, ComparesCopies, NewObjects, DeadObjects, BaselineRetained, CurrentRetained)
+            == (other.Name, other.BaselineCount, other.BaselineBytes, other.CurrentCount, other.CurrentBytes, other.BaselineTypes, other.CurrentTypes, other.TypeName, other.Module, other.ComparesCopies, other.NewObjects, other.DeadObjects, other.BaselineRetained, other.CurrentRetained)
+        && (BaselineKinds ?? []).AsSpan().SequenceEqual(other.BaselineKinds ?? [])
+        && (CurrentKinds ?? []).AsSpan().SequenceEqual(other.CurrentKinds ?? []);
+
+    public override int GetHashCode() => HashCode.Combine(Name, BaselineCount, BaselineBytes, CurrentCount, CurrentBytes, NewObjects, DeadObjects);
+
     public long CountDelta => CurrentCount - BaselineCount;
 
     public long BytesDelta => (long)CurrentBytes - (long)BaselineBytes;
@@ -82,16 +115,27 @@ public static class TypeDiff
         TypeAggregation current,
         GroupKey groupBy,
         Func<string, string>? baselineNames = null,
-        Func<string, string>? currentNames = null)
+        Func<string, string>? currentNames = null,
+        TypeInterfaces? baselineInterfaces = null,
+        TypeInterfaces? currentInterfaces = null,
+        DiffExtras? extras = null)
     {
         ArgumentNullException.ThrowIfNull(baselineGraph);
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(currentGraph);
         ArgumentNullException.ThrowIfNull(current);
 
-        var rows = new Dictionary<(string Name, string Module), Totals>();
-        Collect(baselineGraph, baseline, groupBy, baselineNames, rows, isBaseline: true);
-        Collect(currentGraph, current, groupBy, currentNames, rows, isBaseline: false);
+        var rows = new Dictionary<(string Name, string Module), Totals>(groupBy == GroupKey.Assembly ? TypeKeyComparer.Assembly : TypeKeyComparer.Type);
+        if (groupBy == GroupKey.Interface && (baselineInterfaces is null || currentInterfaces is null))
+        {
+            throw new ArgumentNullException(nameof(baselineInterfaces), "Interface grouping needs both snapshots' interfaces.");
+        }
+
+        extras ??= new DiffExtras();
+        Collect(baselineGraph, baseline, groupBy, baselineNames, baselineInterfaces, rows, isBaseline: true, extras.DeadPerBaselineType, extras.BaselineRetained);
+        Collect(currentGraph, current, groupBy, currentNames, currentInterfaces, rows, isBaseline: false, extras.NewPerCurrentType, extras.CurrentRetained);
+        PlaceGroupRetained(rows, extras.BaselineRetained, isBaseline: true);
+        PlaceGroupRetained(rows, extras.CurrentRetained, isBaseline: false);
 
         // A type name seen with more than one module shows the module, so the rows stay distinguishable.
         var modulesPerName = rows.Keys.GroupBy(k => k.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
@@ -111,7 +155,15 @@ public static class TypeDiff
                 r.Value.CurTypes,
                 byType && open is not Ambiguous ? open ?? r.Key.Name : null,
                 byType && open is not Ambiguous ? r.Key.Module : null,
-                ComparesCopies: !mapped);
+                ComparesCopies: !mapped)
+            {
+                NewObjects = extras.NewPerCurrentType is null ? null : r.Value.New,
+                DeadObjects = extras.DeadPerBaselineType is null ? null : r.Value.Dead,
+                BaselineRetained = extras.BaselineRetained is null ? null : r.Value.BaseRetained,
+                CurrentRetained = extras.CurrentRetained is null ? null : r.Value.CurRetained,
+                BaselineKinds = extras.Kinds ? r.Value.BaseKinds ?? new ulong[TypeAggregation.HeapKindSlots] : null,
+                CurrentKinds = extras.Kinds ? r.Value.CurKinds ?? new ulong[TypeAggregation.HeapKindSlots] : null,
+            };
         })];
     }
 
@@ -120,8 +172,11 @@ public static class TypeDiff
         TypeAggregation aggregation,
         GroupKey groupBy,
         Func<string, string>? names,
+        TypeInterfaces? interfaces,
         Dictionary<(string Name, string Module), Totals> rows,
-        bool isBaseline)
+        bool isBaseline,
+        long[]? unmatchedPerType,
+        GroupRetained? retained)
     {
         for (var t = 0; t < aggregation.TypeCount; t++)
         {
@@ -133,17 +188,49 @@ public static class TypeDiff
             var module = TypeGroups.ModuleKey(graph.Types.GetModule(t));
             var original = graph.Types.GetName(t);
             var name = names is null ? original : names(original);
-            var key = groupBy switch
+            IEnumerable<(string, string)> keys = groupBy switch
             {
-                GroupKey.Namespace => (TypeGroups.NamespaceOf(name), string.Empty),
-                GroupKey.Assembly => (module.Length > 0 ? module : "(unknown assembly)", string.Empty),
-                _ => (name, module),
+                GroupKey.Namespace => [(TypeGroups.NamespaceOf(name), string.Empty)],
+                GroupKey.Assembly => [(module.Length > 0 ? module : "(unknown assembly)", string.Empty)],
+                // Checked in Build: interface grouping comes with both tables.
+                GroupKey.Interface => interfaces!.Keys(t).Select(i => (i, string.Empty)),
+                _ => [(name, module)],
             };
 
-            rows.TryGetValue(key, out var row);
-            rows[key] = isBaseline
-                ? row with { BaseCount = row.BaseCount + aggregation.Counts[t], BaseBytes = row.BaseBytes + aggregation.Bytes[t], BaseTypes = row.BaseTypes + 1, BaseName = Merge(row.BaseName, original) }
-                : row with { CurCount = row.CurCount + aggregation.Counts[t], CurBytes = row.CurBytes + aggregation.Bytes[t], CurTypes = row.CurTypes + 1, CurName = Merge(row.CurName, original) };
+            // Retained bytes (sprint 3.3): per type in Type grouping (summed over its method tables), per group otherwise.
+            var typeRetained = retained is { ByType: true } ? retained.Bytes[t] : 0UL;
+            foreach (var key in keys)
+            {
+                rows.TryGetValue(key, out var row);
+                var kinds = (isBaseline ? row.BaseKinds : row.CurKinds) ?? new ulong[TypeAggregation.HeapKindSlots];
+                for (var k = 0; k < TypeAggregation.HeapKindSlots; k++)
+                {
+                    kinds[k] += aggregation.BytesByKind[(t * TypeAggregation.HeapKindSlots) + k];
+                }
+
+                var unmatched = unmatchedPerType?[t] ?? 0;
+                rows[key] = isBaseline
+                    ? row with { BaseCount = row.BaseCount + aggregation.Counts[t], BaseBytes = row.BaseBytes + aggregation.Bytes[t], BaseTypes = row.BaseTypes + 1, BaseName = Merge(row.BaseName, original), Dead = row.Dead + unmatched, BaseRetained = row.BaseRetained + typeRetained, BaseKinds = kinds }
+                    : row with { CurCount = row.CurCount + aggregation.Counts[t], CurBytes = row.CurBytes + aggregation.Bytes[t], CurTypes = row.CurTypes + 1, CurName = Merge(row.CurName, original), New = row.New + unmatched, CurRetained = row.CurRetained + typeRetained, CurKinds = kinds };
+            }
+        }
+    }
+
+    /// <summary>Puts each group's retained bytes on its row (namespace and assembly grouping; Type grouping sums per type).</summary>
+    private static void PlaceGroupRetained(Dictionary<(string Name, string Module), Totals> rows, GroupRetained? retained, bool isBaseline)
+    {
+        if (retained is null || retained.ByType)
+        {
+            return;
+        }
+
+        for (var g = 0; g < retained.Names.Length; g++)
+        {
+            var key = (retained.Names[g], string.Empty);
+            if (rows.TryGetValue(key, out var row))
+            {
+                rows[key] = isBaseline ? row with { BaseRetained = retained.Bytes[g] } : row with { CurRetained = retained.Bytes[g] };
+            }
         }
     }
 
@@ -160,5 +247,37 @@ public static class TypeDiff
         ulong CurBytes,
         int CurTypes,
         string? BaseName,
-        string? CurName);
+        string? CurName,
+        long New = 0,
+        long Dead = 0,
+        ulong BaseRetained = 0,
+        ulong CurRetained = 0,
+        ulong[]? BaseKinds = null,
+        ulong[]? CurKinds = null);
 }
+
+/// <summary>
+/// What a diff adds to its rows (sprint 3.3): object matches by address (unmatched objects per type index of each side)
+/// and retained bytes per group of each side.
+/// </summary>
+public sealed class DiffExtras
+{
+    /// <summary>New objects per type index of the current snapshot (<see cref="ObjectIdentity.NewPerType"/>).</summary>
+    public long[]? NewPerCurrentType { get; init; }
+
+    /// <summary>Dead objects per type index of the baseline.</summary>
+    public long[]? DeadPerBaselineType { get; init; }
+
+    public GroupRetained? BaselineRetained { get; init; }
+
+    public GroupRetained? CurrentRetained { get; init; }
+
+    /// <summary>Whether rows carry their bytes per heap kind (both snapshots have generations).</summary>
+    public bool Kinds { get; init; }
+}
+
+/// <summary>
+/// Retained bytes of a snapshot's groups (<see cref="TypeGroups.GroupOfType"/>'s numbering): per type index in Type
+/// grouping (<paramref name="ByType"/>), otherwise per group with its <paramref name="Names"/>.
+/// </summary>
+public sealed record GroupRetained(ulong[] Bytes, string[] Names, bool ByType);

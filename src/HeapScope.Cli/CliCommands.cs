@@ -102,12 +102,17 @@ internal static partial class CliCommands
         root.Subcommands.Add(BuildOpenCommand(services));
         root.Subcommands.Add(BuildSummaryCommand(services));
         root.Subcommands.Add(BuildDiffCommand(services));
+        root.Subcommands.Add(BuildTrendCommand(services));
         root.Subcommands.Add(BuildInstancesCommand(services));
         root.Subcommands.Add(BuildObjectCommand(services));
         root.Subcommands.Add(BuildReferrersCommand(services));
         root.Subcommands.Add(BuildPathsCommand(services));
+        root.Subcommands.Add(BuildRetainersCommand(services));
+        root.Subcommands.Add(BuildRetainedByCommand(services));
+        root.Subcommands.Add(BuildSetCommand(services));
         root.Subcommands.Add(BuildInspectCommand(services));
         root.Subcommands.Add(BuildTraceCommand(services));
+        root.Subcommands.Add(BuildAllocationsCommand(services));
         root.Subcommands.Add(BuildMonitorCommand(services));
         root.Subcommands.Add(BuildListCommand(services));
         root.Subcommands.Add(BuildCaptureCommand(services));
@@ -236,21 +241,30 @@ internal static partial class CliCommands
         var dump = new Argument<FileInfo>("dump") { Description = "Path of the full memory dump (.dmp)." };
         var group = GroupOption();
         var filter = FilterOption();
-        var sort = new Option<string>("--sort") { Description = "Sort by bytes, count or name.", DefaultValueFactory = _ => "bytes" };
-        sort.AcceptOnlyFromAmong("bytes", "count", "name");
+        var sort = new Option<string>("--sort") { Description = "Sort by bytes, count, name or retained (adds the retained column).", DefaultValueFactory = _ => "bytes" };
+        sort.AcceptOnlyFromAmong("bytes", "count", "name", "retained");
+        var retained = RetainedOption("Add retained bytes per row: a lower bound, the bytes its objects keep alive that no other object of the row holds (computes the snapshot's dominators the first time, then reuses them).");
         var top = TopOption();
         var all = AllOption();
         var format = FormatOption();
 
-        var command = new Command("summary", "Summarize a dump by type, namespace or assembly (opens it first; reuses its index cache). Ctrl+C cancels.");
+        var command = new Command("summary", "Summarize a dump by type, namespace, assembly or interface (opens it first; reuses its index cache). Ctrl+C cancels.");
         command.Arguments.Add(dump);
         command.Options.Add(group);
         command.Options.Add(filter);
         command.Options.Add(sort);
+        command.Options.Add(retained);
         command.Options.Add(top);
         command.Options.Add(all);
         command.Options.Add(format);
         AddTopOrAllValidator(command, top, all);
+        command.Validators.Add(result =>
+        {
+            if (result.GetValue(group) == "interface" && (result.GetValue(retained) || result.GetValue(sort) == "retained"))
+            {
+                result.AddError("Interface rows have no retained bytes: a type counts under each interface it implements, so the rows overlap. Leave out --retained (and --sort retained), or group by type, namespace or assembly.");
+            }
+        });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
             var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
@@ -260,13 +274,20 @@ internal static partial class CliCommands
             }
 
             var session = services().GetRequiredService<SnapshotSession>();
+            if (parseResult.GetValue(group) == "interface")
+            {
+                await error.WriteLineAsync("Note: a type counts under each interface it implements, so interface rows overlap and add up to more than the total.").ConfigureAwait(false);
+            }
+
+            var sortName = parseResult.GetValue(sort);
             var summary = await session.QueryTypeSummaryAsync(
                 handle,
                 Enum.Parse<TypeGrouping>(parseResult.GetValue(group)!, ignoreCase: true),
                 parseResult.GetValue(filter),
-                parseResult.GetValue(sort) switch { "name" => TypeSummaryColumns.Name, "count" => TypeSummaryColumns.Objects, _ => TypeSummaryColumns.Bytes },
-                descending: parseResult.GetValue(sort) != "name",
-                progress: null,
+                sortName switch { "name" => TypeSummaryColumns.Name, "count" => TypeSummaryColumns.Objects, "retained" => TypeSummaryColumns.Retained, _ => TypeSummaryColumns.Bytes },
+                descending: sortName != "name",
+                includeRetained: parseResult.GetValue(retained) || sortName == "retained",
+                progress: parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null,
                 ct).ConfigureAwait(false);
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wanted = parseResult.GetValue(all) ? summary.Result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), summary.Result.Rows.TotalCount);
@@ -309,6 +330,20 @@ internal static partial class CliCommands
             await output.WriteLineAsync("Heap kinds: " + string.Join(", ", result.HeapKinds.Select(k => string.Create(CultureInfo.InvariantCulture, $"{k.Kind} {Mb(k.Bytes)}")))).ConfigureAwait(false);
         }
 
+        if (result.Dominators is { } dominators)
+        {
+            var bound = result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound;
+            await output.WriteLineAsync(RetainedNote(dominators) + (bound == ValueBound.LowerBound ? " Retained per row: " + ValueBoundTexts.LowerBound : string.Empty)).ConfigureAwait(false);
+            await output.WriteLineAsync($"{"Objects",14} {"Bytes",16} {"%",7} {"Retained",16}  Name").ConfigureAwait(false);
+            foreach (var row in rows)
+            {
+                await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                    $"{long.Parse(row[1]!, CultureInfo.InvariantCulture),14:N0} {long.Parse(row[2]!, CultureInfo.InvariantCulture),16:N0} {row[3],7} {long.Parse(row[4]!, CultureInfo.InvariantCulture),16:N0}  {row[0]}")).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         await output.WriteLineAsync($"{"Objects",14} {"Bytes",16} {"%",7}  Name").ConfigureAwait(false);
         foreach (var row in rows)
         {
@@ -316,6 +351,15 @@ internal static partial class CliCommands
                 $"{long.Parse(row[1]!, CultureInfo.InvariantCulture),14:N0} {long.Parse(row[2]!, CultureInfo.InvariantCulture),16:N0} {row[3],7}  {row[0]}")).ConfigureAwait(false);
         }
     }
+
+    /// <summary>The <c>--retained</c> option of summary, instances and object (sprint 2.3).</summary>
+    internal static Option<bool> RetainedOption(string description) => new("--retained") { Description = description };
+
+    /// <summary>One line on how the dominators were obtained and how much of the heap the roots reach.</summary>
+    internal static string RetainedNote(DominatorIndexInfo dominators) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"Retained sizes: dominators {ValueBoundTexts.DominatorsSource(dominators.FromSidecar)} in {dominators.Seconds:N1} s, {dominators.ReachableObjects:N0} objects reachable from the roots.")
+        + (dominators.Note is { } note ? " " + note : string.Empty);
 
     private static async Task WriteSummaryJsonAsync(TextWriter output, TypeSummaryResult result, SnapshotKindDto kind, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
@@ -331,6 +375,9 @@ internal static partial class CliCommands
             result.UnfilteredRows,
             MatchingRows = result.Rows.TotalCount,
             HeapKinds = result.HeapKinds.Select(k => new { Kind = k.Kind.ToString(), k.Objects, k.Bytes }),
+            // From the column itself (sprint 2.4, 2.3.7 review M7).
+            RetainedIsLowerBound = result.Dominators is null ? (bool?)null : result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound == ValueBound.LowerBound,
+            result.Dominators,
             Rows = JsonRows(columns, rows),
         };
         await WriteJsonAsync(output, document).ConfigureAwait(false);
@@ -338,8 +385,8 @@ internal static partial class CliCommands
 
     private static Option<string> GroupOption()
     {
-        var group = new Option<string>("--group") { Description = "Rows per type, namespace or assembly.", DefaultValueFactory = _ => "type" };
-        group.AcceptOnlyFromAmong("type", "namespace", "assembly");
+        var group = new Option<string>("--group") { Description = "Rows per type, namespace, assembly or interface (full dumps; a type counts under each interface it implements).", DefaultValueFactory = _ => "type" };
+        group.AcceptOnlyFromAmong("type", "namespace", "assembly", "interface");
         return group;
     }
 
@@ -564,31 +611,59 @@ internal static partial class CliCommands
     /// <summary>Runs a command body with the CLI's error handling boundary (ARCHITECTURE.md 11).</summary>
     private static async Task<int> RunAsync(ParseResult parseResult, Func<TextWriter, TextWriter, Task<int>> body)
     {
-        var logger = s_services?.Invoke().GetService<ILoggerFactory>()?.CreateLogger("HeapScope.Cli");
+        var services = s_services?.Invoke();
+        var logger = services?.GetService<ILoggerFactory>()?.CreateLogger("HeapScope.Cli");
+        var logFolder = services?.GetService<FileLoggerProvider>()?.Directory ?? FileLoggerProvider.DefaultDirectory;
         var output = parseResult.InvocationConfiguration.Output;
         var error = parseResult.InvocationConfiguration.Error;
+
+        // The command and what it was given, under one activity whose trace id the worker's lines carry too (sprint 2.3.7
+        // review H4, M1). Paths and numbers are logged as they are; any other value by its length (a filter may be secret).
+        using var activity = new System.Diagnostics.Activity("HeapScope.Cli").Start();
+        var command = parseResult.CommandResult.Command.Name;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        logger?.LogInformation("Command {Command} started: {Arguments}", command, DescribeTokens(parseResult));
+        int exitCode;
         try
         {
-            return await body(output, error).ConfigureAwait(false);
+            exitCode = await body(output, error).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             await error.WriteLineAsync("Canceled.").ConfigureAwait(false);
-            return Canceled;
+            exitCode = Canceled;
         }
-        catch (Exception ex) when (ex is WorkerStartException or WorkerCrashedException or WorkerOperationException)
+        catch (Exception ex) when (ex is WorkerException
+            or CaptureFailedException { Reason: CaptureFailure.NotSupportedOnThisSystem })
         {
+            // What the user was told, in the log too (sprint 2.3.7 review H4).
+            logger?.LogInformation("Command {Command} failed: {Message}", command, ex.Message);
             await error.WriteLineAsync("Error: " + ex.Message).ConfigureAwait(false);
-            return Failure;
+            exitCode = Failure;
         }
         catch (Exception ex)
         {
             // Last-chance boundary: a plain message for the user, the stack trace for the log (ARCHITECTURE.md 11).
-            logger?.LogError(ex, "Command failed");
-            await error.WriteLineAsync($"Error: {ex.Message} Details are in the log in {FileLoggerProvider.DefaultDirectory}.").ConfigureAwait(false);
-            return Failure;
+            logger?.LogError(ex, "Command {Command} failed", command);
+            await error.WriteLineAsync($"Error: {ex.Message} Details are in the log in {logFolder}.").ConfigureAwait(false);
+            exitCode = Failure;
         }
+
+        logger?.LogInformation("Command {Command} exited with {ExitCode} after {Seconds:N2} s", command, exitCode, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds);
+        return exitCode;
     }
+
+    /// <summary>The command line for the log: option names, paths and numbers as given, other values by their length.</summary>
+    internal static string DescribeTokens(ParseResult parseResult) => string.Join(
+        " ",
+        parseResult.Tokens.Select(token => token.Type switch
+        {
+            System.CommandLine.Parsing.TokenType.Argument when File.Exists(token.Value) || Directory.Exists(token.Value)
+                || double.TryParse(token.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+                || token.Value is "true" or "false" => token.Value,
+            System.CommandLine.Parsing.TokenType.Argument => string.Create(CultureInfo.InvariantCulture, $"({token.Value.Length} chars)"),
+            _ => token.Value,
+        }));
 
     internal sealed class ProductVersionAction : SynchronousCommandLineAction
     {
@@ -598,6 +673,35 @@ internal static partial class CliCommands
             output.WriteLine(ProductInfo.Version);
             output.WriteLine(ProductInfo.AttributionWithUrl); // ADDITIONAL-TERMS.md 1.4
             return Success;
+        }
+    }
+
+    /// <summary>
+    /// Prints a worker call's progress phases to stderr (sprint 2.3: computing dominators takes seconds), each phase once
+    /// and its percentage at most every few seconds, so piped output stays readable.
+    /// </summary>
+    internal sealed class StderrProgress(TextWriter error) : IProgress<JobProgress>
+    {
+        private readonly Lock _gate = new();
+        private DateTime _lastWrite = DateTime.MinValue;
+        private string? _lastPhase;
+
+        public void Report(JobProgress value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            lock (_gate)
+            {
+                var now = DateTime.UtcNow;
+                if (value.Phase == _lastPhase && now - _lastWrite < TimeSpan.FromSeconds(2))
+                {
+                    return;
+                }
+
+                _lastWrite = now;
+                _lastPhase = value.Phase;
+                var percent = value.Total is > 0 ? string.Create(CultureInfo.InvariantCulture, $" {100.0 * value.Completed / value.Total.Value,5:N1}%") : string.Empty;
+                error.WriteLine(value.Phase + percent);
+            }
         }
     }
 

@@ -35,7 +35,7 @@ internal sealed partial class WorkerService
         (await QueryTypeSummaryAsync(new TypeSummaryRequest(snapshotId), null, cancellationToken).ConfigureAwait(false)).Rows;
 
     public Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             var stopwatch = Stopwatch.StartNew();
@@ -56,12 +56,52 @@ internal sealed partial class WorkerService
             using var _ = lease;
             var throttled = new ThrottledProgress<JobProgress>(progress);
             var total = snapshot.Graph.ObjectCount;
-            var aggregation = await snapshots.GetAggregationAsync(
-                request.SnapshotId,
-                new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
-                cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
+            Analysis.Sets.ObjectSet? set = null;
+            Analysis.TypeAggregation aggregation;
+            if (request.Set is { } spec)
+            {
+                // A set's Types and Generations views (sprint 3.1): its members only, aggregated per query.
+                if (request.IncludeRetained)
+                {
+                    throw new ArgumentException("A set's types have no retained column; its Retained view gives the exact figure.");
+                }
+
+                set = await ResolveSetAsync(request.SnapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false);
+                var members = set;
+                aggregation = await Task.Run(() => Analysis.TypeAggregation.Compute(snapshot.Graph, members, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                aggregation = await snapshots.GetAggregationAsync(
+                    request.SnapshotId,
+                    new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
+                    cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.SnapshotId);
+            }
             var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
-            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations), cancellationToken).ConfigureAwait(false);
+            Analysis.TypeInterfaces? interfaces = null;
+            if (request.GroupBy == TypeGrouping.Interface)
+            {
+                // Interface groups overlap, so they have no retained lower bound (decision 6); a gcdump is refused first.
+                interfaces = await GetInterfacesAsync(request.SnapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
+                if (request.IncludeRetained)
+                {
+                    throw new ArgumentException("Interface rows have no retained column: a type counts under each of its interfaces, so the rows overlap. Leave out retained sizes (--retained), or group by type, namespace or assembly.");
+                }
+            }
+
+            ulong[]? retained = null;
+            DominatorIndexInfo? dominators = null;
+            if (request.IncludeRetained)
+            {
+                TypeSummarySource.Validate(request, generations);
+
+                // Sprint 2.3: the dominators (computed or opened once), then the grouping's lower bounds (once per grouping).
+                dominators = (await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false)).Info;
+                retained = await snapshots.GetGroupRetentionAsync(request.SnapshotId, request.GroupBy.ToGroupKey(), progress, cancellationToken).ConfigureAwait(false)
+                    ?? throw SnapshotNotLoaded(request.SnapshotId);
+            }
+
+            var source = await Task.Run(() => TypeSummarySource.Create(snapshot.Graph, aggregation, request, generations, retained, interfaces), cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);
             // Unknown (generation not determined) is listed only when present, so the bar always adds up to the total.
@@ -79,11 +119,13 @@ internal sealed partial class WorkerService
                 generations,
                 kinds,
                 stopwatch.Elapsed.TotalSeconds,
-                source.UnfilteredCount);
+                source.UnfilteredCount,
+                dominators,
+                set is null ? null : new ObjectSetInfo(set.Count, (long)set.Bytes, set.TypeCount));
         });
 
     public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(async () =>
+        GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
             var stopwatch = Stopwatch.StartNew();
@@ -104,11 +146,20 @@ internal sealed partial class WorkerService
                 request.CurrentId,
                 new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", baselineDone + done, total))),
                 cancellationToken).ConfigureAwait(false) ?? throw SnapshotNotLoaded(request.CurrentId);
+            Analysis.TypeInterfaces? baselineInterfaces = null, currentInterfaces = null;
+            if (request.GroupBy == TypeGrouping.Interface)
+            {
+                baselineInterfaces = await GetInterfacesAsync(request.BaselineId, baseline, progress, cancellationToken, "the baseline").ConfigureAwait(false);
+                currentInterfaces = await GetInterfacesAsync(request.CurrentId, current, progress, cancellationToken, "the current snapshot").ConfigureAwait(false);
+            }
+
+            var (extras, comparison) = await DiffExtrasAsync(request, baseline, current, progress, cancellationToken).ConfigureAwait(false);
             var source = await Task.Run(
-                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind),
+                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind, baselineInterfaces, currentInterfaces, extras),
                 cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);
+            LogDiff(request, comparison, source);
             return new TypeDiffResult(
                 rows,
                 baselineAggregation.TotalObjects,
@@ -121,6 +172,15 @@ internal sealed partial class WorkerService
                 source.MatchingBaselineBytes,
                 source.MatchingBytesDelta,
                 stopwatch.Elapsed.TotalSeconds,
-                baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts));
+                baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts),
+                comparison.Matched,
+                comparison.IdentityNote,
+                comparison.NewObjects,
+                comparison.DeadObjects,
+                extras.Kinds
+                    ? [.. TypeSummarySource.KindColumns.Select(k => new HeapKindTotal(k.ToDto(), currentAggregation.KindObjects[(int)k] - baselineAggregation.KindObjects[(int)k], (long)currentAggregation.KindBytes[(int)k] - (long)baselineAggregation.KindBytes[(int)k]))]
+                    : null,
+                comparison.BaselineDominators,
+                comparison.CurrentDominators);
         });
 }

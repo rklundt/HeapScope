@@ -61,7 +61,7 @@ internal static class InspectionRows
             bytes += size;
         }
 
-        var totals = new Dictionary<(string Name, string Module), (long Objects, long Bytes)>();
+        var totals = new Dictionary<(string Name, string Module), (long Objects, long Bytes)>(TypeKeyComparer.Type);
         for (var t = 0; t < objectsByType.Length; t++)
         {
             if (objectsByType[t] > 0)
@@ -152,6 +152,8 @@ internal sealed class LargeArraysInspection : IInspection
 
     public string Name => "large-arrays";
 
+    public string Parameters => $"MinBytes={MinBytes}";
+
     public string Title => "Large arrays";
 
     public string Cause => "Each array of 85,000 bytes or more is a large object: costly to allocate, collected only with gen2.";
@@ -208,6 +210,8 @@ internal sealed class SparseArraysInspection : IInspection
     ];
 
     public string Name => "sparse-arrays";
+
+    public string Parameters => $"MinLength={MinLength}; at least half the slots null";
 
     public string Title => "Sparse arrays";
 
@@ -304,7 +308,7 @@ internal sealed class FinalizableObjectsInspection : IInspection
         var graph = context.Graph;
         var ready = Finalization.ReadyObjects(graph);
         var flags = graph.Flags;
-        var totals = new Dictionary<(string Name, string Module), (long Objects, long Ready, long Bytes)>();
+        var totals = new Dictionary<(string Name, string Module), (long Objects, long Ready, long Bytes)>(TypeKeyComparer.Type);
         var types = graph.TypeIndices.Span;
         long count = 0, bytes = 0;
         for (var i = 0; i < types.Length; i++)

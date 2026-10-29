@@ -1,0 +1,161 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- The Allocations page (sprint 2.5, ADR-028): the allocation traces open in this session, one at a time. For a trace:
+     its timeline (drag selects an interval), the types of the interval, the back traces or call tree, and the top call
+     stacks. Selecting a type narrows the trees and stacks to it. Sizes are estimates from samples. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
+             x:Class="HeapScope.UI.Views.Pages.AllocationsPage"
+             x:DataType="vm:AllocationsViewModel">
+  <UserControl.Styles>
+    <Style Selector="Button.toggle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="16" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+  </UserControl.Styles>
+  <DockPanel Margin="4">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+      <TextBlock FontSize="20" Text="Allocations" VerticalAlignment="Center" />
+      <Button Content="Open trace..." Margin="16,0,0,0" Command="{Binding OpenCommand}"
+              ToolTip.Tip="Open an allocations trace (.nettrace) recorded by Record allocations or 'heapscope-cli trace --profile allocations'" />
+      <ComboBox Margin="12,0,0,0" MinWidth="320" ItemsSource="{Binding Traces}" SelectedItem="{Binding Selected, Mode=TwoWay}" IsVisible="{Binding !IsEmpty}">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:AllocationTraceViewModel">
+            <TextBlock Text="{Binding Title}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" IsVisible="{Binding !IsEmpty}" />
+    </StackPanel>
+    <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
+    <Border DockPanel.Dock="Top" Classes="info" IsVisible="{Binding IsEmpty}">
+      <TextBlock TextWrapping="Wrap"
+                 Text="No allocation trace is open. Select a process on the Processes page and use Record allocations while the application runs, or open a .nettrace file. HeapScope then shows which types and call stacks allocated the most." />
+    </Border>
+    <ContentControl Content="{Binding Selected}">
+      <ContentControl.DataTemplates>
+        <DataTemplate DataType="vm:AllocationTraceViewModel">
+          <Grid RowDefinitions="Auto,96,*,Auto,190">
+            <StackPanel Grid.Row="0" Margin="0,0,0,4">
+              <TextBlock Text="{Binding Summary}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+              <ctl:NoteText Text="{Binding Note}" Classes="subtle" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <TextBlock Text="{Binding Interval}" VerticalAlignment="Center" />
+                <Button Content="Whole trace" Margin="12,0,0,0" Command="{Binding WholeTraceCommand}"
+                        ToolTip.Tip="Show the whole trace again; drag across the timeline to choose an interval" />
+              </StackPanel>
+            </StackPanel>
+            <ctl:AllocationTimeline Grid.Row="1" x:Name="Timeline" Margin="0,4,8,4"
+                                    Buckets="{Binding Buckets}" BucketSeconds="{Binding BucketSeconds}" DurationSeconds="{Binding DurationSeconds}"
+                                    Selection="{Binding Selection, Mode=TwoWay}"
+                                    ToolTip.Tip="Bytes allocated over time (estimated from samples). Drag to choose an interval; a click shows the whole trace." />
+            <Grid Grid.Row="2" ColumnDefinitions="2*,6,3*">
+              <!-- The types of the interval; selecting one narrows the trees and stacks. -->
+              <DockPanel Grid.Column="0" DataContext="{Binding Types}" x:DataType="vm:AllocationTypesViewModel">
+                <TextBlock DockPanel.Dock="Top" Text="Types" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
+                <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
+                <DataGrid x:Name="TypesGrid" ctl:GridExports.ExportName="AllocatedTypes" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                          ctl:GridBehaviors.ResultColumns="{Binding Columns}"
+                          ctl:GridBehaviors.Rows="{Binding Rows}"
+                          ToolTip.Tip="Select a type to see where it was allocated" />
+              </DockPanel>
+              <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+              <!-- Back traces (the allocating methods, then their callers) or the call tree (top-down). -->
+              <DockPanel Grid.Column="2">
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,2">
+                  <RadioButton Content="Back traces" GroupName="TreeKind" IsChecked="{Binding !ShowCallTree}" Margin="0,0,12,0"
+                               ToolTip.Tip="The methods that allocated, then their callers" />
+                  <RadioButton Content="Call tree" GroupName="TreeKind" IsChecked="{Binding ShowCallTree}" Margin="0,0,12,0"
+                               ToolTip.Tip="From the threads' outermost frames down; Own is what a method allocated itself" />
+                  <TextBlock Text="of" VerticalAlignment="Center" Margin="0,0,4,0" Classes="subtle" IsVisible="{Binding HasType}" />
+                  <TextBlock Text="{Binding TypeName}" VerticalAlignment="Center" FontWeight="SemiBold" IsVisible="{Binding HasType}" TextTrimming="CharacterEllipsis" MaxWidth="360" />
+                  <Button Content="All types" Margin="8,0,0,0" Command="{Binding AllTypesCommand}" IsVisible="{Binding HasType}" />
+                </WrapPanel>
+                <DockPanel DataContext="{Binding Tree}" x:DataType="vm:AllocationTreeViewModel">
+                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
+                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
+                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Note}" TextWrapping="Wrap" Classes="subtle" />
+                  <DataGrid x:Name="TreeGrid" ctl:GridExports.ExportName="AllocationCallTree" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
+                            ctl:GridBehaviors.Rows="{Binding Rows}"
+                            ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
+                            ctl:GridBehaviors.ExpandCommand="{Binding ExpandCommand}" ctl:GridBehaviors.CollapseCommand="{Binding CollapseCommand}"
+                            ToolTip.Tip="Enter or a double-click expands or collapses a row; Right expands, Left collapses.">
+                    <DataGrid.Columns>
+                      <DataGridTemplateColumn Header="Method" Width="*">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate x:DataType="vm:AllocationRowItem">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                              <Border Width="{Binding Indent}" />
+                              <Button Classes="toggle" Content="{Binding Glyph}" IsVisible="{Binding CanExpand}"
+                                      Command="{Binding $parent[DataGrid].((vm:AllocationTreeViewModel)DataContext).ToggleCommand}" CommandParameter="{Binding}" />
+                              <Border Width="16" IsVisible="{Binding !CanExpand}" />
+                              <TextBlock Text="{Binding Name}" Margin="2,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
+                            </StackPanel>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                      <DataGridTextColumn Header="Total" x:DataType="vm:AllocationRowItem" Binding="{Binding Total, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
+                      <DataGridTextColumn Header="%" x:DataType="vm:AllocationRowItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CellStyleClasses="number" />
+                      <DataGridTextColumn Header="Own" x:DataType="vm:AllocationRowItem" Binding="{Binding Own, StringFormat='{}{0:N0}'}" Width="110" CellStyleClasses="number" />
+                      <DataGridTextColumn Header="Samples" x:DataType="vm:AllocationRowItem" Binding="{Binding Samples, StringFormat='{}{0:N0}'}" Width="80" CellStyleClasses="number" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </DockPanel>
+            </Grid>
+            <GridSplitter Grid.Row="3" ResizeDirection="Rows" Height="6" />
+            <!-- The top call stacks of the interval (and type), with the selected one's frames. -->
+            <Grid Grid.Row="4" ColumnDefinitions="3*,6,2*">
+              <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="Top call stacks" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <ctl:NoteText DockPanel.Dock="Top" Text="{Binding StacksStatus}" TextWrapping="Wrap" />
+                <DataGrid x:Name="StacksGrid" ctl:GridExports.ExportName="AllocationStacks" ItemsSource="{Binding Stacks}" SelectedItem="{Binding SelectedStack, Mode=TwoWay}" CanUserSortColumns="False" IsReadOnly="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="#" x:DataType="vm:AllocationStackItem" Binding="{Binding Rank}" Width="40" CellStyleClasses="number" />
+                    <DataGridTextColumn Header="Bytes" x:DataType="vm:AllocationStackItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
+                    <DataGridTextColumn Header="%" x:DataType="vm:AllocationStackItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CellStyleClasses="number" />
+                    <DataGridTextColumn Header="Allocated in" x:DataType="vm:AllocationStackItem" Binding="{Binding Top}" Width="*" />
+                    <DataGridTextColumn Header="Called from" x:DataType="vm:AllocationStackItem" Binding="{Binding Caller}" Width="*" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+              <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+              <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="Frames, the allocating method first" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <ListBox x:Name="FramesList" ItemsSource="{Binding SelectedFrames}" />
+              </DockPanel>
+            </Grid>
+          </Grid>
+        </DataTemplate>
+      </ContentControl.DataTemplates>
+    </ContentControl>
+  </DockPanel>
+</UserControl>

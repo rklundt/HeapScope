@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "name": "Timer",
+  "kind": "detected",
+  "description": "Started System.Timers.Timer objects never stopped or disposed; each Elapsed handler's target stays alive through the runtime's timer queue (sprint 2.6).",
+  "types": [
+    { "type": "Fixtures.Leaks.TimerTarget", "perItem": 1 },
+    { "type": "System.Timers.Timer", "perItem": 1, "exact": false }
+  ],
+  "roots": [ { "kind": "StaticField", "declaringType": "System.Threading.TimerQueue", "field": "<Instances>k__BackingField", "itemType": "Fixtures.Leaks.TimerTarget" } ],
+  "detections": [ { "detector": "timer-leaks", "key": "Fixtures.Leaks.TimerTarget", "perItem": 1 }, { "detector": "type-growth", "key": "Fixtures.Leaks.TimerTarget", "perItem": 1 } ],
+  "notes": "No application field holds the timers: the runtime's timer queue (TimerQueue.Instances, then each queue's timer list) holds every started timer, its TimerQueueTimer's callback targets the System.Timers.Timer, whose Elapsed handler targets the TimerTarget. A System.Threading.Timer nothing references is finalized and stops, so it does not leak this way. The timer detector must name TimerTarget, not System.Timers.Timer; the event handler detector must not name System.Timers.Timer's Elapsed event."
+}

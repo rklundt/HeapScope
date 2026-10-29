@@ -31,11 +31,18 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 //   Leaks:ItemsPerRequest  items each enabled leak grows by on POST /work (default: 100)
 //   Leaks:PayloadBytes     payload per item (default: 64)
 //   Leaks:Publishers       publishers of the EventHandler leak (default: 16384)
+//   Leaks:Detected         all | none | comma separated: the 2.6 and 3.5 detector leaks (Timer, DisposedReferenced, PendingAsync, FinalizerBacklog; default: none)
+//   Clean:Enabled          true to also run the clean workload on POST /work (sprint 2.6; default: false)
 //   ParentPid              exit when this process exits
 // Prints "READY pid=<pid> url=<first bound url>" when listening, so callers can use port 0.
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
-var enabled = LeakCatalog.Resolve(builder.Configuration["Leaks:Enabled"] ?? "all");
+IReadOnlyList<ILeak> enabled =
+[
+    .. LeakCatalog.Resolve(builder.Configuration["Leaks:Enabled"] ?? "all"),
+    .. LeakCatalog.Resolve(builder.Configuration["Leaks:Detected"] ?? "none", LeakCatalog.Detected),
+];
+var clean = builder.Configuration.GetValue("Clean:Enabled", false);
 var itemsPerRequest = builder.Configuration.GetValue("Leaks:ItemsPerRequest", 100);
 var payloadBytes = builder.Configuration.GetValue("Leaks:PayloadBytes", 64);
 if (builder.Configuration["Leaks:Publishers"] is { } publishers)
@@ -61,15 +68,20 @@ app.MapPost("/work", () =>
         leak.Grow(itemsPerRequest, payloadBytes);
     }
 
+    if (clean)
+    {
+        CleanWorkload.Run(itemsPerRequest, payloadBytes);
+    }
+
     return Results.Ok();
 });
 
 // Disabled leaks are never touched, not even to read their count (decision 4).
-app.MapGet("/leaks", () => Results.Ok(LeakCatalog.All.Select(l => new LeakStatus(l.Name, enabled.Contains(l), enabled.Contains(l) ? l.ItemCount : 0))));
+app.MapGet("/leaks", () => Results.Ok(LeakCatalog.All.Concat(LeakCatalog.Detected).Select(l => new LeakStatus(l.Name, enabled.Contains(l), enabled.Contains(l) ? l.ItemCount : 0))));
 
 app.MapPost("/leaks/{name}/grow", (string name, int count) =>
 {
-    var leak = LeakCatalog.All.FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    var leak = LeakCatalog.All.Concat(LeakCatalog.Detected).FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     if (leak is null)
     {
         return Results.NotFound($"Unknown leak '{name}'.");

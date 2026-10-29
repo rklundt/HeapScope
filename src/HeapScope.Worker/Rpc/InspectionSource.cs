@@ -32,7 +32,8 @@ namespace HeapScope.Worker.Rpc;
 /// </summary>
 internal sealed class InspectionSource(InspectionTable table) : IResultSource
 {
-    public IReadOnlyList<ResultColumn> Columns { get; } = [.. table.Columns.Select(c => new ResultColumn(c.Name, KindOf(c.Kind), c.IsKey))];
+    public IReadOnlyList<ResultColumn> Columns { get; } =
+        [.. table.Columns.Select(c => new ResultColumn(c.Name, KindOf(c.Kind), c.IsKey, IsHidden: HeapScope.Contracts.InspectionColumns.IsHidden(c.Name), HasValues: c.HasValues))];
 
     public int Count => table.Count;
 

@@ -22,6 +22,8 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
+using HeapScope.Core;
 
 namespace HeapScope.Loaders.ClrMd;
 
@@ -31,7 +33,19 @@ namespace HeapScope.Loaders.ClrMd;
 /// <param name="ImageSize">PE image size the dump records for the DAC; 0 when unknown.</param>
 /// <param name="RuntimeVersion">Version of the dumped runtime, for example <c>10.0.13</c>.</param>
 /// <param name="RuntimeDirectory">Folder of the runtime in the dumped process (a path on the machine that took the dump).</param>
-public sealed record DacRequest(string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory);
+/// <param name="BuildId">The identity a Linux or macOS dump records for the DAC (ELF build id, Mach-O UUID; sprint
+/// 2.3.5); null for a Windows DAC, which is matched by <paramref name="TimeStamp"/> and <paramref name="ImageSize"/>.</param>
+/// <param name="BuildIdOfRuntime">When set, <paramref name="BuildId"/> is the identity of this runtime library (for example
+/// <c>libcoreclr.so</c>), under which the DAC is archived, not the DAC's own: the DAC is accepted from a folder whose
+/// runtime library has that identity, the exact runtime it ships with.</param>
+public sealed record DacRequest(
+    string FileName, int TimeStamp, int ImageSize, string RuntimeVersion, string? RuntimeDirectory, byte[]? BuildId = null, string? BuildIdOfRuntime = null);
+
+/// <summary>A file the DAC search looked at, and why it was or was not used (sprint 2.3.7).</summary>
+public sealed record DacCandidate(string Path, string Outcome)
+{
+    public override string ToString() => $"{Path} ({Outcome})";
+}
 
 /// <summary>
 /// Finds the DAC on this machine only (ADR-017): the dumped runtime's own folder when it exists here, the matching
@@ -40,6 +54,25 @@ public sealed record DacRequest(string FileName, int TimeStamp, int ImageSize, s
 /// </summary>
 public static class DacLocator
 {
+    /// <summary>
+    /// The dumped runtime's version. ClrMD reads 0.0 when a core file does not hold the runtime's version string; the
+    /// runtime's folder name (for example <c>10.0.14</c>) names it then (sprint 2.3.5).
+    /// </summary>
+    public static string RuntimeVersion(Version version, string? runtimeDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        var folder = RecordedPath.FileName(runtimeDirectory ?? "");
+        var dash = folder.IndexOf('-', StringComparison.Ordinal);
+        return version.Major == 0 && version.Minor == 0 && Version.TryParse(dash > 0 ? folder[..dash] : folder, out var named)
+            ? named.ToString()
+            : version.ToString();
+    }
+
+    // Paths are compared without case on Windows only; Linux file systems are case sensitive (sprint 2.3.5 review).
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     /// <summary>The folders searched, in order, without duplicates.</summary>
     public static IReadOnlyList<string> CandidateDirectories(DacRequest request, string dumpPath, ClrMdLoaderOptions options)
     {
@@ -50,7 +83,7 @@ public static class DacLocator
         {
             // Only folders on local fixed drives: a path recorded in the dump must never make the worker reach a
             // network share or load native code from one (ADR-017, section 12).
-            if (!string.IsNullOrEmpty(directory) && IsLocalFixedPath(directory) && !result.Contains(directory, StringComparer.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(directory) && IsLocalFixedPath(directory) && !result.Contains(directory, PathComparer))
             {
                 result.Add(directory);
             }
@@ -89,27 +122,118 @@ public static class DacLocator
             Add(Path.Combine(dumpFolder, "dac", request.RuntimeVersion));
         }
         Add(options.DacFolder);
+
+        // A self-contained HeapScope carries its own runtime's DAC (sprint 2.3.6): a candidate like any folder that is not
+        // an installed runtime, so a DAC paired with its runtime library still needs the matching version string.
+        if (options.OwnRuntimeDirectory is { } own)
+        {
+            Add(Path.TrimEndingDirectorySeparator(own));
+        }
+
         return result;
     }
 
-    /// <summary>Returns the path of a matching DAC, or null, and the files that were looked at.</summary>
-    public static string? Find(DacRequest request, IReadOnlyList<string> directories, out IReadOnlyList<string> searched)
+    /// <summary>
+    /// Returns the path of a matching DAC, or null, and the files that were looked at. A DAC found through its runtime
+    /// library's identity (<see cref="DacRequest.BuildIdOfRuntime"/>) is accepted from an installed runtime folder (under
+    /// <paramref name="installedRoots"/>, where the two ship together), or anywhere else only when both files embed the
+    /// same version string (sprint 2.3.5 review M1: a folder filled by hand can pair a runtime with another build's DAC).
+    /// </summary>
+    public static string? Find(DacRequest request, IReadOnlyList<string> directories, out IReadOnlyList<string> searched, IReadOnlyList<string>? installedRoots = null)
+    {
+        var path = Find(request, directories, out var candidates, out _, installedRoots);
+        searched = [.. candidates.Select(c => c.Path)];
+        return path;
+    }
+
+    /// <summary>
+    /// As <see cref="Find(DacRequest, IReadOnlyList{string}, out IReadOnlyList{string}, IReadOnlyList{string}?)"/>, and says
+    /// why each file was or was not used and which rule accepted the one returned (sprint 2.3.7 review M3): a rejected
+    /// file must not look like a missing one.
+    /// </summary>
+    public static string? Find(DacRequest request, IReadOnlyList<string> directories, out IReadOnlyList<DacCandidate> candidates, out string? rule, IReadOnlyList<string>? installedRoots = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(directories);
-        var looked = new List<string>();
-        searched = looked;
+        var looked = new List<DacCandidate>();
+        candidates = looked;
+        rule = null;
         foreach (var directory in directories)
         {
             var candidate = Path.Combine(directory, request.FileName);
-            looked.Add(candidate);
-            if (File.Exists(candidate) && Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion))
+            if (!IsReadableImage(candidate))
             {
+                looked.Add(new DacCandidate(candidate, "missing or not on a local disk"));
+                continue;
+            }
+
+            string? accepted = null;
+            string rejected;
+            if (request.BuildId is not { Length: > 0 } buildId)
+            {
+                var byIndex = request.TimeStamp != 0 || request.ImageSize != 0;
+                accepted = Matches(candidate, request.TimeStamp, request.ImageSize, request.RuntimeVersion)
+                    ? byIndex ? "time stamp and image size" : $"file version {request.RuntimeVersion}"
+                    : null;
+                rejected = byIndex ? "another build (time stamp or image size differ)" : "another build (file version differs)";
+            }
+            else if (request.BuildIdOfRuntime is { } runtimeName)
+            {
+                var runtime = Path.Combine(directory, runtimeName);
+                if (!IsReadableImage(runtime))
+                {
+                    rejected = $"{runtimeName} is not next to it";
+                }
+                else if (!ImageIdentity.Matches(runtime, buildId))
+                {
+                    rejected = $"{runtimeName} next to it is another build";
+                }
+                else if (IsUnderAny(directory, installedRoots ?? []))
+                {
+                    accepted = "runtime library's build id, installed runtime folder";
+                    rejected = string.Empty;
+                }
+                else if (ImageIdentity.ReadVersionString(candidate) is { } dac && dac == ImageIdentity.ReadVersionString(runtime))
+                {
+                    accepted = "runtime library's build id, equal version strings";
+                    rejected = string.Empty;
+                }
+                else
+                {
+                    rejected = $"its version string differs from {runtimeName}'s";
+                }
+            }
+            else
+            {
+                accepted = ImageIdentity.Matches(candidate, buildId) ? "own build id" : null;
+                rejected = "another build (build id differs)";
+            }
+
+            looked.Add(new DacCandidate(candidate, accepted is null ? rejected : "used: " + accepted));
+            if (accepted is not null)
+            {
+                rule = accepted;
                 return candidate;
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// True for a local file that can hold an image: on a local disk (<see cref="IsLocalFixedPath"/>) and at least a
+    /// header long, which leaves out pipes, devices and <c>/proc</c> files (their size is 0), so opening one never blocks.
+    /// </summary>
+    public static bool IsReadableImage(string path)
+    {
+        try
+        {
+            return IsLocalFixedPath(path) && new FileInfo(path) is { Exists: true, Length: >= 64 };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -149,9 +273,13 @@ public static class DacLocator
 
     /// <summary>
     /// True for a fully qualified path on a local fixed drive; false for UNC paths (<c>\\server\share</c>, <c>\\?\UNC</c>),
-    /// device paths and network or removable drives.
+    /// device paths and network or removable drives. On Linux and macOS, the mount holding the path decides, after
+    /// symbolic links are resolved (<see cref="UnixLocalPath"/>, sprint 2.3.5 review H1).
     /// </summary>
-    public static bool IsLocalFixedPath(string path)
+    public static bool IsLocalFixedPath(string path) =>
+        OperatingSystem.IsWindows() ? IsLocalFixedWindowsPath(path) : UnixLocalPath.IsLocal(path, UnixLocalPath.CurrentMounts());
+
+    private static bool IsLocalFixedWindowsPath(string path)
     {
         if (string.IsNullOrEmpty(path) || path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal)
             || !Path.IsPathFullyQualified(path))
@@ -173,7 +301,7 @@ public static class DacLocator
     {
         try
         {
-            return Directory.Exists(root) ? Directory.GetDirectories(root).Order(StringComparer.OrdinalIgnoreCase).ToArray() : [];
+            return Directory.Exists(root) ? Directory.GetDirectories(root).Order(PathComparer).ToArray() : [];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -187,7 +315,7 @@ public static class DacLocator
         foreach (var root in roots)
         {
             var prefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
-            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && !full.Contains("..", StringComparison.Ordinal))
+            if (full.StartsWith(prefix, PathComparison) && !full.Contains("..", StringComparison.Ordinal))
             {
                 return true;
             }
@@ -200,14 +328,19 @@ public static class DacLocator
     public static IReadOnlyList<string> DefaultRuntimeRoots()
     {
         var roots = new List<string>();
-        foreach (var dotnet in new[]
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string?[] candidates = OperatingSystem.IsWindows()
+            ? [Environment.GetEnvironmentVariable("DOTNET_ROOT"), Path.Combine(programFiles, "dotnet")]
+            // The usual install folders on Linux and macOS (sprint 2.3.5 review): distribution packages, Microsoft's
+            // installers and the install script's default.
+            : [
+                Environment.GetEnvironmentVariable("DOTNET_ROOT"), "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/lib64/dotnet",
+                "/usr/local/share/dotnet", "/opt/dotnet", home.Length > 0 ? Path.Combine(home, ".dotnet") : null,
+            ];
+        foreach (var dotnet in candidates.Append(RunningSharedFolder()))
         {
-            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
-            Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(typeof(object).Assembly.Location))),
-        })
-        {
-            if (string.IsNullOrEmpty(dotnet))
+            if (string.IsNullOrEmpty(dotnet) || !Path.IsPathFullyQualified(dotnet))
             {
                 continue;
             }
@@ -216,7 +349,7 @@ public static class DacLocator
             var shared = dotnet.EndsWith("shared", StringComparison.OrdinalIgnoreCase)
                 ? Path.Combine(dotnet, "Microsoft.NETCore.App")
                 : Path.Combine(dotnet, "shared", "Microsoft.NETCore.App");
-            if (Directory.Exists(shared) && !roots.Contains(shared, StringComparer.OrdinalIgnoreCase))
+            if (Directory.Exists(shared) && !roots.Contains(shared, PathComparer))
             {
                 roots.Add(shared);
             }
@@ -224,4 +357,40 @@ public static class DacLocator
 
         return roots;
     }
+
+    /// <summary>
+    /// The shared runtime folder (<c>.../shared</c>) of the runtime this process runs on, or null when it runs
+    /// self-contained (sprint 2.3.6 review: three folders up from a self-contained worker is an arbitrary user folder, which
+    /// must not count as an installed runtime).
+    /// </summary>
+    public static string? RunningSharedFolder()
+    {
+        var version = Path.GetDirectoryName(typeof(object).Assembly.Location);
+        var app = Path.GetDirectoryName(version);
+        var shared = Path.GetDirectoryName(app);
+        return string.Equals(Path.GetFileName(app), "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Path.GetFileName(shared), "shared", StringComparison.OrdinalIgnoreCase)
+            ? shared
+            : null;
+    }
+
+    /// <summary>
+    /// Why a dump of <paramref name="dumpPlatform"/> and <paramref name="dumpArchitecture"/> cannot be read by this process,
+    /// or null: the DAC runs inside the worker, so it must match the worker's architecture; another system's dump needs a
+    /// cross-platform DAC, which only the symbol server provides.
+    /// </summary>
+    public static string? Mismatch(OSPlatform dumpPlatform, Architecture dumpArchitecture, OSPlatform platform, Architecture host, bool symbolServerAllowed)
+    {
+        if (dumpArchitecture != host)
+        {
+            return $"This dump comes from an {dumpArchitecture} process and HeapScope runs as {host}: open it with the {dumpArchitecture} build of HeapScope.";
+        }
+
+        return dumpPlatform != platform && !symbolServerAllowed
+            ? $"This dump comes from {SystemName(dumpPlatform)} and HeapScope runs on {SystemName(platform)}: open it with HeapScope or heapscope-cli on {SystemName(dumpPlatform)}."
+            : null;
+    }
+
+    private static string SystemName(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "Windows" : platform == OSPlatform.OSX ? "macOS" : platform == OSPlatform.Linux ? "Linux" : platform.ToString();
 }

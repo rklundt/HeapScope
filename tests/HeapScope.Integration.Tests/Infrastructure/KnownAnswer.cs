@@ -42,6 +42,8 @@ internal sealed record KnownAnswer(
     IReadOnlyList<HeapKindAnswer>? HeapKinds,
     IReadOnlyList<FieldAnswer>? Fields,
     IReadOnlyList<FindingAnswer>? Findings,
+    IReadOnlyList<DetectionAnswer>? Detections,
+    IReadOnlyList<RetentionGroupAnswer>? RetentionGroups,
     string Notes)
 {
     public const int CurrentFormatVersion = 1;
@@ -116,3 +118,12 @@ internal sealed record FieldAnswer(string Path, string? Value, string? Type, str
 
 /// <summary>What a simple inspection must report (sprint 1.6; README, `findings`).</summary>
 internal sealed record FindingAnswer(string Inspection, string Key, long Count, bool Exact = true);
+
+/// <summary>
+/// What a leak detector must report for a leak (sprint 2.6): its row whose key is <paramref name="Key"/>, counting at least
+/// <paramref name="PerItem"/> per item leaked (elements, growth, subscribers, timers or objects, as the detector counts).
+/// </summary>
+internal sealed record DetectionAnswer(string Detector, string Key, double PerItem = 1);
+
+/// <summary>A Similar Retention group of the fixture's item type (sprint 3.2): members per item and the static fields its paths start at.</summary>
+internal sealed record RetentionGroupAnswer(int PerItem, IReadOnlyList<string> Paths);
