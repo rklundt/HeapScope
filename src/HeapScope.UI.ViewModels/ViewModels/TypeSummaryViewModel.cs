@@ -261,6 +261,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
 
     private void OpenUnreachable(INavigator? navigator)
     {
+        // CanOpenUnreachable checked the snapshot.
         if (CanOpenUnreachable)
         {
             navigator?.Navigate(NavigationTarget.ObjectSet(_snapshot!, new ObjectSetQuery(ObjectSetSpec.OfUnreachable()), "Unreachable objects"));

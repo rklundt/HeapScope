@@ -188,15 +188,22 @@ internal sealed partial class WorkerService
             case ObjectSetKind.Unreachable:
                 if (snapshot.Info.Kind == SnapshotKind.GcDump)
                 {
-                    throw new ArgumentException("A gcdump holds only what survived its collection: no object in it is unreachable. Open a full dump (.dmp) to see the garbage it still holds.");
+                    throw new CapabilityNotSupportedException("A gcdump holds only what survived its collection, so the garbage of the process is not in it. Open a full dump (.dmp) to see the garbage it still holds.");
+                }
+
+                if (!IsComplete(snapshot))
+                {
+                    // References were lost reading this dump: live objects would show as garbage (section 5.2, as ADR-032).
+                    throw new CapabilityNotSupportedException("This dump's object graph is incomplete (some references could not be read), so live objects could look unreachable. Capture a new full dump.");
                 }
 
                 (set, detail) = await Task.Run(
                     () =>
                     {
-                        var reachable = Reachability.For(graph, cancellationToken);
-                        var unreachable = Reserved(snapshotId, graph, () => ObjectSet.Unreachable(graph, reachable, cancellationToken));
-                        return (unreachable, string.Create(CultureInfo.InvariantCulture, $"{reachable.Count} objects reachable of {graph.ObjectCount}"));
+                        // The retention views' roots, the finalizer queue included (ADR-024): no member has a path.
+                        var alive = Reachability.FromPathRoots(graph, cancellationToken);
+                        var unreachable = Reserved(snapshotId, graph, () => ObjectSet.Unreachable(graph, alive, cancellationToken));
+                        return (unreachable, UnreachableDetail(graph, alive, Reachability.For(graph, cancellationToken), IsComplete(snapshot), cancellationToken));
                     },
                     cancellationToken).ConfigureAwait(false);
                 break;
@@ -299,6 +306,40 @@ internal sealed partial class WorkerService
         return (set, string.Create(
             CultureInfo.InvariantCulture,
             $"{matched} type entries for {wanted.Count} keys{(missing.Count == 0 ? string.Empty : $"; no match for {missing.Count}: {string.Join(", ", missing.Take(20))}")}"));
+    }
+
+    /// <summary>
+    /// The unreachable set's log detail (sprint 3.5 review): what is alive and its bytes, and how much only the finalizer
+    /// queue holds (alive for the retention views, dead for the leak detectors), so a contested size is backed up.
+    /// </summary>
+    private static string UnreachableDetail(HeapGraph graph, Reachability alive, Reachability rooted, bool complete, CancellationToken cancellationToken)
+    {
+        long aliveBytes = 0, queuedObjects = 0, queuedBytes = 0, deadBytes = 0;
+        for (var i = 0; i < graph.ObjectCount; i++)
+        {
+            if ((i & 0xFFFF) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            var size = (long)graph.GetSize(i);
+            if (!alive.IsReachable(i))
+            {
+                deadBytes += size;
+                continue;
+            }
+
+            aliveBytes += size;
+            if (!rooted.IsReachable(i))
+            {
+                queuedObjects++;
+                queuedBytes += size;
+            }
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{alive.Count} objects of {aliveBytes} bytes reachable from the path roots, of {graph.ObjectCount}; {queuedObjects} of them ({queuedBytes} bytes) held only through the finalizer queue (waiting for finalization, not in the set); {deadBytes} bytes unreachable; graph complete {complete}");
     }
 
     /// <summary>Builds a set inside a reservation of what one set can take (a bit and an index per object; the 3.1 review).</summary>

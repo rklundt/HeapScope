@@ -125,18 +125,16 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
     [Fact]
     public async Task The_unreachable_set_is_the_objects_no_root_reaches()
     {
-        // Sprint 3.5: the garbage a full dump holds, as a set; ClrMD's own walk from the roots is the reference. Objects
-        // waiting for their finalizer are dead (HeapScope's walk does not start from the finalizer queue): the fixture's
-        // finalizer backlog is in the set.
+        // Sprint 3.5: the garbage a full dump holds, as a set; ClrMD's own walk from the roots, the finalizer queue included
+        // (the retention views' roots, review H1), is the reference: the fixture's finalizer backlog is not in the set.
         var current = await _session.StartOpen(_runs.LeakyCurrent).Result;
         var set = await _session.QueryInstancesAsync(current, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfUnreachable())), null, Ct);
 
         using var dump = DumpAnalysis.Open(_runs.LeakyCurrent);
-        var reachable = dump.ReachableFromRoots(finalizerQueue: false);
-        var expected = dump.Heap.EnumerateObjects().LongCount(o => !o.IsFree && !reachable.Contains(o.Address));
-        expected.ShouldBeGreaterThan(0, "a dump taken between collections holds garbage");
-        Math.Abs(set.Result.TotalObjects - expected).ShouldBeLessThanOrEqualTo(expected / 100, $"HeapScope's walk ({set.Result.TotalObjects}) and ClrMD's ({expected}) agree to within 1%");
-        set.Result.TotalBytes.ShouldBeGreaterThan(0);
+        var reachable = dump.ReachableFromRoots();
+        var garbage = dump.Heap.EnumerateObjects().Where(o => !o.IsFree && !reachable.Contains(o.Address)).ToList();
+        garbage.ShouldNotBeEmpty("a dump taken between collections holds garbage");
+        (set.Result.TotalObjects, set.Result.TotalBytes).ShouldBe((garbage.Count, garbage.Sum(o => (long)o.Size)), "HeapScope's walk and ClrMD's agree exactly");
     }
 
     [Fact]
@@ -161,6 +159,12 @@ public sealed class DetectorTests : IClassFixture<DetectorRuns>, IAsyncDisposabl
 
                 // Never more than every item leaked since the start (review M13): double counting or merged events fail.
                 var maximum = (long)(detection.PerItem * (DetectorRuns.WarmUpRequests + DetectorRuns.MoreRequests) * DetectorRuns.ItemsPerRequest);
+
+                // The 3.5 detectors count what the dump holds, not growth: exactly every item (review of 3.5).
+                if (detection.Detector is "pending-async-methods" or "finalizer-backlog")
+                {
+                    minimum = maximum;
+                }
                 if (row is null)
                 {
                     misses.Add($"{leak.Name}: {detection.Detector} has no row {detection.Key} (rows: {string.Join(", ", rows.Select(r => r.Values.First()))})");

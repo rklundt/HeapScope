@@ -121,8 +121,9 @@ dotnet test --solution HeapScope.sln
   `--view paths` (the set's key retention paths), `--view similar` (Similar Retention groups, numbered from 1, with
   their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers it; opened by its pattern, so it is the same group in another snapshot or refused). `diff --group interface` refuses `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
   `summary` and `diff` take `--group interface` (full dumps; a type counts under each interface it implements).
-  Since 3.5: `--unreachable` (full dumps) is the objects no root reaches, the objects waiting for their finalizer
-  included; a gcdump is refused (exit 1).
+  Since 3.5: `--unreachable` (full dumps with a complete graph) is the objects no root reaches, with the retention views'
+  roots (the finalizer queue counts: objects waiting for their finalizer are not in it); a gcdump or an incomplete dump
+  is refused (exit 1).
   The logs name an objects set (bookmarks) by its count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of
   its distinct addresses sorted ascending, each as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
   Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an

@@ -301,8 +301,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   set kinds in `WorkerService.Sets.cs`, a set's key paths in `QueryTypePathsAsync`, and interface grouping in summaries
   and diffs [3.2]. `WorkerService.Comparison.cs` (a diff's extras: objects matched when both snapshots are of one process,
   both snapshots' group retention, kinds; the `Compared` set kind resolved under both leases; trends) and
-  `TypeTrendSource` [3.3]. The `Unreachable` set kind (`ObjectSet.Unreachable`, the complement of `Reachability`; refused
-  for gcdumps) [3.5].
+  `TypeTrendSource` [3.3]. The `Unreachable` set kind (`ObjectSet.Unreachable`, the complement of
+  `Reachability.FromPathRoots`; refused for gcdumps and incomplete dumps) [3.5].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -661,7 +661,7 @@ Rules:
   `SetDominatorColumns`).
   Version 17 (sprint 3.2, ADR-031): `QuerySimilarRetentionAsync` (`SimilarRetentionRequest`, `SimilarRetentionResult`,
   `RetentionGroupDto`, `SimilarRetentionLimits`), `TypePathsRequest.Set`, `TypeGrouping.Interface` with
-  `TypeSummaryColumns.NoInterface`, and set kinds `Interface` and `RetentionGroup`.
+  `TypeSummaryColumns.NoInterface`, and set kinds `Interface` and `RetentionGroup`; since 3.5 `Unreachable`.
   Version 18 (sprint 3.3, ADR-032): `TypeDiffRequest.MatchObjects` and `IncludeRetained`, the New, Dead, retained and
   per-kind delta columns, `TypeDiffResult`'s identity, kind deltas and dominators, the set kind `Compared` with
   `ObjectChange` (the spec's `Baseline` is now "the other snapshot"), and `QueryTypeTrendAsync` (`TypeTrendRequest`,
@@ -2254,17 +2254,24 @@ sprint 0.1.
   finds what the runtime holds for an app that misuses it (waiting async calls, a stuck finalizer), shows types that
   grow, and opens the garbage a dump still holds.
 - Decision: three leak detectors over the graph. `pending-async-methods` counts reachable `AsyncStateMachineBox<T>`
-  objects whose task has not ended (`m_stateFlags`, so full dumps only), by async method, from 1,000 calls.
-  `finalizer-backlog` counts the objects the finalizer queue roots (ready for finalization), by type, from 1,000.
-  `type-growth`, with a baseline, counts reachable objects per type key (ADR-018: name and module), the framework's own
-  types left out, from 1,000 more and 50% more. Each row opens its objects as a set. `ObjectSetKind.Unreachable` is the
-  complement of the reachability walk, which does not start from the finalizer queue (objects waiting for their
-  finalizer are dead, so they are in it and out of type growth); refused for gcdumps; protocol 19.
+  objects (and the debugger's `DebugFinalizableAsyncStateMachineBox<T>`) whose task has not ended (`m_stateFlags`, so
+  full dumps only), by async method, from 1,000 calls; the framework's own methods wait by design and are left out and
+  logged. `finalizer-backlog` counts the objects the finalizer queue roots (ready for finalization), from 1,000, with a
+  row per type of at least 100. `type-growth`, with a baseline, counts reachable objects per type key (ADR-018: name and
+  module), framework types (by namespace or module) left out, from 1,000 more and 50% more; both snapshots must have a
+  complete graph and exact counts (full dumps: a gcdump names nested types differently and may be sampled), and a
+  baseline captured later is not compared. Each row opens its objects as a set. `ObjectSetKind.Unreachable` is the
+  complement of `Reachability.FromPathRoots`, the retention views' roots (ADR-024, finalizer queue included), so no
+  member has a path or retains anything; the leak detectors keep `Reachability.For`, which does not start from the
+  finalizer queue (objects waiting for their finalizer are dead for them). Refused for gcdumps and incomplete dumps; its
+  log line says how much only the finalizer queue holds. Protocol 19.
 - Consequences: async calls that wait by design (requests in flight, background loops) count too, so the note says to
   compare with the work in flight. A blocked finalizer thread is named by its effect, not its stack (which needs a
   debugger). Type growth by type misses growth in framework types, which the growing static collections detector and
-  Compare cover. Objects finalized between two snapshots are not reported: it needs the address match (ADR-032) of the
-  baseline's finalizable objects not yet run, and is in the Backlog.
+  Compare cover; type growth counts young objects too, so load alone can add some (old-generation growth is in the
+  Backlog). Pooled `ValueTask` boxes have no task state and are not counted; methods compiled with .NET 10's opt-in
+  runtime async have no box. Objects finalized between two snapshots are not reported: it needs the address match
+  (ADR-032) of the baseline's finalizable objects not yet run, and is in the Backlog.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

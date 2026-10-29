@@ -69,7 +69,8 @@ public enum ObjectSetKind
 
     /// <summary>
     /// The objects no root reaches (sprint 3.5): garbage a full dump still holds because no collection has removed it yet.
-    /// Full dumps only (a gcdump's collection removed them).
+    /// The roots are the retention views' (ADR-024), the finalizer queue included, so no member has a retention path or
+    /// retains anything; objects waiting for their finalizer are not members. Full dumps with a complete graph only.
     /// </summary>
     Unreachable = 9,
 }

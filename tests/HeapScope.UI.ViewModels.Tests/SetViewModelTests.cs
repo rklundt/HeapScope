@@ -272,6 +272,9 @@ public sealed class SetViewModelTests : IDisposable
         var set = Navigator.Current.ShouldBeOfType<SetViewModel>();
         (set.Set.Spec.Kind, set.Title).ShouldBe((ObjectSetKind.Unreachable, "Unreachable objects"));
         set.Types.CanOpenUnreachable.ShouldBeFalse("a set's own Types view does not offer it");
+
+        await OpenAsync("app.gcdump");
+        _snapshots.Types.CanOpenUnreachable.ShouldBeFalse("a gcdump's collection removed its garbage");
     }
 
     public void Dispose()

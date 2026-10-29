@@ -58,6 +58,7 @@ public sealed class InspectionsTests : IClassFixture<AllLeaksDump>, IAsyncDispos
             [
                 "duplicate-strings", "empty-collections", "oversized-collections", "sparse-arrays", "large-arrays", "loh", "finalizable", "fragmentation",
                 "growing-static-collections", "event-handler-leaks", "timer-leaks", "disposed-but-referenced", "httpclient-instances", "undisposed-service-scopes",
+                "pending-async-methods", "finalizer-backlog", "type-growth",
             ]);
         inspections.ShouldAllBe(i => i.Unavailable == null);
         inspections.Where(i => i.Kind == InspectionKinds.Leak).Select(i => i.Name).ShouldBe(inspections.Skip(8).Select(i => i.Name), "the 2.6 detectors are the leak kind");

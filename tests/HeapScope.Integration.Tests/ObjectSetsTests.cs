@@ -208,11 +208,12 @@ public sealed class ObjectSetsTests : IClassFixture<AllLeaksDump>, IAsyncDisposa
         (await usage.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(usage.Output);
         usage.Process.ExitCode.ShouldBe(64, usage.Output);
 
-        // Sprint 3.5: the objects no root reaches (the count itself is checked against ClrMD in DetectorTests); the dump may
-        // hold none, which exits 1 like any set that selects nothing.
-        using var unreachable = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--unreachable", "--view", "types");
+        // Sprint 3.5: the objects no root reaches (the count itself is checked against ClrMD in DetectorTests); the dump holds
+        // the late garbage fixture.
+        using var unreachable = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--unreachable", "--view", "types", "--all");
         (await unreachable.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(unreachable.Output);
-        unreachable.Process.ExitCode.ShouldBeOneOf([0, 1], unreachable.Output);
+        unreachable.Process.ExitCode.ShouldBe(0, unreachable.Output);
+        unreachable.Output.ShouldContain("Fixtures.Leaks.WeakOnlyTarget");
         using var twoWays = ChildProcess.Start(TestPaths.CliExe, "set", _dump, "--unreachable", "--namespace", "A");
         (await twoWays.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(twoWays.Output);
         twoWays.Process.ExitCode.ShouldBe(64, twoWays.Output);

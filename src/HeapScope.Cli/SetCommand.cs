@@ -45,7 +45,7 @@ internal static partial class CliCommands
         var ns = new Option<string?>("--namespace") { Description = "Every type of a namespace, as the summary's namespace rows name them." };
         var assembly = new Option<string?>("--assembly") { Description = "Every type of an assembly, by its module file name (Leaks.dll)." };
         var iface = new Option<string?>("--interface") { Description = "Every type implementing an interface, by its full name (full dumps)." };
-        var unreachable = new Option<bool>("--unreachable") { Description = "The objects no root reaches: garbage the full dump still holds (sprint 3.5; full dumps)." };
+        var unreachable = new Option<bool>("--unreachable") { Description = "The objects no root reaches: garbage the full dump still holds; objects waiting for their finalizer are not in it (sprint 3.5; full dumps with a complete graph)." };
         var comparedWith = new Option<FileInfo?>("--compared-with") { Description = "Another dump of the same process: with --change, the set's new, dead or survived objects matched by address (sprint 3.3). Dead objects are in the earlier dump, so give the earlier dump as the snapshot and the later one here." };
         var change = new Option<string?>("--change") { Description = "new, dead or survived, with --compared-with." };
         change.AcceptOnlyFromAmong("new", "dead", "survived");
