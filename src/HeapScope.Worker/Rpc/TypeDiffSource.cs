@@ -60,7 +60,8 @@ internal sealed class TypeDiffSource : IResultSource
     [
         (new(TypeDiffColumns.BaselineRetained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound), r => (long)(r.BaselineRetained ?? 0)),
         (new(TypeDiffColumns.CurrentRetained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound), r => (long)(r.CurrentRetained ?? 0)),
-        (new(TypeDiffColumns.RetainedDelta, ResultColumnKind.SignedInteger, Bound: ValueBound.LowerBound), r => r.RetainedDelta ?? 0),
+        // A difference of two lower bounds bounds nothing (the 3.3 review): an estimate.
+        (new(TypeDiffColumns.RetainedDelta, ResultColumnKind.SignedInteger, Bound: ValueBound.Estimate), r => r.RetainedDelta ?? 0),
     ];
 
     private static readonly (ResultColumn Column, Func<DiffRow, long> Value)[] s_kindColumns =
@@ -212,6 +213,10 @@ internal sealed class TypeDiffSource : IResultSource
             cells[next] = row.Module;
         }
     }
+
+    /// <summary>The first <paramref name="count"/> rows for the log: name, bytes delta, and every optional column.</summary>
+    public string Describe(int count) =>
+        string.Join("; ", _rows.Take(count).Select(r => string.Create(CultureInfo.InvariantCulture, $"{r.Name} {r.BytesDelta:+#;-#;0} bytes") + string.Concat(_extra.Select(e => string.Create(CultureInfo.InvariantCulture, $", {e.Column.Name} {e.Value(r)}")))));
 
     // "copies" only for type rows: a namespace or assembly gaining types is normal, a type loaded once more is not.
     private static string Change(DiffRow row, bool byType) =>

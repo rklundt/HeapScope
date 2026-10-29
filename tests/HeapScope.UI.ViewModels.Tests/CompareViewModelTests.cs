@@ -270,7 +270,7 @@ public sealed class CompareViewModelTests : IDisposable
         (dead.Snapshot, dead.Set.Spec.Kind, dead.Set.Spec.Change, dead.Set.Baseline).ShouldBe((Compare.Baseline!.Handle, ObjectSetKind.Compared, ObjectChange.Dead, Compare.Current!.Handle));
         Compare.OpenNewCommand.Execute(row);
         var fresh = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
-        (fresh.Snapshot, fresh.Set.Spec.Change, fresh.Set.Baseline, fresh.Title).ShouldBe((Compare.Current.Handle, ObjectChange.New, Compare.Baseline.Handle, "New App.Kept"));
+        (fresh.Snapshot, fresh.Set.Spec.Change, fresh.Set.Baseline, fresh.Title).ShouldBe((Compare.Current.Handle, ObjectChange.New, Compare.Baseline.Handle, "New by address: App.Kept"));
     }
 
     [Fact]
@@ -311,7 +311,7 @@ public sealed class CompareViewModelTests : IDisposable
         trend.Ordered.Select(s => s.Title).ShouldBe(["first.dmp", "second.dmp", "third.dmp"]);
         _worker.Service.TrendQueries[0].SnapshotIds.ShouldBe(trend.Ordered.Select(s => s.Handle.Descriptor.SnapshotId));
         trend.Columns.Select(c => c.Column.Name).ShouldContain(TypeTrendColumns.Bytes(3));
-        trend.Totals!.ShouldContain("across 3 snapshots (first.dmp > second.dmp > third.dmp)");
+        trend.Totals!.ShouldContain("across 3 snapshots (first.dmp, then second.dmp, then third.dmp)");
         var row = trend.Rows.GetRow(0);
         await trend.Rows.WhenLoadedAsync();
         row[TypeTrendColumns.GrowthSteps].ShouldBe("2");

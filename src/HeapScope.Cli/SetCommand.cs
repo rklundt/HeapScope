@@ -91,6 +91,10 @@ internal static partial class CliCommands
             {
                 result.AddError("--compared-with and --change go together.");
             }
+            else if (result.GetValue(comparedWith) is not null && result.GetValue(inspection) is not null)
+            {
+                result.AddError("--compared-with takes a set of types, a namespace, an assembly or an interface; an inspection row's own baseline would be confused with it.");
+            }
             else if (result.GetValue(comparedWith) is not null && result.GetValue(baseline) is not null)
             {
                 result.AddError("--compared-with and --baseline name the other dump in two ways; give one.");

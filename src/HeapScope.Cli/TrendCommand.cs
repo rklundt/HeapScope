@@ -50,6 +50,13 @@ internal static partial class CliCommands
         }
 
         AddTopOrAllValidator(command, top, all);
+        command.Validators.Add(result =>
+        {
+            if (result.GetValue(dumps) is { } files && files.Select(f => f.FullName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Length)
+            {
+                result.AddError("Give each dump once.");
+            }
+        });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
         {
             var handles = new List<SnapshotHandle>();
@@ -75,6 +82,22 @@ internal static partial class CliCommands
                 null,
                 ct).ConfigureAwait(false);
             var result = trend.Result;
+            foreach (var (handle, i) in handles.Select((h, i) => (h, i)))
+            {
+                await WriteNotesAsync(error, string.Create(CultureInfo.InvariantCulture, $"Dump {i + 1}"), handle).ConfigureAwait(false);
+            }
+
+            if (!result.ExactCounts)
+            {
+                await error.WriteLineAsync("Warning: at least one dump has estimated counts, so the trend is an estimate too.").ConfigureAwait(false);
+            }
+
+            var times = handles.Select(h => h.Descriptor.CapturedAtUtc).ToList();
+            if (times.All(t => t is not null) && times.Zip(times.Skip(1)).Any(p => p.Second < p.First))
+            {
+                await error.WriteLineAsync("Warning: the dumps are not in capture order (oldest first), so growth steps may run backwards.").ConfigureAwait(false);
+            }
+
             var wanted = parseResult.GetValue(all) ? result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), result.Rows.TotalCount);
             var rows = await FetchRowsAsync(trend.Rows, wanted, ct).ConfigureAwait(false);
             var columns = trend.Rows.Info.Columns;
@@ -88,7 +111,7 @@ internal static partial class CliCommands
                     break;
                 default:
                     var n = handles.Count;
-                    await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} rows across {n} dumps; heap bytes {string.Join(" > ", result.TotalBytes.Select(b => b.ToString("N0", CultureInfo.InvariantCulture)))}; showing {rows.Count:N0}")).ConfigureAwait(false);
+                    await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} rows across {n} dumps; heap bytes {string.Join(", then ", result.TotalBytes.Select(b => b.ToString("N0", CultureInfo.InvariantCulture)))}; showing {rows.Count:N0}")).ConfigureAwait(false);
                     await output.WriteLineAsync(string.Join(" ", Enumerable.Range(1, n).Select(i => $"{"Bytes " + i,14}")) + $" {"Bytes delta",14} {"Grew",5}  Name").ConfigureAwait(false);
                     foreach (var row in rows)
                     {

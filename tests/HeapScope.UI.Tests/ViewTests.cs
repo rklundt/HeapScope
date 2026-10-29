@@ -165,7 +165,7 @@ public sealed class ViewTests(UiSession ui) : IDisposable
             await Settle(compare.Rows);
             Dispatcher.UIThread.RunJobs();
             var grid = Grid(window, "CompareGrid");
-            grid.Columns.Single(c => Equals(c.Tag, ColumnGroups.Identity) && c.Header as string == "New objects").IsVisible.ShouldBeTrue();
+            grid.Columns.Single(c => Equals(c.Tag, ColumnGroups.Identity) && c.SortMemberPath == "NewObjects").IsVisible.ShouldBeTrue();
             grid.Columns.Where(c => Equals(c.Tag, ColumnGroups.Retained)).ShouldAllBe(c => !c.IsVisible);
 
             compare.IsTrendShown = true;

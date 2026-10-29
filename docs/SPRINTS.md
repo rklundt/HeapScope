@@ -35,7 +35,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 2.8 | Packaging and distribution | Planned | | |
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
-| 3.3 | Comparison depth | In Progress | | |
+| 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
 | 3.4 | Live workflow and housekeeping | Planned | | |
 | 3.5 | Leak detection depth | Planned | | |
 
@@ -2616,9 +2616,10 @@ other snapshot" (dead objects only exist in the baseline), bound to the current 
 **Dependencies**: 3.1.
 
 **Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
-1. Object identity across dumps by address (ADR-032, amends ADR-018): only for two full dumps of one process (same
-   process id and name, the current captured later). A current object is Survived when the baseline has an object of
-   the same type key at its address, otherwise New; a baseline object with no object of its type key at its address in
+1. Object identity across dumps by address (ADR-032, amends ADR-018): only for two complete full dumps of one run of a
+   process (same process id and name, the current captured later, the baseline's frozen objects found; review). A current
+   object is Survived when the baseline has an object of the same method table, type key, size and heap area, in no
+   older generation, at its address (review), otherwise New; a baseline object with no object of its type key at its address in
    the current snapshot is Dead. A compacting collection moves objects, so a moved survivor counts as Dead and New; the
    columns and sets say "by address". Computed by one merge of the two snapshots' sorted addresses.
 2. Compare rows grouped by type get New and Dead columns when asked (`TypeDiffRequest.MatchObjects`); a row opens its New
@@ -2628,7 +2629,7 @@ other snapshot" (dead objects only exist in the baseline), bound to the current 
    call.
 3. Retained bytes in Compare (from 2.3 decision 7): `TypeDiffRequest.IncludeRetained` computes or opens both snapshots'
    dominators and adds each row's retained lower bound in both and the delta. Not for interface rows.
-4. Trends (`QueryTypeTrendAsync`): 2 to 20 snapshots in the order given (the app orders them by capture time), rows per
+4. Trends (`QueryTypeTrendAsync`): 2 to 20 snapshots of one kind (review) in the order given (the app orders them by capture time), rows per
    type, namespace, assembly or interface, with objects and bytes per snapshot, the change first to last and the number
    of steps the bytes grew in. In the app a Trend view beside the two-snapshot comparison uses the open snapshots the
    user ticks; the CLI's `trend` takes the dumps in order.
@@ -2651,13 +2652,25 @@ other snapshot" (dead objects only exist in the baseline), bound to the current 
 3. [x] Worker: diff with matching, retained and kinds; the `Compared` set kind resolved against the other snapshot under
    both leases; the trend query; logging. Tests: integration on two fixture dumps of one process (ClrMD address matches),
    different processes refused.
-4. [x] Application and CLI: session methods (`ObjectSetQuery.Other`), `diff --match-objects --retained --growth-of
+4. [x] Application and CLI: session methods (`ObjectSetQuery.Baseline` as the other snapshot), `diff --match-objects --retained --growth-of
    --fail-on-growth-per-row`, `trend`, `set --compared-with <dump> --change new|dead|survived`. Tests: CLI on the fixture.
 5. [x] View models and UI: Compare's New and Dead columns, retained and generations switches, a row's New, Dead and
    Survived as sets, the Trend view with its snapshot choice. Tests: view model and view tests, no binding errors.
 6. [x] Docs: ARCHITECTURE (ADR-032, protocol, logging), DEVELOPER, README, this section.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (`docs/reviews/sprint-3.3.md`; four reviewers: solution-architect, senior-dev, gc-specialist and a
+support engineer): 5 High, 14 Moderate, 25 Low (5 from the re-review).
+- High, all fixed: a set kind missing from a test (H1); matching allowed for gcdumps, mixed and incomplete dumps (H2);
+  a reused address counted as a survivor (H3: method table, size, heap area and generation now checked); the per-row
+  gate's log line was false (H4); two runs reusing a process id were matched (H5: frozen objects must be found).
+- Moderate, decided autonomously: 11 fixed (the meaning of the counts stated everywhere, the capture advice reconciled,
+  a percent with a heap kind refused, early sort checks, JSON and stderr provenance, the diff log's first rows, mixed
+  kind trends refused, the Trend view's limits and order, the retained delta an estimate, tests, refusals with next
+  steps), 1 in part (the CLI refuses an inspection row with `--compared-with`), 2 deferred (identity kept per pair and
+  measured; the CLI trend closing each dump in turn).
+- Low: 13 fixed in passing, 12 listed.
+- Deferred to the Backlog: below ("From the 3.3 review").
+
 
 ---
 
@@ -2726,6 +2739,14 @@ Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Ph
 - Async state machine and Task leak detection.
 
 **Medium**
+- From the 3.3 review (decided autonomously): the address match kept per snapshot pair with the snapshots (and its
+  reservation held as long), and a Medium measurement of a matched and retained diff against the budgets (M12); the CLI
+  trend aggregating each dump and closing it before the next, measured with 20 dumps (M13); the other snapshot bound per
+  spec node, so an inspection row inside a compared set keeps its own baseline (M9); a type's retained bound per key,
+  not summed per method table (M10, L20); a Frozen delta column (L1); `ObjectChange` in the contract mirror tests (L11);
+  the New and Dead switch disabled from the descriptors with the reason (L13); the Trend view's interface grouping and
+  group note (L14); CLI validator refusals logged (L15); ADR-029 reworded (L12); a `TypeTrendRequest` round trip (L19);
+  process start time compared when a dump records it.
 - From the 3.2 review (decided autonomously): which grouping needs which snapshot feature declared in Contracts, so
   every front end disables it the same way (M6); the reverse index info on `SimilarRetentionResult` (M12); a test that a
   weak-handle-only referrer is not a retainer (M8); a reservation around `KeyPaths.ForTypes` and `ForMembers` (from 2.2);

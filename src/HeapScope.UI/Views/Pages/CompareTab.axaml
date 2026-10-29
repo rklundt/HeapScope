@@ -131,8 +131,16 @@
         <DataGridTextColumn Header="Bytes (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentBytes, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="CurrentBytes" CellStyleClasses="number" />
         <DataGridTextColumn Header="Types (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="100" SortMemberPath="BaselineTypes" CellStyleClasses="number" />
         <DataGridTextColumn Header="Types (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="100" SortMemberPath="CurrentTypes" CellStyleClasses="number" />
-        <DataGridTextColumn Header="New objects" x:DataType="vm:DiffRowItem" Binding="{Binding NewObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="NewObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False" />
-        <DataGridTextColumn Header="Dead objects" x:DataType="vm:DiffRowItem" Binding="{Binding DeadObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="DeadObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False" />
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding NewObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="NewObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="New objects" ToolTip.Tip="Current objects with no object of the same type and size at their address in the baseline. An object a collection moved counts as dead and new." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding DeadObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="DeadObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Dead objects" ToolTip.Tip="Baseline objects with nothing of the same type and size at their address now: collected, or moved by a collection." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
         <DataGridTextColumn Header="Retained (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineRetained, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="BaselineRetained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
         <DataGridTextColumn Header="Retained (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentRetained, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="CurrentRetained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
         <DataGridTextColumn Header="Retained +/-" x:DataType="vm:DiffRowItem" Binding="{Binding RetainedDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="130" SortMemberPath="RetainedDelta" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
@@ -161,6 +169,7 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
       <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap" />
+      <ctl:NoteText DockPanel.Dock="Top" Text="{Binding OrderNote}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap" />
       <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
         <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
         <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />

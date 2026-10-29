@@ -56,6 +56,7 @@ internal sealed partial class WorkerService
             {
                 var inputs = new List<(Core.Graph.HeapGraph Graph, TypeAggregation Aggregation, TypeInterfaces? Interfaces)>();
                 var exact = true;
+                var kind = SnapshotKind.FullDump;
                 for (var i = 0; i < ids.Count; i++)
                 {
                     var (snapshot, lease) = Lease(ids[i]);
@@ -66,6 +67,13 @@ internal sealed partial class WorkerService
                         ? await GetInterfacesAsync(ids[i], snapshot, progress, cancellationToken, string.Create(CultureInfo.InvariantCulture, $"snapshot {i + 1}")).ConfigureAwait(false)
                         : null;
                     exact &= snapshot.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts);
+                    if (i > 0 && snapshot.Info.Kind != kind)
+                    {
+                        // Full dumps hold garbage and name nested types apart; gcdumps hold survivors only (the 3.3 review).
+                        throw new ArgumentException("A trend takes snapshots of one kind: full dumps and gcdumps count different objects and name nested types differently. Compare a full dump with a gcdump in a two-snapshot comparison instead.");
+                    }
+
+                    kind = snapshot.Info.Kind;
                     inputs.Add((snapshot.Graph, aggregation, interfaces));
                 }
 
@@ -74,9 +82,10 @@ internal sealed partial class WorkerService
 
                 // What the trend rests on (decision 7): its snapshots in order, the grouping and the rows.
                 logger.LogInformation(
-                    "Trend of {Count} snapshots ({Ids}) by {Grouping}: {Rows} of {Unfiltered} rows (the request's filter is logged by its shape), sort {Sort}; first rows {Largest}",
+                    "Trend of {Count} snapshots ({Ids}; heap bytes {Totals}) by {Grouping}: {Rows} of {Unfiltered} rows (the request's filter is logged by its shape), sort {Sort}; first rows {Largest}",
                     ids.Count,
                     string.Join(", ", ids),
+                    string.Join(", ", inputs.Select(x => x.Aggregation.TotalBytes)),
                     request.GroupBy,
                     source.Count,
                     source.UnfilteredCount,
@@ -96,6 +105,12 @@ internal sealed partial class WorkerService
     /// </summary>
     private async Task<(DiffExtras Extras, Comparison Comparison)> DiffExtrasAsync(TypeDiffRequest request, ISnapshot baseline, ISnapshot current, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
+        // Refused before any work (the 3.3 review).
+        if (request.IncludeRetained && request.GroupBy == TypeGrouping.Interface)
+        {
+            throw new ArgumentException("Interface rows have no retained bytes: a type counts under each interface it implements, so the rows overlap. Group by type, namespace or assembly.");
+        }
+
         var comparison = new Comparison();
         long[]? newPerType = null, deadPerType = null;
         if (request.MatchObjects)
@@ -104,23 +119,50 @@ internal sealed partial class WorkerService
             if (comparison.IdentityNote is null)
             {
                 var identity = await MatchAsync(request.BaselineId, baseline, current, progress, cancellationToken).ConfigureAwait(false);
-                newPerType = identity.NewPerType(current.Graph, cancellationToken);
-                deadPerType = identity.DeadPerType(baseline.Graph, cancellationToken);
-                comparison.Matched = true;
-                comparison.NewObjects = newPerType.Sum();
-                comparison.DeadObjects = deadPerType.Sum();
-                comparison.Survivors = identity.Survivors;
+                comparison.Identity = identity;
+                comparison.IdentityNote = WhyNotOneRun(identity);
+                if (comparison.IdentityNote is null)
+                {
+                    newPerType = identity.NewPerType(current.Graph, cancellationToken);
+                    deadPerType = identity.DeadPerType(baseline.Graph, cancellationToken);
+                    comparison.Matched = true;
+                    comparison.NewObjects = newPerType.Sum();
+                    comparison.DeadObjects = deadPerType.Sum();
+                    comparison.Survivors = identity.Survivors;
+
+                    // Matched, with a caution when few objects kept their address (the 3.3 review): a collection that
+                    // compacted between the dumps, such as a forced one.
+                    var smaller = Math.Min(baseline.Graph.ObjectCount, current.Graph.ObjectCount);
+                    if (smaller > 0 && identity.Survivors * 10 < smaller)
+                    {
+                        comparison.IdentityNote = string.Create(CultureInfo.InvariantCulture, $"Only {identity.Survivors:N0} objects ({100.0 * identity.Survivors / smaller:N1}%) kept their address: a collection that compacted between the dumps (a forced GC, or a gcdump captured between them) moves most objects, which then count as dead and new.");
+                    }
+                }
             }
+
+            // Who was compared and which rule decided (the 3.3 review), so a contested match can be backed up.
+            logger.LogInformation(
+                "Object matching of {Baseline} ({BaselineKind}, process {BaselineName} {BaselinePid}, captured {BaselineCaptured:O}) and {Current} ({CurrentKind}, process {CurrentName} {CurrentPid}, captured {CurrentCaptured:O}): {Outcome}; {Survivors} survivors, {Reused} addresses reused by other objects, {FrozenSurvivors} of {Frozen} frozen objects at their address",
+                request.BaselineId,
+                baseline.Info.Kind,
+                baseline.Info.ProcessName ?? "unknown",
+                baseline.Info.ProcessId,
+                baseline.Info.CapturedAtUtc,
+                request.CurrentId,
+                current.Info.Kind,
+                current.Info.ProcessName ?? "unknown",
+                current.Info.ProcessId,
+                current.Info.CapturedAtUtc,
+                comparison.Matched ? "matched" + (comparison.IdentityNote is null ? string.Empty : ", with a caution") : comparison.IdentityNote,
+                comparison.Identity?.Survivors,
+                comparison.Identity?.ReusedAddresses,
+                comparison.Identity?.FrozenSurvivors,
+                comparison.Identity?.BaselineFrozen);
         }
 
         GroupRetained? baselineRetained = null, currentRetained = null;
         if (request.IncludeRetained)
         {
-            if (request.GroupBy == TypeGrouping.Interface)
-            {
-                throw new ArgumentException("Interface rows have no retained bytes: a type counts under each interface it implements, so the rows overlap. Group by type, namespace or assembly.");
-            }
-
             (baselineRetained, comparison.BaselineDominators) = await GroupRetainedAsync(request.BaselineId, baseline, request.GroupBy, progress, cancellationToken).ConfigureAwait(false);
             (currentRetained, comparison.CurrentDominators) = await GroupRetainedAsync(request.CurrentId, current, request.GroupBy, progress, cancellationToken).ConfigureAwait(false);
         }
@@ -132,25 +174,45 @@ internal sealed partial class WorkerService
     /// <summary>Why two snapshots' objects cannot be matched by address (decision 1), or null when they can.</summary>
     private static string? WhyNoIdentity(ISnapshot baseline, ISnapshot current)
     {
-        if (!baseline.Capabilities.HasFlag(SnapshotCapabilities.ObjectAddresses) || !current.Capabilities.HasFlag(SnapshotCapabilities.ObjectAddresses))
+        const string still = " Comparing by type still works.";
+        if (baseline.Info.Kind != SnapshotKind.FullDump || current.Info.Kind != SnapshotKind.FullDump)
         {
-            return "New and dead objects need object addresses in both snapshots.";
+            return "New and dead objects need two full dumps: a gcdump records objects after a collection it forced, which moves them, and says no process id." + still;
+        }
+
+        if (!baseline.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph) || !current.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph))
+        {
+            return "New and dead objects need complete dumps: a dump with missing heap segments would count the objects it lost as dead or new." + still;
         }
 
         var (before, after) = (baseline.Info, current.Info);
-        if (before.ProcessId is null || after.ProcessId is null || before.ProcessId != after.ProcessId
-            || !string.Equals(before.ProcessName, after.ProcessName, StringComparison.OrdinalIgnoreCase))
+        if (before.ProcessId is null || after.ProcessId is null)
         {
-            return "New and dead objects are matched by address, which only means something within one process: these snapshots are of different processes (or say no process id).";
+            return "New and dead objects need both dumps to say which process they are of, and one of them does not." + still;
+        }
+
+        if (before.ProcessId != after.ProcessId || !string.Equals(before.ProcessName, after.ProcessName, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"New and dead objects are matched by address, which only means something within one run of a process: these dumps are of {before.ProcessName} {before.ProcessId} and {after.ProcessName} {after.ProcessId}.{still}");
         }
 
         if (before.CapturedAtUtc is { } t0 && after.CapturedAtUtc is { } t1 && t1 < t0)
         {
-            return "New and dead objects need the baseline captured first: the current snapshot is the older one. Swap them.";
+            return "New and dead objects need the earlier dump as the baseline: the baseline was captured after the current one. Swap them in Compare (in the CLI, give the earlier dump first; for a dead set, open it in the earlier dump)." + still;
         }
 
         return null;
     }
+
+    /// <summary>
+    /// Why a match says the dumps are not of one run of the process (the 3.3 review): frozen objects never move or die
+    /// in one run, so most of them must be at their addresses. A process id reused by another run (a container's pid 1)
+    /// fails here. Null when the match looks like one run.
+    /// </summary>
+    private static string? WhyNotOneRun(ObjectIdentity identity) =>
+        identity.BaselineFrozen >= 20 && identity.FrozenSurvivors * 2 < identity.BaselineFrozen
+            ? string.Create(CultureInfo.InvariantCulture, $"These dumps do not look like one run of the process: only {identity.FrozenSurvivors:N0} of the baseline's {identity.BaselineFrozen:N0} frozen objects, which never move, are at their addresses (the process id was probably reused). Comparing by type still works.")
+            : null;
 
     /// <summary>Matches two snapshots' objects inside a reservation of a bit per object of each.</summary>
     private async Task<ObjectIdentity> MatchAsync(Guid reserveIn, ISnapshot baseline, ISnapshot current, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
@@ -190,6 +252,11 @@ internal sealed partial class WorkerService
             throw new ArgumentException("A snapshot cannot be compared with itself.");
         }
 
+        if (!Enum.IsDefined(change))
+        {
+            throw new ArgumentException($"Unknown change {(int)change}.");
+        }
+
         var (other, otherLease) = Lease(otherId);
         using var _ = otherLease;
         var dead = change == ObjectChange.Dead;
@@ -201,14 +268,25 @@ internal sealed partial class WorkerService
 
         var inner = await ResolveSetAsync(snapshotId, snapshot, innerSpec, progress, cancellationToken, depth + 1).ConfigureAwait(false);
         var identity = await MatchAsync(snapshotId, baseline, current, progress, cancellationToken).ConfigureAwait(false);
+        if (WhyNotOneRun(identity) is { } notOneRun)
+        {
+            throw new ArgumentException(notOneRun);
+        }
+
+        var kind = change switch
+        {
+            ObjectChange.Dead => ObjectChangeKind.Dead,
+            ObjectChange.Survived => ObjectChangeKind.Survived,
+            _ => ObjectChangeKind.New,
+        };
         var graph = snapshot.Graph;
-        var set = await Task.Run(() => Reserved(snapshotId, graph, () => ObjectSet.OfIndices(graph, identity.Select(inner, (ObjectChangeKind)(int)change).AsSpan())), cancellationToken).ConfigureAwait(false);
+        var set = await Task.Run(() => Reserved(snapshotId, graph, () => ObjectSet.OfIndices(graph, identity.Select(inner, kind).AsSpan())), cancellationToken).ConfigureAwait(false);
         return (set, string.Create(CultureInfo.InvariantCulture, $"{set.Count} of the inner set's {inner.Count} objects are {change.ToString().ToLowerInvariant()} against snapshot {otherId} ({identity.Survivors} objects matched by address in all)"));
     }
 
     private void LogDiff(TypeDiffRequest request, Comparison comparison, TypeDiffSource source) =>
         logger.LogInformation(
-            "Diff extras of {Baseline} and {Current} by {Grouping}: objects matched {Matched} ({Why}), {New} new, {Dead} dead, {Survivors} survived by address; retained {Retained} (baseline {BaselineDominators}, current {CurrentDominators}); {Columns} columns",
+            "Diff extras of {Baseline} and {Current} by {Grouping}: objects matched {Matched} ({Why}), {New} new, {Dead} dead, {Survivors} survived by address; retained {Retained} (baseline {BaselineDominators}, current {CurrentDominators}); {Columns} columns; first rows {Rows}",
             request.BaselineId,
             request.CurrentId,
             request.GroupBy,
@@ -220,7 +298,8 @@ internal sealed partial class WorkerService
             request.IncludeRetained,
             comparison.BaselineDominators is { } b ? Provenance.Describe(b) : "none",
             comparison.CurrentDominators is { } c ? Provenance.Describe(c) : "none",
-            source.Columns.Count);
+            source.Columns.Count,
+            source.Describe(10));
 
     /// <summary>What a diff found beside its rows.</summary>
     private sealed class Comparison
@@ -234,6 +313,8 @@ internal sealed partial class WorkerService
         public long DeadObjects { get; set; }
 
         public long Survivors { get; set; }
+
+        public ObjectIdentity? Identity { get; set; }
 
         public DominatorIndexInfo? BaselineDominators { get; set; }
 

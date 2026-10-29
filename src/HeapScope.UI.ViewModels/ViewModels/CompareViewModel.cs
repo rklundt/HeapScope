@@ -281,7 +281,7 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
 
         var (side, other) = change == ObjectChange.Dead ? (baseline, current) : (current, baseline);
         var spec = ObjectSetSpec.ComparedOf(ObjectSetSpec.OfType(row.TypeName, row.Module), change);
-        var title = string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{change} {row.Name}");
+        var title = string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{change} by address: {row.Name}");
         Logger.LogInformation("Compare: opened the {Change} objects of a row as a set in the {Side} snapshot", change, change == ObjectChange.Dead ? "baseline" : "current");
         navigator?.Navigate(NavigationTarget.ObjectSet(side.Handle, new ObjectSetQuery(spec, other.Handle), title));
     }
@@ -346,7 +346,7 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
             {
                 IdentityShown = result.ObjectsMatched;
                 IdentityNote = result.ObjectsMatched
-                    ? string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{result.NewObjects:N0} new and {result.DeadObjects:N0} dead objects by address: an object moved by a compacting collection counts as dead and new.")
+                    ? string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{result.NewObjects:N0} new and {result.DeadObjects:N0} dead objects by address. Gen0 and Gen1 collections move their survivors, so most short-lived objects show as dead and new; Gen2, LOH and POH objects keep their addresses. Unreachable objects of a full dump count too.") + (result.IdentityNote is { } caution ? " " + caution : string.Empty)
                     : result.IdentityNote;
                 RetainedShown = result.BaselineDominators is not null;
                 RetainedNote = result.BaselineDominators is { } b && result.CurrentDominators is { } c

@@ -556,11 +556,6 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     }
 
     /// <summary>
-    /// <see cref="UseAsync{T}"/> for a call on two snapshots. When the worker reports a snapshot as not loaded, both are
-    /// reopened from their index caches (reopening one that is still loaded returns it as it is) and the call runs once
-    /// more.
-    /// </summary>
-    /// <summary>
     /// A trend across <paramref name="snapshots"/> in the order given (sprint 3.3). The rows re-run the query, reopening any
     /// snapshot after a worker restart, when the set is gone.
     /// </summary>
@@ -621,6 +616,11 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         }
     }
 
+    /// <summary>
+    /// <see cref="UseAsync{T}"/> for a call on two snapshots. When the worker reports a snapshot as not loaded, both are
+    /// reopened from their index caches (reopening one that is still loaded returns it as it is) and the call runs once
+    /// more.
+    /// </summary>
     private async Task<T> UseBothAsync<T>(
         SnapshotHandle first,
         SnapshotHandle second,

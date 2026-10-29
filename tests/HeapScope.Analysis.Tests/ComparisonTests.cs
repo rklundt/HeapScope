@@ -68,6 +68,68 @@ public sealed class ComparisonTests
     }
 
     [Fact]
+    public void An_address_reused_by_another_size_a_younger_generation_another_heap_or_method_table_is_dead_and_new()
+    {
+        // The 3.3 review: an object never changes size, heap area or method table, and never gets younger.
+        var before = new SyntheticGraphBuilder();
+        before.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x10);
+        before.Object("App.A", 32, HeapKind.Gen1, methodTable: 0x10);
+        before.Object("App.A", 32, HeapKind.Gen0, methodTable: 0x10);
+        before.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x10);
+        before.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x10);
+        var after = new SyntheticGraphBuilder();
+        after.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x10);
+        after.Object("App.A", 32, HeapKind.Gen0, methodTable: 0x10);
+        after.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x10);
+        after.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x20);
+        after.Object("App.A", 24, HeapKind.Gen2, methodTable: 0x10);
+        using var baseline = before.Build();
+        using var current = after.Build();
+
+        var identity = ObjectIdentity.Match(baseline, current, Ct);
+
+        // Only the first (same everything) and the third (promoted from Gen0 to Gen2) survive; the second got younger, the
+        // fourth has another method table, the last another size (it is last, so the others keep their addresses).
+        (identity.Survivors, identity.ReusedAddresses).ShouldBe((2L, 3L));
+        Enumerable.Range(0, 5).Select(identity.SurvivedInCurrent).ShouldBe([true, false, true, false, false]);
+    }
+
+    [Fact]
+    public void An_object_on_another_heap_at_the_same_address_is_not_the_same_object()
+    {
+        var before = new SyntheticGraphBuilder();
+        before.Object("App.Buffer", 4096, HeapKind.LargeObjectHeap);
+        before.Object("App.Buffer", 4096, HeapKind.PinnedObjectHeap);
+        var after = new SyntheticGraphBuilder();
+        after.Object("App.Buffer", 4096, HeapKind.Gen2);
+        after.Object("App.Buffer", 4096, HeapKind.PinnedObjectHeap);
+        using var baseline = before.Build();
+        using var current = after.Build();
+
+        var identity = ObjectIdentity.Match(baseline, current, Ct);
+
+        (identity.Survivors, identity.ReusedAddresses).ShouldBe((1L, 1L), "an LOH object never becomes a small object heap one");
+        identity.SurvivedInCurrent(1).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Frozen_objects_say_whether_two_dumps_are_one_run_of_a_process()
+    {
+        var before = new SyntheticGraphBuilder();
+        before.Object("System.String", 32, HeapKind.Frozen);
+        before.Object("System.String", 32, HeapKind.Frozen);
+        var after = new SyntheticGraphBuilder();
+        after.Object("System.String", 32, HeapKind.Frozen);
+        after.Object("System.String", 40, HeapKind.Frozen);
+        using var baseline = before.Build();
+        using var current = after.Build();
+
+        var identity = ObjectIdentity.Match(baseline, current, Ct);
+
+        (identity.BaselineFrozen, identity.FrozenSurvivors).ShouldBe((2L, 1L));
+    }
+
+    [Fact]
     public void A_diff_carries_new_and_dead_objects_retained_bytes_and_heap_kinds_per_row()
     {
         var before = new SyntheticGraphBuilder();

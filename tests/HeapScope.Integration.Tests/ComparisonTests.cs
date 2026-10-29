@@ -126,10 +126,11 @@ public sealed class ComparisonTests(ComparisonRuns runs) : IClassFixture<Compari
         var diff = await Session.QueryTypeDiffAsync(baseline, other, TypeGrouping.Type, null, null, true, null, Ct, matchObjects: true);
 
         diff.Result.ObjectsMatched.ShouldBeFalse();
-        diff.Result.IdentityNote.ShouldNotBeNull().ShouldContain("different processes");
+        diff.Result.IdentityNote.ShouldNotBeNull().ShouldContain("one run of a process");
+        diff.Result.IdentityNote.ShouldContain("Comparing by type still works");
         diff.Rows.Info.Columns.ShouldNotContain(c => c.Name == TypeDiffColumns.NewObjects);
         (await Should.ThrowAsync<WorkerOperationException>(() => Session.QueryTypeSummaryAsync(other, TypeGrouping.Type, null, null, true, false, null, Ct, new ObjectSetQuery(ObjectSetSpec.ComparedOf(ObjectSetSpec.OfType(ItemType, Module), ObjectChange.New), baseline))))
-            .Message.ShouldContain("different processes");
+            .Message.ShouldContain("one run of a process");
     }
 
     [Fact]
@@ -175,7 +176,7 @@ public sealed class ComparisonTests(ComparisonRuns runs) : IClassFixture<Compari
         (await diff.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(diff.Output);
         diff.Process.ExitCode.ShouldBe(0, diff.Output);
         diff.Output.ShouldContain("matched by address");
-        diff.Output.ShouldContain("New");
+        diff.Output.ShouldContain("New       Dead", Case.Sensitive);
 
         using var perRow = ChildProcess.Start(TestPaths.CliExe, "diff", runs.First, runs.Second, "--fail-on-growth", "1KB", "--fail-on-growth-per-row");
         (await perRow.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(perRow.Output);
@@ -186,9 +187,28 @@ public sealed class ComparisonTests(ComparisonRuns runs) : IClassFixture<Compari
         (await kind.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(kind.Output);
         kind.Process.ExitCode.ShouldBe(0, kind.Output);
 
-        using var usage = ChildProcess.Start(TestPaths.CliExe, "diff", runs.First, runs.Second, "--fail-on-growth", "10%", "--growth-of", "gen2");
-        (await usage.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(usage.Output);
-        usage.Process.ExitCode.ShouldBe(64, usage.Output);
+        // A 1 byte limit on a heap kind that grew fails and names the kind (so --growth-of is not ignored).
+        var baseline = await Session.StartOpen(runs.First).Result;
+        var current = await Session.StartOpen(runs.Second).Result;
+        var grown = (await Session.QueryTypeDiffAsync(baseline, current, TypeGrouping.Type, null, null, true, null, Ct)).Result.KindDeltas.ShouldNotBeNull()
+            .First(k => k.Kind is HeapKindDto.Gen0 or HeapKindDto.Gen1 or HeapKindDto.Gen2 && k.Bytes > 1).Kind.ToString().ToLowerInvariant();
+        using var kindFails = ChildProcess.Start(TestPaths.CliExe, "diff", runs.First, runs.Second, "--fail-on-growth", "1", "--growth-of", grown);
+        (await kindFails.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(kindFails.Output);
+        kindFails.Process.ExitCode.ShouldBe(2, kindFails.Output);
+        kindFails.Output.ShouldContain("in " + grown);
+
+        foreach (var args in new[]
+        {
+            new[] { "diff", runs.First, runs.Second, "--fail-on-growth", "10%", "--growth-of", "gen2" },
+            ["diff", runs.First, runs.Second, "--fail-on-growth", "10%", "--growth-of", "gen2", "--fail-on-growth-per-row"],
+            ["diff", runs.First, runs.Second, "--sort", "new"],
+            ["trend", runs.First, runs.First],
+        })
+        {
+            using var usage = ChildProcess.Start(TestPaths.CliExe, args);
+            (await usage.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(usage.Output);
+            usage.Process.ExitCode.ShouldBe(64, string.Join(" ", args) + Environment.NewLine + usage.Output);
+        }
 
         using var trend = ChildProcess.Start(TestPaths.CliExe, "trend", runs.First, runs.Second, runs.Third, "--filter", "StaticCache");
         (await trend.WaitForExitAsync(TimeSpan.FromSeconds(300))).ShouldBeTrue(trend.Output);

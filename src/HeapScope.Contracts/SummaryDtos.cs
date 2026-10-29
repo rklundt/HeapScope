@@ -228,7 +228,8 @@ public static class TypeDiffColumns
 /// heap without one) and are what <c>diff --fail-on-growth</c> checks. <see cref="ExactCounts"/> is false when either
 /// snapshot's counts are estimates (a sampled gcdump, ADR-003): the deltas are then estimates too.
 /// Since 3.3: <see cref="ObjectsMatched"/> when objects were matched by address (with the heap's
-/// <see cref="NewObjects"/> and <see cref="DeadObjects"/>), else <see cref="IdentityNote"/> says why not when asked;
+/// <see cref="NewObjects"/> and <see cref="DeadObjects"/>), else <see cref="IdentityNote"/> says why not when asked (when
+/// matched, it holds a caution, such as few objects keeping their address);
 /// <see cref="KindDeltas"/> the whole heap's byte delta per heap kind when both snapshots have generations; the dominators'
 /// origins when retained bytes were asked for.
 /// </summary>

@@ -56,6 +56,10 @@ public sealed partial class TrendViewModel : TypeGridViewModel<CellRowItem>
     [ObservableProperty]
     private IReadOnlyList<SnapshotItemViewModel> _ordered = [];
 
+    /// <summary>How the snapshots are ordered when capture times cannot say.</summary>
+    [ObservableProperty]
+    private string? _orderNote;
+
     public TrendViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, IUiDispatcher dispatcher, ILogger? logger = null, INavigator? navigator = null)
         : base(TypeTrendColumns.BytesDelta, dispatcher, logger)
     {
@@ -78,27 +82,34 @@ public sealed partial class TrendViewModel : TypeGridViewModel<CellRowItem>
     public ObservableCollection<TrendSnapshotItem> Choices { get; }
 
     /// <summary>Why there is no trend yet, if so.</summary>
-    public string? Hint => Choices.Count(c => c.IsIncluded) < 2 ? "Tick two or more open snapshots to see their trend." : null;
+    public string? Hint => Choices.Count(c => c.IsIncluded) switch
+    {
+        < 2 => "Tick two or more open snapshots to see their trend.",
+        > TypeTrendColumns.MaxSnapshots => $"A trend takes at most {TypeTrendColumns.MaxSnapshots} snapshots: untick some.",
+        _ => null,
+    };
 
     protected override bool CanQuery => _started && Choices.Count(c => c.IsIncluded) is >= 2 and <= TypeTrendColumns.MaxSnapshots;
 
     protected override string BusyText => "Summarizing the snapshots...";
 
-    /// <summary>Queries once the Trend view is first shown, and again when the ticks change.</summary>
+    /// <summary>Queries the first time the Trend view is shown; later, when the ticks change.</summary>
     public void Start()
     {
-        _started = true;
-        Requery();
+        if (!_started)
+        {
+            _started = true;
+            Changed();
+        }
     }
 
-    /// <summary>Ticks or unticks a snapshot and queries again.</summary>
+    /// <summary>Ticks or unticks a snapshot; the change queries again.</summary>
     [RelayCommand]
     private void Toggle(TrendSnapshotItem? item)
     {
         if (item is not null)
         {
             item.IsIncluded = !item.IsIncluded;
-            Changed();
         }
     }
 
@@ -142,12 +153,20 @@ public sealed partial class TrendViewModel : TypeGridViewModel<CellRowItem>
     {
         // Capture time orders the snapshots unless one only has its file's time (2.3.5 review M4): then open order.
         var included = Choices.Where(c => c.IsIncluded).Select(c => c.Snapshot).ToList();
-        var ordered = included.Any(s => s.Handle.Descriptor.CaptureTimeFromFile || s.Handle.Descriptor.CapturedAtUtc is null)
-            ? included
-            : [.. included.OrderBy(s => s.Handle.Descriptor.CapturedAtUtc)];
+        var byOpenOrder = included.Any(s => s.Handle.Descriptor.CaptureTimeFromFile || s.Handle.Descriptor.CapturedAtUtc is null);
+        var ordered = byOpenOrder ? included : [.. included.OrderBy(s => s.Handle.Descriptor.CapturedAtUtc)];
         var groupBy = GroupBy;
-        Logger.LogInformation("Trend of {Count} snapshots in this order: {Paths}", ordered.Count, string.Join(", ", ordered.Select(s => s.Handle.Descriptor.SnapshotId)));
-        var trend = await _session.QueryTypeTrendAsync([.. ordered.Select(s => s.Handle)], groupBy, Filter, SortColumn, Descending, null, cancellationToken);
+        Logger.LogInformation(
+            "Trend of {Count} snapshots ordered by {Rule}: {SnapshotIds} captured {Times}",
+            ordered.Count,
+            byOpenOrder ? "open order (a capture time is only a file's)" : "capture time",
+            string.Join(", ", ordered.Select(s => s.Handle.Descriptor.SnapshotId)),
+            string.Join(", ", ordered.Select(s => s.Handle.Descriptor.CapturedAtUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "unknown")));
+        OrderNote = byOpenOrder ? "A snapshot records no capture time (only its file's), so the trend runs in the order the snapshots were opened." : null;
+        var finished = false;
+        var progress = new Progress<JobProgress>(p => Status = finished || cancellationToken.IsCancellationRequested ? Status : ReferrersText.Progress(p));
+        var trend = await _session.QueryTypeTrendAsync([.. ordered.Select(s => s.Handle)], groupBy, Filter, SortColumn, Descending, progress, cancellationToken);
+        finished = true;
         var result = trend.Result;
         return new GridQuery<CellRowItem>(
             trend.Rows,
@@ -157,7 +176,7 @@ public sealed partial class TrendViewModel : TypeGridViewModel<CellRowItem>
                 Columns = [.. result.Rows.Columns.Select((c, i) => (c, i)).Where(c => !c.c.IsHidden)];
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)} across {ordered.Count} snapshots ({string.Join(" > ", ordered.Select(s => s.Title))}); heap {string.Join(", ", result.TotalBytes.Select(Format.Bytes))}{(result.ExactCounts ? string.Empty : "; estimated: a snapshot is sampled or incomplete")}");
+                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)} across {ordered.Count} snapshots ({string.Join(", then ", ordered.Select(s => s.Title))}); heap {string.Join(", ", result.TotalBytes.Select(Format.Bytes))}{(result.ExactCounts ? string.Empty : "; estimated: a snapshot is sampled or incomplete")}");
             },
             onError => CellRowItem.CreateList(trend.Rows, result.Rows, onError, Logger));
     }
