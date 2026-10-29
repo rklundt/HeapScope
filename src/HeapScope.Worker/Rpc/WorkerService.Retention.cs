@@ -25,6 +25,7 @@ using System.Diagnostics;
 using System.Globalization;
 using HeapScope.Analysis;
 using HeapScope.Analysis.Retention;
+using HeapScope.Analysis.Sets;
 using HeapScope.Contracts;
 using HeapScope.Core;
 using Microsoft.Extensions.Logging;
@@ -95,9 +96,9 @@ internal sealed partial class WorkerService
         GuardAsync(request, async () =>
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (string.IsNullOrEmpty(request.TypeName))
+            if (string.IsNullOrEmpty(request.TypeName) && request.Set is null)
             {
-                throw new ArgumentException("A type name is required.", nameof(request));
+                throw new ArgumentException("A type name or a set is required.", nameof(request));
             }
 
             if (request.MaxPaths is < 1 or > 100)
@@ -108,11 +109,24 @@ internal sealed partial class WorkerService
             var (snapshot, lease) = Lease(request.SnapshotId);
             using var _ = lease;
             var graph = snapshot.Graph;
-            var types = TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out var matched);
-            if (matched == 0)
+            bool[]? types = null;
+            int matched;
+            ObjectSet? members = null;
+            if (request.Set is { } spec)
             {
-                // Answered before the tree is built for nothing (2.1 review M8).
-                return new TypePathsResult([], 0, 0, 0, 0, 0, 0, 0, IsComplete(snapshot), 0, RetentionMapping.UnreachableNote(snapshot.Info.Kind));
+                // A set's key paths (sprint 3.2): the 2.2 grouping over its members.
+                members = await ResolveSetAsync(request.SnapshotId, snapshot, spec, progress, cancellationToken).ConfigureAwait(false);
+                RequireMembers(members);
+                matched = members.TypeCount;
+            }
+            else
+            {
+                types = TypeGroups.MatchTypes(graph, request.TypeName, request.Module, out matched);
+                if (matched == 0)
+                {
+                    // Answered before the tree is built for nothing (2.1 review M8).
+                    return new TypePathsResult([], 0, 0, 0, 0, 0, 0, 0, IsComplete(snapshot), 0, RetentionMapping.UnreachableNote(snapshot.Info.Kind));
+                }
             }
 
             var stopwatch = Stopwatch.StartNew();
@@ -120,7 +134,11 @@ internal sealed partial class WorkerService
                 ?? throw SnapshotNotLoaded(request.SnapshotId);
             var treeSeconds = stopwatch.Elapsed.TotalSeconds;
             progress?.Report(new JobProgress("Grouping objects by retention path", 0, null));
-            var set = await Task.Run(() => KeyPaths.ForTypes(graph, tree, types, request.MaxPaths, cancellationToken), cancellationToken).ConfigureAwait(false);
+            var set = await Task.Run(
+                () => members is null
+                    ? KeyPaths.ForTypes(graph, tree, types!, request.MaxPaths, cancellationToken)
+                    : KeyPaths.ForMembers(graph, tree, members.Members, request.MaxPaths, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             var typePaths = new TypePathsResult(
                 [.. set.Paths.Select(p => RetentionMapping.KeyPath(graph, p))],
                 matched,
@@ -136,9 +154,8 @@ internal sealed partial class WorkerService
 
             // The key paths as shown, with their roots (sprint 2.3.7 review H3).
             logger.LogInformation(
-                "Retention paths of type {Type} ({Module}) in snapshot {Id}: {Objects} objects, {Unreachable} unreachable, {Other} further paths; key paths {KeyPaths}",
-                request.TypeName,
-                request.Module ?? "no module",
+                "Retention paths of {Subject} in snapshot {Id}: {Objects} objects, {Unreachable} unreachable, {Other} further paths; key paths {KeyPaths}",
+                request.Set is { } asked ? asked.Shape : $"type {request.TypeName} ({request.Module ?? "no module"})",
                 request.SnapshotId,
                 typePaths.Objects,
                 typePaths.Unreachable,

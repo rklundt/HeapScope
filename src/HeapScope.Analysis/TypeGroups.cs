@@ -32,6 +32,9 @@ public enum GroupKey
     Type = 0,
     Namespace = 1,
     Assembly = 2,
+
+    /// <summary>Per interface a type implements (sprint 3.2): a type counts under each, so groups overlap.</summary>
+    Interface = 3,
 }
 
 /// <summary>
@@ -44,18 +47,30 @@ public sealed record SummaryRow(string Name, long Count, ulong Bytes, ulong[] By
 /// <summary>Builds summary rows from a <see cref="TypeAggregation"/> (sprint 1.3).</summary>
 public static class TypeGroups
 {
+    /// <summary>The row of the types that implement no interface (sprint 3.2; Contracts' <c>TypeSummaryColumns.NoInterface</c>).</summary>
+    public const string NoInterface = "(no interface)";
+
+    /// <summary>The row of the types whose interfaces could not be read (the 3.2 review; Contracts' <c>TypeSummaryColumns.UnreadInterfaces</c>).</summary>
+    public const string Unread = "(interfaces not read)";
+
     /// <summary>
-    /// Rows for every present type (one per type table entry, never merged by name), or merged per namespace or
-    /// assembly. <paramref name="retainedByGroup"/>, when given, holds each group's retained bytes in the numbering of
-    /// <see cref="GroupOfType"/> and fills <see cref="SummaryRow.Retained"/>.
+    /// Rows for every present type (one per type table entry, never merged by name), or merged per namespace, assembly or
+    /// interface. <paramref name="retainedByGroup"/>, when given, holds each group's retained bytes in the numbering of
+    /// <see cref="GroupOfType"/> and fills <see cref="SummaryRow.Retained"/> (not for interfaces, whose groups overlap).
+    /// <paramref name="interfaces"/> holds each type's interfaces for <see cref="GroupKey.Interface"/>.
     /// </summary>
-    public static List<SummaryRow> Build(HeapGraph graph, TypeAggregation aggregation, GroupKey groupBy, ulong[]? retainedByGroup = null)
+    public static List<SummaryRow> Build(HeapGraph graph, TypeAggregation aggregation, GroupKey groupBy, ulong[]? retainedByGroup = null, TypeInterfaces? interfaces = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(aggregation);
         if (groupBy == GroupKey.Type)
         {
             return ByType(graph, aggregation, retainedByGroup);
+        }
+
+        if (groupBy == GroupKey.Interface)
+        {
+            return ByInterface(aggregation, interfaces ?? throw new ArgumentNullException(nameof(interfaces), "Interface grouping needs the types' interfaces."));
         }
 
         Dictionary<string, int>? groupIds = null;
@@ -98,6 +113,11 @@ public static class TypeGroups
     public static int[] GroupOfType(HeapGraph graph, GroupKey groupBy, out string[] names)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        if (groupBy == GroupKey.Interface)
+        {
+            throw new ArgumentException("Interface groups overlap; they have no numbering of their own.", nameof(groupBy));
+        }
+
         var count = graph.Types.Count;
         var groups = new int[count];
         if (groupBy == GroupKey.Type)
@@ -207,6 +227,55 @@ public static class TypeGroups
         return dot <= 0 ? "(global)" : outer[..dot];
     }
 
+    private static List<SummaryRow> ByInterface(TypeAggregation aggregation, TypeInterfaces interfaces)
+    {
+        var rows = new Dictionary<string, (long Count, ulong Bytes, ulong[] Kinds)>(StringComparer.Ordinal);
+        for (var t = 0; t < aggregation.TypeCount; t++)
+        {
+            if (aggregation.Counts[t] == 0)
+            {
+                continue;
+            }
+
+            foreach (var key in interfaces.Keys(t))
+            {
+                if (!rows.TryGetValue(key, out var row))
+                {
+                    row = (0, 0, new ulong[TypeAggregation.HeapKindSlots]);
+                }
+
+                for (var k = 0; k < TypeAggregation.HeapKindSlots; k++)
+                {
+                    row.Kinds[k] += aggregation.BytesByKind[(t * TypeAggregation.HeapKindSlots) + k];
+                }
+
+                rows[key] = (row.Count + aggregation.Counts[t], row.Bytes + aggregation.Bytes[t], row.Kinds);
+            }
+        }
+
+        return [.. rows.Select(r => new SummaryRow(r.Key, r.Value.Count, r.Value.Bytes, r.Value.Kinds))];
+    }
+
+    /// <summary>The types that count under the interface row <paramref name="name"/> (sprint 3.2, an interface opened as a set).</summary>
+    public static bool[] MatchInterface(HeapGraph graph, TypeInterfaces interfaces, string name, out int matched)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(interfaces);
+        ArgumentNullException.ThrowIfNull(name);
+        var matches = new bool[graph.Types.Count];
+        matched = 0;
+        for (var t = 0; t < matches.Length; t++)
+        {
+            if (interfaces.Keys(t).Contains(name, StringComparer.Ordinal))
+            {
+                matches[t] = true;
+                matched++;
+            }
+        }
+
+        return matches;
+    }
+
     private static List<SummaryRow> ByType(HeapGraph graph, TypeAggregation aggregation, ulong[]? retainedByType)
     {
         var names = DisplayNames(graph, aggregation);
@@ -257,7 +326,7 @@ public static class TypeGroups
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(name);
-        if (groupBy == GroupKey.Type)
+        if (groupBy is GroupKey.Type or GroupKey.Interface)
         {
             throw new ArgumentException("A group is a namespace or an assembly.", nameof(groupBy));
         }

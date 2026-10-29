@@ -23,8 +23,15 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
   of every open snapshot are listed together and come back when the same dump is opened again.
 - **Object sets.** Select several types (Ctrl or Shift and click, or Shift+Down) and press Ctrl+Shift+O (Cmd+Shift+O), or
   open a namespace or assembly row, a Compare row, an inspection row, your bookmarks or what a set retains: the set
-  gets its own step with Types, Instances, Generations and Dominators views and "Objects retained by this set". A leak
-  detector's row opens exactly the objects it counted. The CLI's `set` command shows the same views.
+  gets its own step with Types, Instances, Generations, Dominators, Paths and Similar Retention views and "Objects
+  retained by this set". A leak detector's row opens exactly the objects it counted. The CLI's `set` command shows the
+  same views.
+- **Retention views.** Similar Retention groups a set's objects by how they are retained (the paths of all their direct
+  holders, not only the shortest one), each group with its most different paths; a group opens as a set of its own.
+  Key retention paths can be shown as a diagram, the paths merged into one graph from the roots down. A type's "Why
+  alive" page has a Similar retention button.
+- **Group by interface.** The types grid and Compare group by interface on full dumps: a type counts under each
+  interface it implements, so the rows overlap. An interface row opens as a set.
 - **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;
   `module:name` (or `m:name`) matches the module. Each term is a substring, CamelHumps with capitals (`SCE` finds
   `StaticCacheEntry`), or uses `*` for anything.

@@ -508,6 +508,20 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         return UseAsync(handle, (service, id, ct) => service.QueryTypePathsAsync(new TypePathsRequest(id, typeName, module, maxPaths), progress, ct), cancellationToken);
     }
 
+    /// <summary>The key paths of a set's members (sprint 3.2).</summary>
+    public Task<TypePathsResult> QuerySetPathsAsync(SnapshotHandle handle, ObjectSetQuery set, int maxPaths, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        return UseWithSetAsync(handle, set, (service, id, spec, ct) => service.QueryTypePathsAsync(new TypePathsRequest(id, string.Empty, null, maxPaths, spec), progress, ct), cancellationToken);
+    }
+
+    /// <summary>A set's members grouped by retention pattern (sprint 3.2, ADR-031).</summary>
+    public Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SnapshotHandle handle, ObjectSetQuery set, int maxGroups, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        return UseWithSetAsync(handle, set, (service, id, spec, ct) => service.QuerySimilarRetentionAsync(new SimilarRetentionRequest(id, spec!, maxGroups), progress, ct), cancellationToken);
+    }
+
     /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
     public Task<ResultSetInfo> GetTypeSummaryAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
         UseAsync(handle, (service, id, ct) => service.GetTypeSummaryAsync(id, ct), cancellationToken);

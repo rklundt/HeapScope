@@ -75,6 +75,7 @@ internal sealed class DerivedData(TimeSpan? grace = null)
     private Slot<ReverseIndex> _reverse = new();
     private Slot<RootPathTree> _rootPaths = new();
     private Slot<DominatorIndex> _dominators = new();
+    private Slot<TypeInterfaces> _interfaces = new();
     private readonly Dictionary<GroupKey, Slot<ulong[]>> _groupRetention = [];
 
     /// <summary>Joins the aggregation, starting it when there is none (or it failed or was canceled).</summary>
@@ -97,6 +98,12 @@ internal sealed class DerivedData(TimeSpan? grace = null)
 
     /// <summary>Progress of the dominators computation, sent to every caller waiting for it.</summary>
     public SharedProgress<Contracts.JobProgress> DominatorProgress { get; } = new();
+
+    /// <summary>Joins the types' interfaces (sprint 3.2), reading them when there are none (or the read failed or was canceled).</summary>
+    public DerivedWaiter<TypeInterfaces> JoinInterfaces(Func<CancellationToken, Task<TypeInterfaces>> compute) => Join(_interfaces, compute);
+
+    /// <summary>Progress of the interface read, sent to every caller waiting for it.</summary>
+    public SharedProgress<Contracts.JobProgress> InterfaceProgress { get; } = new();
 
     /// <summary>Joins the retained sizes per group of one grouping (sprint 2.3), each computed once.</summary>
     public DerivedWaiter<ulong[]> JoinGroupRetention(GroupKey grouping, Func<CancellationToken, Task<ulong[]>> compute)
@@ -123,6 +130,7 @@ internal sealed class DerivedData(TimeSpan? grace = null)
             _reverse = new();
             _rootPaths = new();
             _dominators = new();
+            _interfaces = new();
             _groupRetention.Clear();
         }
     }

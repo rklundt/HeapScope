@@ -148,6 +148,12 @@ public interface IWorkerService
     Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>
+    /// A set's members grouped by retention pattern (sprint 3.2, ADR-031). Builds the root path tree and the reverse
+    /// references on first use. A set that selects nothing fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
+    /// </summary>
+    Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SimilarRetentionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The icicle chart below a focus object or the whole reachable heap (sprint 2.4). Fails like
     /// <see cref="QueryDominatorTreeAsync"/> for a focus with no object or none a root reaches.
     /// </summary>

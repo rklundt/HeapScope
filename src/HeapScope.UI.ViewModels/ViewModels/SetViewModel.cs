@@ -38,11 +38,18 @@ public enum SetViews
     Instances = 1,
     Generations = 2,
     Dominators = 3,
+
+    /// <summary>The members' key retention paths, as a list or a diagram (sprint 3.2).</summary>
+    Paths = 4,
+
+    /// <summary>The members grouped by how they are retained (sprint 3.2).</summary>
+    SimilarRetention = 5,
 }
 
 /// <summary>
 /// An object set as a subject of the Snapshot tab (sprint 3.1, ADR-030; dotMemory's object set): its Types, Instances,
-/// Generations and Dominators views, each queried the first time it is shown, and "objects retained by this set" on the
+/// Generations and Dominators views, and since 3.2 its Paths and Similar Retention views, each queried the first time it is
+/// shown, and "objects retained by this set" on the
 /// Retainers tab. The set is kept as its spec, so the views re-run it after an eviction or a worker restart.
 /// </summary>
 public sealed partial class SetViewModel : ObservableObject, INavigationSubject
@@ -57,7 +64,7 @@ public sealed partial class SetViewModel : ObservableObject, INavigationSubject
 
     /// <summary>The view shown; switching to one queries it the first time.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsTypesShown), nameof(IsInstancesShown), nameof(IsGenerationsShown), nameof(IsDominatorsShown))]
+    [NotifyPropertyChangedFor(nameof(IsTypesShown), nameof(IsInstancesShown), nameof(IsGenerationsShown), nameof(IsDominatorsShown), nameof(IsPathsShown), nameof(IsSimilarRetentionShown))]
     private SetViews _view;
 
     [ObservableProperty]
@@ -65,6 +72,12 @@ public sealed partial class SetViewModel : ObservableObject, INavigationSubject
 
     [ObservableProperty]
     private SetDominatorsViewModel? _dominators;
+
+    [ObservableProperty]
+    private TypePathsViewModel? _paths;
+
+    [ObservableProperty]
+    private SimilarRetentionViewModel? _similarRetention;
 
     public SetViewModel(SnapshotSession session, SnapshotHandle snapshot, ObjectSetQuery set, string title, IUiDispatcher dispatcher, ILoggerFactory? loggers = null, INavigator? navigator = null)
     {
@@ -102,6 +115,10 @@ public sealed partial class SetViewModel : ObservableObject, INavigationSubject
 
     public bool IsDominatorsShown => View == SetViews.Dominators;
 
+    public bool IsPathsShown => View == SetViews.Paths;
+
+    public bool IsSimilarRetentionShown => View == SetViews.SimilarRetention;
+
     /// <summary>Opens what the set's members retain together, exactly, on the Retainers tab.</summary>
     public IRelayCommand RetainedCommand { get; }
 
@@ -126,6 +143,8 @@ public sealed partial class SetViewModel : ObservableObject, INavigationSubject
         Types.Close();
         Instances?.Close();
         Dominators?.Close();
+        Paths?.Close();
+        SimilarRetention?.Close();
     }
 
     partial void OnViewChanged(SetViews value)
@@ -146,6 +165,14 @@ public sealed partial class SetViewModel : ObservableObject, INavigationSubject
             case SetViews.Dominators when Dominators is null:
                 Dominators = new SetDominatorsViewModel(_session, Snapshot, Set, _dispatcher, _loggers?.CreateLogger<SetDominatorsViewModel>(), _navigator);
                 Dominators.Start();
+                break;
+            case SetViews.Paths when Paths is null:
+                Paths = new TypePathsViewModel(_session, Snapshot, Set, Title, _loggers?.CreateLogger<TypePathsViewModel>(), _navigator);
+                Paths.Start();
+                break;
+            case SetViews.SimilarRetention when SimilarRetention is null:
+                SimilarRetention = new SimilarRetentionViewModel(_session, Snapshot, Set, Title, _loggers?.CreateLogger<SimilarRetentionViewModel>(), _navigator);
+                SimilarRetention.Start();
                 break;
         }
     }

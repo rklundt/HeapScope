@@ -101,8 +101,11 @@ public sealed record ObjectPathsResult(
     bool Truncated,
     string UnreachableNote);
 
-/// <summary>Why the objects of a type are alive: their key paths, the largest <paramref name="MaxPaths"/> (1 to 100).</summary>
-public sealed record TypePathsRequest(Guid SnapshotId, string TypeName, string? Module, int MaxPaths = 20);
+/// <summary>
+/// Why the objects of a type are alive: their key paths, the largest <paramref name="MaxPaths"/> (1 to 100). With a
+/// <paramref name="Set"/> (sprint 3.2) the key paths of the set's members; <paramref name="TypeName"/> is then empty.
+/// </summary>
+public sealed record TypePathsRequest(Guid SnapshotId, string TypeName, string? Module, int MaxPaths = 20, ObjectSetSpec? Set = null);
 
 /// <summary>
 /// The answer to a type paths query: the key paths, largest first; the objects no root reaches; the paths beyond the limit
@@ -120,4 +123,53 @@ public sealed record TypePathsResult(
     long OtherBytes,
     bool CompleteGraph,
     double TreeSeconds,
+    string UnreachableNote);
+
+/// <summary>
+/// Similar Retention of a set (sprint 3.2, ADR-031): its members grouped by retention pattern, the largest
+/// <paramref name="MaxGroups"/> groups (1 to 500).
+/// </summary>
+public sealed record SimilarRetentionRequest(Guid SnapshotId, ObjectSetSpec Set, int MaxGroups = SimilarRetentionLimits.DefaultGroups);
+
+/// <summary>Bounds of Similar Retention.</summary>
+public static class SimilarRetentionLimits
+{
+    public const int DefaultGroups = 50;
+
+    public const int MaxGroups = 500;
+
+    /// <summary>Direct referrers looked at per member; a member with more is grouped by these.</summary>
+    public const int MaxReferrers = 16;
+}
+
+/// <summary>
+/// One group of Similar Retention: members retained the same way, their bytes and distinct types, how many distinct
+/// key paths the pattern has (<see cref="PathCount"/>) and at most two of them (<see cref="Paths"/>: the first, and the
+/// one sharing the fewest steps with it). Every member has every path of its pattern, so the paths overlap: each path's
+/// objects and bytes are the whole group's. <see cref="Rank"/> is where it is listed, from 0 (front ends and logs number
+/// groups from 1: <see cref="Number"/>); <see cref="Key"/> is the pattern's fingerprint, which opens the group as a set
+/// (<see cref="ObjectSetSpec.RetentionGroupOf"/>). A group of members that are roots themselves shows root-only paths.
+/// </summary>
+public sealed record RetentionGroupDto(int Rank, long Objects, long Bytes, int Types, string FirstType, int PathCount, IReadOnlyList<KeyPathDto> Paths, ulong ExampleAddress, string Key)
+{
+    /// <summary>The group's number as shown, from 1.</summary>
+    public int Number => Rank + 1;
+}
+
+/// <summary>
+/// The answer to <see cref="SimilarRetentionRequest"/>: the groups, largest first; the set; the members no root reaches
+/// (not grouped); the groups beyond the limit summed; the members that had more referrers than were looked at.
+/// <see cref="UnreachableNote"/> as in <see cref="ObjectPathsResult"/>.
+/// </summary>
+public sealed record SimilarRetentionResult(
+    IReadOnlyList<RetentionGroupDto> Groups,
+    ObjectSetInfo Set,
+    int GroupCount,
+    long Unreachable,
+    long UnreachableBytes,
+    long OtherObjects,
+    long OtherBytes,
+    long LimitedMembers,
+    bool CompleteGraph,
+    double Seconds,
     string UnreachableNote);
