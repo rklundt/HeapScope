@@ -34,6 +34,8 @@
       <TextBlock FontSize="20" Text="Snapshots" VerticalAlignment="Center" />
       <Button Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}" />
       <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
+      <Button Content="Close and delete..." Margin="8,0,0,0" Command="{Binding CloseAndDeleteCommand}" CommandParameter="{Binding Selected}"
+              ToolTip.Tip="Close the snapshot and delete its dump and index caches from its HeapScope session (asks first)." />
       <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" MaxWidth="600" />
     </StackPanel>
     <!-- The open snapshots, the selected one's analysis path (sprint 2.7) and the bookmarks of every open snapshot. -->

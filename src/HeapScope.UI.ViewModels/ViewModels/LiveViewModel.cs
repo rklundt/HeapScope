@@ -35,6 +35,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.UI.ViewModels;
 
+/// <summary>A monitoring run of the current session, listed to reopen (sprint 3.4).</summary>
+public sealed record PastRunItem(SessionRun Run, string Folder)
+{
+    public string Title => string.Create(CultureInfo.CurrentCulture, $"{Run.StartedUtc.ToLocalTime():g}: {Run.ProcessName ?? "process"} {Run.ProcessId}, {Run.SnapshotIds.Count} snapshots{(Run.EndedUtc is { } end ? $", {(end - Run.StartedUtc).TotalMinutes:N0} min" : ", not ended")}{(Run.Trace is null ? string.Empty : ", allocations")}");
+}
+
 /// <summary>A snapshot a rule took during the run, as a card: when, which rule, how big, or why it failed.</summary>
 public sealed record SnapshotCard(DateTimeOffset At, string Rule, string? Path, long SizeBytes, string? Error)
 {
@@ -60,7 +66,28 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     private readonly ILogger _logger;
     private readonly List<HeapSample> _samples = [];
     private readonly List<DateTimeOffset> _markers = [];
+    private readonly List<DateTimeOffset> _gcMarkers = [];
+    private readonly AllocationsViewModel? _allocations;
     private MonitorRun? _run;
+
+    /// <summary>Records an allocation trace for the whole run (sprint 3.4).</summary>
+    [ObservableProperty]
+    private bool _recordAllocations;
+
+    /// <summary>The last run's allocation trace, once it ended with one.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(OpenTraceCommand))]
+    private string? _tracePath;
+
+    /// <summary>A Get snapshot or Force GC in progress.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(GetSnapshotCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForceGcCommand))]
+    private bool _acting;
+
+    /// <summary>What the chart shows when it is a past run's (sprint 3.4), read only.</summary>
+    [ObservableProperty]
+    private string? _pastRunShown;
 
     [ObservableProperty]
     private ProcessRow? _selectedProcess;
@@ -90,6 +117,9 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GetSnapshotCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForceGcCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenPastRunCommand))]
     private bool _isRunning;
 
     /// <summary>The last run's timeline file once the run stopped, while it is there; null otherwise.</summary>
@@ -113,9 +143,10 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     private int _chartVersion;
 
-    public LiveViewModel(MonitorService monitor, ICaptureService capture, IUiDispatcher dispatcher, ILogger<LiveViewModel>? logger = null, IUserInteraction? interaction = null)
+    public LiveViewModel(MonitorService monitor, ICaptureService capture, IUiDispatcher dispatcher, ILogger<LiveViewModel>? logger = null, IUserInteraction? interaction = null, AllocationsViewModel? allocations = null)
     {
         _interaction = interaction;
+        _allocations = allocations;
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -137,11 +168,23 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     /// <summary>When rules took snapshots, for the chart's markers.</summary>
     public IReadOnlyList<DateTimeOffset> Markers => _markers;
 
+    /// <summary>When the run forced a collection (sprint 3.4).</summary>
+    public IReadOnlyList<DateTimeOffset> GcMarkers => _gcMarkers;
+
+    /// <summary>The current session's monitoring runs, newest first (sprint 3.4).</summary>
+    public ObservableCollection<PastRunItem> PastRuns { get; } = [];
+
     /// <summary>The run in progress, if any (tests and smoke runs await its completion).</summary>
     public MonitorRun? Run => _run;
 
-    /// <summary>Whether runs write their timeline into the session folder (off for smoke runs, which leave nothing behind).</summary>
+    /// <summary>Whether runs write their timeline into the session folder.</summary>
     public bool WriteTimeline { get; set; } = true;
+
+    /// <summary>
+    /// Whether runs use the session library at all: their record, timeline and trace (off for smoke runs, which leave
+    /// nothing behind in the user's sessions).
+    /// </summary>
+    public bool RecordRuns { get; set; } = true;
 
     /// <summary>Why monitoring a process is not available on this system (sprint 2.3.6), or null.</summary>
     public string? Unavailable => _capture.UnavailableReason;
@@ -175,8 +218,12 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     private bool CanStart() => !IsRunning;
 
+    /// <summary>
+    /// Starts monitoring. The run's start reads and records its session on disk under the session's lock, which can wait,
+    /// so it runs off the UI thread (review H3 of 3.4).
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanStart))]
-    private void Start()
+    private async Task StartAsync()
     {
         if (SelectedProcess is not { } process)
         {
@@ -191,8 +238,11 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
         _samples.Clear();
         _markers.Clear();
+        _gcMarkers.Clear();
         Snapshots.Clear();
         TimelinePath = null;
+        TracePath = null;
+        PastRunShown = null;
         HighGcPressure = false;
         Latest = null;
         ChartVersion++;
@@ -200,23 +250,218 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds)),
             rules,
             WriteTimeline,
-            CaptureGcDumps ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump);
-        _run = _monitor.Start(process.ProcessId, options, attached =>
-        {
-            _run = attached;
-            attached.SampleReceived += (_, sample) => _dispatcher.Post(() => OnSample(attached, sample));
-            attached.Captured += (_, capture) => _dispatcher.Post(() => OnCaptured(attached, capture));
-        });
-        var run = _run;
+            CaptureGcDumps ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump,
+            RecordAllocations,
+            process.Name,
+            RecordRun: RecordRuns);
         IsRunning = true;
-        Status = string.Create(CultureInfo.CurrentCulture, $"Monitoring {process.Name} (pid {process.ProcessId}){(rules.Rules.Count > 0 ? "; rules: " + string.Join(", ", rules.Rules.Select(r => r.Label)) : string.Empty)}.");
+        _stopAsked = false;
+        Status = string.Create(CultureInfo.CurrentCulture, $"Starting to monitor {process.Name} (pid {process.ProcessId})...");
+        MonitorRun run;
+        try
+        {
+            run = await Task.Run(() => _monitor.Start(process.ProcessId, options, attached =>
+            {
+                // Before the first sample can arrive: every event of the run finds it current.
+                _run = attached;
+                attached.SampleReceived += (_, sample) => _dispatcher.Post(() => OnSample(attached, sample));
+                attached.Captured += (_, capture) => _dispatcher.Post(() => OnCaptured(attached, capture));
+                attached.GcForced += (_, forced) => _dispatcher.Post(() => OnGcForced(attached, forced));
+                attached.TraceStopped += (_, message) => _dispatcher.Post(() => OnTraceStopped(attached, message));
+            }));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Monitoring pid {Pid} could not start", process.ProcessId);
+            Status = "Monitoring could not start: " + ex.Message;
+            IsRunning = false;
+            return;
+        }
+
+        if (_stopAsked)
+        {
+            run.Stop();
+        }
+
+        if (ReferenceEquals(run, _run) && IsRunning && run.TraceError is null)
+        {
+            Status = string.Create(CultureInfo.CurrentCulture, $"Monitoring {process.Name} (pid {process.ProcessId}){(rules.Rules.Count > 0 ? "; rules: " + string.Join(", ", rules.Rules.Select(r => r.Label)) : string.Empty)}.");
+        }
+
         _ = WatchAsync(run);
+    }
+
+    /// <summary>What a forced collection does to the target, asked before each one (review of 3.4; the ask-first rule).</summary>
+    public const string ForceGcQuestion =
+        "Force a full, blocking garbage collection in {0}? Every managed thread in it pauses while the collection runs, for "
+        + "seconds on a large heap. Finalizers do not run, so objects waiting for finalization, and what they hold, stay "
+        + "until a later collection. An app inside a no-GC region leaves it, and its EndNoGCRegion call then fails. Objects "
+        + "the collection moves count as dead and new in a comparison by address.";
+
+    private bool CanAct() => IsRunning && !Acting;
+
+    /// <summary>Takes a snapshot of the monitored process now (sprint 3.4), as the run's card.</summary>
+    [RelayCommand(CanExecute = nameof(CanAct))]
+    private async Task GetSnapshotAsync()
+    {
+        if (_run is not { } run)
+        {
+            return;
+        }
+
+        Acting = true;
+        try
+        {
+            Status = "Taking a snapshot...";
+            var taken = await run.CaptureNowAsync();
+            Status = taken.Result is not null ? "Snapshot taken." : "The snapshot failed: " + taken.Error;
+        }
+        finally
+        {
+            Acting = false;
+        }
+    }
+
+    /// <summary>Forces a full garbage collection in the monitored process (sprint 3.4), marked on the chart.</summary>
+    [RelayCommand(CanExecute = nameof(CanAct))]
+    private async Task ForceGcAsync()
+    {
+        if (_run is not { } run)
+        {
+            return;
+        }
+
+        var target = run.Options.ProcessName ?? string.Create(CultureInfo.InvariantCulture, $"pid {run.ProcessId}");
+        if (_interaction is not null)
+        {
+            var yes = await _interaction.ConfirmAsync("Force a garbage collection", string.Format(CultureInfo.CurrentCulture, ForceGcQuestion, target));
+            _logger.LogInformation("Force GC of pid {Pid} (run {RunId}) asked; the user answered {Answer}", run.ProcessId, run.Id, yes ? "yes" : "no");
+            if (!yes)
+            {
+                return;
+            }
+        }
+
+        Acting = true;
+        try
+        {
+            Status = "Forcing a garbage collection...";
+            var forced = await run.ForceGcAsync(CancellationToken.None);
+            Status = forced.Result is { Completed: true } ? "A full garbage collection ran in the process. Objects it moved count as dead and new in a comparison by address."
+                : forced.Result is { } incomplete ? "The collection is not confirmed: " + incomplete.Outcome + ". It is not marked on the chart."
+                : forced.Error;
+        }
+        finally
+        {
+            Acting = false;
+        }
+    }
+
+    private bool CanOpenTrace() => TracePath is not null && _allocations is not null;
+
+    /// <summary>Opens the last run's allocation trace on the Allocations page (sprint 3.4).</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenTrace))]
+    private async Task OpenTraceAsync()
+    {
+        if (TracePath is { } path && _allocations is { } allocations)
+        {
+            await allocations.OpenPathAsync(path);
+        }
+    }
+
+    /// <summary>Lists the current session's monitoring runs (sprint 3.4).</summary>
+    [RelayCommand]
+    private void RefreshRuns()
+    {
+        PastRuns.Clear();
+
+        // Read from disk: runs are recorded there as they start and end (never creating a session to list nothing).
+        if (_capture.Library.CurrentFolder is not { } folder || SessionLibrary.TryRead(folder) is not { } session)
+        {
+            return;
+        }
+
+        foreach (var run in (session.Document.Runs ?? []).OrderByDescending(r => r.StartedUtc))
+        {
+            PastRuns.Add(new PastRunItem(run, session.Folder));
+        }
+    }
+
+    private bool CanOpenPastRun(PastRunItem? item) => !IsRunning;
+
+    /// <summary>
+    /// Shows a past run read only (sprint 3.4, decision 5): its timeline's counters, its snapshots and forced collections as
+    /// markers, and its snapshots as cards.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanOpenPastRun))]
+    private async Task OpenPastRunAsync(PastRunItem? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var run = item.Run;
+        // Only a timeline inside its session folder: Delete timeline acts on this path (3.4 re-review).
+        if (run.Timeline is not { } timeline || Path.GetFullPath(Path.Combine(item.Folder, timeline)) is var path
+            && (!path.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(item.Folder)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(path)))
+        {
+            _logger.LogInformation("Monitoring run {RunId} not reopened: its timeline {Timeline} is not there", run.Id, run.Timeline ?? "(none recorded)");
+            Status = "This run's timeline file is not there any more.";
+            return;
+        }
+
+        try
+        {
+            var read = await TimelineFile.ReadAsync(path, CancellationToken.None);
+            _samples.Clear();
+            _samples.AddRange(read.Samples.TakeLast(WindowSamples));
+            _markers.Clear();
+            _markers.AddRange(read.Events.Where(e => e.Text.StartsWith(MonitorRun.SnapshotEventPrefix, StringComparison.Ordinal)).Select(e => e.At));
+            _gcMarkers.Clear();
+            _gcMarkers.AddRange(read.Events.Where(e => e.Text == MonitorRun.GcForcedEvent).Select(e => e.At));
+            Snapshots.Clear();
+            var session = SessionLibrary.TryRead(item.Folder);
+            foreach (var snapshot in (session?.Document.Snapshots ?? []).Where(s => run.SnapshotIds.Contains(s.Id)).OrderByDescending(s => s.CapturedUtc))
+            {
+                var file = session!.PathOf(snapshot);
+                Snapshots.Add(new SnapshotCard(snapshot.CapturedUtc, snapshot.Label ?? snapshot.Source.ToString(), file, snapshot.SizeBytes, File.Exists(file) ? null : "deleted"));
+            }
+
+            TimelinePath = path;
+            TracePath = run.Trace is { } trace ? Path.Combine(item.Folder, trace) : null;
+            PastRunShown = item.Title + (read.SkippedLines > 0 ? string.Create(CultureInfo.CurrentCulture, $" ({read.SkippedLines} unreadable lines left out)") : string.Empty);
+            Status = "Showing a past run, read only. Start monitoring to see live data again.";
+            ChartVersion++;
+            _logger.LogInformation(
+                "Reopened monitoring run {RunId} of pid {Pid} from {Timeline}: {Samples} samples ({Shown} shown, {Skipped} unreadable lines), {Events} events, {Snapshots} snapshots",
+                run.Id,
+                run.ProcessId,
+                path,
+                read.Samples.Count,
+                _samples.Count,
+                read.SkippedLines,
+                read.Events.Count,
+                Snapshots.Count);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Monitoring run {RunId}: its timeline could not be read", run.Id);
+            Status = "The run's timeline could not be read: " + ex.Message;
+        }
     }
 
     private bool CanStop() => IsRunning;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
-    private void Stop() => _run?.Stop();
+    private void Stop()
+    {
+        // Pressed while the run is still starting: it stops as soon as it has started (3.4 re-review).
+        _stopAsked = true;
+        _run?.Stop();
+    }
+
+    private bool _stopAsked;
 
     private bool CanUseTimeline() => TimelinePath is not null && _interaction is not null;
 
@@ -262,12 +507,13 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             File.Delete(path);
             TimelinePath = null;
             Status = "Timeline deleted.";
-            _logger.LogInformation("Timeline deleted");
+
+            // The path of the user's own file, never its contents (ARCHITECTURE 11): a past run reopens from it.
+            _logger.LogInformation("Timeline {Path} deleted after the user confirmed", path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The type only: the message holds the path, which names the session and the process.
-            _logger.LogWarning("Deleting the timeline failed: {Error}", ex.GetType().Name);
+            _logger.LogWarning("Deleting the timeline {Path} failed: {Error}", path, ex.GetType().Name);
             Status = "The timeline could not be deleted: " + ex.Message;
         }
     }
@@ -401,6 +647,26 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         ChartVersion++;
     }
 
+    private void OnGcForced(MonitorRun run, MonitorForcedGc forced)
+    {
+        // Only a collection whose end was seen is marked (review of 3.4).
+        if (!ReferenceEquals(run, _run) || forced.Result is not { Completed: true })
+        {
+            return;
+        }
+
+        _gcMarkers.Add(forced.At);
+        ChartVersion++;
+    }
+
+    private void OnTraceStopped(MonitorRun run, string message)
+    {
+        if (ReferenceEquals(run, _run))
+        {
+            Status = message;
+        }
+    }
+
     private void OnCaptured(MonitorRun run, MonitorCapture capture)
     {
         if (!ReferenceEquals(run, _run))
@@ -445,7 +711,14 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             Status = ended ?? string.Create(CultureInfo.CurrentCulture,
                 $"Stopped after {_samples.Count:N0} samples and {run.Captures.Count(c => c.Result is not null)} snapshots.");
             TimelinePath = run.TimelinePath;
+            TracePath = run.TracePath;
+            if (run.TraceError is { } traceError)
+            {
+                Status += " " + traceError;
+            }
+
             IsRunning = false;
+            RefreshRuns();
         });
     }
 }

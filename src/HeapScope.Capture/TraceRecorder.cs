@@ -183,7 +183,7 @@ public static class TraceRecorder
         }
     }
 
-    private static Exception Translate(int processId, Exception ex)
+    internal static Exception Translate(int processId, Exception ex)
     {
         string name;
         try

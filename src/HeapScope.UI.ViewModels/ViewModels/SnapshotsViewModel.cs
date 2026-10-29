@@ -27,6 +27,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application;
 using HeapScope.Application.Bookmarks;
+using HeapScope.Application.Sessions;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -106,14 +107,20 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
     [ObservableProperty]
     private int _selectedTab;
 
+    private readonly SessionLibrary? _library;
+    private readonly ILogger? _logger;
+
     public SnapshotsViewModel(
         SnapshotSession session,
         WorkerOperations operations,
         IUiDispatcher dispatcher,
         IUserInteraction interaction,
         ILoggerFactory? loggers = null,
-        BookmarkStore? bookmarks = null)
+        BookmarkStore? bookmarks = null,
+        SessionLibrary? library = null)
     {
+        _library = library;
+        _logger = loggers?.CreateLogger<SnapshotsViewModel>();
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -283,6 +290,66 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         }
 
         Refresh();
+    }
+
+    /// <summary>
+    /// Closes a snapshot and deletes its dump with its index caches (sprint 3.4, decision 6), after the user confirms what
+    /// goes and its size. Only a snapshot recorded in a HeapScope session is deleted: other dumps are the user's files.
+    /// </summary>
+    [RelayCommand]
+    private async Task CloseAndDeleteAsync(SnapshotItemViewModel? item)
+    {
+        item ??= Selected;
+        if (item is null || _library is null)
+        {
+            return;
+        }
+
+        var path = item.Handle.Path;
+        var found = await Task.Run(() => _library.FindSnapshot(path));
+        if (found is not { } entry)
+        {
+            _logger?.LogInformation("Deleting snapshot {Path} refused: it is not in a HeapScope session", path);
+            Status = "This dump is not in a HeapScope session, so HeapScope does not delete it: close it and delete the file yourself.";
+            return;
+        }
+
+        Deletion plan;
+        try
+        {
+            plan = await Task.Run(() => _library.PlanSnapshotDeletion(entry.Session.Folder, entry.Snapshot.Id));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            _logger?.LogInformation("Deleting snapshot {Path} refused: {Reason}", path, ex.Message);
+            Status = ex.Message;
+            return;
+        }
+
+        var question = string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Close {item.Title} and delete it with its index caches, {plan.Files.Count} files ({Format.Bytes(plan.Bytes)})? It is removed from the session {entry.Session.Document.Name}. This cannot be undone.");
+        var yes = await _interaction.ConfirmAsync("Delete snapshot", question + Environment.NewLine + DeletionText.Files(plan));
+        _logger?.LogInformation("Asked to delete snapshot {SnapshotId} ({Path}, {Files} files, {Bytes} bytes); the user answered {Answer}", entry.Snapshot.Id, path, plan.Files.Count, plan.Bytes, yes ? "yes" : "no");
+        if (!yes)
+        {
+            return;
+        }
+
+        try
+        {
+            // Closed first: the worker unmaps the cache, so the files can go.
+            await _session.CloseAsync(item.Handle, CancellationToken.None);
+            Refresh();
+            var deletion = await Task.Run(() => _library.DeleteSnapshot(entry.Session.Folder, entry.Snapshot.Id));
+            DeletionText.Log(_logger, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"snapshot {entry.Snapshot.Id} of session {entry.Session.Folder}"), deletion);
+            Status = deletion.Complete
+                ? string.Create(System.Globalization.CultureInfo.CurrentCulture, $"Deleted {item.Title} and its caches: {Format.Bytes(deletion.Bytes)} freed.")
+                : string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{deletion.Failed!.Count} files of {item.Title} could not be deleted, usually because another program has them open: {string.Join("; ", deletion.Failed)}. {(File.Exists(path) ? "The snapshot stays in its session: open it and use Close and delete again once they are free, or delete them yourself." : "The snapshot is removed from its session; delete these files yourself once they are free.")}");
+        }
+        catch (Exception ex) when (ex is WorkerException or IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            _logger?.LogWarning(ex, "Deleting snapshot {Path} failed", path);
+            Status = "The snapshot could not be deleted: " + ex.Message;
+        }
     }
 
     partial void OnSelectedChanged(SnapshotItemViewModel? value)
