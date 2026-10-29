@@ -160,7 +160,7 @@ public partial class MainWindow : Window
     // The shown page's filter box (the types, diff and instances grids name theirs FilterBox).
     private bool FocusFilter()
     {
-        if (this.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(t => t.Name == "FilterBox" && t.IsEffectivelyVisible) is not { } box)
+        if (this.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(t => t.Name is { } name && name.EndsWith("FilterBox", StringComparison.Ordinal) && t.IsEffectivelyVisible) is not { } box)
         {
             return false;
         }

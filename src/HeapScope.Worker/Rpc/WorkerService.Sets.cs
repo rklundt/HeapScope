@@ -179,6 +179,9 @@ internal sealed partial class WorkerService
                 var implementers = Enumerable.Range(0, interfaceMask.Length).Where(t => interfaceMask[t]).Select(graph.Types.GetName).Distinct(StringComparer.Ordinal).ToList();
                 detail = string.Create(CultureInfo.InvariantCulture, $"{implementing} type entries: {string.Join(", ", implementers.Take(20))}{(implementers.Count > 20 ? $" and {implementers.Count - 20} more" : string.Empty)}; {interfaces.UnreadTypes} types' interfaces not read");
                 break;
+            case ObjectSetKind.Compared:
+                (set, detail) = await ResolveComparedAsync(snapshotId, snapshot, spec, progress, cancellationToken, depth).ConfigureAwait(false);
+                break;
             case ObjectSetKind.RetentionGroup:
                 (set, detail) = await ResolveRetentionGroupAsync(snapshotId, snapshot, spec, progress, cancellationToken, depth).ConfigureAwait(false);
                 break;
