@@ -179,6 +179,9 @@ public sealed record InspectionRun(ResultSetHandle Rows, InspectionResultDto Res
 /// <summary>A snapshot comparison: its pageable rows and the totals of the first run (sprint 1.4).</summary>
 public sealed record SnapshotDiff(ResultSetHandle Rows, TypeDiffResult Result);
 
+/// <summary>A trend across several snapshots: its pageable rows and the totals of the first run (sprint 3.3).</summary>
+public sealed record SnapshotTrend(ResultSetHandle Rows, TypeTrendResult Result);
+
 /// <summary>The objects referencing one object: their pageable rows and the totals of the first run (sprint 2.1).</summary>
 public sealed record ReferrerList(ResultSetHandle Rows, ReferrersResult Result);
 
@@ -206,7 +209,7 @@ public sealed record ObjectSetQuery(ObjectSetSpec Spec, SnapshotHandle? Baseline
 
     private static ObjectSetSpec Bind(ObjectSetSpec spec, Guid? baselineId) => spec with
     {
-        Baseline = spec.Kind == ObjectSetKind.InspectionRow && baselineId is not null ? baselineId : spec.Baseline,
+        Baseline = spec.Kind is ObjectSetKind.InspectionRow or ObjectSetKind.Compared && baselineId is not null ? baselineId : spec.Baseline,
         Inner = spec.Inner is null ? null : Bind(spec.Inner, baselineId),
     };
 }

@@ -67,6 +67,28 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
     /// <summary>The module file name of <see cref="TypeName"/> (empty when none).</summary>
     public string? Module { get; private set; }
 
+    /// <summary>Current objects not at their address in the baseline (sprint 3.3), when matched.</summary>
+    public long? NewObjects { get; private set; }
+
+    /// <summary>Baseline objects not at their address in the current snapshot, when matched.</summary>
+    public long? DeadObjects { get; private set; }
+
+    public long? BaselineRetained { get; private set; }
+
+    public long? CurrentRetained { get; private set; }
+
+    public long? RetainedDelta { get; private set; }
+
+    public long? Gen0Delta { get; private set; }
+
+    public long? Gen1Delta { get; private set; }
+
+    public long? Gen2Delta { get; private set; }
+
+    public long? LohDelta { get; private set; }
+
+    public long? PohDelta { get; private set; }
+
     /// <summary>-1, 0 or 1: the sign of the bytes delta, for the growth color.</summary>
     public int Trend => Math.Sign(BytesDelta);
 
@@ -90,6 +112,16 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
             ResultColumns.Find(info.Columns, TypeDiffColumns.CurrentTypes),
             ResultColumns.Find(info.Columns, TypeDiffColumns.TypeName),
             ResultColumns.Find(info.Columns, TypeDiffColumns.Module),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.NewObjects),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.DeadObjects),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.BaselineRetained),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.CurrentRetained),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.RetainedDelta),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.Gen0Delta),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.Gen1Delta),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.Gen2Delta),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.LohDelta),
+            ResultColumns.Find(info.Columns, TypeDiffColumns.PohDelta),
         ];
         return new VirtualRowList<DiffRowItem>(rows, info.TotalCount, i => new DiffRowItem(i), (row, cells) => row.Fill(cells, layout), onError, logger);
     }
@@ -108,6 +140,10 @@ public sealed class DiffRowItem(int index) : ObservableObject, IIndexedRow
         CurrentTypes = (int)Cells.Long(cells, layout[9]);
         TypeName = layout[10] >= 0 ? Cells.Text(cells, layout[10]) : null;
         Module = layout[11] >= 0 ? Cells.Text(cells, layout[11]) : null;
+        long? Optional(int at) => layout[at] >= 0 ? Cells.Long(cells, layout[at]) : null;
+        (NewObjects, DeadObjects) = (Optional(12), Optional(13));
+        (BaselineRetained, CurrentRetained, RetainedDelta) = (Optional(14), Optional(15), Optional(16));
+        (Gen0Delta, Gen1Delta, Gen2Delta, LohDelta, PohDelta) = (Optional(17), Optional(18), Optional(19), Optional(20), Optional(21));
         IsLoaded = true;
         OnPropertyChanged(string.Empty);
     }
@@ -128,6 +164,39 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     [ObservableProperty]
     private SnapshotItemViewModel? _current;
 
+    /// <summary>Asks for New and Dead objects by address (sprint 3.3; two snapshots of one process).</summary>
+    [ObservableProperty]
+    private bool _matchObjects;
+
+    /// <summary>Asks for each row's retained lower bound in both snapshots (sprint 3.3).</summary>
+    [ObservableProperty]
+    private bool _showRetained;
+
+    /// <summary>Shows the per-generation byte deltas when both snapshots have generations (sprint 3.3).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
+    private bool _showGenerations;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
+    private bool _identityShown;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
+    private bool _retainedShown;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleColumnGroups))]
+    private bool _hasGenerations;
+
+    /// <summary>Why New and Dead objects are not shown although asked for, or what the shown ones mean.</summary>
+    [ObservableProperty]
+    private string? _identityNote;
+
+    /// <summary>Where the retained columns come from, or why they are not shown.</summary>
+    [ObservableProperty]
+    private string? _retainedNote;
+
 
     public CompareViewModel(SnapshotSession session, ObservableCollection<SnapshotItemViewModel> snapshots, IUiDispatcher dispatcher, ILogger<CompareViewModel>? logger = null, INavigator? navigator = null)
         : base(TypeDiffColumns.BytesDelta, dispatcher, logger)
@@ -136,6 +205,10 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
         ShowInRetainersCommand = new RelayCommand<DiffRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.Retainers(s, typeName: r.TypeName, module: r.Module)));
         RetainedBySetCommand = new RelayCommand<DiffRowItem?>(row => Link(row, navigator, (s, r) => NavigationTarget.RetainedBySet(s, r.TypeName!, r.Module)));
         OpenAsSetCommand = new RelayCommand<System.Collections.IList?>(rows => OpenAsSet(rows, navigator));
+        OpenNewCommand = new RelayCommand<DiffRowItem?>(row => OpenChange(row, ObjectChange.New, navigator));
+        OpenDeadCommand = new RelayCommand<DiffRowItem?>(row => OpenChange(row, ObjectChange.Dead, navigator));
+        OpenSurvivedCommand = new RelayCommand<DiffRowItem?>(row => OpenChange(row, ObjectChange.Survived, navigator));
+        Trend = new TrendViewModel(session, snapshots, dispatcher, logger, navigator);
         _session = session ?? throw new ArgumentNullException(nameof(session));
         Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         Snapshots.CollectionChanged += OnSnapshotsChanged;
@@ -144,6 +217,74 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
 
     /// <summary>The open snapshots the pickers offer.</summary>
     public ObservableCollection<SnapshotItemViewModel> Snapshots { get; }
+
+    /// <summary>The trend across several snapshots, shown instead of the pair when <see cref="IsTrendShown"/> (sprint 3.3).</summary>
+    public TrendViewModel Trend { get; }
+
+    [ObservableProperty]
+    private bool _isTrendShown;
+
+    /// <summary>The optional column groups shown: New and Dead, retained bytes, per-generation deltas.</summary>
+    public IReadOnlyList<string> VisibleColumnGroups => ColumnGroups.Of((ColumnGroups.Identity, IdentityShown), (ColumnGroups.Retained, RetainedShown), (ColumnGroups.Generations, ShowGenerations && HasGenerations));
+
+    /// <summary>Opens a row's new objects (current snapshot) as a set (sprint 3.3).</summary>
+    public System.Windows.Input.ICommand OpenNewCommand { get; }
+
+    /// <summary>Opens a row's dead objects (in the baseline) as a set.</summary>
+    public System.Windows.Input.ICommand OpenDeadCommand { get; }
+
+    /// <summary>Opens a row's survived objects (current snapshot) as a set.</summary>
+    public System.Windows.Input.ICommand OpenSurvivedCommand { get; }
+
+    partial void OnMatchObjectsChanged(bool value) => RequeryIfPair();
+
+    partial void OnShowRetainedChanged(bool value) => RequeryIfPair();
+
+    partial void OnIsTrendShownChanged(bool value)
+    {
+        if (value)
+        {
+            Trend.Start();
+        }
+    }
+
+    private void RequeryIfPair()
+    {
+        if (CanQuery)
+        {
+            Requery();
+        }
+    }
+
+    /// <summary>
+    /// A row's new, dead or survived objects as a set (decision 2): new and survived in the current snapshot against the
+    /// baseline, dead in the baseline against the current snapshot.
+    /// </summary>
+    private void OpenChange(DiffRowItem? row, ObjectChange change, INavigator? navigator)
+    {
+        if (row is not { IsLoaded: true } || Baseline is not { } baseline || Current is not { } current)
+        {
+            return;
+        }
+
+        if (row.TypeName is null)
+        {
+            Status = "Group by type to open a row's new, dead or survived objects.";
+            return;
+        }
+
+        if (!IdentityShown)
+        {
+            Status = IdentityNote ?? "Tick New and dead objects first: objects are matched by address only for two snapshots of one process.";
+            return;
+        }
+
+        var (side, other) = change == ObjectChange.Dead ? (baseline, current) : (current, baseline);
+        var spec = ObjectSetSpec.ComparedOf(ObjectSetSpec.OfType(row.TypeName, row.Module), change);
+        var title = string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{change} {row.Name}");
+        Logger.LogInformation("Compare: opened the {Change} objects of a row as a set in the {Side} snapshot", change, change == ObjectChange.Dead ? "baseline" : "current");
+        navigator?.Navigate(NavigationTarget.ObjectSet(side.Handle, new ObjectSetQuery(spec, other.Handle), title));
+    }
 
 
     /// <summary>Why there is nothing to compare yet, if so.</summary>
@@ -187,13 +328,35 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
     {
         var groupBy = GroupBy;
         var scope = Scope(Baseline!.Handle.Descriptor.Kind, Current!.Handle.Descriptor.Kind);
-        var diff = await _session.QueryTypeDiffAsync(Baseline!.Handle, Current!.Handle, groupBy, Filter, SortColumn, Descending, null, cancellationToken);
+        var (match, retained) = (MatchObjects, ShowRetained && groupBy != TypeGrouping.Interface);
+
+        // A sort by a column this query may not have falls back to bytes (as in the types grid).
+        var unavailable = (!match && SortColumn is TypeDiffColumns.NewObjects or TypeDiffColumns.DeadObjects)
+            || (!retained && SortColumn is TypeDiffColumns.BaselineRetained or TypeDiffColumns.CurrentRetained or TypeDiffColumns.RetainedDelta)
+            || (!HasGenerations && SortColumn is TypeDiffColumns.Gen0Delta or TypeDiffColumns.Gen1Delta or TypeDiffColumns.Gen2Delta or TypeDiffColumns.LohDelta or TypeDiffColumns.PohDelta);
+        var sortColumn = unavailable ? TypeDiffColumns.BytesDelta : SortColumn;
+        var finished = false;
+        var progress = retained ? new Progress<JobProgress>(p => Status = finished || cancellationToken.IsCancellationRequested ? Status : ReferrersText.Progress(p)) : null;
+        var diff = await _session.QueryTypeDiffAsync(Baseline!.Handle, Current!.Handle, groupBy, Filter, sortColumn, Descending, progress, cancellationToken, match, retained);
+        finished = true;
         var result = diff.Result;
         return new GridQuery<DiffRowItem>(
             diff.Rows,
-            () => Totals = string.Create(
+            () =>
+            {
+                IdentityShown = result.ObjectsMatched;
+                IdentityNote = result.ObjectsMatched
+                    ? string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{result.NewObjects:N0} new and {result.DeadObjects:N0} dead objects by address: an object moved by a compacting collection counts as dead and new.")
+                    : result.IdentityNote;
+                RetainedShown = result.BaselineDominators is not null;
+                RetainedNote = result.BaselineDominators is { } b && result.CurrentDominators is { } c
+                    ? "Retained bytes are lower bounds in each snapshot. Baseline: " + RetainedText.Source(b) + " Current: " + RetainedText.Source(c)
+                    : ShowRetained && groupBy == TypeGrouping.Interface ? "Interface rows have no retained sizes: a type counts under each interface it implements. Group by type, namespace or assembly to see them." : null;
+                HasGenerations = result.KindDeltas is not null;
+                Totals = string.Create(
                 CultureInfo.CurrentCulture,
-                $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)} ({result.NewRows:N0} new, {result.GoneRows:N0} gone); matching rows {Format.SignedBytes(result.MatchingBytesDelta)}; heap {Format.SignedBytes(result.CurrentBytes - result.BaselineBytes)}, {SignedCount(result.CurrentObjects - result.BaselineObjects)} objects ({scope}{(result.ExactCounts ? string.Empty : "; estimated: a snapshot is sampled or incomplete")})"),
+                $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)} ({result.NewRows:N0} new, {result.GoneRows:N0} gone); matching rows {Format.SignedBytes(result.MatchingBytesDelta)}; heap {Format.SignedBytes(result.CurrentBytes - result.BaselineBytes)}, {SignedCount(result.CurrentObjects - result.BaselineObjects)} objects ({scope}{(result.ExactCounts ? string.Empty : "; estimated: a snapshot is sampled or incomplete")})");
+            },
             onError => DiffRowItem.CreateList(diff.Rows, result.Rows, onError, Logger));
     }
 

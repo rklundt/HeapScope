@@ -148,6 +148,12 @@ public interface IWorkerService
     Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Rows of several snapshots side by side (sprint 3.3): objects and bytes per snapshot in the order given, the change
+    /// first to last and the steps it grew in. 2 to <see cref="TypeTrendColumns.MaxSnapshots"/> snapshots.
+    /// </summary>
+    Task<TypeTrendResult> QueryTypeTrendAsync(TypeTrendRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
     /// A set's members grouped by retention pattern (sprint 3.2, ADR-031). Builds the root path tree and the reverse
     /// references on first use. A set that selects nothing fails with <see cref="HeapScopeErrorCode.InvalidArgument"/>.
     /// </summary>

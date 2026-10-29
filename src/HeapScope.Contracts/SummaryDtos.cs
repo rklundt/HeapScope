@@ -140,13 +140,24 @@ public sealed record TypeSummaryResult(
 /// <param name="Filter">Keeps rows whose name matches (<see cref="NameFilter"/>).</param>
 /// <param name="SortColumn">The name of a result column to sort by; null sorts by <see cref="TypeDiffColumns.BytesDelta"/>.</param>
 /// <param name="Descending">Sort direction.</param>
+/// <param name="MatchObjects">
+/// Adds the <see cref="TypeDiffColumns.NewObjects"/> and <see cref="TypeDiffColumns.DeadObjects"/> columns (sprint 3.3,
+/// ADR-032): objects matched by address and type, only for two snapshots of one process (otherwise the result's
+/// <see cref="TypeDiffResult.IdentityNote"/> says why and the columns are left out).
+/// </param>
+/// <param name="IncludeRetained">
+/// Adds each row's retained lower bound in both snapshots and the delta (sprint 3.3); computes or opens both snapshots'
+/// dominators. Not for interface rows.
+/// </param>
 public sealed record TypeDiffRequest(
     Guid BaselineId,
     Guid CurrentId,
     TypeGrouping GroupBy = TypeGrouping.Type,
     string? Filter = null,
     string? SortColumn = null,
-    bool Descending = true);
+    bool Descending = true,
+    bool MatchObjects = false,
+    bool IncludeRetained = false);
 
 /// <summary>Column names of a type diff result set.</summary>
 public static class TypeDiffColumns
@@ -168,6 +179,35 @@ public static class TypeDiffColumns
     public const string CurrentBytes = "CurrentBytes";
     public const string BytesDelta = "BytesDelta";
 
+    /// <summary>
+    /// Current objects of the row with no object of their type at their address in the baseline (sprint 3.3, ADR-032:
+    /// allocated since, or moved by a compacting collection).
+    /// </summary>
+    public const string NewObjects = "NewObjects";
+
+    /// <summary>Baseline objects of the row with no object of their type at their address in the current snapshot (collected, or moved).</summary>
+    public const string DeadObjects = "DeadObjects";
+
+    /// <summary>The row's retained lower bound in the baseline (sprint 3.3, as the type summary's retained column).</summary>
+    public const string BaselineRetained = "BaselineRetained";
+
+    /// <summary>The row's retained lower bound in the current snapshot.</summary>
+    public const string CurrentRetained = "CurrentRetained";
+
+    /// <summary>Current minus baseline retained lower bound.</summary>
+    public const string RetainedDelta = "RetainedDelta";
+
+    /// <summary>Byte deltas per heap kind (sprint 3.3, when both snapshots have generations).</summary>
+    public const string Gen0Delta = "Gen0Delta";
+
+    public const string Gen1Delta = "Gen1Delta";
+
+    public const string Gen2Delta = "Gen2Delta";
+
+    public const string LohDelta = "LohDelta";
+
+    public const string PohDelta = "PohDelta";
+
     /// <summary>The <see cref="Change"/> value of a row present only in the current snapshot.</summary>
     public const string New = "new";
 
@@ -187,6 +227,10 @@ public static class TypeDiffColumns
 /// object of each dump, unreachable ones included; the matching totals cover the rows that pass the filter (the whole
 /// heap without one) and are what <c>diff --fail-on-growth</c> checks. <see cref="ExactCounts"/> is false when either
 /// snapshot's counts are estimates (a sampled gcdump, ADR-003): the deltas are then estimates too.
+/// Since 3.3: <see cref="ObjectsMatched"/> when objects were matched by address (with the heap's
+/// <see cref="NewObjects"/> and <see cref="DeadObjects"/>), else <see cref="IdentityNote"/> says why not when asked;
+/// <see cref="KindDeltas"/> the whole heap's byte delta per heap kind when both snapshots have generations; the dominators'
+/// origins when retained bytes were asked for.
 /// </summary>
 public sealed record TypeDiffResult(
     ResultSetInfo Rows,
@@ -200,4 +244,52 @@ public sealed record TypeDiffResult(
     long MatchingBaselineBytes,
     long MatchingBytesDelta,
     double ElapsedSeconds,
-    bool ExactCounts);
+    bool ExactCounts,
+    bool ObjectsMatched = false,
+    string? IdentityNote = null,
+    long NewObjects = 0,
+    long DeadObjects = 0,
+    IReadOnlyList<HeapKindTotal>? KindDeltas = null,
+    DominatorIndexInfo? BaselineDominators = null,
+    DominatorIndexInfo? CurrentDominators = null);
+
+/// <summary>
+/// A trend across several snapshots (sprint 3.3): rows per type, namespace, assembly or interface with objects and bytes
+/// in each snapshot, in the order given (2 to <see cref="TypeTrendColumns.MaxSnapshots"/>).
+/// </summary>
+public sealed record TypeTrendRequest(
+    IReadOnlyList<Guid> SnapshotIds,
+    TypeGrouping GroupBy = TypeGrouping.Type,
+    string? Filter = null,
+    string? SortColumn = null,
+    bool Descending = true);
+
+/// <summary>
+/// Column names of a trend result set: the name, objects and bytes per snapshot (<see cref="Objects"/>, <see cref="Bytes"/>
+/// numbered from 1), the change from the first to the last, and <see cref="GrowthSteps"/>, the steps between consecutive
+/// snapshots in which the row's bytes grew.
+/// </summary>
+public static class TypeTrendColumns
+{
+    public const int MaxSnapshots = 20;
+
+    public const string Name = "Name";
+    public const string ObjectsDelta = "ObjectsDelta";
+    public const string BytesDelta = "BytesDelta";
+    public const string GrowthSteps = "GrowthSteps";
+
+    /// <summary>Hidden key column in Type grouping.</summary>
+    public const string TypeName = "TypeName";
+
+    /// <summary>Hidden key column in Type grouping.</summary>
+    public const string Module = "Module";
+
+    /// <summary>The objects column of snapshot <paramref name="number"/> (from 1).</summary>
+    public static string Objects(int number) => "Objects" + number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The bytes column of snapshot <paramref name="number"/> (from 1).</summary>
+    public static string Bytes(int number) => "Bytes" + number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+/// <summary>The answer to a trend: the rows, each snapshot's total bytes in order, and the rows before the filter.</summary>
+public sealed record TypeTrendResult(ResultSetInfo Rows, IReadOnlyList<long> TotalBytes, int UnfilteredRows, double ElapsedSeconds, bool ExactCounts);

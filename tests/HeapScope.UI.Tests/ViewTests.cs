@@ -137,6 +137,50 @@ public sealed class ViewTests(UiSession ui) : IDisposable
     }
 
     [Fact]
+    public async Task The_compare_tab_shows_new_and_dead_columns_and_the_trend_view_binds_cleanly()
+    {
+        // Sprint 3.3.
+        await ui.RunAsync(async () =>
+        {
+            var (shell, worker) = Shell();
+            worker.Service.DiffRows.Add(["App.Order", "", "2", "5", "3", "80", "200", "120", "1", "1", "App.Order", "App.dll"]);
+            worker.Service.TrendRows.Add(("App.Order", [2, 5]));
+            var snapshots = shell.Snapshots;
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell);
+            window.Show();
+            shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+            foreach (var name in new[] { "first.dmp", "second.dmp" })
+            {
+                var dump = Path.Combine(_folder, name);
+                await File.WriteAllBytesAsync(dump, [1]);
+                await snapshots.OpenPathAsync(dump);
+            }
+
+            snapshots.Tab = SnapshotTabs.Compare;
+            var compare = snapshots.Compare;
+            await compare.QueryTask;
+            compare.MatchObjects = true;
+            await compare.QueryTask;
+            await Settle(compare.Rows);
+            Dispatcher.UIThread.RunJobs();
+            var grid = Grid(window, "CompareGrid");
+            grid.Columns.Single(c => Equals(c.Tag, ColumnGroups.Identity) && c.Header as string == "New objects").IsVisible.ShouldBeTrue();
+            grid.Columns.Where(c => Equals(c.Tag, ColumnGroups.Retained)).ShouldAllBe(c => !c.IsVisible);
+
+            compare.IsTrendShown = true;
+            await compare.Trend.QueryTask;
+            await Settle(compare.Trend.Rows);
+            Dispatcher.UIThread.RunJobs();
+            Grid(window, "TrendGrid").IsEffectivelyVisible.ShouldBeTrue();
+            grid.IsEffectivelyVisible.ShouldBeFalse();
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
+    [Fact]
     public async Task The_retainers_tab_expands_with_the_keys_and_a_type_rows_menu_opens_its_set()
     {
         await ui.RunAsync(async () =>

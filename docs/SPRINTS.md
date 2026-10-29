@@ -35,7 +35,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 2.8 | Packaging and distribution | Planned | | |
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
-| 3.3 | Comparison depth | Planned | | |
+| 3.3 | Comparison depth | In Progress | | |
 | 3.4 | Live workflow and housekeeping | Planned | | |
 | 3.5 | Leak detection depth | Planned | | |
 
@@ -2601,11 +2601,61 @@ only exist in the baseline); retained bytes in diffs (a type's retained lower bo
 different sessions; diff growth by generation (from 1.4). From the 3.1 review (M6): a set's baseline generalized into "the
 other snapshot" (dead objects only exist in the baseline), bound to the current ids at each call like an inspection row's.
 
-**Acceptance criteria**: to be set at /start-sprint.
+**Acceptance criteria**:
+- On two LeakyConsole dumps of one process, a Compare row's New, Dead and Survived objects equal the address matches
+  computed with ClrMD: New and Survived open as sets in the current snapshot, Dead as a set in the baseline, and the
+  grid's New and Dead columns agree with those sets' counts. Dumps of different processes refuse it with the reason.
+- Compare can show each row's retained lower bound in both snapshots and the delta; on the fixture each row equals the
+  type summary's retained column of its snapshot.
+- A trend of three or more snapshots lists each row's objects and bytes in every snapshot, the change from first to last
+  and the steps it grew in; on three fixture dumps with growing leaks the leak types grew in every step.
+- Compare shows per-generation byte deltas when both snapshots have generations, and the CLI's growth gate can check one
+  heap kind (`--growth-of gen2`) and each row on its own (`--fail-on-growth-per-row`).
+- Snapshots from different sessions compare like snapshots of one session.
 
 **Dependencies**: 3.1.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Decisions** (all decided autonomously, 2026-10-28, Phase 3 autonomy):
+1. Object identity across dumps by address (ADR-032, amends ADR-018): only for two full dumps of one process (same
+   process id and name, the current captured later). A current object is Survived when the baseline has an object of
+   the same type key at its address, otherwise New; a baseline object with no object of its type key at its address in
+   the current snapshot is Dead. A compacting collection moves objects, so a moved survivor counts as Dead and New; the
+   columns and sets say "by address". Computed by one merge of the two snapshots' sorted addresses.
+2. Compare rows grouped by type get New and Dead columns when asked (`TypeDiffRequest.MatchObjects`); a row opens its New
+   or Survived objects as a set in the current snapshot and its Dead objects as a set in the baseline. Spec kind
+   `Compared`: the inner set (the row's types), the change, and the other snapshot. The 3.1 review's M6: an inspection
+   row's baseline and a compared set's other snapshot are one "other snapshot" field, bound to the current ids at each
+   call.
+3. Retained bytes in Compare (from 2.3 decision 7): `TypeDiffRequest.IncludeRetained` computes or opens both snapshots'
+   dominators and adds each row's retained lower bound in both and the delta. Not for interface rows.
+4. Trends (`QueryTypeTrendAsync`): 2 to 20 snapshots in the order given (the app orders them by capture time), rows per
+   type, namespace, assembly or interface, with objects and bytes per snapshot, the change first to last and the number
+   of steps the bytes grew in. In the app a Trend view beside the two-snapshot comparison uses the open snapshots the
+   user ticks; the CLI's `trend` takes the dumps in order.
+5. Growth by generation (from 1.4): `TypeDiffResult` and the rows carry byte deltas per heap kind when both snapshots
+   have generations (Compare's Generations switch shows them). The CLI's `--growth-of total|gen0|gen1|gen2|loh|poh`
+   picks what the gate checks, and `--fail-on-growth-per-row` fails when any one matching row grows more than the
+   limit (its percent against that row's baseline).
+6. Different sessions: Compare already pairs any two open snapshots; a test states it for two session folders.
+7. Logging: a diff logs whether it matched objects (and why not), the New and Dead totals, whether retained bytes were
+   added and from where; a trend logs its snapshots in order, grouping and row count; the gate logs what it checked.
+8. Protocol 18.
+
+**Task breakdown**:
+1. [x] Contracts: `TypeDiffRequest` `MatchObjects` and `IncludeRetained`, the new diff columns (New, Dead, retained in
+   both and delta, per-kind deltas), the set kind `Compared` with `ObjectChange` and the other snapshot, the trend query,
+   protocol 18. Tests: round trips, cache keys, version.
+2. [x] Analysis: `ObjectIdentity` (the address merge: per type New, Dead and Survived counts, and the members of a change
+   for a set), per-kind deltas and retained columns in `TypeDiff`, `TypeTrend`. Tests: synthetic graphs with known
+   answers, moved objects, different type keys at one address.
+3. [x] Worker: diff with matching, retained and kinds; the `Compared` set kind resolved against the other snapshot under
+   both leases; the trend query; logging. Tests: integration on two fixture dumps of one process (ClrMD address matches),
+   different processes refused.
+4. [x] Application and CLI: session methods (`ObjectSetQuery.Other`), `diff --match-objects --retained --growth-of
+   --fail-on-growth-per-row`, `trend`, `set --compared-with <dump> --change new|dead|survived`. Tests: CLI on the fixture.
+5. [x] View models and UI: Compare's New and Dead columns, retained and generations switches, a row's New, Dead and
+   Survived as sets, the Trend view with its snapshot choice. Tests: view model and view tests, no binding errors.
+6. [x] Docs: ARCHITECTURE (ADR-032, protocol, logging), DEVELOPER, README, this section.
 
 **Review summary**: to be filled by /wrap-sprint.
 

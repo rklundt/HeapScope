@@ -66,7 +66,15 @@ dotnet test --solution HeapScope.sln
   GC.WaitForPendingFinalizers(); GC.Collect();`) or compare gcdumps. Snapshot notes (incomplete heap segments, dropped
   references) are printed to stderr for each side, and in the JSON, which also carries `BaselineKind`, `CurrentKind`,
   `BaselineIncludesUnreachable` and `CurrentIncludesUnreachable` (`IncludesUnreachable` is true only when both are,
-  sprint 1.9).
+  sprint 1.9). Since 3.3: `--match-objects` adds New and Dead objects per row, matched by address and type, only for two
+  dumps of one process (otherwise stderr says why and the columns are left out); `--retained` adds each row's retained
+  lower bound in both dumps and the delta; `--sort new|dead|retained-delta|gen2-delta`; `--growth-of gen0|gen1|gen2|loh|poh`
+  gates on one heap kind's growth (with a size; a percent there exits 64), and `--fail-on-growth-per-row` checks each
+  matching row on its own (a percent against that row's baseline bytes) and lists the rows over it. Both read every
+  matching row. `trend <dump> <dump> [<dump>...] [--group] [--filter] [--sort bytes-delta|count-delta|growth-steps|name]
+  [--top N | --all] [--format table|csv|json]` puts 2 to 20 dumps side by side, oldest first: bytes in each, the change
+  first to last, and the steps a row grew in. `set ... --compared-with <dump> --change new|dead|survived` opens a set's
+  objects matched against another dump of the process (dead objects live in the earlier dump: give it as the snapshot).
   `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value|retained]
   [--retained] [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size,
   generation and a string's text (first 100 characters) or an array's length; with `--retained` (sprint 2.3) each

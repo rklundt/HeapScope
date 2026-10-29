@@ -59,6 +59,12 @@ internal static partial class CliCommands
             }
         });
 
+        var matchObjects = new Option<bool>("--match-objects") { Description = "Add New and Dead objects per row, matched by address and type: only for two dumps of one process (sprint 3.3). An object moved by a compacting GC counts as dead and new." };
+        var retained = RetainedOption("Add each row's retained bytes in both dumps and the delta (lower bounds; computes each dump's dominators the first time).");
+        var growthOf = new Option<string>("--growth-of") { Description = "What --fail-on-growth checks: total bytes (default) or one heap kind's bytes (gen0, gen1, gen2, loh, poh; with a size, not a percent).", DefaultValueFactory = _ => "total" };
+        growthOf.AcceptOnlyFromAmong(s_growthColumns.Keys.ToArray());
+        var perRow = new Option<bool>("--fail-on-growth-per-row") { Description = "Check --fail-on-growth against each matching row on its own (a percent against that row's baseline bytes), so one growing type cannot hide behind a shrinking one." };
+
         var command = new Command("diff", "Compare two dumps by type: objects and bytes in each and their growth (opens them first; reuses their index caches). Exit codes: 0 ok, 2 grew more than --fail-on-growth, 1 error, 64 usage, 130 canceled.");
         command.Arguments.Add(baseline);
         command.Arguments.Add(current);
@@ -69,6 +75,10 @@ internal static partial class CliCommands
         command.Options.Add(all);
         command.Options.Add(format);
         command.Options.Add(failOnGrowth);
+        command.Options.Add(matchObjects);
+        command.Options.Add(retained);
+        command.Options.Add(growthOf);
+        command.Options.Add(perRow);
         AddTopOrAllValidator(command, top, all);
         command.Validators.Add(result =>
         {
@@ -76,6 +86,21 @@ internal static partial class CliCommands
             if (result.GetValue(failOnGrowth) is not null && result.GetValue(group) == "interface")
             {
                 result.AddError("--fail-on-growth cannot gate interface rows: a type counts under each interface it implements, so their growth adds up more than once. Gate by type, namespace or assembly.");
+            }
+
+            if (result.GetValue(failOnGrowth) is { } gate && gate.TrimEnd().EndsWith('%') && result.GetValue(growthOf) is not (null or "total") && !result.GetValue(perRow))
+            {
+                result.AddError("--growth-of a heap kind takes a size (50MB), not a percent: the dumps' per-kind baseline bytes are not summed per row.");
+            }
+
+            if ((result.GetValue(growthOf) is not (null or "total") || result.GetValue(perRow)) && result.GetValue(failOnGrowth) is null)
+            {
+                result.AddError("--growth-of and --fail-on-growth-per-row go with --fail-on-growth.");
+            }
+
+            if (result.GetValue(retained) && result.GetValue(group) == "interface")
+            {
+                result.AddError("Interface rows have no retained bytes: a type counts under each interface it implements. Leave out --retained, or group by type, namespace or assembly.");
             }
         });
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
@@ -101,9 +126,19 @@ internal static partial class CliCommands
                 parseResult.GetValue(filter),
                 s_sortColumns[sortName],
                 descending: sortName != "name",
-                progress: null,
-                ct).ConfigureAwait(false);
+                progress: parseResult.GetValue(retained) ? new StderrProgress(error) : null,
+                ct,
+                parseResult.GetValue(matchObjects),
+                parseResult.GetValue(retained)).ConfigureAwait(false);
             var result = diff.Result;
+            if (result.IdentityNote is { } why)
+            {
+                await error.WriteLineAsync("Note: no New and Dead objects: " + why).ConfigureAwait(false);
+            }
+            else if (result.ObjectsMatched)
+            {
+                await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"Note: {result.NewObjects:N0} new and {result.DeadObjects:N0} dead objects, matched by address: an object moved by a compacting GC counts as dead and new.")).ConfigureAwait(false);
+            }
             await WriteNotesAsync(error, "Baseline", before).ConfigureAwait(false);
             await WriteNotesAsync(error, "Current", after).ConfigureAwait(false);
             if (!result.ExactCounts)
@@ -114,6 +149,10 @@ internal static partial class CliCommands
             var wanted = parseResult.GetValue(all) ? result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), result.Rows.TotalCount);
             var rows = await FetchRowsAsync(diff.Rows, wanted, ct).ConfigureAwait(false);
             var columns = diff.Rows.Info.Columns;
+
+            // A per-row or per-kind gate reads every matching row, before the rows are released.
+            var gateAll = parseResult.GetValue(failOnGrowth) is not null && (parseResult.GetValue(perRow) || parseResult.GetValue(growthOf) != "total");
+            var gateRows = gateAll ? (wanted == result.Rows.TotalCount ? rows : await FetchRowsAsync(diff.Rows, result.Rows.TotalCount, ct).ConfigureAwait(false)) : rows;
             switch (parseResult.GetValue(format))
             {
                 case "csv":
@@ -123,7 +162,7 @@ internal static partial class CliCommands
                     await WriteDiffJsonAsync(output, result, before, after, columns, rows).ConfigureAwait(false);
                     break;
                 default:
-                    await WriteDiffTableAsync(output, result, rows).ConfigureAwait(false);
+                    await WriteDiffTableAsync(output, result, columns, rows).ConfigureAwait(false);
                     break;
             }
 
@@ -146,19 +185,53 @@ internal static partial class CliCommands
                     return Failure;
                 }
 
-                var limit = threshold.LimitFor(result.MatchingBaselineBytes);
-                var exceeded = threshold.IsExceededBy(result.MatchingBytesDelta, result.MatchingBaselineBytes);
+                var kindColumn = s_growthColumns[parseResult.GetValue(growthOf)!];
+                if (kindColumn is not null && !columns.Any(c => c.Name == kindColumn))
+                {
+                    await error.WriteLineAsync("Error: --growth-of a heap kind needs both dumps to record generations (a gcdump does not).").ConfigureAwait(false);
+                    return Failure;
+                }
+
+                long Cell(IReadOnlyList<string?> row, string column) => long.Parse(row[ColumnAt(columns, column)]!, CultureInfo.InvariantCulture);
+                long delta, baselineBytes;
+                var offenders = new List<string>();
+                if (parseResult.GetValue(perRow))
+                {
+                    // Each row on its own (decision 5): its own delta against its own baseline bytes.
+                    foreach (var row in gateRows)
+                    {
+                        var rowDelta = Cell(row, kindColumn ?? TypeDiffColumns.BytesDelta);
+                        if (threshold.IsExceededBy(rowDelta, Cell(row, TypeDiffColumns.BaselineBytes)))
+                        {
+                            offenders.Add(string.Create(CultureInfo.InvariantCulture, $"{row[0]} ({Signed(rowDelta)} bytes)"));
+                        }
+                    }
+
+                    (delta, baselineBytes) = (gateRows.Count == 0 ? 0 : gateRows.Max(r => Cell(r, kindColumn ?? TypeDiffColumns.BytesDelta)), 0);
+                }
+                else
+                {
+                    (delta, baselineBytes) = kindColumn is null
+                        ? (result.MatchingBytesDelta, result.MatchingBaselineBytes)
+                        : (gateRows.Sum(r => Cell(r, kindColumn)), 0);
+                }
+
+                var exceeded = parseResult.GetValue(perRow) ? offenders.Count > 0 : threshold.IsExceededBy(delta, baselineBytes);
+                var limit = threshold.LimitFor(baselineBytes);
 
                 // The gate's decision in the log, so a failed CI run can be explained later (sprint 2.3.7 review M4). The
                 // filter is logged by its length only.
                 services().GetRequiredService<ILoggerFactory>().CreateLogger("HeapScope.Cli.Diff").LogInformation(
-                    "Growth gate {Outcome} ({Grouping} rows): matching rows grew by {Delta} bytes from {BaselineBytes} bytes, limit {Threshold} ({Limit} bytes); {Rows} matching rows, filter {FilterLength} chars; baseline {Baseline} (worker snapshot {BaselineId}), current {Current} (worker snapshot {CurrentId}); exact counts {ExactCounts}",
+                    "Growth gate {Outcome} ({Grouping} rows, growth of {GrowthOf}, per row {PerRow}): grew by {Delta} bytes from {BaselineBytes} bytes, limit {Threshold} ({Limit} bytes); {Offenders} rows over it; {Rows} matching rows, filter {FilterLength} chars; baseline {Baseline} (worker snapshot {BaselineId}), current {Current} (worker snapshot {CurrentId}); exact counts {ExactCounts}",
                     exceeded ? "failed" : "passed",
                     parseResult.GetValue(group),
-                    result.MatchingBytesDelta,
-                    result.MatchingBaselineBytes,
+                    parseResult.GetValue(growthOf),
+                    parseResult.GetValue(perRow),
+                    delta,
+                    baselineBytes,
                     text,
                     limit,
+                    offenders.Count,
                     result.Rows.TotalCount,
                     parseResult.GetValue(filter)?.Length ?? 0,
                     before.Path,
@@ -168,8 +241,9 @@ internal static partial class CliCommands
                     result.ExactCounts);
                 if (exceeded)
                 {
-                    await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                        $"Grew by {Signed(result.MatchingBytesDelta)} bytes, more than {text} ({limit:N0} bytes).")).ConfigureAwait(false);
+                    await error.WriteLineAsync(parseResult.GetValue(perRow)
+                        ? string.Create(CultureInfo.InvariantCulture, $"{offenders.Count:N0} rows grew by more than {text}: {string.Join(", ", offenders.Take(10))}{(offenders.Count > 10 ? " and more" : string.Empty)}.")
+                        : string.Create(CultureInfo.InvariantCulture, $"Grew by {Signed(delta)} bytes{(kindColumn is null ? string.Empty : " in " + parseResult.GetValue(growthOf))}, more than {text} ({limit:N0} bytes).")).ConfigureAwait(false);
                     return GrowthExceeded;
                 }
             }
@@ -189,21 +263,55 @@ internal static partial class CliCommands
         ["baseline-bytes"] = TypeDiffColumns.BaselineBytes,
         ["baseline-count"] = TypeDiffColumns.BaselineObjects,
         ["name"] = TypeDiffColumns.Name,
+        ["new"] = TypeDiffColumns.NewObjects,
+        ["dead"] = TypeDiffColumns.DeadObjects,
+        ["retained-delta"] = TypeDiffColumns.RetainedDelta,
+        ["gen2-delta"] = TypeDiffColumns.Gen2Delta,
     };
 
     private static string SortChoices => string.Join(", ", s_sortColumns.Keys);
 
-    private static async Task WriteDiffTableAsync(TextWriter output, TypeDiffResult result, List<IReadOnlyList<string?>> rows)
+    /// <summary>The index of a result column, or -1.</summary>
+    private static int ColumnAt(IReadOnlyList<ResultColumn> columns, string name)
+    {
+        for (var i = 0; i < columns.Count; i++)
+        {
+            if (columns[i].Name == name)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>What <c>--growth-of</c> checks: null for total bytes, else a per-kind delta column (sprint 3.3).</summary>
+    private static readonly Dictionary<string, string?> s_growthColumns = new(StringComparer.Ordinal)
+    {
+        ["total"] = null,
+        ["gen0"] = TypeDiffColumns.Gen0Delta,
+        ["gen1"] = TypeDiffColumns.Gen1Delta,
+        ["gen2"] = TypeDiffColumns.Gen2Delta,
+        ["loh"] = TypeDiffColumns.LohDelta,
+        ["poh"] = TypeDiffColumns.PohDelta,
+    };
+
+    private static async Task WriteDiffTableAsync(TextWriter output, TypeDiffResult result, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
     {
         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
             $"Baseline {result.BaselineObjects:N0} objects, {Mb(result.BaselineBytes)}; current {result.CurrentObjects:N0} objects, {Mb(result.CurrentBytes)}; delta {Signed(result.CurrentObjects - result.BaselineObjects)} objects, {Signed(result.CurrentBytes - result.BaselineBytes)} bytes (every object each snapshot holds: a full dump includes unreachable ones, a gcdump only survivors of its collection)")).ConfigureAwait(false);
         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
             $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} rows match ({result.NewRows:N0} new, {result.GoneRows:N0} gone overall), showing {rows.Count:N0}; matching rows grew by {Signed(result.MatchingBytesDelta)} bytes")).ConfigureAwait(false);
-        await output.WriteLineAsync($"{"Objects delta",14} {"Bytes delta",16} {"Objects",12} {"Bytes",16} {"Change",6}  Name").ConfigureAwait(false);
+        // Sprint 3.3: New and Dead, and the retained delta, when the diff has them.
+        var (newAt, deadAt, retainedAt) = (ColumnAt(columns, TypeDiffColumns.NewObjects), ColumnAt(columns, TypeDiffColumns.DeadObjects), ColumnAt(columns, TypeDiffColumns.RetainedDelta));
+        var extraHeader = (newAt >= 0 ? $" {"New",10} {"Dead",10}" : string.Empty) + (retainedAt >= 0 ? $" {"Retained delta",16}" : string.Empty);
+        await output.WriteLineAsync($"{"Objects delta",14} {"Bytes delta",16} {"Objects",12} {"Bytes",16}{extraHeader} {"Change",6}  Name").ConfigureAwait(false);
         foreach (var row in rows)
         {
+            var extra = (newAt >= 0 ? string.Create(CultureInfo.InvariantCulture, $" {long.Parse(row[newAt]!, CultureInfo.InvariantCulture),10:N0} {long.Parse(row[deadAt]!, CultureInfo.InvariantCulture),10:N0}") : string.Empty)
+                + (retainedAt >= 0 ? string.Create(CultureInfo.InvariantCulture, $" {Signed(long.Parse(row[retainedAt]!, CultureInfo.InvariantCulture)),16}") : string.Empty);
             await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                $"{Signed(long.Parse(row[4]!, CultureInfo.InvariantCulture)),14} {Signed(long.Parse(row[7]!, CultureInfo.InvariantCulture)),16} {long.Parse(row[3]!, CultureInfo.InvariantCulture),12:N0} {long.Parse(row[6]!, CultureInfo.InvariantCulture),16:N0} {row[1],6}  {row[0]}")).ConfigureAwait(false);
+                $"{Signed(long.Parse(row[4]!, CultureInfo.InvariantCulture)),14} {Signed(long.Parse(row[7]!, CultureInfo.InvariantCulture)),16} {long.Parse(row[3]!, CultureInfo.InvariantCulture),12:N0} {long.Parse(row[6]!, CultureInfo.InvariantCulture),16:N0}{extra} {row[1],6}  {row[0]}")).ConfigureAwait(false);
         }
     }
 

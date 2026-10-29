@@ -49,27 +49,53 @@ internal sealed class TypeDiffSource : IResultSource
         new(TypeDiffColumns.CurrentTypes, ResultColumnKind.Integer),
     ];
 
-    private static readonly ResultColumn[] s_typeColumns =
+    // Sprint 3.3: the optional columns, each with how it reads a row.
+    private static readonly (ResultColumn Column, Func<DiffRow, long> Value)[] s_matchColumns =
     [
-        .. s_columns,
+        (new(TypeDiffColumns.NewObjects, ResultColumnKind.Integer), r => r.NewObjects ?? 0),
+        (new(TypeDiffColumns.DeadObjects, ResultColumnKind.Integer), r => r.DeadObjects ?? 0),
+    ];
+
+    private static readonly (ResultColumn Column, Func<DiffRow, long> Value)[] s_retainedColumns =
+    [
+        (new(TypeDiffColumns.BaselineRetained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound), r => (long)(r.BaselineRetained ?? 0)),
+        (new(TypeDiffColumns.CurrentRetained, ResultColumnKind.Bytes, Bound: ValueBound.LowerBound), r => (long)(r.CurrentRetained ?? 0)),
+        (new(TypeDiffColumns.RetainedDelta, ResultColumnKind.SignedInteger, Bound: ValueBound.LowerBound), r => r.RetainedDelta ?? 0),
+    ];
+
+    private static readonly (ResultColumn Column, Func<DiffRow, long> Value)[] s_kindColumns =
+    [
+        (new(TypeDiffColumns.Gen0Delta, ResultColumnKind.SignedInteger), r => r.KindDelta(HeapKind.Gen0)),
+        (new(TypeDiffColumns.Gen1Delta, ResultColumnKind.SignedInteger), r => r.KindDelta(HeapKind.Gen1)),
+        (new(TypeDiffColumns.Gen2Delta, ResultColumnKind.SignedInteger), r => r.KindDelta(HeapKind.Gen2)),
+        (new(TypeDiffColumns.LohDelta, ResultColumnKind.SignedInteger), r => r.KindDelta(HeapKind.LargeObjectHeap)),
+        (new(TypeDiffColumns.PohDelta, ResultColumnKind.SignedInteger), r => r.KindDelta(HeapKind.PinnedObjectHeap)),
+    ];
+
+    private static readonly ResultColumn[] s_hiddenTypeColumns =
+    [
         new(TypeDiffColumns.TypeName, ResultColumnKind.Text, IsHidden: true),
         new(TypeDiffColumns.Module, ResultColumnKind.Text, IsHidden: true),
     ];
 
     private readonly DiffRow[] _rows;
     private readonly bool _byType;
+    private readonly (ResultColumn Column, Func<DiffRow, long> Value)[] _extra;
+    private readonly ResultColumn[] _columns;
 
-    private TypeDiffSource(DiffRow[] rows, bool byType, int unfilteredCount, int newRows, int goneRows)
+    private TypeDiffSource(DiffRow[] rows, bool byType, int unfilteredCount, int newRows, int goneRows, (ResultColumn Column, Func<DiffRow, long> Value)[] extra)
     {
         _rows = rows;
         _byType = byType;
+        _extra = extra;
+        _columns = [.. s_columns, .. extra.Select(e => e.Column), .. byType ? s_hiddenTypeColumns : []];
         UnfilteredCount = unfilteredCount;
         NewRows = newRows;
         GoneRows = goneRows;
-        EstimatedBytes = rows.Sum(r => 64L + (2L * r.Name.Length));
+        EstimatedBytes = rows.Sum(r => 64L + (2L * r.Name.Length) + (r.BaselineKinds is null ? 0 : 128));
     }
 
-    public IReadOnlyList<ResultColumn> Columns => _byType ? s_typeColumns : s_columns;
+    public IReadOnlyList<ResultColumn> Columns => _columns;
 
     public int Count => _rows.Length;
 
@@ -102,9 +128,17 @@ internal sealed class TypeDiffSource : IResultSource
         SnapshotKind baselineKind,
         SnapshotKind currentKind,
         TypeInterfaces? baselineInterfaces = null,
-        TypeInterfaces? currentInterfaces = null)
+        TypeInterfaces? currentInterfaces = null,
+        DiffExtras? extras = null)
     {
         ArgumentNullException.ThrowIfNull(request);
+        extras ??= new DiffExtras();
+        (ResultColumn Column, Func<DiffRow, long> Value)[] extra =
+        [
+            .. extras.NewPerCurrentType is null ? [] : s_matchColumns,
+            .. extras.BaselineRetained is null ? [] : s_retainedColumns,
+            .. extras.Kinds ? s_kindColumns : [],
+        ];
         if (!Enum.IsDefined(request.GroupBy))
         {
             throw new ArgumentOutOfRangeException(nameof(request), $"Unknown grouping {(int)request.GroupBy}.");
@@ -123,6 +157,11 @@ internal sealed class TypeDiffSource : IResultSource
             .On(TypeDiffColumns.BytesDelta, r => r.BytesDelta)
             .On(TypeDiffColumns.BaselineTypes, r => r.BaselineTypes)
             .On(TypeDiffColumns.CurrentTypes, r => r.CurrentTypes);
+        foreach (var (column, value) in extra)
+        {
+            sort.On(column.Name, value);
+        }
+
         sort.Validate(sortColumn);
 
         var rows = TypeDiff.Build(
@@ -134,7 +173,8 @@ internal sealed class TypeDiffSource : IResultSource
             Snapshots.SnapshotKinds.Describe(baselineKind).NamesWhenComparedWith(currentKind),
             Snapshots.SnapshotKinds.Describe(currentKind).NamesWhenComparedWith(baselineKind),
             baselineInterfaces,
-            currentInterfaces);
+            currentInterfaces,
+            extras);
         var unfiltered = rows.Count;
         var newRows = rows.Count(r => r.IsNew);
         var goneRows = rows.Count(r => r.IsGone);
@@ -144,7 +184,7 @@ internal sealed class TypeDiffSource : IResultSource
         }
 
         sort.Sort(rows, sortColumn, request.Descending);
-        return new TypeDiffSource([.. rows], byType, unfiltered, newRows, goneRows);
+        return new TypeDiffSource([.. rows], byType, unfiltered, newRows, goneRows, extra);
     }
 
     public void FormatRow(int index, string?[] cells)
@@ -160,10 +200,16 @@ internal sealed class TypeDiffSource : IResultSource
         cells[7] = row.BytesDelta.ToString(CultureInfo.InvariantCulture);
         cells[8] = row.BaselineTypes.ToString(CultureInfo.InvariantCulture);
         cells[9] = row.CurrentTypes.ToString(CultureInfo.InvariantCulture);
+        var next = 10;
+        foreach (var (_, value) in _extra)
+        {
+            cells[next++] = value(row).ToString(CultureInfo.InvariantCulture);
+        }
+
         if (_byType)
         {
-            cells[10] = row.TypeName;
-            cells[11] = row.Module;
+            cells[next++] = row.TypeName;
+            cells[next] = row.Module;
         }
     }
 

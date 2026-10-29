@@ -244,6 +244,110 @@ public sealed class CompareViewModelTests : IDisposable
         ]);
     }
 
+    [Fact]
+    public async Task New_and_dead_objects_are_asked_for_shown_and_opened_as_sets_on_the_right_side()
+    {
+        // Sprint 3.3 (ADR-032).
+        _worker.Service.DiffRows.Add(["App.Kept", "", "1", "3", "2", "40", "120", "80", "1", "1", "App.Kept", "App.dll"]);
+        await OpenBothAsync();
+        Compare.VisibleColumnGroups.ShouldNotContain(ColumnGroups.Identity);
+
+        Compare.MatchObjects = true;
+        await WaitUntilAsync(() => _worker.Service.DiffQueries.Count == 2);
+        await Compare.QueryTask;
+
+        _worker.Service.DiffQueries[^1].MatchObjects.ShouldBeTrue();
+        Compare.IdentityShown.ShouldBeTrue();
+        Compare.VisibleColumnGroups.ShouldContain(ColumnGroups.Identity);
+        Compare.IdentityNote!.ShouldContain("by address");
+        Compare.Filter = "App.Kept";
+        await WaitUntilAsync(() => Compare.Rows.Count == 1 && Compare.Rows.GetRow(0) is { IsLoaded: true, Name: "App.Kept" });
+        var row = Compare.Rows.GetRow(0);
+        (row.NewObjects, row.DeadObjects).ShouldBe((1L, 0L));
+
+        Compare.OpenDeadCommand.Execute(row);
+        var dead = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (dead.Snapshot, dead.Set.Spec.Kind, dead.Set.Spec.Change, dead.Set.Baseline).ShouldBe((Compare.Baseline!.Handle, ObjectSetKind.Compared, ObjectChange.Dead, Compare.Current!.Handle));
+        Compare.OpenNewCommand.Execute(row);
+        var fresh = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (fresh.Snapshot, fresh.Set.Spec.Change, fresh.Set.Baseline, fresh.Title).ShouldBe((Compare.Current.Handle, ObjectChange.New, Compare.Baseline.Handle, "New App.Kept"));
+    }
+
+    [Fact]
+    public async Task Snapshots_of_different_processes_say_why_there_are_no_new_and_dead_objects()
+    {
+        _worker.Service.IdentityNote = "these snapshots are of different processes";
+        await OpenBothAsync();
+
+        Compare.MatchObjects = true;
+        await WaitUntilAsync(() => _worker.Service.DiffQueries.Count == 2);
+        await Compare.QueryTask;
+
+        (Compare.IdentityShown, Compare.IdentityNote).ShouldBe((false, "these snapshots are of different processes"));
+        Compare.OpenNewCommand.Execute(await FirstRowAsync());
+        Compare.Status.ShouldBe("these snapshots are of different processes");
+    }
+
+    [Fact]
+    public async Task A_trend_takes_the_ticked_snapshots_oldest_first_and_a_row_opens_in_the_last()
+    {
+        _worker.Service.TrendRows.Add(("App.Leak", [1, 3, 5]));
+        _worker.Service.CapturedAt = path => Path.GetFileName(path) switch
+        {
+            "third.dmp" => s_morning.AddHours(2),
+            "first.dmp" => s_morning,
+            _ => s_morning.AddHours(1),
+        };
+        foreach (var name in new[] { "third.dmp", "first.dmp", "second.dmp" })
+        {
+            await _snapshots.OpenPathAsync(Dump(name));
+        }
+
+        var trend = Compare.Trend;
+        Compare.IsTrendShown = true;
+        await WaitUntilAsync(() => _worker.Service.TrendQueries.Count == 1);
+        await trend.QueryTask;
+
+        trend.Ordered.Select(s => s.Title).ShouldBe(["first.dmp", "second.dmp", "third.dmp"]);
+        _worker.Service.TrendQueries[0].SnapshotIds.ShouldBe(trend.Ordered.Select(s => s.Handle.Descriptor.SnapshotId));
+        trend.Columns.Select(c => c.Column.Name).ShouldContain(TypeTrendColumns.Bytes(3));
+        trend.Totals!.ShouldContain("across 3 snapshots (first.dmp > second.dmp > third.dmp)");
+        var row = trend.Rows.GetRow(0);
+        await trend.Rows.WhenLoadedAsync();
+        row[TypeTrendColumns.GrowthSteps].ShouldBe("2");
+        trend.OpenRowCommand!.Execute(row);
+        _worker.Service.InstanceQueries.ShouldHaveSingleItem().SnapshotId.ShouldBe(trend.Ordered[^1].Handle.Descriptor.SnapshotId);
+
+        trend.Choices.Single(c => c.Snapshot.Title == "second.dmp").IsIncluded = false;
+        await WaitUntilAsync(() => _worker.Service.TrendQueries.Count == 2);
+        _worker.Service.TrendQueries[^1].SnapshotIds.Count.ShouldBe(2);
+        trend.Choices.Single(c => c.Snapshot.Title == "first.dmp").IsIncluded = false;
+        trend.Hint.ShouldNotBeNull().ShouldContain("Tick two or more");
+    }
+
+    [Fact]
+    public async Task Snapshots_from_different_session_folders_compare_like_any_two()
+    {
+        // Decision 6: Compare pairs any two open snapshots, whichever session folder they come from.
+        var other = Path.Combine(_folder, "other-session");
+        Directory.CreateDirectory(other);
+        await _snapshots.OpenPathAsync(Dump("earlier-name.dmp"));
+        var path = Path.Combine(other, "later-name.dmp");
+        await File.WriteAllBytesAsync(path, [1], Ct);
+        await _snapshots.OpenPathAsync(path);
+        await Compare.QueryTask;
+
+        _worker.Service.DiffQueries.ShouldHaveSingleItem();
+        Compare.Baseline!.Handle.Path.ShouldBe(path);
+    }
+
+    private async Task<DiffRowItem> FirstRowAsync()
+    {
+        var row = Compare.Rows.GetRow(0);
+        await Compare.Rows.WhenLoadedAsync();
+        return row;
+    }
+
     public void Dispose()
     {
         _snapshots.Dispose();

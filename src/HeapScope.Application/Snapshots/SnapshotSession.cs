@@ -229,7 +229,9 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         string? sortColumn,
         bool descending,
         IProgress<JobProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool matchObjects = false,
+        bool includeRetained = false)
     {
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(current);
@@ -240,7 +242,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
                 baseline,
                 current,
                 (service, baselineId, currentId, innerCt) => service.QueryTypeDiffAsync(
-                    new TypeDiffRequest(baselineId, currentId, groupBy, filter, sortColumn, descending), progress, innerCt),
+                    new TypeDiffRequest(baselineId, currentId, groupBy, filter, sortColumn, descending, matchObjects, includeRetained), progress, innerCt),
                 ct).ConfigureAwait(false);
             return latest.Rows;
         }
@@ -558,6 +560,67 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// reopened from their index caches (reopening one that is still loaded returns it as it is) and the call runs once
     /// more.
     /// </summary>
+    /// <summary>
+    /// A trend across <paramref name="snapshots"/> in the order given (sprint 3.3). The rows re-run the query, reopening any
+    /// snapshot after a worker restart, when the set is gone.
+    /// </summary>
+    public async Task<SnapshotTrend> QueryTypeTrendAsync(
+        IReadOnlyList<SnapshotHandle> snapshots,
+        TypeGrouping groupBy,
+        string? filter,
+        string? sortColumn,
+        bool descending,
+        IProgress<JobProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        TypeTrendResult? latest = null;
+        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
+        {
+            latest = await UseManyAsync(
+                snapshots,
+                (service, ids, innerCt) => service.QueryTypeTrendAsync(new TypeTrendRequest(ids, groupBy, filter, sortColumn, descending), progress, innerCt),
+                ct).ConfigureAwait(false);
+            return latest.Rows;
+        }
+
+        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
+        return new SnapshotTrend(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+    }
+
+    /// <summary>Like <see cref="UseBothAsync"/> for any number of snapshots (sprint 3.3, trends).</summary>
+    private async Task<T> UseManyAsync<T>(IReadOnlyList<SnapshotHandle> handles, Func<IWorkerService, IReadOnlyList<Guid>, CancellationToken, Task<T>> call, CancellationToken cancellationToken)
+    {
+        foreach (var handle in handles)
+        {
+            ThrowIfClosed(handle);
+        }
+
+        await worker.EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var handle in handles.Distinct())
+        {
+            if (handle.Generation != worker.Generation)
+            {
+                await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        try
+        {
+            return await worker.InvokeAsync((service, ct) => call(service, [.. handles.Select(h => h.WorkerSnapshotId)], ct), cancellationToken).ConfigureAwait(false);
+        }
+        catch (WorkerOperationException ex) when (ex.ErrorCode == HeapScopeErrorCode.SnapshotNotLoaded)
+        {
+            foreach (var handle in handles.Distinct())
+            {
+                ThrowIfClosed(handle);
+                await ReopenAsync(handle, cancellationToken).ConfigureAwait(false);
+            }
+
+            return await worker.InvokeAsync((service, ct) => call(service, [.. handles.Select(h => h.WorkerSnapshotId)], ct), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task<T> UseBothAsync<T>(
         SnapshotHandle first,
         SnapshotHandle second,

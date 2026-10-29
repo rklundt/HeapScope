@@ -45,6 +45,9 @@ internal static partial class CliCommands
         var ns = new Option<string?>("--namespace") { Description = "Every type of a namespace, as the summary's namespace rows name them." };
         var assembly = new Option<string?>("--assembly") { Description = "Every type of an assembly, by its module file name (Leaks.dll)." };
         var iface = new Option<string?>("--interface") { Description = "Every type implementing an interface, by its full name (full dumps)." };
+        var comparedWith = new Option<FileInfo?>("--compared-with") { Description = "Another dump of the same process: with --change, the set's new, dead or survived objects matched by address (sprint 3.3). Dead objects are in the earlier dump, so give the earlier dump as the snapshot and the later one here." };
+        var change = new Option<string?>("--change") { Description = "new, dead or survived, with --compared-with." };
+        change.AcceptOnlyFromAmong("new", "dead", "survived");
         var similarGroup = new Option<int>("--similar-group") { Description = "One Similar Retention group of the chosen set, by its number (from 1) as the similar view lists them.", DefaultValueFactory = _ => 0 };
         var addresses = new Option<string[]>("--address") { Description = "An object's address (0x...); repeat for several objects.", AllowMultipleArgumentsPerToken = true };
         var inspection = new Option<string?>("--inspection") { Description = "An inspection's name; with --row, the objects that row counted." };
@@ -59,7 +62,7 @@ internal static partial class CliCommands
 
         var command = new Command("set", "Show a set of objects, chosen by type, namespace, assembly, interface, address or inspection row, in one of the app's set views. Exit codes: 0 ok, 1 error (the set selects nothing), 64 usage, 130 canceled.");
         command.Arguments.Add(dump);
-        foreach (var option in new Option[] { types, module, ns, assembly, iface, addresses, inspection, row, baseline, similarGroup, retained, view, top, all, format })
+        foreach (var option in new Option[] { types, module, ns, assembly, iface, addresses, inspection, row, baseline, comparedWith, change, similarGroup, retained, view, top, all, format })
         {
             command.Options.Add(option);
         }
@@ -84,6 +87,14 @@ internal static partial class CliCommands
             {
                 result.AddError("--inspection needs --row (from 0).");
             }
+            else if ((result.GetValue(comparedWith) is null) != (result.GetValue(change) is null))
+            {
+                result.AddError("--compared-with and --change go together.");
+            }
+            else if (result.GetValue(comparedWith) is not null && result.GetValue(baseline) is not null)
+            {
+                result.AddError("--compared-with and --baseline name the other dump in two ways; give one.");
+            }
             else if (result.GetValue(similarGroup) < 0)
             {
                 result.AddError("--similar-group takes a group's number from 1, as --view similar lists them.");
@@ -104,7 +115,7 @@ internal static partial class CliCommands
             var session = services().GetRequiredService<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             SnapshotHandle? baselineHandle = null;
-            if (parseResult.GetValue(baseline) is { } baselineFile)
+            if ((parseResult.GetValue(baseline) ?? parseResult.GetValue(comparedWith)) is { } baselineFile)
             {
                 baselineHandle = await OpenForQueryAsync(baselineFile, error, ct).ConfigureAwait(false);
                 if (baselineHandle is null)
@@ -163,6 +174,11 @@ internal static partial class CliCommands
             else
             {
                 spec = ObjectSetSpec.OfInspectionRow(parseResult.GetValue(inspection)!, parseResult.GetValue(row));
+            }
+
+            if (parseResult.GetValue(change) is { } changeName)
+            {
+                spec = ObjectSetSpec.ComparedOf(spec, Enum.Parse<ObjectChange>(changeName, ignoreCase: true));
             }
 
             if (parseResult.GetValue(similarGroup) is > 0 and var number)

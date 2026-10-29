@@ -153,11 +153,13 @@ internal sealed partial class WorkerService
                 currentInterfaces = await GetInterfacesAsync(request.CurrentId, current, progress, cancellationToken, "the current snapshot").ConfigureAwait(false);
             }
 
+            var (extras, comparison) = await DiffExtrasAsync(request, baseline, current, progress, cancellationToken).ConfigureAwait(false);
             var source = await Task.Run(
-                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind, baselineInterfaces, currentInterfaces),
+                () => TypeDiffSource.Create(baseline.Graph, baselineAggregation, current.Graph, currentAggregation, request, baseline.Info.Kind, current.Info.Kind, baselineInterfaces, currentInterfaces, extras),
                 cancellationToken).ConfigureAwait(false);
             throttled.Flush();
             var rows = resultSets.Add(source);
+            LogDiff(request, comparison, source);
             return new TypeDiffResult(
                 rows,
                 baselineAggregation.TotalObjects,
@@ -170,6 +172,15 @@ internal sealed partial class WorkerService
                 source.MatchingBaselineBytes,
                 source.MatchingBytesDelta,
                 stopwatch.Elapsed.TotalSeconds,
-                baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts));
+                baseline.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts) && current.Capabilities.HasFlag(SnapshotCapabilities.ExactCounts),
+                comparison.Matched,
+                comparison.IdentityNote,
+                comparison.NewObjects,
+                comparison.DeadObjects,
+                extras.Kinds
+                    ? [.. TypeSummarySource.KindColumns.Select(k => new HeapKindTotal(k.ToDto(), currentAggregation.KindObjects[(int)k] - baselineAggregation.KindObjects[(int)k], (long)currentAggregation.KindBytes[(int)k] - (long)baselineAggregation.KindBytes[(int)k]))]
+                    : null,
+                comparison.BaselineDominators,
+                comparison.CurrentDominators);
         });
 }
