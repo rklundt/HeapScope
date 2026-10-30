@@ -155,48 +155,59 @@ classes.
    topic pages under `docs/architecture/`, ADRs under `docs/adr/`, closed sprints under `docs/sprints/`, the Backlog in
    `docs/BACKLOG.md`.
 10. P6 is a spike and ADR-037 only; building live allocation streaming is Phase 4.
+11. Decided during the sprint: the Live page split (P11's view model half) and the analysis workspace extraction (P21)
+    move to the Backlog. Both rebind views the smoke runs exercise, and the workspace is only worth extracting with
+    Phase 4's design for the worker's result sets of hidden snapshots (decision 7). P11's run-side problems (eight jobs
+    in one type, an unawaited trace watch) are fixed in 3.8.
+12. Decided during the sprint: the query runner covers the eleven views the review names (the nine grids through the
+    grid base, the retention paths and Similar Retention); the Object view, the inspections page, the allocation trace
+    page and the icicle keep their own loading, which already logs, and move to the runner when next touched.
+13. Decided during the sprint: worker handlers (task 9), feature availability (task 12), the CLI and shared presentation
+    (tasks 16 and 17) and derived state (task 14) were built by agents working from written briefs, in worktrees where
+    they ran in parallel; each change was reviewed against the CLI baseline and the full test suite before it joined the
+    branch.
 
 **Dependencies**: 3.6, 3.7.
 
 **Task breakdown**:
-1. [ ] Baseline: the CLI outputs of the acceptance criteria saved before any change; a contract test for unique method
+1. [x] Baseline: the CLI outputs of the acceptance criteria saved before any change; a contract test for unique method
    names. Tests: the baseline diff after tasks 9, 12, 14 and at the end.
-2. [ ] Docs split (P12): ARCHITECTURE.md overview, topic pages, ADR files, the protocol history in one place; links in
+2. [x] Docs split (P12): ARCHITECTURE.md overview, topic pages, ADR files, the protocol history in one place; links in
    README, SECURITY, DEVELOPER, the agents and skills. Tests: `DocLinksTests`.
-3. [ ] SPRINTS.md split and Backlog sweep (P12): closed sprints by phase, `docs/BACKLOG.md` without built items; the
+3. [x] SPRINTS.md split and Backlog sweep (P12): closed sprints by phase, `docs/BACKLOG.md` without built items; the
    skills move closed sections. Tests: `DocLinksTests`.
-4. [ ] Rules (S8, S9): DEVELOPER.md 4; `PublicTypesPerFileTests` ratchet.
-5. [ ] Safe events (P9): one raise helper; `JobTracker`, `SnapshotSession`, `AllocationSession`, `WorkerHost` raise after
+4. [x] Rules (S8, S9): DEVELOPER.md 4; `PublicTypesPerFileTests` ratchet.
+5. [x] Safe events (P9): one raise helper; `JobTracker`, `SnapshotSession`, `AllocationSession`, `WorkerHost` raise after
    state is final and outside gates. Tests: throwing-subscriber tests per raiser.
-6. [ ] `HeapScopeFolders` and the worker's data folder option (3.7 review). Tests: folder tests, option parsing, a text
+6. [x] `HeapScopeFolders` and the worker's data folder option (3.7 review). Tests: folder tests, option parsing, a text
    rule, a worker that keeps its key in its data folder.
-7. [ ] Injected index cache signer (3.7 review M11). Tests: `SignedCacheTests`, a rule against "none" in the worker, a
+7. [x] Injected index cache signer (3.7 review M11). Tests: `SignedCacheTests`, a rule against "none" in the worker, a
    worker-level untrusted cache test.
-8. [ ] Contracts by area (P5, S6). Tests: the contract test.
-9. [ ] Worker handlers per contract with shared services (P5). Tests: registration, in-process RPC, the integration tier,
+8. [x] Contracts by area (P5, S6). Tests: the contract test.
+9. [x] Worker handlers per contract with shared services (P5). Tests: registration, in-process RPC, the integration tier,
    the baseline.
-10. [ ] Application: one query helper, one reopen protocol (P5). Tests: `WorkerResourceTests`, reopen tests.
-11. [ ] Per-area fakes (P5). Tests: view model and UI tests.
-12. [ ] Feature availability and protocol 21 (P7, S6). Tests: availability per kind, refusals with the same reason, an
+10. [x] Application: one query helper, one reopen protocol (P5). Tests: `WorkerResourceTests`, reopen tests.
+11. [x] Per-area fakes (P5). Tests: view model and UI tests.
+12. [x] Feature availability and protocol 21 (P7, S6). Tests: availability per kind, refusals with the same reason, an
     incomplete dump offers no unreachable set, handshake, the baseline.
-13. [ ] Detectors (P19): a file per detector, one framework rule, a shared tally, runtime layouts. Tests: detector and
+13. [x] Detectors (P19): a file per detector, one framework rule, a shared tally, runtime layouts. Tests: detector and
     known answer tests, `FrameworkTypesTests`, `TypeTallyTests`.
 14. [ ] Derived state (P20): reachability and dominator groups in the worker's derived slots, the set cache with the
     snapshot. Tests: computed once for concurrent callers, no static caches, a set resolved after close is not kept.
-15. [ ] One type matcher (S5). Tests: a module path matches.
+15. [x] One type matcher (S5). Tests: a module path matches.
 16. [ ] Shared presentation (P18): column access, texts, monitor rules parser in Application. Tests: unit tests per text
     and parser, view model tests.
 17. [ ] CLI (P10): `HeapScope.Cli.Tests`, a context, cells by name, one open helper, commands in their own files. Tests:
     usage and characterization tests, the integration CLI tests, known answers.
-18. [ ] Monitoring (P11): timeline writer, awaited allocation recording, run record; `MonitorService.cs` a file per type.
+18. [x] Monitoring (P11): timeline writer, awaited allocation recording, run record; `MonitorService.cs` a file per type.
     Tests: `MonitorServiceTests`, a run disposed while its watch waits.
-19. [ ] Run file policy (3.7 review M2): checks with their cause in Application; the Live page shows and logs it. Tests:
+19. [x] Run file policy (3.7 review M2): checks with their cause in Application; the Live page shows and logs it. Tests:
     `SessionLibraryTests`, a Live test with a timeline outside the folder.
-20. [ ] Live page split (P11). Tests: Live view model tests, the view test, the smoke-live run.
-21. [ ] One query runner (P8). Tests: `QueryRunnerTests`, the grid view model tests.
-22. [ ] Analysis workspace extraction (P21). Tests: Snapshots view model and view tests, smoke runs.
-23. [ ] trace-report on Avalonia (S7). Tests: a recorded smoke trace reported by hand.
-24. [ ] Live sources spike and ADR-037 (P6); ADR-023 amended.
+20. [-] Live page split (P11): deferred (decision 11). Tests: none.
+21. [x] One query runner (P8). Tests: `QueryRunnerTests`, the grid view model tests.
+22. [-] Analysis workspace extraction (P21): deferred (decision 11). Tests: none.
+23. [x] trace-report on Avalonia (S7). Tests: a recorded smoke trace reported by hand.
+24. [x] Live sources spike and ADR-037 (P6); ADR-023 amended.
 25. [ ] Docs: the architecture pages, ADR-036 amended, DEVELOPER, this section.
 
 **Review summary**: to be filled by /wrap-sprint.

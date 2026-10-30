@@ -56,6 +56,11 @@ Swept in sprint 3.8:
   (gc-specialist Low); monitoring cards showing a capture's warning (support Low).
 
 **Medium**
+- From 3.8 (decided autonomously): the Live page view model split into live monitoring, past runs and timeline actions
+  with a shared chart state (peer review P11, its view model half); an analysis workspace per snapshot, extracted from
+  the Snapshots page, with a design for the worker's result sets of hidden snapshots (P21, Phase 4); the Object view,
+  the inspections page, the allocation trace page and the icicle loading through the query runner (P8's second wave);
+  `OfTypeKeys` and `TypeGroups.MatchTypes` as one matcher (S5, both normalize the module since 3.8).
 - From the 3.4 review (decided autonomously): `session.json` runs read one by one, an unreadable run kept as its JSON
   so the session still opens and nothing is lost on save, with the rule that new run members are optional (M8); a seam
   in front of `DumpCapturer` so the real per-process capture gate is tested deterministically (one pid refused, two pids
