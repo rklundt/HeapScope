@@ -192,7 +192,7 @@ classes.
     incomplete dump offers no unreachable set, handshake, the baseline.
 13. [x] Detectors (P19): a file per detector, one framework rule, a shared tally, runtime layouts. Tests: detector and
     known answer tests, `FrameworkTypesTests`, `TypeTallyTests`.
-14. [ ] Derived state (P20): reachability and dominator groups in the worker's derived slots, the set cache with the
+14. [x] Derived state (P20): reachability and dominator groups in the worker's derived slots, the set cache with the
     snapshot. Tests: computed once for concurrent callers, no static caches, a set resolved after close is not kept.
 15. [x] One type matcher (S5). Tests: a module path matches.
 16. [ ] Shared presentation (P18): column access, texts, monitor rules parser in Application. Tests: unit tests per text
