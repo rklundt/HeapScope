@@ -585,16 +585,22 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         await session.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>Records a state change; <see cref="RaiseStateChanges"/> reports it once the gate is released.</summary>
+    /// <summary>
+    /// Records a state change and reports it at once on the thread pool, outside the gate: Starting reaches the status bar
+    /// while the worker starts, not after (3.8 review). The caller drains again after releasing the gate, so every change is
+    /// reported before its call returns.
+    /// </summary>
     private void SetState(WorkerState state, string? message)
     {
         _state = (int)state;
         _stateChanges.Enqueue(new WorkerStateChangedEventArgs(state, message));
+        ThreadPool.UnsafeQueueUserWorkItem(static host => host.RaiseStateChanges(), this, preferLocal: false);
     }
 
     /// <summary>
-    /// Raises the state changes recorded so far, in order, outside the gate (peer review P9): a listener that throws or
-    /// calls back into the host cannot fail or block the call that changed the state.
+    /// Raises the state changes recorded so far, in order, never under the gate (peer review P9): a listener that throws or
+    /// calls back into the host cannot fail or block the call that changed the state. One raise at a time keeps the order;
+    /// a listener that blocks holds up later changes only.
     /// </summary>
     private void RaiseStateChanges()
     {

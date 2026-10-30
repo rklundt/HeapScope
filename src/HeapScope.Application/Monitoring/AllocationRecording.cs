@@ -148,8 +148,10 @@ internal sealed class AllocationRecording : IAsyncDisposable
             while (!_stop.IsCancellationRequested && _trace is { IsCompleted: false })
             {
                 await Task.Delay(s_checkInterval, _time, _stop.Token).ConfigureAwait(false);
-                var file = new FileInfo(path + ".partial") is { Exists: true } partial ? partial : new FileInfo(path);
-                var size = file.Exists ? file.Length : 0;
+                // The recorder writes a partial file of its own, renamed when it ends (3.8 review H1: the watch looked for
+                // another name and never saw the trace grow).
+                var size = Directory.EnumerateFiles(System.IO.Path.GetDirectoryName(path)!, TraceRecorder.PartialPattern(path)).Append(path)
+                    .Select(f => new FileInfo(f)).Where(f => f.Exists).Select(f => f.Length).DefaultIfEmpty(0).Max();
                 var free = new DriveInfo(System.IO.Path.GetPathRoot(System.IO.Path.GetFullPath(path))!).AvailableFreeSpace;
                 string? why = size >= _limitBytes
                     ? string.Create(CultureInfo.InvariantCulture, $"it reached its limit of {_limitBytes / (1024 * 1024)} MB")

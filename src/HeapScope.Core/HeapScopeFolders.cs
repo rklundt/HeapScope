@@ -21,9 +21,6 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
-using System.Security.Cryptography;
-using System.Text;
-
 namespace HeapScope.Core;
 
 /// <summary>
@@ -40,23 +37,30 @@ public sealed class HeapScopeFolders
 
     private readonly bool _isDefault;
 
-    /// <summary>Folders under <paramref name="root"/>.</summary>
-    public HeapScopeFolders(string root)
-        : this(root, isDefault: false)
+    /// <summary>Folders under <paramref name="root"/>, named by <paramref name="source"/> (for example <c>--data-folder</c>).</summary>
+    public HeapScopeFolders(string root, string source = "an option")
+        : this(root, source, isDefault: false)
     {
     }
 
-    private HeapScopeFolders(string root, bool isDefault)
+    private HeapScopeFolders(string root, string source, bool isDefault)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         Root = Path.GetFullPath(root);
+        Source = source;
         _isDefault = isDefault;
     }
 
-    /// <summary>The folders this process uses unless told otherwise, read once at its start.</summary>
-    public static HeapScopeFolders Default { get; } = Environment.GetEnvironmentVariable(EnvironmentVariable) is { Length: > 0 } root
-        ? new HeapScopeFolders(root)
-        : new HeapScopeFolders(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope"), isDefault: true);
+    /// <summary>
+    /// The folders this process uses unless told otherwise, read once at its start. A value of only spaces counts as unset
+    /// (3.8 review): a malformed variable must not stop every HeapScope process before it can log anything.
+    /// </summary>
+    public static HeapScopeFolders Default { get; } = string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(EnvironmentVariable))
+        ? new HeapScopeFolders(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope"), "the default", isDefault: true)
+        : new HeapScopeFolders(Environment.GetEnvironmentVariable(EnvironmentVariable)!, EnvironmentVariable);
+
+    /// <summary>Where <see cref="Root"/> came from, for the start lines: the default, the environment variable or an option.</summary>
+    public string Source { get; }
 
     /// <summary>The root: the index cache key, the trusted DACs and the bookmarks live here.</summary>
     public string Root { get; }

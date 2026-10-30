@@ -821,7 +821,7 @@ public sealed class SessionLibrary
     }
 
     /// <summary>
-    /// Deletes snapshots left half-written (<c>*.dmp.partial</c>, <c>*.gcdump.partial</c> since 1.8, <c>*.nettrace.partial</c> recordings since 2.5) under <paramref name="folder"/> (default: the root) that
+    /// Deletes snapshots left half-written (<c>*.dmp.partial</c>, <c>*.gcdump.partial</c> since 1.8, <c>*.nettrace.partial</c> recordings since 2.5, <c>*.nettrace.*.partial</c> since 3.7) under <paramref name="folder"/> (default: the root) that
     /// are older than <paramref name="minimumAge"/> and no longer held by a writer: the safety net when HeapScope was
     /// killed while a canceled capture was still being written. Returns the number of files removed.
     /// </summary>
@@ -839,7 +839,7 @@ public sealed class SessionLibrary
         {
             // Links are never followed (sprint 3.7, peer review S4): a junction in the library could point anywhere.
             var options = new EnumerationOptions { RecurseSubdirectories = folder is null, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
-            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", options).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.partial", options)))
+            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", options).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.*.partial", options)))
             {
                 try
                 {

@@ -235,7 +235,8 @@ public sealed class SessionLibraryTests : IDisposable
         var library = new SessionLibrary(_root, _time);
         var folder = library.Current.Folder;
         var old = _time.GetUtcNow().UtcDateTime.AddHours(-1);
-        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial")];
+        // A recording's partial carries a random part since 3.7 (3.8 review: the sweep missed it).
+        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial"), HeapScope.Capture.TraceRecorder.PartialName(Path.Combine(folder, "t.nettrace"))];
         foreach (var file in stale)
         {
             File.WriteAllBytes(file, new byte[10]);
@@ -246,7 +247,7 @@ public sealed class SessionLibraryTests : IDisposable
         File.WriteAllBytes(fresh, new byte[10]);
         File.SetLastWriteTimeUtc(fresh, _time.GetUtcNow().UtcDateTime);
 
-        library.SweepPartialDumps().ShouldBe(2);
+        library.SweepPartialDumps().ShouldBe(3);
 
         stale.ShouldAllBe(f => !File.Exists(f));
         File.Exists(fresh).ShouldBeTrue();
