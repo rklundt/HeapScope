@@ -29,7 +29,7 @@ namespace HeapScope.Application.Presentation;
 /// <summary>
 /// Reads a row's cells by column name from a result's columns, so a change in the worker's column order cannot put a
 /// value under the wrong header. A required column that is missing throws (<see cref="ResultColumns.Require"/>); a number
-/// read from an empty cell throws too, where a blank means something the caller must handle (<see cref="LongOrNull"/>).
+/// read from an empty or garbled cell throws a FormatException naming the column, where a blank means something the caller must handle (<see cref="LongOrNull"/>).
 /// </summary>
 public sealed class ColumnMap
 {
@@ -60,10 +60,21 @@ public sealed class ColumnMap
         return row[IndexOf(name) is >= 0 and var index ? index : ResultColumns.Require(Columns, name)];
     }
 
-    /// <summary>A required column's integer; a blank cell throws <see cref="ArgumentNullException"/>.</summary>
-    public long Long(IReadOnlyList<string?> row, string name) => long.Parse(Text(row, name)!, CultureInfo.InvariantCulture);
+    /// <summary>A required column's integer; a blank or garbled cell throws <see cref="FormatException"/> naming the column.</summary>
+    public long Long(IReadOnlyList<string?> row, string name) =>
+        LongOrNull(row, name) ?? throw new FormatException($"The worker's answer has no value in column {name}. Run the query again; if it repeats, report it with the log.");
 
     /// <summary>A required column's integer, or null for a blank cell (an object no root reaches retains nothing).</summary>
-    public long? LongOrNull(IReadOnlyList<string?> row, string name) =>
-        Text(row, name) is { } text ? long.Parse(text, CultureInfo.InvariantCulture) : null;
+    public long? LongOrNull(IReadOnlyList<string?> row, string name)
+    {
+        var text = Text(row, name);
+        if (text is null)
+        {
+            return null;
+        }
+
+        return long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : throw new FormatException($"The worker's answer has no number in column {name}. Run the query again; if it repeats, report it with the log.");
+    }
 }

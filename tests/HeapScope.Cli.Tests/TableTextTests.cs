@@ -142,7 +142,7 @@ public sealed class TableTextTests
         var rows = SummaryRows(false, true);
         rows[0] = [.. rows[0].Select((cell, i) => i == 1 ? null : cell)];
 
-        await Should.ThrowAsync<ArgumentNullException>(() => LinesAsync(o => CliCommands.WriteSummaryTableAsync(o, Summary(columns, false, true), SnapshotKindDto.FullDump, columns, rows)));
+        await Should.ThrowAsync<FormatException>(() => LinesAsync(o => CliCommands.WriteSummaryTableAsync(o, Summary(columns, false, true), SnapshotKindDto.FullDump, columns, rows)));
     }
 
     private static readonly ResultColumn[] s_diffBase =

@@ -95,7 +95,14 @@ internal sealed partial class SnapshotStore
         using var lease = entry.Snapshot.AcquireLease();
         var graph = entry.Snapshot.Graph;
         var stopwatch = Stopwatch.StartNew();
-        var reachable = walk(graph, cancellationToken);
+
+        // Reserved like every other walk (3.8 review): its stack is bounded by the object count, not by anything smaller.
+        Reachability reachable;
+        using (_reservations.Reserve((long)(Reachability.WalkBytesPerObject * graph.ObjectCount), what, entry.Index.Mode, entry.Index.Identity != 0))
+        {
+            reachable = walk(graph, cancellationToken);
+        }
+
         logger.LogInformation(
             "{What} of snapshot {Id}: {Reachable} of {Objects} objects in {Seconds:N2} s",
             what,

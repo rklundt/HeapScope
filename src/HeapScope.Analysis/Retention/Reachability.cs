@@ -43,8 +43,14 @@ public sealed class Reachability
         Count = count;
     }
 
-    /// <summary>Bytes kept per object while the snapshot keeps it (the bit set; the walk's stack is chunked and small).</summary>
+    /// <summary>Bytes kept per object while the snapshot keeps it (the bit set).</summary>
     public const double BytesPerObject = 0.125;
+
+    /// <summary>
+    /// Bytes per object the walk may need at its peak: the bit set and a stack of object indices, which marks on push and
+    /// so can hold up to every object once (one large array's references at a time).
+    /// </summary>
+    public const double WalkBytesPerObject = 4.125;
 
     /// <summary>Reachable objects.</summary>
     public long Count { get; }

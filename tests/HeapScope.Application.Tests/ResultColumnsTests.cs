@@ -79,7 +79,7 @@ public sealed class ResultColumnsTests
         var map = new ColumnMap(s_columns);
 
         Should.Throw<InvalidOperationException>(() => map.Text(s_row, "Bytes"));
-        Should.Throw<ArgumentNullException>(() => map.Long(s_row, "Retained"));
+        Should.Throw<FormatException>(() => map.Long(s_row, "Retained")).Message.ShouldContain("column Retained");
         map.LongOrNull(s_row, "Retained").ShouldBeNull();
         map.LongOrNull(s_row, "Objects").ShouldBe(2000);
     }
