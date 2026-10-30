@@ -78,11 +78,11 @@ app.MapPost("/work", () =>
 });
 
 // A full blocking GC on request (sprint 3.6, peer review P11): growth rules compare the heap after a GC, and a server GC
-// may not collect for a while after the leak grows, so tests ask for one instead of waiting on the runtime.
+// may not collect for a while after the leak grows, so tests ask for one instead of waiting on the runtime. One induced
+// collection is a blocking gen2 collection under Server GC too; it never waits for finalizers, which the FinalizerBacklog
+// leak blocks for good (sprint 3.6 review).
 app.MapPost("/gc", () =>
 {
-    GC.Collect();
-    GC.WaitForPendingFinalizers();
     GC.Collect();
     return Results.Ok();
 });

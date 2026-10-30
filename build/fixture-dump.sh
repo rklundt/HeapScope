@@ -27,12 +27,18 @@
 # Usage: fixture-dump.sh <dump path> <capture: cli=<heapscope-cli path> | dotnet-dump> [configuration]
 set -euo pipefail
 [ $# -ge 2 ] || { echo "Usage: fixture-dump.sh <dump path> <cli=<heapscope-cli> | dotnet-dump> [Release|Debug]" >&2; exit 64; }
-dump="$1"
+mkdir -p "$(dirname "$1")"
+dump="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 capture="$2"
 configuration="${3:-Release}"
 log="$(dirname "$dump")/fixture.log"
+cd "$(dirname "$0")/.."
 fixture="fixtures/LeakyConsole/bin/$configuration/net10.0/LeakyConsole.dll"
-dotnet "$fixture" --leak all --count 2000 --payload 32 --late-garbage 300 > "$log" 2>&1 &
+# --parent-pid: the fixture exits with this script even when the script is killed (review). Git Bash's $$ is its own
+# process number, not Windows's, which /proc/$$/winpid gives (re-review).
+parent=$$
+[ -r "/proc/$$/winpid" ] && parent=$(cat "/proc/$$/winpid")
+dotnet "$fixture" --leak all --count 2000 --payload 32 --late-garbage 300 --parent-pid "$parent" > "$log" 2>&1 &
 fixture_pid=$!
 trap 'kill $fixture_pid 2>/dev/null || true' EXIT
 for _ in $(seq 1 120); do
@@ -44,7 +50,7 @@ cat "$log"
 pid=$(sed -n 's/.*READY pid=\([0-9]*\).*/\1/p' "$log")
 [ -n "$pid" ] || { echo "The fixture did not report READY within 120 s."; exit 1; }
 case "$capture" in
-  cli=*) "${capture#cli=}" capture --pid "$pid" --out "$dump" ;;
+  cli=*) cli="${capture#cli=}"; case "$cli" in /*|[A-Za-z]:*) ;; *) cli="$(pwd)/$cli" ;; esac; "$cli" capture --pid "$pid" --out "$dump" ;;
   dotnet-dump) dotnet-dump collect --process-id "$pid" --type Full --output "$dump" ;;
   *) echo "Unknown capture: $capture" >&2; exit 64 ;;
 esac

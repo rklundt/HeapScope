@@ -162,7 +162,7 @@ public sealed class SnapshotsViewModelTests : IDisposable
         _interaction.Questions.ShouldHaveSingleItem().ShouldContain(dac.Sha256);
         _interaction.Questions[0].ShouldContain(dac.Path);
         snapshots.Snapshots.ShouldBeEmpty();
-        snapshots.Status!.ShouldContain(dac.Sha256);
+        snapshots.Status!.ShouldContain("not trusted");
         trusted.All().ShouldBeEmpty("a no is not remembered");
 
         _interaction.Answer = true;

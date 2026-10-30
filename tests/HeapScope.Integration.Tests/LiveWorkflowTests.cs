@@ -47,7 +47,10 @@ public sealed class LiveWorkflowTests
         var before = gen2.Count;
 
         var forced = await GcTrigger.CollectAsync(api.ProcessId, TimeSpan.FromSeconds(30), Ct);
-        await WaitUntilAsync(() => gen2.Count >= before + 3);
+
+        // Until a sample counts it, not a fixed three samples: the runtime publishes counters on its own timer, and under
+        // load the interval holding the collection arrived after the third sample (the 3.6 gate).
+        await WaitUntilAsync(() => gen2.Skip(before).Sum() > 0 || gen2.Count >= before + 15);
         await stop.CancelAsync();
         try
         {

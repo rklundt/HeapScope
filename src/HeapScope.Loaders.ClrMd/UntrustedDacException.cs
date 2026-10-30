@@ -44,16 +44,21 @@ public sealed class UntrustedDacException : Exception
     {
     }
 
-    public UntrustedDacException(string path, string sha256, string runtimeVersion)
+    /// <param name="searched">The files the trusted folders held and why each was not used (sprint 3.6 review H3).</param>
+    public UntrustedDacException(string path, string sha256, string runtimeVersion, IReadOnlyList<string>? searched = null)
         : base($"The .NET {runtimeVersion} runtime's data access component (DAC) was found only next to the dump, at {path} (SHA-256 {sha256}). " +
             "A DAC is native code HeapScope runs to read the dump, and one that came with a dump runs code from whoever made it. " +
-            $"Trust it only if you know where it came from: answer the question when opening the dump, or add --trust-dac {sha256} on the command line. " +
-            "Otherwise install that runtime, or put its DAC in the Symbols:DacFolder folder.")
+            $"Trust it only if you know where it came from: in the app, open the dump and answer the question; on the command line, add --trust-dac {sha256}. " +
+            "Otherwise install that runtime, or put its DAC in the Symbols:DacFolder folder. " +
+            $"Trusted folders searched: {(searched is null || searched.Count == 0 ? "no matching file" : string.Join("; ", searched))}.")
     {
         Path = path;
         Sha256 = sha256;
         RuntimeVersion = runtimeVersion;
+        Searched = searched ?? [];
     }
+
+    public IReadOnlyList<string> Searched { get; } = [];
 
     public string? Path { get; }
 

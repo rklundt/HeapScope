@@ -20,12 +20,15 @@ dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
 - Full gate (sprint 1.9; bash since 3.6, the same steps as CI, section 7): `bash build/gate.sh` builds Debug and Release
-  (zero warnings), runs the fast and the integration tiers and appends a line to `artifacts/gate/history.csv`
+  (zero warnings), runs the fast and the integration tiers, then CI's fixture check (a LeakyConsole dump, captured by
+  the CLI on Windows and by `dotnet-dump` elsewhere, checked against the known answers, which needs `jq`; without
+  `jq` or `dotnet-dump` the check is reported as skipped) and appends a line to `artifacts/gate/history.csv`
   (git-ignored): time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run
   is named again. Its log and TRX results are kept under `artifacts/test-results/<time>`. Run it before closing a sprint.
 - One tier (sprint 3.6): `bash build/test.sh fast|integration [Release|Debug] [results folder]`. `fast` runs every test
-  project that runs on this system, found rather than listed, without the Integration and Slow traits (exit code 8, "no
-  tests left", is accepted per project); `integration` runs the Integration project (Windows). Results are TRX files.
+  project that runs on this system but the Integration project, found rather than listed, without the Integration and
+  Slow traits; a project left with no tests fails. `integration` runs the Integration project (Windows). Integration and
+  Slow tests belong in that project only; the script fails when one is elsewhere. Results are TRX files.
 - Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - A LeakyConsole dump for checks by hand: `bash build/fixture-dump.sh <dump> cli=<heapscope-cli>` (or `dotnet-dump`), then
   `bash build/check-known-answers.sh <heapscope-cli> <dump>`.
@@ -155,9 +158,12 @@ dotnet test --solution HeapScope.sln
   cannot be monitored exits 1.
 - DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` in a DAC
   folder (CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the `Symbols:DacFolder` setting) or next to
-  the dump, where it is loaded only once trusted (ADR-035, sprint 3.6): the app asks, naming the file and its SHA-256,
-  and remembers a yes in `trusted-dacs.json` beside the session library; the CLI refuses and names the hash, which
-  `--trust-dac <sha256>` (repeatable) trusts for that run. A DAC HeapScope's capture copied is trusted already. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
+  the dump, where it is loaded only once trusted (ADR-035, sprint 3.6): the app asks when it opens the dump (loaded or
+  from its index cache), naming the file and its SHA-256, and remembers a yes in `trusted-dacs.json` in HeapScope's data
+  folder (`%LOCALAPPDATA%\HeapScope`); the CLI refuses, names the hash and the trusted folders it searched, and
+  `--trust-dac <sha256>` (repeatable) trusts it for that run. A DAC HeapScope's capture copied is trusted already, unless
+  HeapScope ran elevated. To revoke a trust, delete its entry (or the file); the private copies under
+  `%LOCALAPPDATA%\HeapScope\dac` can be deleted at any time. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
   downloads and logs a warning. Both reach the worker on its command line only.
 - Worker GC heaps: half the logical processors by default, so the worker cannot starve the UI; override with
   `--Worker:GcHeapCount <n>` (UI), the `Worker__GcHeapCount` environment variable, or `DOTNET_GCHeapCount` (hexadecimal).
@@ -266,7 +272,8 @@ of debuggable code) and exit when the process given as parent exits.
   `POST /work` (a bounded cache, unsubscribed handlers, disposed timers and objects, finished async calls kept).
   Prints `READY pid=<pid> url=<url>` when listening (use port 0 for a free port). `POST /work` grows every enabled
   leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
-  `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
+  `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`;
+  `POST /gc` runs one blocking full collection (sprint 3.6: tests of after-GC sizes ask for it rather than wait).
 - `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2
   [--detected all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
   [--parent-pid P]`;

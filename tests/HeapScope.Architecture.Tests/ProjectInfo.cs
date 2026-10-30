@@ -113,8 +113,11 @@ internal sealed record ProjectInfo(
         // Follow imports of the repository's shared targets (for example build/Worker.Deploy.targets).
         foreach (var import in document.Descendants("Import"))
         {
+            // Project files write paths with backslashes, which only Windows reads as separators (found when CI started
+            // running this project on Linux and macOS, sprint 3.6).
             var target = ((string?)import.Attribute("Project") ?? string.Empty)
-                .Replace("$(HeapScopeRoot)", RepoPaths.Root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+                .Replace("$(HeapScopeRoot)", RepoPaths.Root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                .Replace('\\', Path.DirectorySeparatorChar);
             var path = Path.GetFullPath(Path.Combine(projectDirectory, target));
             if (File.Exists(path))
             {

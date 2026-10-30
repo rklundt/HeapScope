@@ -61,6 +61,14 @@ internal abstract class SnapshotKindHandler
     /// when they are matched as they are (a diff across kinds, sprint 1.8).
     /// </summary>
     public abstract Func<string, string>? NamesWhenComparedWith(SnapshotKind other);
+
+    /// <summary>
+    /// Refuses a snapshot opened from its index cache whose later reads would need native code nobody trusted (sprint 3.6
+    /// review H1: the full dump's DAC next to the dump); nothing for kinds that load no native code.
+    /// </summary>
+    public virtual void CheckBeforeCacheOpen(string path)
+    {
+    }
 }
 
 /// <summary>The handlers of every kind, chosen by kind or by a file's first bytes.</summary>
@@ -111,6 +119,8 @@ internal sealed class SnapshotKinds
         public override int LoaderVersion => ClrMdDumpLoader.CurrentVersion;
 
         public override ISnapshotLoader CreateLoader() => new ClrMdDumpLoader(LoaderOptions());
+
+        public override void CheckBeforeCacheOpen(string path) => ClrMdDumpLoader.CheckDacTrust(path, LoaderOptions());
 
         // Field values and strings are read from the dump on demand (sprint 1.5); the reader opens the dump only when
         // something is inspected, after checking it is still the file the graph was built from.

@@ -23,9 +23,11 @@
 # Commercial licenses are available. See COMMERCIAL.md.
 
 # The local full gate (sprint 1.9; bash since sprint 3.6, so it runs wherever CI does): Debug and Release builds with
-# zero warnings, then the fast and the integration tiers (build/test.sh), the same steps as CI. Each run appends a line to
+# zero warnings, the fast and the integration tiers (build/test.sh), then CI's fixture check: a LeakyConsole dump
+# (build/fixture-dump.sh; the CLI captures it on Windows, dotnet-dump elsewhere) checked against the known answers
+# (build/check-known-answers.sh, which needs jq; without jq the check is reported as skipped). Each run appends a line to
 # artifacts/gate/history.csv (git-ignored) with the failed tests' names, so tests that fail now and then show up, and
-# keeps its TRX results under artifacts/test-results/<time>. Exit code 0 when everything passed.
+# keeps its log and TRX results under artifacts/test-results/<time>. The dump is deleted. Exit code 0 when all passed.
 # Usage: gate.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -54,6 +56,31 @@ if [ "$build_ok" = true ]; then
     echo "== Tests: $tier" | tee -a "$log"
     bash build/test.sh "$tier" Release "$results" >> "$log" 2>&1 || tests_ok=false
   done
+
+  # CI's fixture check (sprint 3.6 review H4): the CLI's capture and the known answers.
+  echo "== Fixture dump and known answers" | tee -a "$log"
+  cli=src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli
+  capture="dotnet-dump"
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) cli="$cli.exe"; capture="cli=$cli" ;; esac
+  dump="$(pwd)/$results/leaky.dmp"
+  if [ "$capture" = dotnet-dump ] && ! command -v dotnet-dump > /dev/null; then
+    echo "Fixture check skipped: dotnet-dump is not installed" | tee -a "$log"
+    fixture=skipped
+  elif ! bash build/fixture-dump.sh "$dump" "$capture" >> "$log" 2>&1; then
+    tests_ok=false
+    fixture=failed
+  elif ! command -v jq > /dev/null; then
+    echo "Known answers skipped: jq is not installed (the capture passed)" | tee -a "$log"
+    fixture=capture-only
+  elif bash build/check-known-answers.sh "$cli" "$dump" >> "$log" 2>&1; then
+    fixture=passed
+  else
+    tests_ok=false
+    fixture=failed
+  fi
+
+  rm -f "$dump"
+  echo "Fixture check: $fixture" | tee -a "$log"
 fi
 
 total=$(grep -h 'total:' "$log" | awk '{ s += $2 } END { print s + 0 }')
@@ -63,11 +90,14 @@ outcome=pass
 [ "$build_ok" = true ] || outcome=build-failed
 [ "$build_ok" = true ] && [ "$tests_ok" = false ] && outcome=tests-failed
 [ -f artifacts/gate/history.csv ] || echo "Time,Commit,Outcome,BuildSeconds,Warnings,TestSeconds,Tests,Failed,FailedTests" > artifacts/gate/history.csv
-echo "$(date '+%Y-%m-%d %H:%M:%S'),$commit,$outcome,$((built - started)),$warnings,$(( $(date +%s) - built )),${total:-0},${failed_count:-0},${failures% }" >> artifacts/gate/history.csv
-echo "Gate: $outcome (warnings $warnings, tests ${total:-0}); log and results in $results"
+# The failed names are quoted: a theory's display name may hold a comma.
+echo "$(date '+%Y-%m-%d %H:%M:%S'),$commit,$outcome,$((built - started)),$warnings,$(( $(date +%s) - built )),${total:-0},${failed_count:-0},\"${failures% }\"" >> artifacts/gate/history.csv
+echo "Gate: $outcome (warnings $warnings, tests ${total:-0}, fixture check ${fixture:-not run}); log and results in $results"
 if [ -n "$failures" ]; then
   echo "Failed: $failures"
-  earlier=$(head -n -1 artifacts/gate/history.csv | cut -d, -f9 | tr -d '"' | tr ' ' '\n' | sort -u)
+  # sed '$d' drops the line just written (head -n -1 is GNU only); the names are the last quoted field, in this script's
+  # rows and in the fully quoted rows gate.ps1 wrote before sprint 3.6.
+  earlier=$(sed '$d' artifacts/gate/history.csv | awk -F'"' 'NF > 1 { print $(NF - 1) }' | tr ' ' '\n' | sort -u)
   for name in $failures; do echo "$earlier" | grep -qx "$name" && echo "Failed before as well: $name"; done
 fi
 [ "$outcome" = pass ]

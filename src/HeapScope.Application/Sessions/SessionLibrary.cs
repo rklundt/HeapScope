@@ -27,6 +27,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HeapScope.Contracts;
 using HeapScope.Core;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.Application.Sessions;
 
@@ -158,6 +160,7 @@ public sealed class SessionLibrary
     public const string LockName = "session.lock";
 
     private readonly TimeProvider _time;
+    private readonly ILogger _logger;
 
     // _gate guards _currentFolder only and is never held across file work, so CurrentFolder and HasCurrent stay cheap on
     // the UI thread (peer review P1). _currentWork serializes reading or creating the current session; _writeGate
@@ -173,9 +176,10 @@ public sealed class SessionLibrary
     private readonly Dictionary<string, List<string>> _inUse = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _deleting = new(StringComparer.OrdinalIgnoreCase);
 
-    public SessionLibrary(string? root = null, TimeProvider? timeProvider = null)
+    public SessionLibrary(string? root = null, TimeProvider? timeProvider = null, ILogger<SessionLibrary>? logger = null)
     {
         _time = timeProvider ?? TimeProvider.System;
+        _logger = logger ?? (ILogger)NullLogger.Instance;
 
         // A relative root is relative to HeapScope's own data folder, never to the current directory.
         Root = string.IsNullOrWhiteSpace(root) ? DefaultRoot
@@ -209,8 +213,11 @@ public sealed class SessionLibrary
 
                     if (read.Status == SessionReadStatus.Unreadable)
                     {
-                        throw new SessionUnreadableException($"The current session {folder} cannot be used: {read.Reason}. Close other programs that hold it, or open or create another session.");
+                        _logger.LogWarning("The current session {Folder} cannot be used: {Reason}", folder, read.Reason);
+                        throw new SessionUnreadableException($"The current session {folder} cannot be used: {read.Reason}. {read.NextStep}");
                     }
+
+                    _logger.LogInformation("The current session {Folder} is gone (no folder or no session.json); a new one is started", folder);
                 }
 
                 var created = CreateSession(null);
@@ -263,22 +270,41 @@ public sealed class SessionLibrary
         }
     }
 
-    /// <summary>Makes an existing session the current one (captures go there). Returns null when it is not a session.</summary>
+    /// <summary>
+    /// Makes an existing session the current one (captures go there). Returns null when there is no session there; a
+    /// session that exists but cannot be read fails with <see cref="SessionUnreadableException"/> and says why (sprint 3.6
+    /// review: unreadable is not missing).
+    /// </summary>
     public Session? Open(string folder)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
         var full = Path.IsPathFullyQualified(folder) ? folder : Path.Combine(Root, folder);
-        if (TryRead(full) is not { } session)
-        {
-            return null;
-        }
 
-        lock (_gate)
+        // With the current session's own work, so a capture reading or creating the current session at the same moment
+        // cannot put its new session over the one opened here (review).
+        lock (_currentWork)
         {
-            _currentFolder = session.Folder;
-        }
+            var read = SessionDocumentFile.Read(full);
+            if (read.Status == SessionReadStatus.Unreadable)
+            {
+                _logger.LogWarning("The session {Folder} cannot be opened: {Reason}", full, read.Reason);
+                throw new SessionUnreadableException($"The session {full} cannot be opened: {read.Reason}. {read.NextStep}");
+            }
 
-        return Touch(session.Folder);
+            if (read.Session is not { } session)
+            {
+                return null;
+            }
+
+            // Current only once its document was written: a failed touch leaves the current session as it was.
+            var touched = Touch(session.Folder);
+            lock (_gate)
+            {
+                _currentFolder = session.Folder;
+            }
+
+            return touched;
+        }
     }
 
     /// <summary>Records a snapshot in the current session and returns the updated session.</summary>
@@ -448,7 +474,7 @@ public sealed class SessionLibrary
 
             try
             {
-                // Empty folders and the lock file, which closing it removed; links are removed, never followed.
+                // Empty folders and the lasting lock file, closed above; links are removed, never followed.
                 Directory.Delete(full, recursive: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -558,7 +584,8 @@ public sealed class SessionLibrary
     private static (List<string> Files, List<string> Kept) SessionFiles(Session session, string? cacheFallbackRoot)
     {
         var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false };
-        var files = Directory.EnumerateFiles(session.Folder, "*", options).ToList();
+        var lockFile = Path.Combine(session.Folder, LockName);
+        var files = Directory.EnumerateFiles(session.Folder, "*", options).Where(f => !IsFile(f, lockFile)).ToList();
         var kept = new List<string>();
         foreach (var snapshot in session.Document.Snapshots)
         {
@@ -642,27 +669,58 @@ public sealed class SessionLibrary
         }
     }
 
-    /// <summary>Removes a session folder that holds no snapshots and no files (a capture that failed after creating it).</summary>
-    public void DeleteIfEmpty(string folder)
+    /// <summary>
+    /// Removes a session folder that holds no snapshots and no files (a capture that failed after creating it). Nothing is
+    /// removed while anything but the caller's own claim (<paramref name="ownClaim"/>, from <see cref="MarkInUse"/>) writes
+    /// into it (sprint 3.6 review: another capture or a run may have taken the new session meanwhile).
+    /// </summary>
+    public void DeleteIfEmpty(string folder, string? ownClaim = null)
     {
-        if (TryRead(folder) is { Document.Snapshots.Count: 0 }
-            && Directory.EnumerateFiles(folder).All(f => Path.GetFileName(f) is DocumentName or LockName))
+        lock (_currentWork)
         {
+            lock (_useGate)
+            {
+                if (_inUse.TryGetValue(Normalize(folder), out var users) && users.Count > (ownClaim is not null && users.Contains(ownClaim) ? 1 : 0))
+                {
+                    _logger.LogInformation("The new session {Folder} is kept: {Users} write into it", folder, string.Join(" and ", users));
+                    return;
+                }
+            }
+
+            bool deleted;
+            using (AcquireLock(folder))
+            {
+                if (TryRead(folder) is not { Document.Snapshots.Count: 0 }
+                    || !Directory.EnumerateFiles(folder).All(f => Path.GetFileName(f) is DocumentName or LockName))
+                {
+                    return;
+                }
+
+                // The document first, under the lock: a writer that comes later finds no session instead of an empty one.
+                File.Delete(Path.Combine(folder, DocumentName));
+            }
+
             try
             {
                 Directory.Delete(folder, recursive: true);
+                deleted = true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                _logger.LogInformation(ex, "The empty session folder {Folder} was left behind", folder);
+                deleted = false;
             }
 
             lock (_gate)
             {
                 if (string.Equals(_currentFolder, folder, StringComparison.OrdinalIgnoreCase))
                 {
+                    // Its document is gone either way, so it is no longer a session to capture into.
                     _currentFolder = null;
                 }
             }
+
+            _logger.LogInformation("The empty session {Folder} was removed{Rest}", folder, deleted ? "" : " (its folder stays)");
         }
     }
 
@@ -722,13 +780,26 @@ public sealed class SessionLibrary
         }
 
         var result = new List<SessionSummary>();
+        var skipped = 0;
         foreach (var folder in Directory.EnumerateDirectories(Root))
         {
-            if (TryRead(folder) is { } session)
+            var read = SessionDocumentFile.Read(folder);
+            if (read.Session is { } session)
             {
                 var d = session.Document;
                 result.Add(new SessionSummary(folder, d.Name, d.CreatedUtc, d.LastOpenedUtc, d.Snapshots.Count, FolderSize(folder)));
             }
+            else if (read.Status == SessionReadStatus.Unreadable)
+            {
+                // Listed in the log, not in the app (review): "my session vanished from the list" has an answer.
+                skipped++;
+                _logger.LogDebug("Session folder {Folder} not listed: {Reason}", folder, read.Reason);
+            }
+        }
+
+        if (skipped > 0)
+        {
+            _logger.LogInformation("{Count} session folder(s) under {Root} could not be read and are not listed", skipped, Root);
         }
 
         return [.. result.OrderByDescending(s => s.LastOpenedUtc).ThenByDescending(s => s.CreatedUtc).Take(max)];
@@ -743,7 +814,7 @@ public sealed class SessionLibrary
             var read = SessionDocumentFile.Read(folder);
             if (read.Status != SessionReadStatus.Read)
             {
-                throw new SessionUnreadableException($"{folder} is not a readable HeapScope session: {read.Reason ?? "it has no session.json"}.");
+                throw new SessionUnreadableException($"{folder} is not a readable HeapScope session: {read.Reason ?? "it has no session.json"}. {read.NextStep}".TrimEnd());
             }
 
             var updated = new Session(folder, change(read.Session!.Document));
@@ -759,15 +830,17 @@ public sealed class SessionLibrary
     /// </summary>
     private static FileStream AcquireLock(string folder)
     {
+        // A lasting file (sprint 3.6 review): deleted on close, a waiter on Linux and macOS could lock the unlinked file
+        // while a third process locks a new one, and both would write. Deleting a session removes it with the folder.
         var path = Path.Combine(folder, LockName);
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         while (true)
         {
             try
             {
-                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+                return PrivateFiles.Open(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && DateTime.UtcNow < deadline)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && ex is not DirectoryNotFoundException && watch.Elapsed < TimeSpan.FromSeconds(30))
             {
                 Thread.Sleep(25);
             }

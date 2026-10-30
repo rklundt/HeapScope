@@ -24,6 +24,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using HeapScope.Application.Jobs;
+using HeapScope.Application.Snapshots;
 using HeapScope.Capture;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
@@ -62,7 +63,7 @@ public sealed class CaptureService : ICaptureService
     private readonly IElevationProbe _elevation;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
-    private readonly Snapshots.TrustedDacs? _trustedDacs;
+    private readonly TrustedDacs? _trustedDacs;
 
     // One capture or forced collection per process at a time, across every page and rule (sprint 3.4, decision 3).
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _busy = new();
@@ -76,7 +77,7 @@ public sealed class CaptureService : ICaptureService
         TimeProvider? timeProvider = null,
         ILogger<CaptureService>? logger = null,
         GcDumpCapturer? gcDumpCapturer = null,
-        Snapshots.TrustedDacs? trustedDacs = null)
+        TrustedDacs? trustedDacs = null)
     {
         _trustedDacs = trustedDacs;
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
@@ -184,7 +185,7 @@ public sealed class CaptureService : ICaptureService
                 _logger.LogWarning(ex, "Capture of pid {Pid} failed: {Reason}", processId, failure.Reason);
                 if (createdSession && sessionFolder is not null)
                 {
-                    Library.DeleteIfEmpty(sessionFolder);
+                    RemoveIfEmpty(sessionFolder);
                 }
 
                 throw failure;
@@ -204,7 +205,7 @@ public sealed class CaptureService : ICaptureService
 
                 if (createdSession && sessionFolder is not null)
                 {
-                    Library.DeleteIfEmpty(sessionFolder);
+                    RemoveIfEmpty(sessionFolder);
                 }
 
                 throw;
@@ -237,6 +238,19 @@ public sealed class CaptureService : ICaptureService
     }
 
     public bool IsBusy(int processId) => _busy.ContainsKey(processId);
+
+    /// <summary>Removes the session a failed capture created, never hiding the capture's own failure (re-review).</summary>
+    private void RemoveIfEmpty(string folder)
+    {
+        try
+        {
+            Library.DeleteIfEmpty(folder, "a capture");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogInformation(ex, "The session {Folder} the failed capture created was not removed", folder);
+        }
+    }
 
     public async Task<ForcedGcResult> ForceGcAsync(int processId, CancellationToken cancellationToken)
     {
@@ -364,20 +378,46 @@ public sealed class CaptureService : ICaptureService
         var target = Path.Combine(folder, "dac", process.RuntimeVersion ?? "unknown", DacFileName);
         try
         {
-            if (File.Exists(source) && !File.Exists(target))
+            if (!File.Exists(source))
+            {
+                _logger.LogInformation("The target's runtime folder {Runtime} has no {Dac}; none is copied next to the dump", runtime, DacFileName);
+                return;
+            }
+
+            if (!File.Exists(target))
             {
                 PrivateFiles.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(source, target);
-
-                // Copied by HeapScope from the target's own runtime, so opening this dump later loads it without asking
-                // (sprint 3.6): only a DAC that came with a dump from elsewhere needs the user's trust.
-                _trustedDacs?.TrustFile(target, $"copied by HeapScope's capture from {source}");
             }
+
+            TrustCopiedDac(source, target);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogInformation(ex, "The DAC {Source} was not copied next to the dump", source);
         }
+    }
+
+    /// <summary>
+    /// Trusts the DAC a capture copied from the target's runtime, so opening the dump later does not ask (sprint 3.6,
+    /// ADR-035), when the copy's content equals the runtime's file (a copy made by an earlier capture too). Not when
+    /// HeapScope runs elevated (sprint 3.6 review): the target may belong to another, less privileged user who can write
+    /// its runtime folder, and the worker would run that user's file elevated. The open asks then.
+    /// </summary>
+    private void TrustCopiedDac(string source, string target)
+    {
+        if (_trustedDacs is null)
+        {
+            return;
+        }
+
+        if (_elevation.IsCurrentProcessElevated)
+        {
+            _logger.LogInformation("The DAC {Target} is not trusted automatically: HeapScope runs elevated, so opening the dump asks first", target);
+            return;
+        }
+
+        _trustedDacs.TrustFile(target, TrustedDacs.Sha256Of(source), $"copied by HeapScope's capture from {source}");
     }
 
     private void SweepPartialDumps(string? folder)

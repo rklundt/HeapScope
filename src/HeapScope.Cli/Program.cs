@@ -55,6 +55,9 @@ host = CliHost.Build(
     parseResult.GetValue(CliCommands.AllowSymbolServerOption));
 using (host)
 {
+    // The CLI never asks: graph-only commands open a cached dump whatever its DAC, and reads that need an untrusted DAC
+    // refuse with the --trust-dac option to add (sprint 3.6 re-review).
+    host.Services.GetRequiredService<HeapScope.Application.Snapshots.SnapshotSession>().CheckDacOnCacheOpen = false;
     var trustedDacs = host.Services.GetRequiredService<HeapScope.Application.Snapshots.TrustedDacs>();
     foreach (var sha256 in parseResult.GetValue(CliCommands.TrustDacOption) ?? [])
     {

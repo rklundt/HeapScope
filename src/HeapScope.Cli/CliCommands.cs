@@ -192,9 +192,18 @@ internal static partial class CliCommands
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (stdout, error) =>
         {
             var capture = services().GetRequiredService<ICaptureService>();
-            if (parseResult.GetValue(sessionOption) is { } sessionName && capture.Library.Open(sessionName) is null)
+            try
             {
-                await error.WriteLineAsync($"Error: {sessionName} is not a HeapScope session under {capture.Library.Root}.").ConfigureAwait(false);
+                if (parseResult.GetValue(sessionOption) is { } sessionName && capture.Library.Open(sessionName) is null)
+                {
+                    await error.WriteLineAsync($"Error: {sessionName} is not a HeapScope session under {capture.Library.Root}.").ConfigureAwait(false);
+                    return Failure;
+                }
+            }
+            catch (SessionUnreadableException ex)
+            {
+                // A session that exists but cannot be read says why, not "is not a session" (sprint 3.6 review).
+                await error.WriteLineAsync($"Error: {ex.Message}").ConfigureAwait(false);
                 return Failure;
             }
 

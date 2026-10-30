@@ -57,7 +57,7 @@ public sealed class CounterMonitorTests
 
         samples.ShouldAllBe(s => s.GcHeapBytes > 0 && s.WorkingSetBytes > 0);
         samples.ShouldContain(s => s.Gen2Bytes > 0 && s.LargeObjectHeapBytes > 0, "the per-generation sizes the chart stacks are published (after the first GC)");
-        samples.Max(s => s.GcHeapBytes).ShouldBeGreaterThan(before + (10L * 1024 * 1024), "20 requests of 2,000 items with 512-byte payloads leak about 20 MB");
+        samples.Max(s => s.GcHeapBytes).ShouldBeGreaterThan(before + (10L * 1024 * 1024), "20 requests of 2,000 items with 512-byte payloads, in each of the five leaks, leak well over 100 MB");
         samples.Sum(s => s.AllocatedBytes).ShouldBeGreaterThan(0);
     }
 
@@ -100,7 +100,8 @@ public sealed class CounterMonitorTests
         using var api = await FixtureProcess.StartApiAsync("--Leaks:Enabled=all", "--Leaks:ItemsPerRequest=2000", "--Leaks:PayloadBytes=512");
         var pid = api.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var cli = ChildProcess.Start(TestPaths.CliExe, "monitor", "--pid", pid, "--duration", "12", "--growth", "5MB", "--rearm", "once");
-        // Leak only after two samples: the baseline is the first after-GC size, measured once the session is up.
+        // Leak only after two samples: the baseline is the first sample's rule size (the heap after a GC once one ran, the heap now
+        // before), measured once the session is up.
         await WaitUntilAsync(() => System.Text.RegularExpressions.Regex.Matches(cli.Output, @"^\d\d:\d\d:\d\d ", System.Text.RegularExpressions.RegexOptions.Multiline).Count >= 2);
         await api.PostWorkAsync(20, Ct);
 

@@ -336,11 +336,17 @@ public sealed class SessionLibraryTests : IDisposable
         var library = new SessionLibrary(_root, _time);
         var folder = library.Current.Folder;
         using var stop = new CancellationTokenSource();
+        using var reading = new CountdownEvent(3);
         var readers = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
         {
             var reads = 0;
             while (!stop.IsCancellationRequested)
             {
+                if (reads == 1)
+                {
+                    reading.Signal();
+                }
+
                 SessionLibrary.TryRead(folder).ShouldNotBeNull("a reader never sees a missing or half-written document");
                 library.ListRecent();
                 reads++;
@@ -349,12 +355,25 @@ public sealed class SessionLibraryTests : IDisposable
             return reads;
         })).ToArray();
 
-        for (var i = 0; i < 200; i++)
+        try
         {
-            library.AddTo(folder, Snapshot(Path.Combine(folder, $"{i}.dmp")));
+            // Every reader is reading before the first save (review: on a busy machine they could start after the saves).
+            if (!reading.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))
+            {
+                await Task.WhenAll(readers.Where(r => r.IsFaulted));
+                Assert.Fail("The readers did not start within 30 s.");
+            }
+
+            for (var i = 0; i < 200; i++)
+            {
+                library.AddTo(folder, Snapshot(Path.Combine(folder, $"{i}.dmp")));
+            }
+        }
+        finally
+        {
+            await stop.CancelAsync();
         }
 
-        await stop.CancelAsync();
         (await Task.WhenAll(readers)).ShouldAllBe(n => n > 0);
         SessionLibrary.TryRead(folder)!.Document.Snapshots.Count.ShouldBe(200);
         Directory.EnumerateFiles(folder, "*.tmp").ShouldBeEmpty();
@@ -400,6 +419,40 @@ public sealed class SessionLibraryTests : IDisposable
         var created = library.Current;
         created.Document.Snapshots.ShouldBeEmpty();
         File.Exists(Path.Combine(created.Folder, SessionLibrary.DocumentName)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void An_empty_new_session_is_kept_while_another_capture_or_run_writes_into_it()
+    {
+        // Sprint 3.6 review: a failed capture removed the session it created even when another capture had taken it.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        using var mine = library.MarkInUse(folder, "a capture");
+        using (library.MarkInUse(folder, "a monitoring run"))
+        {
+            library.DeleteIfEmpty(folder, "a capture");
+            Directory.Exists(folder).ShouldBeTrue("the run writes into it");
+            library.CurrentFolder.ShouldBe(folder);
+        }
+
+        library.DeleteIfEmpty(folder, "a capture");
+        Directory.Exists(folder).ShouldBeFalse("only the failed capture's own claim was left");
+        library.HasCurrent.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Opening_a_session_that_cannot_be_read_says_why()
+    {
+        // Sprint 3.6 review: unreadable is not missing, for the app's and the CLI's Open as for the current session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.CreateSession("damaged").Folder;
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), "{ not json");
+
+        var ex = Should.Throw<SessionUnreadableException>(() => library.Open(folder));
+        ex.Message.ShouldContain("damaged");
+        ex.Message.ShouldContain("Open another session");
+        library.HasCurrent.ShouldBeFalse("a failed open changes nothing");
+        library.Open(Path.Combine(_root, "no-such-session")).ShouldBeNull();
     }
 
     [Fact]

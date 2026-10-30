@@ -316,6 +316,16 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     [Fact]
     public async Task Canceling_a_load_stops_it_and_leaves_no_cache_file()
     {
+        // A dump of its own, large enough that a fast machine (CI's, sprint 3.6) is still loading when the cancel arrives:
+        // the shared 3,000-item dump loaded completely between the progress report and the cancel.
+        var large = _folder.File("large.dmp");
+        using (var fixture = await FixtureProcess.StartConsoleAsync("--leak", "StaticCache", "--count", "300000", "--payload", "16"))
+        {
+            fixture.CaptureDump(large);
+        }
+
+        File.Delete(_dump);
+        File.Move(large, _dump);
         var job = _session.StartOpen(_dump);
         await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
         job.Result.IsCompleted.ShouldBeFalse("the load finished before it could be canceled");

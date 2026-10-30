@@ -327,6 +327,11 @@ public sealed class LoaderKnownAnswerTests(LoadedAllLeaksDump shared) : IClassFi
             refused.Path.ShouldBe(planted[0]);
             refused.Sha256.ShouldBe(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(planted[0]))));
             refused.Message.ShouldContain($"--trust-dac {refused.Sha256}");
+            refused.Message.ShouldContain("Trusted folders searched:", customMessage: "the refusal says what else was looked at (review H3)");
+
+            // A dump opened from its index cache is checked the same way at open, where the front end can ask (review H1).
+            Should.Throw<UntrustedDacException>(() => ClrMdDumpLoader.CheckDacTrust(shared.Source.DumpPath, untrusted)).Sha256.ShouldBe(refused.Sha256);
+            ClrMdDumpLoader.CheckDacTrust(shared.Source.DumpPath, untrusted with { IsTrustedDac = s => s == refused.Sha256, TrustedDacCopyFolder = copies.Path });
 
             DacChoice? chosen = null;
             var trusted = untrusted with { IsTrustedDac = s => s == refused.Sha256, TrustedDacCopyFolder = copies.Path, DacChosen = c => chosen = c };

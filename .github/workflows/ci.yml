@@ -28,10 +28,13 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   # Avalonia's build statistics (sprint 2.3.6, decision 5); Directory.Build.targets also removes the task that sends them.
   AVALONIA_TELEMETRY_OPTOUT: '1'
+  # HeapScope's own logs (the CLI, the app and the workers they start; paths, counts and rules, never dump contents) go
+  # to the runner's temp folder and are kept with the test results (sprint 3.6 review).
+  Logging__File__Directory: ${{ github.workspace }}/artifacts/heapscope-logs
 
 jobs:
   windows:
-    name: Windows (build, fast tests, fixture capture)
+    name: Windows (build, fast and integration tests, fixture capture)
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -43,6 +46,7 @@ jobs:
         id: build
         run: dotnet build HeapScope.sln -c Release
       - name: Fast tests
+        timeout-minutes: 15
         shell: bash
         run: bash build/test.sh fast Release "$RUNNER_TEMP/test-results"
       - name: Integration tests
@@ -60,13 +64,16 @@ jobs:
           cli=src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli.exe
           bash build/fixture-dump.sh "$RUNNER_TEMP/leaky.dmp" "cli=$cli"
           bash build/check-known-answers.sh "$cli" "$RUNNER_TEMP/leaky.dmp"
-      - name: Keep the test results
-        if: ${{ !cancelled() }}
+      - name: Keep the test results and HeapScope's logs
+        # Always, so a step that timed out still leaves its results (review).
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-results-windows
-          path: ${{ runner.temp }}/test-results
-          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/test-results
+            ${{ github.workspace }}/artifacts/heapscope-logs
+          if-no-files-found: warn
           retention-days: 14
 
   unix:
@@ -98,6 +105,7 @@ jobs:
           dotnet build fixtures/LeakyConsole -c Release
       - name: Tests
         # Every test project that runs here, found by build/test.sh rather than listed (peer review S1).
+        timeout-minutes: 15
         run: bash build/test.sh fast Release "$RUNNER_TEMP/test-results"
       - name: Dump the fixture, check the known answers, open it in the app without a display
         # Runs when a test failed but the build did not: the dump, the CLI and the app are what this job is for.
@@ -114,13 +122,15 @@ jobs:
           "$app" --headless --smoke-open "$dump" --Logging:File:Directory "$RUNNER_TEMP/ui-log" || { cat "$RUNNER_TEMP"/ui-log/*.log; exit 1; }
           grep -h "Smoke open\|Smoke drill" "$RUNNER_TEMP"/ui-log/*.log | cut -c1-400
           grep -q "Smoke open types: .*Fixtures.Leaks.StaticCacheEntry 2000" "$RUNNER_TEMP"/ui-log/*.log || { echo "The app did not show 2000 StaticCacheEntry objects"; exit 1; }
-      - name: Keep the test results
-        if: ${{ !cancelled() }}
+      - name: Keep the test results and HeapScope's logs
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.name }}
-          path: ${{ runner.temp }}/test-results
-          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/test-results
+            ${{ github.workspace }}/artifacts/heapscope-logs
+          if-no-files-found: warn
           retention-days: 14
 
   package:

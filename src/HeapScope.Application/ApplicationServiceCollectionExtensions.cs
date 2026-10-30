@@ -56,12 +56,12 @@ public static class ApplicationServiceCollectionExtensions
             new Capture.EventPipeGcDumpWriter(sp.GetService<Microsoft.Extensions.Logging.ILogger<Capture.EventPipeGcDumpWriter>>())));
         services.TryAddSingleton(sp => new Sessions.SessionLibrary(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Sessions.SessionOptions>>().Value.Root,
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Sessions.SessionLibrary>>()));
         // Bookmarks live beside the session library (sprint 2.7), so a test's or smoke run's library keeps them too.
         services.TryAddSingleton(sp => new Bookmarks.BookmarkStore(Path.GetDirectoryName(sp.GetRequiredService<Sessions.SessionLibrary>().Root)));
-        services.TryAddSingleton(sp => new Snapshots.TrustedDacs(
-            Path.GetDirectoryName(sp.GetRequiredService<Sessions.SessionLibrary>().Root),
-            sp.GetService<Microsoft.Extensions.Logging.ILogger<Snapshots.TrustedDacs>>()));
+        // In the user's own data folder, never beside a configured session root, which may be shared (sprint 3.6 review).
+        services.TryAddSingleton(sp => new Snapshots.TrustedDacs(null, sp.GetService<Microsoft.Extensions.Logging.ILogger<Snapshots.TrustedDacs>>()));
         services.AddSingleton(sp => new Sessions.CaptureService(
             sp.GetRequiredService<Capture.IProcessDiscovery>(),
             sp.GetRequiredService<Capture.DumpCapturer>(),

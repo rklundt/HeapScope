@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HeapScope.Core;
@@ -40,8 +41,11 @@ public enum SessionReadStatus
     Unreadable,
 }
 
-/// <summary>The result of reading a session folder; <see cref="Reason"/> says why it is unreadable.</summary>
-public readonly record struct SessionRead(SessionReadStatus Status, Session? Session, string? Reason);
+/// <summary>
+/// The result of reading a session folder; <see cref="Reason"/> says why it is unreadable and <see cref="NextStep"/> what
+/// to do about it (sprint 3.6 review: held, damaged and newer documents need different steps).
+/// </summary>
+public readonly record struct SessionRead(SessionReadStatus Status, Session? Session, string? Reason, string? NextStep = null);
 
 /// <summary>A session's document exists but cannot be used; the message says why and what to do.</summary>
 public sealed class SessionUnreadableException(string message, Exception? inner = null) : IOException(message, inner);
@@ -62,6 +66,10 @@ internal static class SessionDocumentFile
         Converters = { new JsonStringEnumConverter() },
     };
 
+    private const string Untouched = "The dumps in that folder are untouched.";
+
+    private const string Elsewhere = "Open another session (the app's Home page, or the CLI's --session), or restart HeapScope to start a new one.";
+
     private static readonly TimeSpan s_readPatience = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan s_replacePatience = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan s_retryDelay = TimeSpan.FromMilliseconds(25);
@@ -70,7 +78,7 @@ internal static class SessionDocumentFile
     public static SessionRead Read(string folder)
     {
         var path = Path.Combine(folder, DocumentName);
-        var deadline = DateTime.UtcNow + s_readPatience;
+        var watch = Stopwatch.StartNew();
         while (true)
         {
             try
@@ -85,74 +93,108 @@ internal static class SessionDocumentFile
                 var document = JsonSerializer.Deserialize<SessionDocument>(bytes, s_json);
                 if (document is not { Name: not null, Snapshots: not null })
                 {
-                    return Unreadable("its session.json is not a HeapScope session document");
+                    return Unreadable("its session.json is not a HeapScope session document", $"{Elsewhere} {Untouched}");
                 }
 
                 if (document.FormatVersion != SessionDocument.CurrentFormatVersion)
                 {
-                    return Unreadable($"its session.json has format version {document.FormatVersion}; this build reads version {SessionDocument.CurrentFormatVersion}");
+                    return Unreadable(
+                        $"its session.json has format version {document.FormatVersion}; this build reads version {SessionDocument.CurrentFormatVersion}",
+                        $"Use the HeapScope build that wrote it, or {Elsewhere.ToLowerInvariant()[..1]}{Elsewhere[1..]} {Untouched}");
                 }
 
                 return document.Snapshots.All(s => s is { File.Length: > 0 })
                     ? new SessionRead(SessionReadStatus.Read, new Session(folder, document), null)
-                    : Unreadable("its session.json lists a snapshot without a file");
+                    : Unreadable("its session.json lists a snapshot without a file", $"{Elsewhere} {Untouched}");
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
                 return new SessionRead(SessionReadStatus.Missing, null, null);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && DateTime.UtcNow < deadline)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && watch.Elapsed < s_readPatience)
             {
                 // Held by another program without sharing (an older HeapScope writing, a scanner): try again shortly.
                 Thread.Sleep(s_retryDelay);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Unreadable($"its session.json could not be read ({ex.Message})");
+                return Unreadable($"its session.json could not be read ({ex.Message})", "Close programs that may hold it (another HeapScope, a backup or sync tool) and try again.");
+            }
+            catch (Exception ex) when (ex is JsonException or NotSupportedException)
+            {
+                return Unreadable($"its session.json is damaged ({ex.Message})", $"{Elsewhere} {Untouched}");
             }
         }
     }
 
-    /// <summary>Writes a new document; fails when <paramref name="folder"/> has one already (claiming a new folder).</summary>
+    /// <summary>
+    /// Writes a new document; fails with an <see cref="IOException"/> when <paramref name="folder"/> has one already
+    /// (claiming a new folder). Written whole beside it and moved into place without overwriting (sprint 3.6 review), so a
+    /// reader never sees a half-written or empty document.
+    /// </summary>
     public static void CreateNew(string folder, SessionDocument document)
     {
-        using var stream = PrivateFiles.Open(Path.Combine(folder, DocumentName), FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        JsonSerializer.Serialize(stream, document, s_json);
-        stream.Flush(flushToDisk: true);
+        var path = Path.Combine(folder, DocumentName);
+        var temp = WriteTemp(path, document);
+        try
+        {
+            File.Move(temp, path, overwrite: false);
+        }
+        finally
+        {
+            TryDelete(temp);
+        }
     }
 
     /// <summary>Replaces the document of <paramref name="session"/>'s folder atomically. The caller holds the session lock.</summary>
     public static void Save(Session session)
     {
         var path = Path.Combine(session.Folder, DocumentName);
-        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
-        using (var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        var temp = WriteTemp(path, session.Document);
+        var watch = Stopwatch.StartNew();
+        try
         {
-            JsonSerializer.Serialize(stream, session.Document, s_json);
-            stream.Flush(flushToDisk: true);
+            while (true)
+            {
+                try
+                {
+                    File.Move(temp, path, overwrite: true);
+                    return;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && ex is not DirectoryNotFoundException && watch.Elapsed < s_replacePatience)
+                {
+                    Thread.Sleep(s_retryDelay);
+                }
+            }
         }
-
-        var deadline = DateTime.UtcNow + s_replacePatience;
-        while (true)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            try
-            {
-                File.Move(temp, path, overwrite: true);
-                return;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && DateTime.UtcNow < deadline)
-            {
-                Thread.Sleep(s_retryDelay);
-            }
-            catch
-            {
-                TryDelete(temp);
-                throw;
-            }
+            throw new IOException($"{path} could not be replaced after {watch.Elapsed.TotalSeconds:N0} s of retries: {ex.Message}", ex);
+        }
+        finally
+        {
+            TryDelete(temp);
         }
     }
 
-    private static SessionRead Unreadable(string reason) => new(SessionReadStatus.Unreadable, null, reason);
+    private static string WriteTemp(string path, SessionDocument document)
+    {
+        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            using var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            JsonSerializer.Serialize(stream, document, s_json);
+            stream.Flush(flushToDisk: true);
+            return temp;
+        }
+        catch
+        {
+            TryDelete(temp);
+            throw;
+        }
+    }
+
+    private static SessionRead Unreadable(string reason, string nextStep) => new(SessionReadStatus.Unreadable, null, reason, nextStep);
 
     private static void TryDelete(string path)
     {

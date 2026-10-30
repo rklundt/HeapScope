@@ -99,15 +99,26 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         }
     }
 
-    /// <summary>Opens a snapshot file as a tracked job (load or index cache reuse happen in the worker).</summary>
-    public TrackedJob<SnapshotHandle> StartOpen(string path, bool rebuild = false, SnapshotMemoryMode mode = SnapshotMemoryMode.Auto)
+    /// <summary>
+    /// Whether opens from an index cache refuse a full dump whose DAC lies untrusted next to it (sprint 3.6): true in the
+    /// app, which asks; false in the CLI, whose commands that need the DAC refuse when they read with it and name
+    /// <c>--trust-dac</c>.
+    /// </summary>
+    public bool CheckDacOnCacheOpen { get; set; } = true;
+
+    /// <summary>
+    /// Opens a snapshot file as a tracked job (load or index cache reuse happen in the worker). <paramref name="checkDac"/>
+    /// overrides <see cref="CheckDacOnCacheOpen"/> (false after the user declined to trust the DAC).
+    /// </summary>
+    public TrackedJob<SnapshotHandle> StartOpen(string path, bool rebuild = false, SnapshotMemoryMode mode = SnapshotMemoryMode.Auto, bool? checkDac = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         var fullPath = System.IO.Path.GetFullPath(path);
         var title = string.Create(CultureInfo.InvariantCulture, $"Open {System.IO.Path.GetFileName(fullPath)}");
         return jobs.Start(title, async (progress, ct) =>
         {
-            var request = new OpenSnapshotRequest(fullPath, rebuild, mode, TrustedDacs: TrustedDacs?.All());
+            var request = new OpenSnapshotRequest(fullPath, rebuild, mode, TrustedDacs: TrustedDacs?.All(), CheckDac: checkDac ?? CheckDacOnCacheOpen);
+            LogTrustedDacs(fullPath);
             var (descriptor, generation) = await OpenInWorkerAsync(request, progress, ct).ConfigureAwait(false);
             SnapshotHandle handle;
             lock (_gate)
@@ -130,6 +141,18 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             SnapshotsChanged?.Invoke(this, EventArgs.Empty);
             return handle;
         });
+    }
+
+    /// <summary>
+    /// Says, under the open's trace id, which DACs the open trusts and who trusted each when (sprint 3.6 review H2): the
+    /// worker's DAC choice line names the hash it loaded, this line where that trust came from.
+    /// </summary>
+    private void LogTrustedDacs(string path)
+    {
+        if (TrustedDacs is { } trusted)
+        {
+            _logger.LogInformation("Opening {Path} with these DACs trusted to load from next to a dump: {Trusted}", path, trusted.Describe());
+        }
     }
 
     /// <summary>
@@ -665,7 +688,9 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// </summary>
     private async Task ReopenAsync(SnapshotHandle handle, CancellationToken cancellationToken)
     {
-        var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true, TrustedDacs: TrustedDacs?.All());
+        // A reopen after a restart never asks: nobody is there to answer. Reads that need an untrusted DAC refuse instead.
+        var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true, TrustedDacs: TrustedDacs?.All(), CheckDac: false);
+        LogTrustedDacs(handle.Path);
         var previous = (handle.WorkerSnapshotId, handle.Generation);
         _logger.LogInformation("Reopening {Path} after a worker restart (was worker snapshot {WorkerSnapshotId}, generation {Generation})", handle.Path, previous.WorkerSnapshotId, previous.Generation);
         (SnapshotDescriptor Descriptor, int Generation) reopened;

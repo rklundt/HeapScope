@@ -251,13 +251,40 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
             catch (WorkerOperationException ex) when (ex is { ErrorCode: HeapScopeErrorCode.DacNotTrusted, DacTrust: { } dac } && _session.TrustedDacs is { } trusted)
             {
                 // The only matching DAC came with the dump (sprint 3.6, peer review P2): load it only if the user says so.
-                if (!await _interaction.ConfirmAsync("Trust the DAC next to this dump?", TrustQuestion(dac)))
+                // The question and the answer are logged (review): "it keeps asking" must be answerable from the log.
+                var yes = await _interaction.ConfirmAsync("Trust the DAC next to this dump?", TrustQuestion(dac));
+                _logger?.LogInformation("Asked to trust the DAC {Sha256} at {DacPath} for {Path}; the user answered {Answer}", dac.Sha256, dac.Path, path, yes ? "yes" : "no");
+                if (!yes)
                 {
-                    Status = ex.Message;
+                    // From its index cache the graph needs no DAC: open it, and only field values and strings are refused
+                    // (re-review). A dump that has to be loaded cannot be read without one.
+                    try
+                    {
+                        handle = await _session.StartOpen(path, checkDac: false).Result;
+                    }
+                    catch (WorkerOperationException again) when (again.ErrorCode == HeapScopeErrorCode.DacNotTrusted)
+                    {
+                        Status = $"Not opened: the DAC next to the dump is not trusted. Install the .NET {dac.RuntimeVersion} runtime, put its DAC in the Symbols:DacFolder folder, or open the dump again and trust it.";
+                        return;
+                    }
+
+                    Refresh();
+                    Selected = Snapshots.FirstOrDefault(s => s.Handle == handle);
+                    Status = "Opened from its index cache without the DAC: field values and strings are not shown. To trust the DAC, close the snapshot and open it again.";
                     return;
                 }
 
-                await Task.Run(() => trusted.Trust(dac.Sha256, dac.Path, $"trusted by the user when opening {path}"));
+                try
+                {
+                    await Task.Run(() => trusted.Trust(dac.Sha256, dac.Path, $"trusted by the user when opening {path}"));
+                }
+                catch (Exception trustFailed) when (trustFailed is IOException or UnauthorizedAccessException)
+                {
+                    _logger?.LogWarning(trustFailed, "The trust in DAC {Sha256} could not be saved to {File}", dac.Sha256, trusted.Path);
+                    Status = $"Not opened: your trust in the DAC could not be saved to {trusted.Path} ({trustFailed.Message}). Close other HeapScope windows and try again.";
+                    return;
+                }
+
                 handle = await _session.StartOpen(path).Result;
             }
 

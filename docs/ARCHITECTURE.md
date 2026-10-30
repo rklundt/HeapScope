@@ -565,9 +565,9 @@ Rules:
   worker. The handshake is bounded by the connect timeout. In the worker, `WorkerErrors.GuardAsync` maps domain
   exceptions to codes in one place (`CapabilityNotSupported`, `InsufficientMemory`, `InvalidArgument`,
   `RuntimeComponentMissing`, `SnapshotFormat`, `SnapshotUnavailable` for I/O and access failures with a next step,
-  `SnapshotChanged`) and logs every outcome once with the operation and the request (section 11): an answer with what
+  `SnapshotChanged`, and since 3.6 `DacNotTrusted` with its error data) and logs every outcome once with the operation and the request (section 11): an answer with what
   was answered, an expected refusal (capability, invalid argument, changed file, unknown snapshot or result set, missing
-  DAC, memory) at Information without a stack, other coded failures as warnings with their stack, unexpected ones as
+  or untrusted DAC, memory) at Information without a stack, other coded failures as warnings with their stack, unexpected ones as
   errors; errors the worker creates as codes are logged too (sprint 2.3.7). The client's message stays plain and the
   log keeps the details. The front ends catch `WorkerException`, the base of the three worker exception types. The UI
   adds last-chance handlers (dispatcher, app domain, unobserved tasks) that log and show a plain message; the
@@ -689,6 +689,11 @@ Rules:
   `pending-async-methods`, `finalizer-backlog` and `type-growth` in the catalog.
   Version 20 (sprint 3.6, ADR-035): `OpenSnapshotRequest.TrustedDacs`, the error code `DacNotTrusted` (1014) with
   `DacTrustDetails` as its error data.
+- Error data (sprint 3.6): a refusal the front end must act on carries a record typed in Contracts as its JSON-RPC error
+  data, one record per code (`DacNotTrusted`: `DacTrustDetails`); every other code carries none. The client reads it
+  back through the same formatter (`WorkerHost.DacTrustOf`, tested in `DacTrustRpcTests`). `DacNotTrusted` is an
+  expected refusal like `RuntimeComponentMissing`: logged at Information with its message, which lists the trusted
+  folders searched.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1633,6 +1638,16 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   ended and unreadable, by the largest methods; finalizer queue objects by type; types reachable now and in the baseline,
   framework types left out, the largest growth below the thresholds); the unreachable set's line has its objects, bytes
   and the reachable count.
+- DAC trust (sprint 3.6, ADR-035): every open and reopen logs, under its trace id, the DACs it trusts to load from next to
+  a dump, each with its hash, file, reason (the user when opening which dump, HeapScope's capture, `--trust-dac` for this
+  run) and since when; the worker's DAC choice line names the hash it loaded ("trusted by SHA-256 ... and loaded from a
+  private copy"); a refusal lists the trusted folders searched and why each file was not used; the app logs its question
+  and the answer; `TrustedDacs` logs each grant, a hash trusted already, a capture's copy left untrusted (elevated, or a
+  copy that differs from its source) and a trust file it cannot read (kept as `.bak` before a new one is written).
+- Session documents (sprint 3.6): `SessionLibrary` logs a current session replaced because its folder or document is
+  gone, a current or opened session refused as unreadable with the reason, sessions left out of the list (a count at
+  Information, each with its reason at Debug), a removed empty session and one kept because something else writes into
+  it; a save that fails after its retries says so. A monitoring run refused in an unreadable session logs the reason.
 - Allocation traces (sprint 2.5): opening a trace logs its file with its size and write time, the reader's version, the
   process (and that it came from the first allocation tick), the recording's start and duration, samples, frames, lost
   events, samples without a stack or with unresolved frames, whether the rundown arrived and TraceEvent's conversion
@@ -1656,7 +1671,10 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   capture trusts the DAC it copies from the target's runtime), and then from a private copy checked against the hash.
   Any DAC is loaded only when its PE image matches the dump's index (or, when the dump records none, its file version
   equals the runtime's). This local-only guarantee holds while the symbol server opt-in is off; with it on, ClrMD's own
-  locator is used.
+  locator is used. `trusted-dacs.json` (in the user's own HeapScope data folder, never beside a configured session root,
+  which may be shared) holds per trusted DAC its SHA-256, the path it was found at, when, and why (which names the dump
+  it was opened with); the private copies sit under `%LOCALAPPDATA%/HeapScope/dac/<sha256>/`. Deleting an entry, or the
+  file, revokes the trust.
 - Published builds (sprint 3.6, peer review P3; CI uploads them as artifacts) carry `LICENSE`, `ADDITIONAL-TERMS.md`,
   `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and every shipped package's own license and notice files under `licenses/`;
   the TraceEvent native binaries (`KernelTraceControl.dll`, `msdia140.dll`), which nothing calls and whose redistribution
@@ -1863,8 +1881,6 @@ sprint 0.1.
   the target's DAC, sprint 1.1); every installed runtime folder is a candidate (the dump records the file
   version, folders use the product version) and the PE match picks the right one; when the dump records no index the
   file version must equal the runtime version.
-- Amended in sprint 3.6 (ADR-035): the dump's folder and `dac\<runtime file version>` beside it are searched last, and
-  a DAC there is loaded only once trusted by its SHA-256.
 - Amended in sprint 2.3.5 (review H1, M1): on Linux and macOS a path is local when the mount that holds it, after
   symbolic links are resolved, is a local disk (fixed, container overlays included, or tmpfs); network mounts (NFS,
   SMB, autofs, FUSE), `/proc`, `/sys` and `/dev` are refused, and a mount is checked before anything on it is looked at
@@ -1875,6 +1891,8 @@ sprint 0.1.
   the dump archives it that way; then the pair is accepted from an installed runtime folder, or elsewhere only when
   both files embed the same `@(#)Version` string. A DAC matched by build id is the exact build, so ClrMD's own version
   check, which reads some core files' version as 0.0, is skipped for it.
+- Amended in sprint 3.6 (ADR-035): the dump's folder and `dac\<runtime file version>` beside it are searched last, and
+  a DAC there is loaded only once trusted by its SHA-256.
 
 ### ADR-018 Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4; amended by ADR-032)
 - Context: dotMemory's comparison splits objects into survived, new and dead, using its profiler's allocation
@@ -2319,15 +2337,26 @@ sprint 0.1.
   there is loaded only when its SHA-256 is trusted (`ClrMdLoaderOptions.IsTrustedDac`); otherwise the load fails with
   `UntrustedDacException`, which the worker answers as `DacNotTrusted` (1014) with the file and its hash
   (`DacTrustDetails`). A trusted DAC is copied into a private folder under its hash (`%LOCALAPPDATA%/HeapScope/dac`) and
-  loaded from the copy after checking it, so the file loaded is the file hashed. Trust lives in Application
-  (`TrustedDacs`): the app asks before opening and keeps a yes in `trusted-dacs.json` beside the session library; the
-  CLI's `--trust-dac <sha256>` trusts for one run; HeapScope's capture trusts the DAC it copies from the target's own
-  runtime. Every open request carries the trusted hashes (protocol 20); the worker keeps them for its lifetime, so the
-  field reader, which opens the dump again later, has the same trust.
-- Consequences: a dump received with its DAC asks once per DAC. A dump whose index cache was built before 3.6 with a DAC
-  beside it opens from the cache without asking, and its field values then fail with the refusal until the dump is
-  reopened with Rebuild (where the question is asked) or the DAC is put in `Symbols:DacFolder`. Trust is by content, not
-  by path, so a different file at the same path is asked about again.
+  loaded from the copy after checking it, so the file loaded is the file hashed. A full dump opened from its index cache
+  loads no DAC at open, so the worker runs the same lookup and hash then, before it reads the cache and without loading
+  (review H1 and re-review), and refuses the same way: the question comes at open whether the dump is loaded or its
+  cache is used. Only a DAC that needs trust stops a cache open; a missing one, or a dump of another system, is reported
+  by the field reader when used, as before. The request's `CheckDac` (default true) turns the check off: after the user
+  declines, the app opens the cache anyway with field values and strings refused, and the CLI never checks, so its
+  commands that need no DAC (summary, diff, trend, retention) work on any cached dump while the ones that read with it
+  refuse and name `--trust-dac`. A reopen after a worker restart never checks (nobody is there to answer). Trust lives in Application
+  (`TrustedDacs`): the app asks when an open is refused and keeps a yes in `trusted-dacs.json` in the user's own data
+  folder; the CLI's `--trust-dac <sha256>` trusts for one run; HeapScope's capture trusts the DAC it copies from the
+  target's runtime when the copy equals the runtime's file and HeapScope is not elevated (elevated, the target's runtime
+  folder may belong to a less privileged user, so the open asks). Every open request carries the trusted hashes
+  (protocol 20); the worker keeps them for its lifetime, so the field reader, which opens the dump again later, has the
+  same trust.
+- Consequences: a dump received with its DAC asks once per DAC, for a load or a cache open; a "no" still opens its cache
+  without field values, but a dump that must be loaded cannot be read at all. Trust is by content, not by path, so a
+  different file at the same path is asked about again. On Windows ClrMD's own signature check
+  (`VerifyDacOnWindows`, on by default) is expected to refuse an unsigned DAC before loading it; that is not yet
+  confirmed by a test (Backlog), and on Linux and macOS the trust step is the only check. Every full-dump cache open now
+  opens the dump with ClrMD and runs the DAC lookup; its cost on a large dump is to be measured (Backlog).
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
