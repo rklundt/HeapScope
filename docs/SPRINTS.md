@@ -38,7 +38,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
 | 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
 | 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
-| 3.6 | Urgent fixes | Wrapping | | |
+| 3.6 | Urgent fixes | Closed | 2026-10-29 | sprint-3.6 |
 | 3.7 | Hardening | Planned | | |
 | 3.8 | Modularity | Planned | | |
 
