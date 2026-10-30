@@ -29,12 +29,13 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.ViewModels;
 
 /// <summary>
-/// Loads one panel of a view (sprint 2.3.7 review M12; was written out four times in <see cref="ObjectViewModel"/>): the
-/// query's progress phases show in the panel's status until the answer arrives; leaving the view while it loads ends it
-/// quietly (an answer that arrives anyway is discarded); a worker refusal shows its message, which is logged as shown; any
-/// other failure is logged with its stack and summarized.
+/// Runs a view model's query (sprint 3.8, peer review P8: one runner instead of a copy per view): under an activity whose
+/// trace id the worker's answer lines carry; the query's progress phases show in the status until the answer arrives;
+/// leaving the view while it loads ends it quietly (an answer that arrives anyway is discarded); a worker refusal shows its
+/// message, which is logged as shown; any other failure is logged with its stack and summarized. Grids run theirs through
+/// <see cref="GridQueryViewModel"/>, which follows the same rules.
 /// </summary>
-internal static class SectionLoader
+internal static class QueryRunner
 {
     public static async Task RunAsync<T>(
         string section,
@@ -46,8 +47,7 @@ internal static class SectionLoader
         CancellationToken cancellationToken,
         Func<T, Task>? discard = null)
     {
-        // As a grid query, under an activity whose trace id the worker's lines carry (sprint 2.3.7 review M1).
-        using var activity = new System.Diagnostics.Activity("HeapScope.Query").SetTag("section", section).Start();
+        using var activity = StartActivity("section", section);
         var finished = false;
         var progress = new Progress<JobProgress>(p =>
         {
@@ -79,7 +79,7 @@ internal static class SectionLoader
         catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
         {
             finished = true;
-            logger.LogInformation("{Section} shown as: {Message}", section, ex.Message);
+            LogShown(logger, section, ex);
             setStatus(ex.Message);
         }
         catch (Exception ex)
@@ -89,4 +89,18 @@ internal static class SectionLoader
             setStatus(failure);
         }
     }
+
+    /// <summary>
+    /// The activity a query runs under: its trace id reaches the worker with each request, so the worker's answer lines
+    /// join the view's.
+    /// </summary>
+    public static System.Diagnostics.Activity StartActivity(string tag, string name) =>
+        new System.Diagnostics.Activity(ActivityName).SetTag(tag, name).Start();
+
+    /// <summary>Logs a refusal the view shows, under the query's activity.</summary>
+    public static void LogShown(ILogger logger, string query, Exception ex) =>
+        logger.LogInformation("{Section} shown as: {Message}", query, ex.Message);
+
+    /// <summary>The name of a query's activity.</summary>
+    public const string ActivityName = "HeapScope.Query";
 }

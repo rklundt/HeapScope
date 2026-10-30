@@ -253,7 +253,8 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
         }
         catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
         {
-            // Review M8: retained sizes are optional, so the objects load without them and the note says why.
+            // Retained sizes are optional, so the objects load without them and the note says why.
+            QueryRunner.LogShown(Logger, "Instances' retained sizes", ex);
             retainedFailure = ex.Message;
             var bytes = SortColumn == InstanceColumns.Retained;
             list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, bytes ? InstanceColumns.Bytes : SortColumn, bytes || Descending, Scope, SameValueAs, Set: Set), null, cancellationToken);

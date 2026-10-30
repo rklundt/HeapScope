@@ -259,50 +259,29 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
     private async Task LoadAsync(CancellationToken cancellationToken)
     {
         Status = "Finding each object's shortest path from a root (the first query of a snapshot walks the whole graph)...";
-        var finished = false;
-        var progress = new Progress<JobProgress>(p =>
-        {
-            if (!finished && !cancellationToken.IsCancellationRequested)
-            {
-                Status = ReferrersText.Progress(p);
-            }
-        });
-        try
-        {
-            var result = _set is null
-                ? await _session.QueryTypePathsAsync(Snapshot, TypeName, Module, 20, progress, cancellationToken)
-                : await _session.QuerySetPathsAsync(Snapshot, _set, 20, progress, cancellationToken);
-            finished = true;
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
+        await QueryRunner.RunAsync(
+            "Retention paths",
+            (progress, ct) => _set is null
+                ? _session.QueryTypePathsAsync(Snapshot, TypeName, Module, 20, progress, ct)
+                : _session.QuerySetPathsAsync(Snapshot, _set, 20, progress, ct),
+            ShowResult,
+            status => Status = status,
+            "The retention paths could not be found. Details are in the log.",
+            _logger,
+            cancellationToken);
+    }
 
-            _result = result;
-            ShowPaths();
-            Totals = string.Create(
-                CultureInfo.CurrentCulture,
-                $"{result.Objects:N0} objects: {result.Objects - result.Unreachable:N0} reachable along {result.Paths.Count + result.OtherPaths:N0} paths, {result.Unreachable:N0} not reachable from any root ({Format.Bytes(result.UnreachableBytes)})")
-                + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
-                + (result.OtherPaths > 0 ? string.Create(CultureInfo.CurrentCulture, $"; {result.OtherPaths:N0} smaller paths not listed hold {result.OtherObjects:N0} objects") : string.Empty)
-                + ReferrersText.Incomplete(result.CompleteGraph).Replace("referrers", "paths", StringComparison.Ordinal);
-            Status = result.Objects == 0 ? (_set is null ? "No objects of this type." : "The set has no objects.") : null;
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // Left the history while loading.
-        }
-        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
-        {
-            finished = true;
-            Status = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            finished = true;
-            _logger.LogError(ex, "Finding a type's retention paths failed");
-            Status = "The retention paths could not be found. Details are in the log.";
-        }
+    private void ShowResult(TypePathsResult result)
+    {
+        _result = result;
+        ShowPaths();
+        Totals = string.Create(
+            CultureInfo.CurrentCulture,
+            $"{result.Objects:N0} objects: {result.Objects - result.Unreachable:N0} reachable along {result.Paths.Count + result.OtherPaths:N0} paths, {result.Unreachable:N0} not reachable from any root ({Format.Bytes(result.UnreachableBytes)})")
+            + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
+            + (result.OtherPaths > 0 ? string.Create(CultureInfo.CurrentCulture, $"; {result.OtherPaths:N0} smaller paths not listed hold {result.OtherObjects:N0} objects") : string.Empty)
+            + ReferrersText.Incomplete(result.CompleteGraph).Replace("referrers", "paths", StringComparison.Ordinal);
+        Status = result.Objects == 0 ? (_set is null ? "No objects of this type." : "The set has no objects.") : null;
     }
 
     private void ShowPaths() => Paths = _result is null ? [] : [.. _result.Paths.Select(p => new KeyPathItem(p, ShowFramework))];

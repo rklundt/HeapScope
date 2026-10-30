@@ -299,7 +299,7 @@ public sealed partial class ObjectViewModel : ObservableObject, INavigationSubje
     private Task LoadRetentionAsync(CancellationToken cancellationToken)
     {
         RetentionStatus = "Finding the shortest paths from roots (the first query of a snapshot indexes its incoming references)...";
-        return SectionLoader.RunAsync(
+        return QueryRunner.RunAsync(
             "Finding an object's retention paths",
             (progress, ct) => _session.QueryObjectPathsAsync(Snapshot, Address, 10, progress, ct),
             paths =>
@@ -347,7 +347,7 @@ public sealed partial class ObjectViewModel : ObservableObject, INavigationSubje
     private Task LoadRetainedAsync(CancellationToken cancellationToken)
     {
         RetainedSummary = "Computing retained sizes...";
-        return SectionLoader.RunAsync(
+        return QueryRunner.RunAsync(
             "Reading an object's retained size",
             (progress, ct) => _session.QueryRetainedAsync(Snapshot, Address, progress, ct),
             retained =>
@@ -381,7 +381,7 @@ public sealed partial class ObjectViewModel : ObservableObject, INavigationSubje
     private Task LoadIncomingAsync(CancellationToken cancellationToken)
     {
         IncomingStatus = "Finding referrers (the first query of a snapshot indexes its incoming references)...";
-        return SectionLoader.RunAsync(
+        return QueryRunner.RunAsync(
             "Finding an object's referrers",
             (progress, ct) => _session.QueryReferrersAsync(Snapshot, Address, progress, ct),
             list =>
