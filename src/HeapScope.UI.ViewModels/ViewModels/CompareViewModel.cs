@@ -26,6 +26,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using HeapScope.UI.Services;
@@ -347,11 +348,11 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
             {
                 IdentityShown = result.ObjectsMatched;
                 IdentityNote = result.ObjectsMatched
-                    ? string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{result.NewObjects:N0} new and {result.DeadObjects:N0} dead objects by address. Gen0 and Gen1 collections move their survivors, so most short-lived objects show as dead and new; Gen2, LOH and POH objects keep their addresses. Unreachable objects of a full dump count too.") + (result.IdentityNote is { } caution ? " " + caution : string.Empty)
+                    ? ObjectIdentityTexts.Matched(result.NewObjects, result.DeadObjects, CultureInfo.CurrentCulture) + (result.IdentityNote is { } caution ? " " + caution : string.Empty)
                     : result.IdentityNote;
                 RetainedShown = result.BaselineDominators is not null;
                 RetainedNote = result.BaselineDominators is { } b && result.CurrentDominators is { } c
-                    ? "Retained bytes are lower bounds in each snapshot. Baseline: " + RetainedText.Source(b) + " Current: " + RetainedText.Source(c)
+                    ? "Retained bytes are lower bounds in each snapshot. Baseline: " + RetainedSizeTexts.Source(b, CultureInfo.CurrentCulture) + " Current: " + RetainedSizeTexts.Source(c, CultureInfo.CurrentCulture)
                     : ShowRetained && groupBy == TypeGrouping.Interface ? "Interface rows have no retained sizes: a type counts under each interface it implements. Group by type, namespace or assembly to see them." : null;
                 HasGenerations = result.KindDeltas is not null;
                 Totals = string.Create(
@@ -361,14 +362,9 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
             onError => DiffRowItem.CreateList(diff.Rows, result.Rows, onError, Logger));
     }
 
-    // What the totals count (sprint 1.8 review): a full dump holds dead objects not yet collected, a gcdump only the
-    // survivors of the collection its capture ran, so a full dump against a gcdump shows garbage as a drop.
-    private static string Scope(SnapshotKindDto baseline, SnapshotKindDto current) => (baseline, current) switch
-    {
-        (SnapshotKindDto.FullDump, SnapshotKindDto.FullDump) => "unreachable ones included",
-        (SnapshotKindDto.GcDump, SnapshotKindDto.GcDump) => "survivors of each gcdump's collection",
-        _ => "a full dump against a gcdump: the dump counts unreachable objects the gcdump's collection removed, and nested types are matched by the gcdump's shorter names",
-    };
+    // What the totals count, with the caution for a full dump against a gcdump (garbage shows as a drop).
+    private static string Scope(SnapshotKindDto baseline, SnapshotKindDto current) =>
+        SnapshotScopeTexts.Comparison + (SnapshotScopeTexts.MixedKinds(baseline, current) is { } mixed ? "; " + mixed : string.Empty);
 
     /// <summary>Swaps baseline and current.</summary>
     [RelayCommand]

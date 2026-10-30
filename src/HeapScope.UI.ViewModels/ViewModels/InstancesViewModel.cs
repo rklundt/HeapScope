@@ -24,6 +24,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -267,7 +268,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
             () =>
             {
                 RetainedColumnShown = result.Dominators is not null;
-                RetainedNote = result.Dominators is { } dominators ? RetainedText.Source(dominators) + " " + RetainedText.ObjectsRetain : null;
+                RetainedNote = result.Dominators is { } dominators ? RetainedSizeTexts.Source(dominators, CultureInfo.CurrentCulture) + " " + RetainedText.ObjectsRetain : null;
                 if (retainedFailure is not null)
                 {
                     _retainedOffQuietly = true;

@@ -99,5 +99,5 @@ src/HeapScope.UI.ViewModels/ViewModels/SimilarRetentionViewModel.cs 2
 src/HeapScope.UI.ViewModels/ViewModels/SnapshotsViewModel.cs 3
 src/HeapScope.UI.ViewModels/ViewModels/TrendViewModel.cs 2
 src/HeapScope.UI.ViewModels/ViewModels/TypeSummaryViewModel.cs 4
-src/HeapScope.UI.ViewModels/ViewModels/VirtualRowList.cs 4
+src/HeapScope.UI.ViewModels/ViewModels/VirtualRowList.cs 3
 src/HeapScope.UI/Controls/GridExports.cs 2

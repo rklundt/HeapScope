@@ -26,6 +26,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Monitoring;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Sessions;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
@@ -581,67 +582,19 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     /// <summary>The rules from the form, or null after saying what is wrong.</summary>
     private MonitorRules? ParseRules()
     {
-        var mode = Rearm switch { "once" => RearmMode.Once, "step" => RearmMode.Step, _ => RearmMode.Below };
-        var rules = new List<SnapshotRule>();
-        if (!string.IsNullOrWhiteSpace(Every))
+        // The form's empty fields set no rule; minutes in the current culture (the app's grammar).
+        var parsed = MonitorRulesParser.Parse(
+            new MonitorRulesInput(Filled(Every), Filled(Above), Filled(Growth), Filled(MaxSnapshots), Rearm),
+            MonitorRuleGrammar.Minutes(CultureInfo.CurrentCulture));
+        if (parsed.FirstError is { } error)
         {
-            if (!TryParseMinutes(Every, out var interval))
-            {
-                Status = "Every: enter minutes, such as 5 or 0.5.";
-                return null;
-            }
-
-            rules.Add(new EveryRule(interval));
+            Status = error;
         }
 
-        if (!string.IsNullOrWhiteSpace(Above))
-        {
-            if (!GrowthThreshold.TryParse(Above, out var size) || size.Bytes is not { } bytes || bytes == 0)
-            {
-                Status = "Above: enter a size above zero, such as 500MB or 2GB.";
-                return null;
-            }
-
-            rules.Add(new AboveRule(bytes, mode));
-        }
-
-        if (!string.IsNullOrWhiteSpace(Growth))
-        {
-            if (!GrowthThreshold.TryParse(Growth, out var growth) || growth.Bytes is 0 || growth.Percent is 0)
-            {
-                Status = "Growth: enter a size or a percent above zero, such as 100MB or 50%.";
-                return null;
-            }
-
-            rules.Add(new GrowthRule(growth.Bytes, growth.Percent, mode));
-        }
-
-        int? max = null;
-        if (!string.IsNullOrWhiteSpace(MaxSnapshots))
-        {
-            if (!int.TryParse(MaxSnapshots, NumberStyles.Integer, CultureInfo.CurrentCulture, out var count) || count < 1)
-            {
-                Status = "Max snapshots: enter a whole number of 1 or more.";
-                return null;
-            }
-
-            max = count;
-        }
-
-        return new MonitorRules(rules, max);
+        return parsed.Rules;
     }
 
-    private static bool TryParseMinutes(string text, out TimeSpan interval)
-    {
-        interval = default;
-        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var minutes) || !double.IsFinite(minutes) || minutes * 60 < 1)
-        {
-            return false;
-        }
-
-        interval = TimeSpan.FromMinutes(minutes);
-        return true;
-    }
+    private static string? Filled(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
 
     private void OnSample(MonitorRun run, MonitorSample sample)
     {

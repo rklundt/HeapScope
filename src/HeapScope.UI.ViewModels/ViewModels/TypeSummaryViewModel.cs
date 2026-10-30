@@ -24,6 +24,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -151,23 +152,6 @@ public sealed class TypeRowItem(int index) : ObservableObject, IIndexedRow
         IsLoaded = true;
         OnPropertyChanged(string.Empty);
     }
-}
-
-/// <summary>Invariant-culture cell parsing; a missing column (index -1) or empty cell reads as zero or empty.</summary>
-internal static class Cells
-{
-    public static string Text(IReadOnlyList<string?> cells, int index) => index >= 0 && index < cells.Count ? cells[index] ?? string.Empty : string.Empty;
-
-    public static long Long(IReadOnlyList<string?> cells, int index) =>
-        index >= 0 && index < cells.Count && long.TryParse(cells[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
-
-    /// <summary>An address cell (<c>0x1f2a</c>) as a number; 0 when it is not one.</summary>
-    public static ulong Address(string text) =>
-        text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
-        && ulong.TryParse(text.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value) ? value : 0;
-
-    public static double Double(IReadOnlyList<string?> cells, int index) =>
-        index >= 0 && index < cells.Count && double.TryParse(cells[index], NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0;
 }
 
 /// <summary>A heap kind in the overview bar: share of the snapshot's bytes, in its fixed color.</summary>
@@ -478,7 +462,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 // Whether the rows are lower bounds comes with the column (sprint 2.4, 2.3.7 review M7), not from here.
                 var retainedBound = result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound;
                 RetainedNote = result.Dominators is { } dominators
-                    ? RetainedText.Source(dominators) + (retainedBound == ValueBound.LowerBound ? " " + ValueBoundTexts.LowerBound : string.Empty)
+                    ? RetainedSizeTexts.Source(dominators, CultureInfo.CurrentCulture) + (retainedBound == ValueBound.LowerBound ? " " + ValueBoundTexts.LowerBound : string.Empty)
                     : null;
                 if (retainedFailure is not null)
                 {
@@ -493,7 +477,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 HeapKinds = [.. result.HeapKinds.Select(k => new HeapKindShare(k.Kind, Label(k.Kind), k.Objects, k.Bytes, result.TotalBytes == 0 ? 0 : (double)k.Bytes / result.TotalBytes))];
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} ({(Set is null ? Scope(snapshot.Descriptor.Kind) : "the set's objects")})");
+                    $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} {Plural(groupBy)}; {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)} ({(Set is null ? SnapshotScopeTexts.Snapshot(snapshot.Descriptor.Kind) : "the set's objects")})");
             },
             onError => TypeRowItem.CreateList(summary.Rows, result.Rows, onError, Logger));
     }
@@ -510,10 +494,6 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
             Descending = true;
         }
     }
-
-    // A gcdump's capture ran a full collection first, so it holds survivors only (sprint 1.8).
-    private static string Scope(SnapshotKindDto kind) =>
-        kind == SnapshotKindDto.GcDump ? "the objects that survived the gcdump's collection" : "all objects in the dump, unreachable ones included";
 
     private static string Label(HeapKindDto kind) => kind switch
     {

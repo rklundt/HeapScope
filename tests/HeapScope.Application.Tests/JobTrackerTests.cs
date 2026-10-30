@@ -63,6 +63,8 @@ public class JobTrackerTests
         var refused = tracker.Start("Run duplicate-strings", (_, _) => Task.FromException<int>(new Workers.WorkerOperationException(HeapScopeErrorCode.CapabilityNotSupported, "This snapshot does not support: string contents.", null)));
         await refused.Completion;
 
+        // Observed here, so the finalizer never reports it to a test that counts unobserved task exceptions.
+        await Should.ThrowAsync<Workers.WorkerOperationException>(() => refused.Result);
         traceInside.ShouldNotBeNull();
         System.Diagnostics.Activity.Current.ShouldBeNull("the job's activity does not leak to the caller");
         logger.Lines.ShouldContain($"Job {done.Id} started: Open app.dmp");

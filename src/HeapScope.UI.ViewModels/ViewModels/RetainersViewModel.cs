@@ -25,6 +25,7 @@ using System.Diagnostics;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -267,7 +268,7 @@ public sealed partial class RetainersViewModel : GridQueryViewModel<DominatorRow
                     ? string.Create(CultureInfo.CurrentCulture, $"Retains {Format.Bytes(result.FocusRetained)} of {Format.Bytes(result.TotalRetained)} reachable")
                     : string.Create(CultureInfo.CurrentCulture, $"{result.TopLevel:N0} top-level retainers of {Format.Bytes(result.TotalRetained)} reachable");
                 var bound = result.Rows.Columns.FirstOrDefault(c => c.Name == DominatorTreeColumns.Retained)?.Bound ?? ValueBound.Exact;
-                Note = RetainedText.Source(result.Dominators) + " " + ValueBoundTexts.For(bound)
+                Note = RetainedSizeTexts.Source(result.Dominators, CultureInfo.CurrentCulture) + " " + ValueBoundTexts.For(bound)
                     + (result.Truncated
                         ? string.Create(CultureInfo.CurrentCulture, $" The tree is cut at {DominatorTreeLimits.MaxRows:N0} rows; collapse rows or focus on one to see the rest.")
                         : string.Empty);

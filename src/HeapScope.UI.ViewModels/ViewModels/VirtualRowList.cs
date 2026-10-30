@@ -273,25 +273,3 @@ public sealed class VirtualRowList<TRow> : IList, INotifyCollectionChanged, IGri
         return item;
     }
 }
-
-/// <summary>Finds result columns by name; a missing required column means the worker and the app differ in build.</summary>
-public static class ResultColumns
-{
-    public static int Find(IReadOnlyList<ResultColumn> columns, string name)
-    {
-        ArgumentNullException.ThrowIfNull(columns);
-        for (var i = 0; i < columns.Count; i++)
-        {
-            if (columns[i].Name == name)
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    public static int Require(IReadOnlyList<ResultColumn> columns, string name) => Find(columns, name) is >= 0 and var index
-        ? index
-        : throw new InvalidOperationException($"The worker's result has no {name} column. The worker and the app are from different builds.");
-}
