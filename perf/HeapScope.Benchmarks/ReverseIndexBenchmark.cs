@@ -49,7 +49,7 @@ internal static class ReverseIndexBenchmark
 
         using var sampler = new PrivateBytesSampler();
         var stopwatch = Stopwatch.StartNew();
-        var opened = IndexCacheReader.Open(cache, expected: null, mode);
+        var opened = IndexCacheReader.Open(cache, IndexCacheSigner.None, expected: null, mode);
         if (!opened.Success)
         {
             Console.WriteLine($"The index cache could not be opened: {opened.Detail}");
@@ -70,7 +70,7 @@ internal static class ReverseIndexBenchmark
         try
         {
             stopwatch.Restart();
-            using (var writer = IndexCacheFileWriter.Create(sidecar))
+            using (var writer = IndexCacheFileWriter.Create(sidecar, IndexCacheSigner.None))
             {
                 writer.WriteSection(IndexSection.InEdgeStarts, reverse.InEdgeStarts.Span);
                 writer.WriteSection(IndexSection.InEdges, reverse.InEdges.Span);
@@ -90,7 +90,7 @@ internal static class ReverseIndexBenchmark
             {
                 var (before, _) = MemoryAfterCollect();
                 stopwatch.Restart();
-                var file = IndexCacheFile.Open(sidecar, IndexFileLayout.ReverseReferences, opened.Identity, null, reopen);
+                var file = IndexCacheFile.Open(sidecar, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, opened.Identity, null, reopen);
                 var time = stopwatch.Elapsed;
                 var (after, _) = MemoryAfterCollect();
                 Measurement.Line($"Reopen the sidecar {reopen}", $"{time.TotalSeconds:N1} s, private +{Measurement.Mb(after - before)}, {(file.Success ? "ok" : file.Detail)}");

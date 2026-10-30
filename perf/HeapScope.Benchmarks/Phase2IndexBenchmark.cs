@@ -121,7 +121,7 @@ internal static class Phase2IndexBenchmark
         {
             var source = args.Get("source") ?? throw new ArgumentException("--cache needs --source, the dump the cache was built from.");
             var mode = args.Get("mapped") == "1" ? MemoryMode.Mapped : MemoryMode.InMemory;
-            var result = IndexCacheReader.Open(cache, SnapshotFingerprint.Compute(source), mode);
+            var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, SnapshotFingerprint.Compute(source), mode);
             return result.Success ? result.Graph! : throw new InvalidOperationException(result.Detail);
         }
 

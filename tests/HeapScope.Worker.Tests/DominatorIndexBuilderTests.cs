@@ -95,7 +95,7 @@ public sealed class DominatorIndexBuilderTests : IDisposable
     [Fact]
     public void A_sidecar_computed_under_other_rules_is_not_used()
     {
-        using (var writer = MappedIndexFileWriter.Create(Sidecar, [new(IndexSection.ImmediateDominators, 4, _graph.ObjectCount), new(IndexSection.RetainedSizes, 8, _graph.ObjectCount)], Ct))
+        using (var writer = MappedIndexFileWriter.Create(Sidecar, IndexCacheSigner.None, [new(IndexSection.ImmediateDominators, 4, _graph.ObjectCount), new(IndexSection.RetainedSizes, 8, _graph.ObjectCount)], Ct))
         {
             writer.Commit(s_fingerprint, 0x42, DominatorTree.SemanticsVersion + 1);
         }
@@ -133,7 +133,7 @@ public sealed class DominatorIndexBuilderTests : IDisposable
     public void Too_little_memory_is_refused_before_anything_is_computed()
     {
         var tiny = new MemoryReservations(() => new MemoryBudget(TotalPhysicalBytes: 10_000, AvailableBytes: 10_000), () => 0);
-        var builder = new DominatorIndexBuilder(NullLogger.Instance, tiny);
+        var builder = new DominatorIndexBuilder(NullLogger.Instance, tiny, IndexCacheSigner.None);
 
         var refused = Should.Throw<InsufficientMemoryException>(() => builder.Compute(_graph, _reverse, Target(Sidecar, MemoryMode.Mapped), null, Ct));
 
@@ -211,7 +211,7 @@ public sealed class DominatorIndexBuilderTests : IDisposable
         }
     }
 
-    private static DominatorIndexBuilder Builder() => new(NullLogger.Instance, new MemoryReservations(() => s_roomy, () => 0));
+    private static DominatorIndexBuilder Builder() => new(NullLogger.Instance, new MemoryReservations(() => s_roomy, () => 0), IndexCacheSigner.None);
 
     private static DominatorTarget Target(string? sidecar, MemoryMode graphMode, MemoryMode? forced = null) =>
         new(sidecar, 0x42, s_fingerprint, graphMode, forced);

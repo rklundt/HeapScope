@@ -44,8 +44,10 @@ internal sealed record ReverseIndexTarget(string? Sidecar, ulong BaseIdentity, S
 /// chosen mode (sprint 2.3, from the 2.1 review M2), so a mapped index never holds a managed copy; without one, or when the
 /// file cannot be written, it is built in managed arrays and stays in memory.
 /// </summary>
-internal sealed class ReverseIndexBuilder(ILogger logger)
+internal sealed class ReverseIndexBuilder(ILogger logger, IndexCacheSigner signer)
 {
+    private readonly IndexCacheSigner _signer = signer;
+
     private const string BuildPhase = "Indexing incoming references";
 
     /// <summary>
@@ -113,7 +115,7 @@ internal sealed class ReverseIndexBuilder(ILogger logger)
     /// <summary>The index from its sidecar, or null when the sidecar is missing, stale or damaged (it is then rebuilt).</summary>
     private ReverseReferences? TryOpen(string sidecar, ReverseIndexTarget target, HeapGraph graph, MemoryMode mode, CancellationToken cancellationToken)
     {
-        var opened = IndexCacheFile.Open(sidecar, IndexFileLayout.ReverseReferences, target.BaseIdentity, target.Fingerprint, mode, cancellationToken);
+        var opened = IndexCacheFile.Open(sidecar, _signer, IndexFileLayout.ReverseReferences, target.BaseIdentity, target.Fingerprint, mode, cancellationToken);
         if (!opened.Success)
         {
             if (opened.Reason != IndexCacheInvalidReason.Missing)
@@ -147,7 +149,7 @@ internal sealed class ReverseIndexBuilder(ILogger logger)
         try
         {
             using var writer = MappedIndexFileWriter.Create(
-                sidecar,
+                sidecar, _signer,
                 [new(IndexSection.InEdgeStarts, sizeof(int), graph.ObjectCount + 1), new(IndexSection.InEdges, sizeof(int), graph.EdgeCount)],
                 cancellationToken);
             ReverseReferences.Fill(graph, writer.GetSection<int>(IndexSection.InEdgeStarts), writer.GetSection<int>(IndexSection.InEdges), new PhaseProgress(progress, graph.ObjectCount), cancellationToken);

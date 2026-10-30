@@ -225,7 +225,7 @@ public sealed class ReverseSidecarTests : IClassFixture<StaticCacheDump>, IAsync
     public async Task A_sidecar_of_another_index_cache_is_ignored_and_rebuilt()
     {
         var handle = await _session.StartOpen(_dump).Result;
-        using (var writer = IndexCacheFileWriter.Create(Sidecar, cancellationToken: Ct))
+        using (var writer = IndexCacheFileWriter.Create(Sidecar, IndexCacheSigner.None, cancellationToken: Ct))
         {
             writer.WriteSection<int>(IndexSection.InEdgeStarts, [0]);
             writer.WriteSection<int>(IndexSection.InEdges, []);
@@ -236,7 +236,7 @@ public sealed class ReverseSidecarTests : IClassFixture<StaticCacheDump>, IAsync
 
         result.Result.Index!.FromSidecar.ShouldBeFalse();
         result.Result.TargetObjects.ShouldBe(StaticCacheDump.Items);
-        var file = IndexCacheFile.Open(Sidecar, IndexFileLayout.ReverseReferences, handle.Descriptor.CacheIdentity, SnapshotFingerprint.Compute(_dump), MemoryMode.InMemory, Ct);
+        var file = IndexCacheFile.Open(Sidecar, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, handle.Descriptor.CacheIdentity, SnapshotFingerprint.Compute(_dump), MemoryMode.InMemory, Ct);
         file.Success.ShouldBeTrue(file.Detail);
         file.File!.Dispose();
     }

@@ -27,78 +27,16 @@ using HeapScope.Core;
 namespace HeapScope.Storage;
 
 /// <summary>
-/// The per-user key that signs index caches and their sidecars (sprint 3.7, peer review P14). A cache's checksums are
-/// unkeyed, so anyone can recompute them: an <c>app.dmp.hsidx</c> shipped next to <c>app.dmp</c> (whose time survives
-/// unzipping, so the fingerprint matches) decided every count, size and root. With a key set, the writer puts an
-/// HMAC-SHA256 of the header region (the header and the section directory, which carries every section's checksum) in the
-/// region's last 32 bytes, and the reader refuses a cache whose signature does not match
-/// (<see cref="IndexCacheInvalidReason.Untrusted"/>), so it is rebuilt from the dump. Without a key nothing is signed or
-/// checked (tests, tools).
+/// The per-user key file that <see cref="IndexCacheSigner.ForThisUser"/> signs index caches with (sprint 3.7, peer review
+/// P14): 32 random bytes in HeapScope's data folder, readable by the user only, created on first use under a lock file so
+/// processes starting together share one key.
 /// </summary>
 public static class IndexCacheKey
 {
-    /// <summary>The key file in HeapScope's data folder: 32 random bytes, readable by the user only.</summary>
+    /// <summary>The key file in HeapScope's data folder.</summary>
     public const string FileName = "index-cache.key";
 
-    internal const int SignatureLength = 32;
-
-    private static readonly AsyncLocal<byte[]?> s_scoped = new();
-    private static byte[]? s_process;
-
-    /// <summary>The key in effect: a scoped one (tests), else the process's.</summary>
-    internal static byte[]? Current => s_scoped.Value ?? s_process;
-
-    /// <summary>
-    /// Loads this user's key for the whole process, creating it on first use, from <paramref name="folder"/> (null:
-    /// HeapScope's data folder). The worker calls it at startup and logs the outcome. When the key can be neither read nor
-    /// created (a folder of another user, a full disk), the process uses a random key of its own instead (3.7 review H4):
-    /// caches are still signed and checked, only rebuilt on the next run, and the analysis keeps working. Never no key.
-    /// </summary>
-    public static IndexCacheKeyOutcome UseForThisUser(string? folder = null)
-    {
-        var path = Path.Combine(folder ?? HeapScopeFolders.Default.Root, FileName);
-        try
-        {
-            (s_process, var how) = LoadOrCreate(path);
-            return new IndexCacheKeyOutcome(path, how, null);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            s_process = RandomNumberGenerator.GetBytes(SignatureLength);
-            return new IndexCacheKeyOutcome(path, IndexCacheKeySource.ThisRunOnly, ex);
-        }
-    }
-
-    /// <summary>Uses <paramref name="key"/> in the calling flow until the result is disposed (tests).</summary>
-    public static IDisposable UseScoped(byte[] key)
-    {
-        ArgumentNullException.ThrowIfNull(key);
-        var previous = s_scoped.Value;
-        s_scoped.Value = key;
-        return new Restore(() => s_scoped.Value = previous);
-    }
-
-    /// <summary>Writes the signature into the last bytes of <paramref name="region"/> when a key is in effect.</summary>
-    internal static void Sign(Span<byte> region)
-    {
-        if (Current is { } key)
-        {
-            HMACSHA256.HashData(key, region[..^SignatureLength], region[^SignatureLength..]);
-        }
-    }
-
-    /// <summary>True when no key is in effect, or the region's signature is the key's.</summary>
-    internal static bool Verify(ReadOnlySpan<byte> region)
-    {
-        if (Current is not { } key)
-        {
-            return true;
-        }
-
-        Span<byte> expected = stackalloc byte[SignatureLength];
-        HMACSHA256.HashData(key, region[..^SignatureLength], expected);
-        return CryptographicOperations.FixedTimeEquals(expected, region[^SignatureLength..]);
-    }
+    internal const int SignatureLength = IndexCacheSigner.SignatureLength;
 
     internal static (byte[] Key, IndexCacheKeySource How) LoadOrCreate(string path)
     {
@@ -172,11 +110,6 @@ public static class IndexCacheKey
             }
         }
     }
-
-    private sealed class Restore(Action restore) : IDisposable
-    {
-        public void Dispose() => restore();
-    }
 }
 
 /// <summary>Where the process's index cache key came from (3.7 review H4).</summary>
@@ -195,6 +128,6 @@ public enum IndexCacheKeySource
     ThisRunOnly,
 }
 
-/// <summary>The outcome of <see cref="IndexCacheKey.UseForThisUser"/>: the key file, where the key came from, and the error
+/// <summary>The outcome of <see cref="IndexCacheSigner.ForThisUser"/>: the key file, where the key came from, and the error
 /// when it is <see cref="IndexCacheKeySource.ThisRunOnly"/>.</summary>
 public sealed record IndexCacheKeyOutcome(string Path, IndexCacheKeySource Source, Exception? Error);

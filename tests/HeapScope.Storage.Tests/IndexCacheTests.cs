@@ -64,9 +64,9 @@ public sealed class IndexCacheTests : IDisposable
     {
         using var original = CreateGraph(name);
         var cache = Path.Combine(_directory, name + ".hsidx");
-        IndexCacheWriter.Write(cache, original, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, original, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
 
-        var result = IndexCacheReader.Open(cache, Fingerprint(), mode, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, Fingerprint(), mode, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue(result.Detail);
         result.Mode.ShouldBe(mode);
@@ -81,9 +81,9 @@ public sealed class IndexCacheTests : IDisposable
         using var graph = CreateGraph("rich");
         var cache = Path.Combine(_directory, "free.hsidx");
         var metadata = _metadata with { Info = _metadata.Info with { FreeBytes = [0, 10, 20, 3000, 40, 0, 0] } };
-        IndexCacheWriter.Write(cache, graph, metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
 
-        var result = IndexCacheReader.Open(cache, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue(result.Detail);
         using var copy = result.Graph!;
@@ -98,8 +98,8 @@ public sealed class IndexCacheTests : IDisposable
         var first = Path.Combine(_directory, "a.hsidx");
         var second = Path.Combine(_directory, "b.hsidx");
 
-        IndexCacheWriter.Write(first, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
-        IndexCacheWriter.Write(second, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(first, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(second, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
 
         File.ReadAllBytes(first).ShouldBe(File.ReadAllBytes(second));
     }
@@ -107,7 +107,7 @@ public sealed class IndexCacheTests : IDisposable
     [Fact]
     public void Missing_cache_is_reported()
     {
-        var result = IndexCacheReader.Open(Path.Combine(_directory, "none.hsidx"), null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(Path.Combine(_directory, "none.hsidx"), IndexCacheSigner.None, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         result.Reason.ShouldBe(IndexCacheInvalidReason.Missing);
     }
@@ -143,7 +143,7 @@ public sealed class IndexCacheTests : IDisposable
         var cache = WriteRich();
         Patch(cache, offset: 8, BitConverter.GetBytes(IndexCacheFormat.Version + 1));
 
-        var result = IndexCacheReader.Open(cache, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         result.Reason.ShouldBe(IndexCacheInvalidReason.VersionMismatch);
         result.Detail!.ShouldContain("version");
@@ -170,7 +170,7 @@ public sealed class IndexCacheTests : IDisposable
             File.WriteAllBytes(cache, pristine);
             Patch(cache, offset + (length / 2), [(byte)(pristine[offset + (length / 2)] ^ 0xFF)]);
 
-            var result = IndexCacheReader.Open(cache, null, mode, TestContext.Current.CancellationToken);
+            var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, mode, TestContext.Current.CancellationToken);
 
             result.Reason.ShouldBe(IndexCacheInvalidReason.ChecksumMismatch, section.ToString());
             result.Detail!.ShouldContain(section.ToString());
@@ -205,7 +205,7 @@ public sealed class IndexCacheTests : IDisposable
         IndexCacheWriter.BeforeHeaderForTesting = temp => File.Copy(temp, snapshotOfTemp);
         try
         {
-            IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+            IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -225,7 +225,7 @@ public sealed class IndexCacheTests : IDisposable
         using var cts = new CancellationTokenSource();
 
         Should.Throw<OperationCanceledException>(() =>
-            IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), new InlineProgress(_ => cts.Cancel()), cts.Token));
+            IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), new InlineProgress(_ => cts.Cancel()), cts.Token));
 
         File.Exists(cache).ShouldBeFalse();
         Directory.GetFiles(_directory, "*.tmp").ShouldBeEmpty();
@@ -240,7 +240,7 @@ public sealed class IndexCacheTests : IDisposable
         IndexCacheWriter.BeforeHeaderForTesting = _ => throw new IOException("disk full");
         try
         {
-            Should.Throw<IOException>(() => IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken));
+            Should.Throw<IOException>(() => IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -256,7 +256,7 @@ public sealed class IndexCacheTests : IDisposable
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to delete or replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var cache = WriteRich();
-        var result = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
         Should.Throw<IOException>(() => File.Delete(cache));
 
         result.Graph!.Dispose();
@@ -270,12 +270,12 @@ public sealed class IndexCacheTests : IDisposable
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to delete or replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var cache = WriteRich();
         var before = File.ReadAllBytes(cache);
-        var open = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
+        var open = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
         using var graph = CreateGraph("random");
         try
         {
             Should.Throw<IndexCacheInUseException>(() =>
-                IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken));
+                IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -306,7 +306,7 @@ public sealed class IndexCacheTests : IDisposable
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to delete or replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var cache = WriteRich();
-        var open = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
+        var open = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
         var snapshot = new GraphSnapshot(_metadata.Info, _metadata.Capabilities, open.Graph!);
         var lease = snapshot.AcquireLease();
 
@@ -321,8 +321,8 @@ public sealed class IndexCacheTests : IDisposable
     public void Identity_is_stable_per_cache_content()
     {
         var cache = WriteRich();
-        var first = IndexCacheReader.Open(cache, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
-        var second = IndexCacheReader.Open(cache, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
+        var first = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var second = IndexCacheReader.Open(cache, IndexCacheSigner.None, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
         first.Graph!.Dispose();
         second.Graph!.Dispose();
 
@@ -335,10 +335,10 @@ public sealed class IndexCacheTests : IDisposable
     {
         using var graph = CreateGraph("random");
         var cache = Path.Combine(_directory, "size.hsidx");
-        IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
 
-        IndexCacheReader.GetInMemoryBytes(cache)!.Value.ShouldBeGreaterThanOrEqualTo(graph.ColumnBytes);
-        IndexCacheReader.GetInMemoryBytes(Path.Combine(_directory, "none.hsidx")).ShouldBeNull();
+        IndexCacheReader.GetInMemoryBytes(cache, IndexCacheSigner.None)!.Value.ShouldBeGreaterThanOrEqualTo(graph.ColumnBytes);
+        IndexCacheReader.GetInMemoryBytes(Path.Combine(_directory, "none.hsidx"), IndexCacheSigner.None).ShouldBeNull();
     }
 
     public void Dispose()
@@ -416,13 +416,13 @@ public sealed class IndexCacheTests : IDisposable
     {
         using var graph = CreateGraph("rich");
         var cache = Path.Combine(_directory, "rich.hsidx");
-        IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
         return cache;
     }
 
     private static IndexCacheInvalidReason Reason(string cache, SnapshotFingerprint? expected)
     {
-        var result = IndexCacheReader.Open(cache, expected, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, expected, MemoryMode.InMemory, TestContext.Current.CancellationToken);
         result.Graph?.Dispose();
         return result.Reason;
     }

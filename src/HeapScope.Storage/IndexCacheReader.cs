@@ -45,7 +45,7 @@ public static class IndexCacheReader
     /// Opens a cache. When <paramref name="expected"/> is given, the cache must have been built from a snapshot with
     /// that fingerprint.
     /// </summary>
-    public static IndexCacheOpenResult Open(string path, SnapshotFingerprint? expected, MemoryMode mode, CancellationToken cancellationToken = default)
+    public static IndexCacheOpenResult Open(string path, IndexCacheSigner signer, SnapshotFingerprint? expected, MemoryMode mode, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         if (!File.Exists(path))
@@ -58,7 +58,7 @@ public static class IndexCacheReader
         {
             // FileShare.Read: nobody can write, rename over or delete the file while it is being read or mapped.
             stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, FileOptions.SequentialScan);
-            var directory = IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected, 0, out var header, out var failure);
+            var directory = IndexFileDirectory.Read(stream, signer, IndexFileLayout.Base, expected, 0, out var header, out var failure);
             if (directory is null)
             {
                 return failure!;
@@ -98,7 +98,7 @@ public static class IndexCacheReader
     /// Checks a cache without reading its sections: present, header and directory valid, fingerprint equal. Returns
     /// null when it would open (barring section corruption), otherwise the reason it would not.
     /// </summary>
-    public static IndexCacheOpenResult? Probe(string path, SnapshotFingerprint expected)
+    public static IndexCacheOpenResult? Probe(string path, IndexCacheSigner signer, SnapshotFingerprint expected)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         if (!File.Exists(path))
@@ -109,7 +109,7 @@ public static class IndexCacheReader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected, 0, out _, out var failure) is null ? failure : null;
+            return IndexFileDirectory.Read(stream, signer, IndexFileLayout.Base, expected, 0, out _, out var failure) is null ? failure : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -122,13 +122,13 @@ public static class IndexCacheReader
     }
 
     /// <summary>Bytes the graph's sections would take in memory, from the directory; null when the cache is invalid.</summary>
-    public static long? GetInMemoryBytes(string path) => GetInMemoryBytes(path, out _);
+    public static long? GetInMemoryBytes(string path, IndexCacheSigner signer) => GetInMemoryBytes(path, signer, out _);
 
     /// <summary>
     /// Bytes the graph's sections would take in memory, from the directory; null when the cache is missing or invalid, with
     /// <paramref name="failure"/> saying why when it exists but is invalid (3.7 review H3: an untrusted cache is logged).
     /// </summary>
-    public static long? GetInMemoryBytes(string path, out IndexCacheOpenResult? failure)
+    public static long? GetInMemoryBytes(string path, IndexCacheSigner signer, out IndexCacheOpenResult? failure)
     {
         failure = null;
         if (!File.Exists(path))
@@ -139,7 +139,7 @@ public static class IndexCacheReader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected: null, 0, out _, out failure)?.Values.Sum(e => e.ByteLength);
+            return IndexFileDirectory.Read(stream, signer, IndexFileLayout.Base, expected: null, 0, out _, out failure)?.Values.Sum(e => e.ByteLength);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

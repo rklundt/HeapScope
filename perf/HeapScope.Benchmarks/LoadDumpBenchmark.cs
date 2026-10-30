@@ -76,7 +76,7 @@ internal static class LoadDumpBenchmark
         var write = Stopwatch.StartNew();
         var metadata = new IndexCacheMetadata(result.Info, result.Capabilities, IndexCacheMetadata.CurrentWriterVersion);
         var fingerprint = SnapshotFingerprint.Compute(path);
-        IndexCacheWriter.Write(cache, graph, metadata, fingerprint);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, metadata, fingerprint);
         Measurement.Line("Write index cache", $"{write.Elapsed.TotalSeconds:N1} s ({Measurement.Mb(new FileInfo(cache).Length)})");
         var firstLoad = stopwatch.Elapsed;
         Measurement.Line("First load total", $"{firstLoad.TotalSeconds:N1} s");
@@ -91,13 +91,13 @@ internal static class LoadDumpBenchmark
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         var privateAfterDrop = Private();
         var mappedStopwatch = Stopwatch.StartNew();
-        var mapped = IndexCacheReader.Open(cache, fingerprint, MemoryMode.Mapped);
+        var mapped = IndexCacheReader.Open(cache, IndexCacheSigner.None, fingerprint, MemoryMode.Mapped);
         var mappedReopen = mappedStopwatch.Elapsed;
         Measurement.Line("Mapped transition", $"{transition.Elapsed.TotalSeconds:N1} s, private {Measurement.Mb(privateAfterDrop)} after drop, {Measurement.Mb(Private())} mapped, {(mapped.Success ? "ok" : mapped.Detail)}");
         mapped.Graph?.Dispose();
 
         var reopen = Stopwatch.StartNew();
-        var inMemory = IndexCacheReader.Open(cache, fingerprint, MemoryMode.InMemory);
+        var inMemory = IndexCacheReader.Open(cache, IndexCacheSigner.None, fingerprint, MemoryMode.InMemory);
         Measurement.Line("Reopen in memory", $"{reopen.Elapsed.TotalSeconds:N1} s, {(inMemory.Success ? "ok" : inMemory.Detail)}");
         inMemory.Graph?.Dispose();
 

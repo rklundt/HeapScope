@@ -67,6 +67,20 @@ public class TextRulesTests
         offenders.ShouldBeEmpty();
     }
 
+    // The worker reads only caches signed with the user's key (ADR-036): "no signing" is for tools and tests that read
+    // caches they wrote themselves, never for the worker (3.7 review M11).
+    [Fact]
+    public void The_worker_never_reads_or_writes_index_caches_unsigned()
+    {
+        var offenders = Directory.EnumerateFiles(Path.Combine(RepoPaths.Root, "src", "HeapScope.Worker"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !IsIgnored(Path.GetRelativePath(RepoPaths.Root, f)))
+            .Where(f => File.ReadAllText(f).Contains("IndexCacheSigner.None", StringComparison.Ordinal))
+            .Select(f => Path.GetRelativePath(RepoPaths.Root, f))
+            .ToList();
+
+        offenders.ShouldBeEmpty();
+    }
+
     // Every source file we own starts with the license header of docs/licensing/SOURCE-HEADER.txt, in its own comment
     // syntax (LICENSE, ADDITIONAL-TERMS.md). Vendored code (a ThirdParty project or folder) keeps its own header.
     [Fact]

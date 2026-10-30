@@ -50,7 +50,7 @@ internal static class DominatorsBenchmark
         Console.WriteLine($"dominators: {cache}, {mode}, sidecars in {output}");
         var overall = Stopwatch.StartNew();
         using var overallPeak = new PrivateBytesSampler();
-        var opened = IndexCacheReader.Open(cache, expected: null, mode);
+        var opened = IndexCacheReader.Open(cache, IndexCacheSigner.None, expected: null, mode);
         if (!opened.Success)
         {
             Console.WriteLine($"The index cache could not be opened: {opened.Detail}");
@@ -108,7 +108,7 @@ internal static class DominatorsBenchmark
                 if (mode == MemoryMode.Mapped)
                 {
                     var stopwatch = Stopwatch.StartNew();
-                    var reopened = IndexCacheFile.Open(sidecar, layout, 0, fingerprint, MemoryMode.Mapped);
+                    var reopened = IndexCacheFile.Open(sidecar, IndexCacheSigner.None, layout, 0, fingerprint, MemoryMode.Mapped);
                     reopened.File?.Dispose();
                     Measurement.Line("Dominators sidecar reopened mapped", $"{stopwatch.Elapsed.TotalSeconds:N2} s ({(reopened.Success ? "ok" : reopened.Detail)}), {Measurement.Mb(new FileInfo(sidecar).Length)}");
                 }
@@ -157,13 +157,13 @@ internal static class DominatorsBenchmark
             return ReverseReferences.Build(graph);
         }
 
-        using (var writer = MappedIndexFileWriter.Create(sidecar, [new(IndexSection.InEdgeStarts, 4, graph.ObjectCount + 1), new(IndexSection.InEdges, 4, graph.EdgeCount)]))
+        using (var writer = MappedIndexFileWriter.Create(sidecar, IndexCacheSigner.None, [new(IndexSection.InEdgeStarts, 4, graph.ObjectCount + 1), new(IndexSection.InEdges, 4, graph.EdgeCount)]))
         {
             ReverseReferences.Fill(graph, writer.GetSection<int>(IndexSection.InEdgeStarts), writer.GetSection<int>(IndexSection.InEdges));
             writer.Commit(fingerprint);
         }
 
-        var file = IndexCacheFile.Open(sidecar, IndexFileLayout.ReverseReferences, 0, fingerprint, MemoryMode.Mapped).File!;
+        var file = IndexCacheFile.Open(sidecar, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 0, fingerprint, MemoryMode.Mapped).File!;
         file.TryGetSection<int>(IndexSection.InEdgeStarts, out var starts);
         file.TryGetSection<int>(IndexSection.InEdges, out var edges);
         return ReverseReferences.FromColumns(graph, starts, edges, file);
@@ -192,7 +192,7 @@ internal static class DominatorsBenchmark
 
         int reachable;
         using (var writer = MappedIndexFileWriter.Create(
-            sidecar,
+            sidecar, IndexCacheSigner.None,
             [
                 new(IndexSection.ImmediateDominators, 4, graph.ObjectCount),
                 new(IndexSection.RetainedSizes, 8, graph.ObjectCount),
@@ -209,7 +209,7 @@ internal static class DominatorsBenchmark
             writer.Commit(fingerprint, 0, layout.SemanticsVersion);
         }
 
-        var file = IndexCacheFile.Open(sidecar, layout, 0, fingerprint, MemoryMode.Mapped).File!;
+        var file = IndexCacheFile.Open(sidecar, IndexCacheSigner.None, layout, 0, fingerprint, MemoryMode.Mapped).File!;
         file.TryGetSection<int>(IndexSection.ImmediateDominators, out var idoms);
         file.TryGetSection<ulong>(IndexSection.RetainedSizes, out var sizes);
         file.TryGetSection<int>(IndexSection.DominatorChildStarts, out var childStarts);

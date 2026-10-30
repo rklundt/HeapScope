@@ -112,6 +112,26 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     }
 
     [Fact]
+    public async Task A_cache_signed_by_another_users_key_is_rebuilt_and_noted()
+    {
+        // ADR-036 end to end (3.7 review M10): a worker with another key, as for another user or a cache shipped next to a
+        // dump, never uses the cache; it reads the dump again, says why, and signs the new cache with its own key.
+        await _session.StartOpen(_dump).Result;
+        using var otherData = new TempFolder();
+        await using var other = new WorkerHost(Options.Create(new WorkerHostOptions { WorkerPath = TestPaths.WorkerExe, DataFolder = otherData.Path }), new ListLoggerProvider());
+        var otherSession = new SnapshotSession(other, new JobTracker(TimeProvider.System));
+
+        var rebuilt = await otherSession.StartOpen(_dump).Result;
+
+        rebuilt.Descriptor.FromCache.ShouldBeFalse();
+        rebuilt.Descriptor.Notes.ShouldContain(n => n.Contains("signed with another key", StringComparison.Ordinal));
+
+        await other.RestartAsync(Ct);
+        var reopened = await new SnapshotSession(other, new JobTracker(TimeProvider.System)).StartOpen(_dump).Result;
+        reopened.Descriptor.FromCache.ShouldBeTrue("the rebuilt cache carries the other key's signature");
+    }
+
+    [Fact]
     public async Task A_dump_moved_with_its_cache_reports_and_reopens_the_new_path()
     {
         await _session.StartOpen(_dump).Result;

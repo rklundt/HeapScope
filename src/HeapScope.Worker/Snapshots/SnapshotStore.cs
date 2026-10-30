@@ -40,19 +40,20 @@ namespace HeapScope.Worker.Snapshots;
 /// ClrMD and writes the cache; the memory mode follows the budget (ADR-015). Loads are serialized: two first loads would
 /// stack their peaks.
 /// </summary>
-internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLocator locator, ILogger<SnapshotStore> logger) : IDisposable
+internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLocator locator, IndexCacheSigner signer, ILogger<SnapshotStore> logger) : IDisposable
 {
     private readonly ConcurrentDictionary<Guid, Entry> _snapshots = new();
     private readonly SemaphoreSlim _loadGate = new(1, 1);
     private readonly SnapshotKinds _kinds = new(options, choice => LogDac(logger, choice));
-    private readonly ReverseIndexBuilder _reverseBuilder = new(logger);
+    private readonly IndexCacheSigner _signer = signer;
+    private readonly ReverseIndexBuilder _reverseBuilder = new(logger, signer);
 
     /// <summary>The memory reserved by large derived computations of every snapshot (sprint 2.3 review M2).</summary>
     private readonly MemoryReservations _reservations = new();
 
     private DominatorIndexBuilder? _dominatorBuilder;
 
-    private DominatorIndexBuilder DominatorBuilder => _dominatorBuilder ??= new(logger, _reservations);
+    private DominatorIndexBuilder DominatorBuilder => _dominatorBuilder ??= new(logger, _reservations, _signer);
 
     private bool _disposed;
 
@@ -66,7 +67,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         var path = ExistingFullPath(requestedPath);
         var cachePath = locator.GetCachePath(path);
-        var failure = IndexCacheReader.Probe(cachePath, SnapshotFingerprint.Compute(path));
+        var failure = IndexCacheReader.Probe(cachePath, _signer, SnapshotFingerprint.Compute(path));
         var state = failure is null ? SnapshotCacheState.Valid
             : failure.Reason == IndexCacheInvalidReason.Missing ? SnapshotCacheState.Missing
             : SnapshotCacheState.Invalid;
@@ -219,7 +220,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
                 // A full dump about to open from a valid cache loads no DAC now, but its field reader will: only now can
                 // the front end ask about a DAC that needs trust (review H1). Before the cache is read (re-review), so a
                 // refusal costs no graph.
-                if (request.CheckDac && IndexCacheReader.Probe(cachePath, fingerprint) is null
+                if (request.CheckDac && IndexCacheReader.Probe(cachePath, _signer, fingerprint) is null
                     && SnapshotFileSignature.Detect(path) is { } kind)
                 {
                     _kinds.For(kind).CheckBeforeCacheOpen(path);
@@ -380,7 +381,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
 
     private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, List<string> notes, CancellationToken cancellationToken)
     {
-        var required = IndexCacheReader.GetInMemoryBytes(cachePath, out var unusable);
+        var required = IndexCacheReader.GetInMemoryBytes(cachePath, _signer, out var unusable);
         if (required is null)
         {
             // An untrusted, foreign or damaged cache is rebuilt, and the log and the snapshot's notes say why (3.7 review H3).
@@ -394,7 +395,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         }
 
         var mode = MemoryModeSelector.Select(required.Value, MemoryBudget.Current(forced: forced));
-        var result = IndexCacheReader.Open(cachePath, fingerprint, mode, cancellationToken);
+        var result = IndexCacheReader.Open(cachePath, _signer, fingerprint, mode, cancellationToken);
         if (result.Success && result.Metadata!.LoaderVersion < _kinds.For(result.Metadata.Info.Kind).LoaderVersion)
         {
             // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
@@ -494,7 +495,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             graph = null;
             GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            var mapped = IndexCacheReader.Open(cachePath, fingerprint, MemoryMode.Mapped, cancellationToken);
+            var mapped = IndexCacheReader.Open(cachePath, _signer, fingerprint, MemoryMode.Mapped, cancellationToken);
             if (!mapped.Success)
             {
                 throw new SnapshotFormatException($"The index cache just written could not be reopened: {mapped.Detail}");
@@ -514,7 +515,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         try
         {
-            return IndexCacheWriter.Write(cachePath, graph, metadata, fingerprint, cancellationToken: cancellationToken);
+            return IndexCacheWriter.Write(cachePath, _signer, graph, metadata, fingerprint, cancellationToken: cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
