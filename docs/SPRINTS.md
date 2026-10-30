@@ -53,7 +53,12 @@ follows 3.8.0.
 
 **Goal**: people install and run HeapScope without building it.
 
-**Scope**: decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
+**In scope already** (product owner, 2026-10-30):
+- A README in the shipped `licenses/` folder: the files there are the licenses of third-party components, and
+  HeapScope's own license is `LICENSE` beside it (so no one reads HeapScope as MIT).
+- The DNG SDK decision (Backlog, High).
+
+**Scope**: otherwise decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
 your proposal for a packaging sprint once you pick audiences and channels"). Options discussed after 2.4:
 - Windows: a self-contained single-file publish (the app and the worker, which is its own process), a
   framework-dependent zip on a shared runtime, winget, MSIX, code signing.

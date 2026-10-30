@@ -88,6 +88,18 @@ licenses and the Adobe DNG SDK License. This product includes DNG technology und
 Incorporated. Every published build carries those files, with each shipped package's own license and notice files,
 under `licenses/<package>.<version>/` (sprint 3.6).
 
+Three of the components named there carry a GNU license or a GNU option. None of them puts HeapScope or its builds
+under the GPL or the LGPL (checked in the SkiaSharp 3.119.4 and HarfBuzzSharp 8.3.1.3 native libraries for Windows,
+Linux and macOS, 2026-10-30):
+- libmicrohttpd (LGPL-2.1, or the eCos License): an HTTP server that Skia uses in its developer tools only. It is not
+  in the shipped native libraries.
+- gif (Mozilla's GIF decoder, under MPL 1.1, GPL 2.0 or LGPL 2.1 at the recipient's choice): Skia's former GIF decoder.
+  It is not in the shipped native libraries; Skia decodes GIFs with Wuffs (Apache-2.0) instead.
+- FreeType (the FreeType License, or GPL-2.0, at the recipient's choice): in the Linux native library, and used under
+  the FreeType License.
+
+HeapScope ships no code under the GPL or the LGPL. This is checked again whenever SkiaSharp or HarfBuzzSharp is updated.
+
 ### Native binaries inside Microsoft.Diagnostics.Tracing.TraceEvent
 
 The TraceEvent package copies native Microsoft binaries into the build output (`KernelTraceControl.dll` and

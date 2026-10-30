@@ -27,6 +27,11 @@ Swept in sprint 3.8:
   `skia_use_piex` off, per runtime identifier, ships it in place of the NuGet native assets, has
   `build/check-package.sh` refuse a build with DNG code in it, and rebuilds it on every SkiaSharp update Avalonia takes.
   Replacing Skia is not an option: Avalonia draws only through it.
+- A contribution policy before any outside contribution is accepted (from ADR-022; 2026-10-30, the repository is
+  public). A contribution stays its author's, licensed to HeapScope under the AGPL only, which would end commercial
+  licensing of any file it touches. Until a contributor agreement exists (a CLA that grants the owner the right to
+  license contributions commercially, or a copyright assignment; a lawyer's review), a `CONTRIBUTING.md` says outside
+  contributions are not accepted, and no outside pull request is merged: code, tests or docs.
 - Intermittent 105 to 130 ms dispatcher lag at job completion under heavy machine load (from 0.3): find the
   cause (likely CPU contention with the worker) and bring the smoke gate back to 100 ms. Capture a WPR or PerfView
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
