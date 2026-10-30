@@ -34,7 +34,7 @@ using HeapScope.Application.Events;
 namespace HeapScope.Application.Allocations;
 
 /// <summary>An allocation trace open in this session (sprint 2.5).</summary>
-public sealed class TraceHandle
+public sealed class TraceHandle : IWorkerResource
 {
     internal TraceHandle(TraceDescriptor descriptor, int generation)
     {
@@ -59,11 +59,15 @@ public sealed class TraceHandle
 
     internal Guid WorkerTraceId => Descriptor.TraceId;
 
+    Guid IWorkerResource.WorkerId => WorkerTraceId;
+
+    int IWorkerResource.Generation => Generation;
+
     /// <summary>Set when a re-read found the file changed: later queries refuse at once instead of reading it again.</summary>
     internal bool FileChanged { get; set; }
 
-    /// <summary>One re-read at a time: queries that find the trace gone wait for the same read (the 2.5 review).</summary>
-    internal SemaphoreSlim Reopening { get; } = new(1, 1);
+    /// <summary>One re-read at a time: queries that find the trace gone wait for the same read.</summary>
+    public SemaphoreSlim Reopening { get; } = new(1, 1);
 
     internal void Update(TraceDescriptor descriptor, int generation) => _read = new Read(descriptor, generation);
 
@@ -104,6 +108,7 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
     public static readonly TimeSpan DefaultRecording = TimeSpan.FromSeconds(30);
 
     private readonly ILogger _logger = logger ?? (ILogger)NullLogger.Instance;
+    private WorkerResources<TraceHandle>? _resources;
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private readonly object _gate = new();
     private readonly List<TraceHandle> _traces = [];
@@ -209,16 +214,13 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
     public async Task<AllocationTypesAnswer> QueryTypesAsync(TraceHandle handle, AllocationScope scope, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        AllocationTypesResult? latest = null;
-        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
-        {
-            latest = await UseAsync(handle, (service, id, innerCt) => service.QueryAllocationTypesAsync(new AllocationTypesRequest(id, scope.FromSeconds, scope.ToSeconds), innerCt), ct).ConfigureAwait(false);
-            return latest.Types;
-        }
-
-        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
-        // RunAsync has just set latest: the first run returned without throwing.
-        return new AllocationTypesAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+        return await ResultQuery.RunAsync(
+            worker,
+            _logger,
+            ct => UseAsync(handle, (service, id, innerCt) => service.QueryAllocationTypesAsync(new AllocationTypesRequest(id, scope.FromSeconds, scope.ToSeconds), innerCt), ct),
+            result => result.Types,
+            (rows, result) => new AllocationTypesAnswer(rows, result),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public Task<AllocationStacksResult> QueryStacksAsync(TraceHandle handle, AllocationScope scope, int count, CancellationToken cancellationToken)
@@ -239,48 +241,30 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(expanded);
         var keys = expanded.ToArray();
-        AllocationTreeResult? latest = null;
-        async Task<ResultSetInfo> RunAsync(CancellationToken ct)
-        {
-            latest = await UseAsync(
+        return await ResultQuery.RunAsync(
+            worker,
+            _logger,
+            ct => UseAsync(
                 handle,
                 (service, id, innerCt) => service.QueryAllocationTreeAsync(new AllocationTreeRequest(id, kind, keys, scope.FromSeconds, scope.ToSeconds, scope.TypeName, RevealKey: revealKey), progress, innerCt),
-                ct).ConfigureAwait(false);
-            return latest.Rows;
-        }
-
-        var info = await RunAsync(cancellationToken).ConfigureAwait(false);
-        // RunAsync has just set latest: the first run returned without throwing.
-        return new AllocationTreeAnswer(new ResultSetHandle(worker, info, RunAsync, _logger), latest!);
+                ct),
+            result => result.Rows,
+            (rows, result) => new AllocationTreeAnswer(rows, result),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Runs <paramref name="call"/> with the trace's current worker id, reading the trace again first when the worker
     /// restarted since, and once more when the worker reports it as not open.
     /// </summary>
-    public async Task<T> UseAsync<T>(TraceHandle handle, Func<IWorkerService, Guid, CancellationToken, Task<T>> call, CancellationToken cancellationToken)
+    public Task<T> UseAsync<T>(TraceHandle handle, Func<IWorkerService, Guid, CancellationToken, Task<T>> call, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentNullException.ThrowIfNull(call);
-        ThrowIfClosed(handle);
-        await worker.EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        if (handle.Generation != worker.Generation)
-        {
-            await ReopenAsync(handle, handle.WorkerTraceId, cancellationToken).ConfigureAwait(false);
-        }
-
-        var asked = handle.WorkerTraceId;
-        try
-        {
-            return await worker.InvokeAsync((service, ct) => call(service, asked, ct), cancellationToken).ConfigureAwait(false);
-        }
-        catch (WorkerOperationException ex) when (ex.ErrorCode == HeapScopeErrorCode.TraceNotLoaded)
-        {
-            ThrowIfClosed(handle);
-            await ReopenAsync(handle, asked, cancellationToken).ConfigureAwait(false);
-            return await worker.InvokeAsync((service, ct) => call(service, handle.WorkerTraceId, ct), cancellationToken).ConfigureAwait(false);
-        }
+        return Resources.UseAsync([handle], (service, ids, ct) => call(service, ids[0], ct), cancellationToken);
     }
+
+    private WorkerResources<TraceHandle> Resources => _resources ??= new(worker, HeapScopeErrorCode.TraceNotLoaded, ReopenAsync, ThrowIfClosed);
 
     private async Task<TraceHandle> OpenAsync(string fullPath, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
@@ -306,63 +290,50 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
     }
 
     /// <summary>
-    /// Reads the trace again in the worker, once for all the queries that found <paramref name="missing"/> gone: the
-    /// others wait and use the new read. The file must be the one first read (size and write time); a changed file is
+    /// Reads the trace again in the worker (<see cref="WorkerResources{T}"/> runs it once for all the queries that found
+    /// the trace gone). The file must be the one first read (size and write time); a changed file is
     /// refused with <see cref="HeapScopeErrorCode.TraceChanged"/>, since its rows and open keys would no longer match.
     /// </summary>
-    private async Task ReopenAsync(TraceHandle handle, Guid missing, CancellationToken cancellationToken)
+    private async Task ReopenAsync(TraceHandle handle, CancellationToken cancellationToken)
     {
-        await handle.Reopening.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        if (handle.FileChanged)
         {
-            if (handle.FileChanged)
-            {
-                throw Changed(handle);
-            }
+            throw Changed(handle);
+        }
 
-            if (handle.WorkerTraceId != missing && handle.Generation == worker.Generation)
-            {
-                return;
-            }
-
-            var previous = handle.Descriptor;
+        var previous = handle.Descriptor;
+        _logger.LogInformation(
+            "Reading {Path} again (worker trace {WorkerTraceId} of generation {Generation} is gone; the worker is now generation {Now})",
+            handle.Path,
+            previous.TraceId,
+            handle.Generation,
+            worker.Generation);
+        var generation = worker.Generation;
+        var descriptor = await worker.InvokeAsync((service, ct) => service.OpenTraceAsync(new OpenTraceRequest(handle.Path), null, ct), cancellationToken).ConfigureAwait(false);
+        if (!descriptor.SameFileAs(previous) || handle.IsClosed)
+        {
+            await worker.InvokeAsync((service, ct) => service.CloseTraceAsync(descriptor.TraceId, ct), CancellationToken.None).ConfigureAwait(false);
+            ThrowIfClosed(handle);
             _logger.LogInformation(
-                "Reading {Path} again (worker trace {WorkerTraceId} of generation {Generation} is gone; the worker is now generation {Now})",
+                "Not using {Path}: it changed since it was opened ({OldBytes} bytes written {OldWritten:O}, now {NewBytes} bytes written {NewWritten:O})",
                 handle.Path,
-                previous.TraceId,
-                handle.Generation,
-                worker.Generation);
-            var generation = worker.Generation;
-            var descriptor = await worker.InvokeAsync((service, ct) => service.OpenTraceAsync(new OpenTraceRequest(handle.Path), null, ct), cancellationToken).ConfigureAwait(false);
-            if (!descriptor.SameFileAs(previous) || handle.IsClosed)
-            {
-                await worker.InvokeAsync((service, ct) => service.CloseTraceAsync(descriptor.TraceId, ct), CancellationToken.None).ConfigureAwait(false);
-                ThrowIfClosed(handle);
-                _logger.LogInformation(
-                    "Not using {Path}: it changed since it was opened ({OldBytes} bytes written {OldWritten:O}, now {NewBytes} bytes written {NewWritten:O})",
-                    handle.Path,
-                    previous.FileBytes,
-                    previous.FileWriteUtc,
-                    descriptor.FileBytes,
-                    descriptor.FileWriteUtc);
-                handle.FileChanged = true;
-                throw Changed(handle);
-            }
-
-            handle.Update(descriptor, generation);
-            if (handle.IsClosed)
-            {
-                // Closed while this read ran: CloseAsync saw the old generation and closed nothing (the 2.5 re-review).
-                await worker.InvokeAsync((service, ct) => service.CloseTraceAsync(descriptor.TraceId, ct), CancellationToken.None).ConfigureAwait(false);
-                ThrowIfClosed(handle);
-            }
-
-            _logger.LogInformation("Read {Path} again as worker trace {WorkerTraceId} (generation {Generation}): {Samples} samples, the same file", handle.Path, descriptor.TraceId, generation, descriptor.Samples);
+                previous.FileBytes,
+                previous.FileWriteUtc,
+                descriptor.FileBytes,
+                descriptor.FileWriteUtc);
+            handle.FileChanged = true;
+            throw Changed(handle);
         }
-        finally
+
+        handle.Update(descriptor, generation);
+        if (handle.IsClosed)
         {
-            handle.Reopening.Release();
+            // Closed while this read ran: CloseAsync saw the old generation and closed nothing (the 2.5 re-review).
+            await worker.InvokeAsync((service, ct) => service.CloseTraceAsync(descriptor.TraceId, ct), CancellationToken.None).ConfigureAwait(false);
+            ThrowIfClosed(handle);
         }
+
+        _logger.LogInformation("Read {Path} again as worker trace {WorkerTraceId} (generation {Generation}): {Samples} samples, the same file", handle.Path, descriptor.TraceId, generation, descriptor.Samples);
     }
 
     private static WorkerOperationException Changed(TraceHandle handle) => new(
