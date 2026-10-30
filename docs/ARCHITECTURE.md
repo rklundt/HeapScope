@@ -2409,7 +2409,8 @@ sprint 0.1.
   checksums and a fingerprint of size, time and the first and last MiB. A dump's time survives unzipping, so a shipped
   `app.dmp.hsidx` decided every count, size and root HeapScope showed.
 - Decision: the worker loads this user's key at startup (`IndexCacheKey.UseForThisUser`: `index-cache.key`, 32 random
-  bytes, owner-only, in HeapScope's data folder, created on first use). The writer signs the header region (header and
+  bytes, owner-only, in HeapScope's data folder, created on first use under a lock file so processes starting together
+  share one key). The writer signs the header region (header and
   section directory, which carries every section's checksum) with HMAC-SHA256 into the region's last 32 bytes, past the
   largest possible directory, so the format does not change; base caches and sidecars alike. The reader verifies it after
   the header checksum; a mismatch is `IndexCacheInvalidReason.Untrusted`, treated like any invalid cache: the dump is read

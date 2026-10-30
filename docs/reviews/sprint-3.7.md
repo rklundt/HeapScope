@@ -162,6 +162,16 @@ than one reviewer is merged and keeps the highest severity.
   the throw-site check (fails safe, as an unexpected error with its stack; stated in the code); the throw-site test calls
   the check directly rather than through `Load` and the worker.
 
+## Found by CI during the sprint
+
+- The gcdump loader's architecture test caught `UI.ViewModels` using a Core type for private exports: routed through
+  Application's `CsvExport.CreatePrivate`.
+- NU1004 on CI's newer SDK (it adds the machine's runtime identifier for the app's ReadyToRun publish): the app states
+  its runtime identifiers and its lock file was regenerated.
+- After the review, the key creation test failed on macOS: two processes creating the key at once each kept their own,
+  because a move that must not overwrite is not atomic there. The key is now created under a lock file
+  (`index-cache.key.lock`); the test passes five runs in a row locally and on every system in CI.
+
 ## Markdown sweep
 
 Every tracked Markdown file (52) was checked after the fixes for what 3.7 changed (the index cache key and its log

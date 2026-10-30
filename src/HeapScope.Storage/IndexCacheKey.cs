@@ -102,44 +102,73 @@ public static class IndexCacheKey
 
     internal static (byte[] Key, IndexCacheKeySource How) LoadOrCreate(string path)
     {
-        var damaged = false;
-        for (var attempt = 0; ; attempt++)
+        if (TryRead(path, out _) is { } key)
         {
-            try
-            {
-                var bytes = File.ReadAllBytes(path);
-                if (bytes.Length == SignatureLength)
-                {
-                    return (bytes, IndexCacheKeySource.Loaded);
-                }
+            return (key, IndexCacheKeySource.Loaded);
+        }
 
-                damaged = true;
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        // Missing or damaged: created under a lock file, so processes starting together end with one key. A move that
+        // must not overwrite is not atomic on every system (macOS), so it cannot settle the race alone (3.7 CI).
+        PrivateFiles.CreatePrivateDirectory(Path.GetDirectoryName(path)!);
+        using (Lock(path + ".lock"))
+        {
+            if (TryRead(path, out var damaged) is { } other)
             {
+                return (other, IndexCacheKeySource.Loaded);
             }
 
-            // Missing or damaged: a new key, written whole and moved into place; another process that won the race wins.
-            PrivateFiles.CreatePrivateDirectory(Path.GetDirectoryName(path)!);
-            var key = RandomNumberGenerator.GetBytes(SignatureLength);
+            var created = RandomNumberGenerator.GetBytes(SignatureLength);
             var temp = $"{path}.{Guid.NewGuid():N}.tmp";
             try
             {
                 using (var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    stream.Write(key);
+                    stream.Write(created);
                 }
 
-                File.Move(temp, path, overwrite: File.Exists(path) && new FileInfo(path).Length != SignatureLength);
-                return (key, damaged ? IndexCacheKeySource.ReplacedDamaged : IndexCacheKeySource.Created);
-            }
-            catch (IOException) when (attempt < 3 && File.Exists(path))
-            {
-                // The other process's key is read on the next turn.
+                File.Move(temp, path, overwrite: true);
+                return (created, damaged ? IndexCacheKeySource.ReplacedDamaged : IndexCacheKeySource.Created);
             }
             finally
             {
                 File.Delete(temp);
+            }
+        }
+    }
+
+    /// <summary>The key in the file, or null when it is missing or has the wrong length (<paramref name="damaged"/>).</summary>
+    private static byte[]? TryRead(string path, out bool damaged)
+    {
+        damaged = false;
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length == SignatureLength)
+            {
+                return bytes;
+            }
+
+            damaged = true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+        }
+
+        return null;
+    }
+
+    /// <summary>Holds <paramref name="path"/> open exclusively (a lock across processes), waiting up to 10 seconds.</summary>
+    private static FileStream Lock(string path)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return PrivateFiles.Open(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (attempt < 500)
+            {
+                Thread.Sleep(20);
             }
         }
     }
