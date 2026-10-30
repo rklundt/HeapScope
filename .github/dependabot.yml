@@ -1,0 +1,19 @@
+# Dependabot (sprint 3.7, peer review P16): weekly pull requests into develop for NuGet packages (Directory.Packages.props
+# and the lock files) and for the pinned GitHub Actions. Each goes through CI like any change. Before an Avalonia update,
+# check that no component HeapScope uses moved to a paid license (ADR-025).
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      patches:
+        update-types: [patch]
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly

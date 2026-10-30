@@ -173,8 +173,8 @@ public sealed class CaptureService : ICaptureService
                 }
                 else
                 {
+                    // The user's folder is not swept (sprint 3.7, peer review S4): its partial files may be someone else's.
                     path = Path.GetFullPath(Directory.Exists(outputPath) ? UniquePath(outputPath, process, profile.Extension) : outputPath);
-                    SweepPartialDumps(Path.GetDirectoryName(path));
                 }
 
                 _logger.LogInformation("Capturing a {Kind} of {Name} (pid {Pid}) to {Path}", profile.Noun, process.Name, process.ProcessId, path);

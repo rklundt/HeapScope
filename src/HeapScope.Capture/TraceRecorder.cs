@@ -115,7 +115,9 @@ public static class TraceRecorder
         {
             using (session)
             {
-                var file = PrivateFiles.Open(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
+                // Created new (sprint 3.7, peer review P15): a file of that name made beforehand by someone else is never
+                // written into; the sweep removes HeapScope's own leftovers.
+                var file = PrivateFiles.Open(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
                 await using (file.ConfigureAwait(false))
                 {
                     // The stream ends when the session stops (with the rundown that names methods) or the process exits.

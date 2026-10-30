@@ -82,7 +82,11 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
     /// describes, lies past the end of the file. A dump cut short while written or copied loses whole memory ranges,
     /// including the GC's own bookkeeping, so its heap can look complete while objects are missing.
     /// </summary>
-    public static bool IsTruncated(string path)
+    /// <remarks>
+    /// Each memory list is read once (sprint 3.7, peer review P13): a crafted directory repeating one huge list made the
+    /// check quadratic; a real dump has one of each. Cancellable every 64K ranges.
+    /// </remarks>
+    public static bool IsTruncated(string path, CancellationToken cancellationToken = default)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         var length = (ulong)stream.Length;
@@ -100,8 +104,10 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
             return true;
         }
 
+        var memoryListsRead = new HashSet<uint>();
         for (var i = 0u; i < streams; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             stream.Position = directory + (i * 12);
             var type = reader.ReadUInt32();
             var size = reader.ReadUInt32();
@@ -114,6 +120,11 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
             // Memory data must lie inside the file too (review M3): the full-memory list keeps it in one block after
             // the descriptors; the plain list (heap dumps without full memory) gives each range its own location. Counts
             // are bounded by the stream's size, sums by the file length, so a damaged directory cannot overflow them.
+            if (type is Memory64ListStream or MemoryListStream && !memoryListsRead.Add(type))
+            {
+                continue;
+            }
+
             if (type == Memory64ListStream && size >= 16)
             {
                 stream.Position = rva;
@@ -127,6 +138,11 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
                 var total = 0UL;
                 for (var r = 0UL; r < ranges; r++)
                 {
+                    if ((r & 0xFFFF) == 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
                     reader.ReadUInt64();
                     total += Math.Min(reader.ReadUInt64(), length);
                     if (dataRva + total > length)
@@ -141,6 +157,11 @@ public readonly record struct MinidumpHeader(uint Signature, DateTimeOffset? Cap
                 var ranges = Math.Min(reader.ReadUInt32(), (size - 4) / 16U);
                 for (var r = 0u; r < ranges; r++)
                 {
+                    if ((r & 0xFFFF) == 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
                     reader.ReadUInt64();
                     var dataSize = reader.ReadUInt32();
                     var dataRva = reader.ReadUInt32();

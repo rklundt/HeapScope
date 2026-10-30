@@ -88,4 +88,28 @@ public class AddressIndexTests
         index.IndexOf(addresses, 0x4242).ShouldBe(0);
         index.IndexOf(addresses, 0x4243).ShouldBe(-1);
     }
+
+    public static TheoryData<ulong[]> ExtremeSpans() => new()
+    {
+        new[] { 0x1000UL, 0x8000_0000_0000_1000UL },
+        new[] { 0UL, ulong.MaxValue },
+        new[] { 0x10UL, 0x20UL, 0xFFFF_FFFF_FFFF_FFF0UL },
+    };
+
+    [Theory]
+    [MemberData(nameof(ExtremeSpans))]
+    public async Task Any_span_a_crafted_file_states_builds_and_finds_every_address(ulong[] addresses)
+    {
+        // Sprint 3.7, peer review P13: few objects spanning 2^63 or more made the shift reach 64 (a ulong shift wraps to
+        // 0) and the build never ended; the whole range overflowed the bucket count.
+        var index = await Task.Run(() => AddressIndex.Build(addresses), TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        for (var i = 0; i < addresses.Length; i++)
+        {
+            index.IndexOf(addresses, addresses[i]).ShouldBe(i);
+        }
+
+        index.IndexOf(addresses, addresses[0] + 1).ShouldBe(-1);
+    }
 }

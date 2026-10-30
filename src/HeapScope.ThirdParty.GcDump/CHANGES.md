@@ -28,3 +28,7 @@ Each change is marked with a `HeapScope change` comment.
 4. `EventPipeDotNetHeapDumper.cs`, `EventPipeSessionController`: the warning about lossy buffering (printed on every
    .NET 10 capture) is written to the dump's log, which HeapScope sends to its own log, instead of the console
    (sprint 1.9). The controller takes the log as an optional parameter; without one it still writes to the console.
+5. `GCHeapDump.cs` and `Graph.cs`: counts read from the file (count multipliers, COM records, types, nodes, blob bytes)
+   are checked against the stream's length before anything is allocated for them (`GCHeapDump.CheckedCount`, a
+   thread-static limit set by the stream constructor); a count no file of that length can hold fails with
+   `InvalidDataException` (sprint 3.7, peer review P13: a crafted file made the reader allocate gigabytes).

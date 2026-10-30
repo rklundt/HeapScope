@@ -574,7 +574,7 @@ namespace Graphs
 
             // Read in the Types
             TypeInfo info = default(TypeInfo);
-            int typeCount = deserializer.ReadInt();
+            int typeCount = GCHeapDump.CheckedCount(deserializer.ReadInt(), 4); // HeapScope change 5
             m_types = new GrowableArray<TypeInfo>(typeCount);
             for (int i = 0; i < typeCount; i++)
             {
@@ -585,7 +585,7 @@ namespace Graphs
             }
 
             // Read in the Nodes
-            long nodeCount = m_isVeryLargeGraph ? deserializer.ReadInt64() : deserializer.ReadInt();
+            long nodeCount = GCHeapDump.CheckedCount(m_isVeryLargeGraph ? deserializer.ReadInt64() : deserializer.ReadInt(), 4); // HeapScope change 5
             m_nodes = new SegmentedList<StreamLabel>(SegmentSize, nodeCount);
 
             for (long i = 0; i < nodeCount; i++)
@@ -595,7 +595,7 @@ namespace Graphs
 
             // Read in the Blob stream.
             // TODO be lazy about reading in the blobs.
-            int blobCount = deserializer.ReadInt();
+            int blobCount = GCHeapDump.CheckedCount(deserializer.ReadInt(), 1); // HeapScope change 5
             SegmentedMemoryStreamWriter writer = new(blobCount,
                 m_isVeryLargeGraph ? SerializationSettings.Default.WithStreamLabelWidth(StreamLabelWidth.EightBytes) : SerializationSettings.Default);
 

@@ -36,7 +36,7 @@ under the MIT License, whose text is below.
 | Microsoft.Diagnostics.NETCore.Client | 0.2.750501 (0.2.661903 via TraceEvent) | Microsoft Corporation |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | Microsoft Corporation |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | Microsoft Corporation (see the note on native binaries below) |
-| Microsoft.Extensions.* (Hosting, Configuration, DependencyInjection, Logging, Options, Primitives, FileProviders, FileSystemGlobbing, Diagnostics) | 10.0.13 | Microsoft Corporation |
+| Microsoft.Extensions.* (Hosting, Configuration, DependencyInjection, Logging, Options, Primitives, FileProviders, FileSystemGlobbing, Diagnostics) | 10.0.14 | Microsoft Corporation |
 | Microsoft.Identity.Client, Microsoft.Identity.Client.Extensions.Msal (via ClrMD) | 4.83.1 | Microsoft Corporation |
 | Microsoft.IdentityModel.Abstractions (via ClrMD) | 8.14.0 | Microsoft Corporation |
 | Microsoft.NET.StringTools | 17.6.3 | Microsoft Corporation |
@@ -49,9 +49,9 @@ under the MIT License, whose text is below.
 | SkiaSharp, HarfBuzzSharp and their native assets (via Avalonia) | 3.119.4, 8.3.1.3 | Microsoft Corporation |
 | StreamJsonRpc | 2.26.150 | Microsoft Corporation |
 | System.ClientModel, System.Memory.Data (via ClrMD) | 1.10.0, 10.0.3 | Microsoft Corporation |
-| System.CommandLine | 2.0.13 | Microsoft Corporation |
-| System.Diagnostics.EventLog | 10.0.13 | Microsoft Corporation |
-| System.IO.Hashing | 10.0.13 | Microsoft Corporation |
+| System.CommandLine | 2.0.14 | Microsoft Corporation |
+| System.Diagnostics.EventLog | 10.0.14 | Microsoft Corporation |
+| System.IO.Hashing | 10.0.14 | Microsoft Corporation |
 | System.Reflection.TypeExtensions | 4.7.0 | Microsoft Corporation |
 | System.Security.Cryptography.ProtectedData (via ClrMD) | 4.5.0 | Microsoft Corporation |
 | Tmds.DBus.Protocol (via Avalonia, Linux) | 0.94.1 | Tom Deseyn |

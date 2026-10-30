@@ -23,8 +23,39 @@ public class GCHeapDump : IFastSerializable, IFastSerializableVersion
     { }
 
     public GCHeapDump(Stream inputStream, string streamName) :
-        this(new Deserializer(inputStream, streamName, SerializationSettings.Default.WithStreamLabelWidth(StreamLabelWidth.FourBytes)))
-    { }
+        this(OpenChecked(inputStream, streamName))
+    {
+        // HeapScope change 5: the counts of this read are checked against the stream's length (see CheckedCount).
+        t_streamBytes = long.MaxValue;
+    }
+
+    // HeapScope change 5 (sprint 3.7, peer review P13): a crafted file states counts the reader allocates up front (a
+    // float per type, lists per COM object, a growable array per type and node). No item takes less than one byte, so a
+    // count larger than the stream is refused before anything is allocated for it. Thread-static: the whole read runs on
+    // the thread that constructs the dump.
+    [ThreadStatic]
+    private static long t_streamBytes;
+
+    private static Deserializer OpenChecked(Stream inputStream, string streamName)
+    {
+        t_streamBytes = inputStream.CanSeek ? inputStream.Length : long.MaxValue;
+        return new Deserializer(inputStream, streamName, SerializationSettings.Default.WithStreamLabelWidth(StreamLabelWidth.FourBytes));
+    }
+
+    /// <summary>HeapScope change 5: <paramref name="count"/> when the stream can hold that many items, else an error.</summary>
+    internal static int CheckedCount(int count, int bytesPerItem) => (int)CheckedCount((long)count, bytesPerItem);
+
+    /// <summary>HeapScope change 5: <paramref name="count"/> when the stream can hold that many items, else an error.</summary>
+    internal static long CheckedCount(long count, int bytesPerItem)
+    {
+        var limit = t_streamBytes == 0 ? long.MaxValue : t_streamBytes;
+        if (count < 0 || count > limit / Math.Max(1, bytesPerItem))
+        {
+            throw new InvalidDataException($"The file states {count} items, more than its {limit} bytes can hold.");
+        }
+
+        return count;
+    }
 
     /// <summary>
     /// Writes the memory graph 'graph' as a .gcump file to 'outputFileName'
@@ -329,7 +360,7 @@ public class GCHeapDump : IFastSerializable, IFastSerializableVersion
         deserializer.Read(out int count);
         if (count != 0)
         {
-            float[] a = new float[count];
+            float[] a = new float[CheckedCount(count, sizeof(float))]; // HeapScope change 5
             for (int i = 0; i < a.Length; i++)
             {
                 a[i] = deserializer.ReadFloat();
@@ -630,10 +661,11 @@ public class InteropInfo : IFastSerializable
         m_countInterfaces = deserializer.ReadInt();
         m_countModules = deserializer.ReadInt();
 
-        m_listRCWInfo = new List<RCWInfo>(m_countRCWs);
-        m_listCCWInfo = new List<CCWInfo>(m_countCCWs);
-        m_listComInterfaceInfo = new List<ComInterfaceInfo>(m_countInterfaces);
-        m_listModules = new List<InteropModuleInfo>(m_countModules);
+        // HeapScope change 5: each record takes at least eight bytes.
+        m_listRCWInfo = new List<RCWInfo>(GCHeapDump.CheckedCount(m_countRCWs, 8));
+        m_listCCWInfo = new List<CCWInfo>(GCHeapDump.CheckedCount(m_countCCWs, 8));
+        m_listComInterfaceInfo = new List<ComInterfaceInfo>(GCHeapDump.CheckedCount(m_countInterfaces, 8));
+        m_listModules = new List<InteropModuleInfo>(GCHeapDump.CheckedCount(m_countModules, 8));
 
         m_countRCWInterfaces = 0;
 

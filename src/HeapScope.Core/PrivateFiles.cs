@@ -27,8 +27,10 @@ namespace HeapScope.Core;
 /// <summary>
 /// Creates HeapScope's own folders and files readable by the user only (sprint 2.3.6, 2.3.5 review L5; ARCHITECTURE.md
 /// 12): on Linux and macOS folders get 0700 and files 0600 instead of the process's umask, which often lets other users
-/// read them. On Windows the user's profile ACL already does this, so nothing changes there. Applies to what HeapScope
-/// writes (sessions, logs, index caches and their sidecars, timelines, traces), not to a folder the user picked.
+/// read them. On Windows a file it creates gets an owner-only access list since sprint 3.7 (peer review P15): the profile's
+/// own list covers files under the profile, not a dump's index cache in a folder the user picked (<c>--out</c>). Applies
+/// to what HeapScope writes (sessions, logs, index caches and their sidecars, timelines, traces, exports), not to a folder
+/// the user picked.
 /// </summary>
 public static class PrivateFiles
 {
@@ -79,6 +81,68 @@ public static class PrivateFiles
             settings.UnixCreateMode = FileMode;
         }
 
-        return new FileStream(path, settings);
+        var stream = new FileStream(path, settings);
+        if (OperatingSystem.IsWindows() && mode is System.IO.FileMode.CreateNew or System.IO.FileMode.Create)
+        {
+            try
+            {
+                Protect(path);
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+        }
+
+        return stream;
+    }
+
+    /// <summary>
+    /// Makes an existing file readable by the user only (sprint 3.7, peer review P15): 0600 off Windows; on Windows an
+    /// access list that grants the current user full control and inherits nothing from its folder. For files HeapScope
+    /// created or a capture wrote for it, such as a dump in a folder the user picked.
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">The file is not the user's to change.</exception>
+    public static void Protect(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(path, FileMode);
+            return;
+        }
+
+        var user = System.Security.Principal.WindowsIdentity.GetCurrent().User
+            ?? throw new UnauthorizedAccessException("The current Windows user has no security identifier.");
+        var security = new System.Security.AccessControl.FileSecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(user, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+        new FileInfo(path).SetAccessControl(security);
+    }
+
+    /// <summary>
+    /// Creates HeapScope's own data folder <paramref name="path"/> (with its parents) owner-only, and makes it owner-only
+    /// when it exists already with a wider mode (sprint 3.7, peer review P15: a folder another user created first, or one
+    /// from an older build, kept its mode). Off Windows only the owner may change a mode, so a folder that is not the
+    /// user's fails here instead of holding the user's files.
+    /// </summary>
+    /// <exception cref="IOException">The folder exists and is not the user's.</exception>
+    public static DirectoryInfo CreatePrivateDirectory(string path)
+    {
+        var existed = Directory.Exists(path);
+        var folder = CreateDirectory(path);
+        if (existed && !OperatingSystem.IsWindows() && File.GetUnixFileMode(path) != FolderMode)
+        {
+            try
+            {
+                File.SetUnixFileMode(path, FolderMode);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new IOException($"The folder {path} belongs to another user, so HeapScope does not keep files in it.", ex);
+            }
+        }
+
+        return folder;
     }
 }

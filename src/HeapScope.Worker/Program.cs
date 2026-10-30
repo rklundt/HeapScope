@@ -72,6 +72,9 @@ using (var self = System.Diagnostics.Process.GetCurrentProcess())
 
 if (options is not null)
 {
+    // Index caches are signed with this user's key and a cache without its signature is never used (sprint 3.7, peer
+    // review P14, ADR-036): a cache shipped next to a dump cannot decide what the analysis shows.
+    HeapScope.Storage.IndexCacheKey.UseForThisUser();
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new ResultSetStore());
     builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator());

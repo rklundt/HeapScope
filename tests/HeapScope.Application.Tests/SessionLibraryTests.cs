@@ -477,6 +477,27 @@ public sealed class SessionLibraryTests : IDisposable
     }
 
     [Fact]
+    public void Only_a_regular_file_inside_the_session_folder_is_a_file_of_the_session()
+    {
+        // Sprint 3.7, peer review S3: a received session's run may name any path, and Open timeline hands it to the system.
+        var library = new SessionLibrary(_root, _time);
+        var session = library.Current;
+        File.WriteAllText(Path.Combine(session.Folder, "counters-1.csv"), "time");
+        File.WriteAllText(Path.Combine(_root, "outside.csv"), "time");
+
+        session.FileInside("counters-1.csv").ShouldBe(Path.Combine(session.Folder, "counters-1.csv"));
+        session.FileInside("missing.csv").ShouldBeNull();
+        session.FileInside(Path.Combine("..", "outside.csv")).ShouldBeNull("not above the session folder");
+        session.FileInside(Path.Combine(_root, "outside.csv")).ShouldBeNull("not an absolute path elsewhere");
+        session.FileInside(@"\\server\share\x.csv").ShouldBeNull("never a network share");
+        session.FileInside(null).ShouldBeNull();
+
+        Session.IsLocal(@"\\server\share\app.dmp").ShouldBeFalse();
+        Session.IsLocal("//server/share/app.dmp").ShouldBeFalse();
+        Session.IsLocal(Path.Combine(session.Folder, "app.dmp")).ShouldBeTrue();
+    }
+
+    [Fact]
     public void Members_written_by_a_newer_version_survive_a_save()
     {
         var library = new SessionLibrary(_root, _time);

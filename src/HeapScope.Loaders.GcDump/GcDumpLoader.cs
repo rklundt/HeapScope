@@ -68,13 +68,26 @@ public sealed class GcDumpLoader : ISnapshotLoader
         var source = dump.MemoryGraph;
         var open = stopwatch.Elapsed;
         cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            return Build(fullPath, dump, source, stopwatch, open, progress, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not InsufficientExecutionStackException and not SnapshotFormatException)
+        {
+            // A file the reader accepted whose tables disagree (a child or type index past its table): crafted or damaged,
+            // refused with a reason, never a crash (sprint 3.7, peer review P13; found by the mutation test).
+            throw new SnapshotFormatException($"{fullPath} is not a consistent gcdump ({ex.Message}). The file may be damaged or crafted; capture another gcdump.", ex);
+        }
+    }
 
+    private static LoadResult Build(string fullPath, GCHeapDump dump, MemoryGraph source, Stopwatch stopwatch, TimeSpan open, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
+    {
         using var builder = new HeapGraphBuilder();
         var (nodesByObject, undefined, unknownTypes) = AddObjects(source, builder, progress, cancellationToken);
         builder.FreezeObjects(cancellationToken);
         var objects = stopwatch.Elapsed - open;
 
-        AddReferences(source, builder, nodesByObject, progress, cancellationToken);
+        AddReferences(source, builder, nodesByObject, new FileInfo(fullPath).Length, progress, cancellationToken);
         var references = stopwatch.Elapsed - open - objects;
 
         progress?.Report(new LoadProgress("Reading roots", 0, null));
@@ -225,10 +238,14 @@ public sealed class GcDumpLoader : ISnapshotLoader
         return (nodesByObject, undefined, unknownTypes);
     }
 
-    private static void AddReferences(MemoryGraph source, HeapGraphBuilder builder, int[] nodesByObject, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
+    /// <param name="edgeBudget">The file's length: every reference takes at least a byte of it, so more references than
+    /// bytes mean nodes share their child lists, which only a crafted file does (sprint 3.7, peer review P13: billions of
+    /// references from a file of a few megabytes).</param>
+    private static void AddReferences(MemoryGraph source, HeapGraphBuilder builder, int[] nodesByObject, long edgeBudget, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
     {
         var node = source.AllocNodeStorage();
         var targets = new List<ulong>();
+        long edges = 0;
         for (var objectIndex = 0; objectIndex < nodesByObject.Length; objectIndex++)
         {
             if (objectIndex % CheckInterval == 0)
@@ -241,6 +258,21 @@ public sealed class GcDumpLoader : ISnapshotLoader
             targets.Clear();
             for (var child = node.GetFirstChildIndex(); child != NodeIndex.Invalid; child = node.GetNextChildIndex())
             {
+                if ((long)child < 0 || (long)child >= (long)source.NodeIndexLimit)
+                {
+                    throw new SnapshotFormatException($"The gcdump references node {(long)child}, past its {(long)source.NodeIndexLimit:N0} nodes. The file is damaged or crafted; capture another gcdump.");
+                }
+
+                if (++edges > edgeBudget)
+                {
+                    throw new SnapshotFormatException($"The gcdump states more references than its {edgeBudget:N0} bytes can hold. The file is damaged or crafted; capture another gcdump.");
+                }
+
+                if ((edges & 0xFFFF) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
                 // Pseudo nodes have no address; undescribed nodes (COM pointers, lost events) are not objects.
                 var address = source.GetAddress(child);
                 if (address != 0 && source.IsDefined(child))

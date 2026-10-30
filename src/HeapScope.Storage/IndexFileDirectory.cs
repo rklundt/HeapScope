@@ -92,6 +92,14 @@ internal static class IndexFileDirectory
             return null;
         }
 
+        // The checksums anyone can recompute; the signature only this user's HeapScope can (sprint 3.7, peer review P14).
+        MemoryMarshal.Write(region, in header);
+        if (!IndexCacheKey.Verify(region))
+        {
+            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Untrusted, "The index cache was not written by HeapScope for this user (its signature does not match), so it is not used; the dump is read again.");
+            return null;
+        }
+
         // Every entry is validated, known or not, with overflow-safe arithmetic, before any offset is used.
         var directory = new Dictionary<IndexSection, SectionEntry>();
         foreach (var entry in MemoryMarshal.Cast<byte, SectionEntry>(region.AsSpan(headerSize, directoryBytes)))

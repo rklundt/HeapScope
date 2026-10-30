@@ -151,7 +151,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
                 | (header is null ? SnapshotFacts.CaptureTimeFromFile : SnapshotFacts.None));
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
-        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump ? MinidumpHeader.IsTruncated(fullPath) : CoreFileHeader.IsTruncated(fullPath))
+        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump ? MinidumpHeader.IsTruncated(fullPath, cancellationToken) : CoreFileHeader.IsTruncated(fullPath))
             ? SnapshotCapabilities.FullDump & ~(SnapshotCapabilities.CompleteGraph | SnapshotCapabilities.ExactCounts)
             : SnapshotCapabilities.FullDump;
         return new LoadResult(

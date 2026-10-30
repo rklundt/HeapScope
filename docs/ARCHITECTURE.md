@@ -2364,13 +2364,13 @@ authoritative list.
 
 | Package | Version | License | Used by |
 |---|---|---|---|
-| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.13 | MIT | Worker, Application, Cli, UI |
-| System.IO.Hashing | 10.0.13 | MIT | Storage, Analysis |
+| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.14 | MIT | Worker, Application, Cli, UI |
+| System.IO.Hashing | 10.0.14 | MIT | Storage, Analysis |
 | StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.ViewModels, UI |
 | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.4 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT) | UI, UI tests (2.3.6) |
 | Avalonia.Controls.DataGrid | 12.1.2 | MIT | UI (2.3.6) |
-| System.CommandLine | 2.0.13 | MIT | Cli |
+| System.CommandLine | 2.0.14 | MIT | Cli |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |
 | Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | MIT | Capture |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | MIT | Capture (Loaders.GcDump in 1.8, Loaders.Trace in 2.5) |

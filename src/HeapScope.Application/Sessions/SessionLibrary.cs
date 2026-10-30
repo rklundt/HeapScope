@@ -143,6 +143,36 @@ public sealed record Session(string Folder, SessionDocument Document)
         ArgumentNullException.ThrowIfNull(snapshot);
         return Path.IsPathFullyQualified(snapshot.File) ? snapshot.File : Path.Combine(Folder, snapshot.File);
     }
+
+    /// <summary>
+    /// True for a path on this machine: not a network share (<c>\\server</c>, <c>//server</c>) and not a device path
+    /// (<c>\\?\</c>, <c>\\.\</c>). A session received from someone else may name any path (sprint 3.7, peer review S3);
+    /// looking at a network one reaches out to that server.
+    /// </summary>
+    public static bool IsLocal(string path) =>
+        !string.IsNullOrEmpty(path) && !path.StartsWith(@"\\", StringComparison.Ordinal) && !path.StartsWith("//", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The full path of <paramref name="relative"/> when it is a regular file inside this session's folder, reached through
+    /// no link; null otherwise (sprint 3.7, peer review S3: a received session's run may name any file).
+    /// </summary>
+    public string? FileInside(string? relative)
+    {
+        if (string.IsNullOrEmpty(relative) || !IsLocal(relative))
+        {
+            return null;
+        }
+
+        var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Folder));
+        var path = Path.GetFullPath(Path.Combine(folder, relative));
+        if (!path.StartsWith(folder + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var file = new FileInfo(path);
+        return file.Exists && !file.Attributes.HasFlag(FileAttributes.ReparsePoint) && file.LinkTarget is null ? path : null;
+    }
 }
 
 /// <summary>A line of the recent sessions list (dotMemory's workspace list).</summary>
@@ -741,8 +771,9 @@ public sealed class SessionLibrary
         var removed = 0;
         try
         {
-            var search = folder is null ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", search).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", search)).Concat(Directory.EnumerateFiles(root, "*.nettrace.partial", search)))
+            // Links are never followed (sprint 3.7, peer review S4): a junction in the library could point anywhere.
+            var options = new EnumerationOptions { RecurseSubdirectories = folder is null, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
+            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", options).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.partial", options)))
             {
                 try
                 {
