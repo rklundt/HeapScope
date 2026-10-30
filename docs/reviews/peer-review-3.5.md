@@ -68,7 +68,7 @@ session folder and refuses links; no package has a known vulnerability (`dotnet 
   trace run in the front end (`MonitorService`); the worker reads only finished trace files and can push nothing but
   progress. Streaming allocations into the UI would break ADR-007 and ADR-028; doing it in the worker breaks the
   dependency table (the worker may not reference Capture). ADR-023 still says gcdump capture moves into the worker "in
-  Phase 2". Fix: an ADR "Live sources" (ADR-036, since 3.6 took ADR-035) after a short spike; ADR-023 amended. Sprint 3.8.
+  Phase 2". Fix: an ADR "Live sources" (ADR-037, since 3.6 and 3.7 took ADR-035 and ADR-036) after a short spike; ADR-023 amended. Sprint 3.8.
 - **P7 The UI offers features the worker then refuses** (SA; verified). Front ends decide availability from the snapshot
   kind or a stand-in capability: `CanOpenUnreachable` checks only `Kind == FullDump`
   (`TypeSummaryViewModel.cs:260`) while the worker also requires a complete graph; interface grouping keys on

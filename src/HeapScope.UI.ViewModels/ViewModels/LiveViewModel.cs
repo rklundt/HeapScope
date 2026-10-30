@@ -404,9 +404,12 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         }
 
         var run = item.Run;
-        // Only a timeline inside its session folder: Delete timeline acts on this path (3.4 re-review).
-        if (run.Timeline is not { } timeline || Path.GetFullPath(Path.Combine(item.Folder, timeline)) is var path
-            && (!path.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(item.Folder)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(path)))
+        // Only a CSV timeline inside its session folder, reached through no link: Delete timeline acts on this path (3.4
+        // re-review), and Open timeline hands it to the system, so a received session cannot name a program to run
+        // (sprint 3.7, peer review S3).
+        var inSession = new Session(item.Folder, new SessionDocument(SessionDocument.CurrentFormatVersion, "", default, default, []));
+        if (run.Timeline is not { } timeline || inSession.FileInside(timeline) is not { } path
+            || !string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogInformation("Monitoring run {RunId} not reopened: its timeline {Timeline} is not there", run.Id, run.Timeline ?? "(none recorded)");
             Status = "This run's timeline file is not there any more.";
@@ -426,12 +429,14 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             var session = await Task.Run(() => SessionLibrary.TryRead(item.Folder));
             foreach (var snapshot in (session?.Document.Snapshots ?? []).Where(s => run.SnapshotIds.Contains(s.Id)).OrderByDescending(s => s.CapturedUtc))
             {
+                // A received session may name a network path: it is never looked at (sprint 3.7, peer review S3).
                 var file = session!.PathOf(snapshot);
-                Snapshots.Add(new SnapshotCard(snapshot.CapturedUtc, snapshot.Label ?? snapshot.Source.ToString(), file, snapshot.SizeBytes, File.Exists(file) ? null : "deleted"));
+                var gone = !Session.IsLocal(file) ? "not on this machine" : File.Exists(file) ? null : "deleted";
+                Snapshots.Add(new SnapshotCard(snapshot.CapturedUtc, snapshot.Label ?? snapshot.Source.ToString(), file, snapshot.SizeBytes, gone));
             }
 
             TimelinePath = path;
-            TracePath = run.Trace is { } trace ? Path.Combine(item.Folder, trace) : null;
+            TracePath = inSession.FileInside(run.Trace);
             PastRunShown = item.Title + (read.SkippedLines > 0 ? string.Create(CultureInfo.CurrentCulture, $" ({read.SkippedLines} unreadable lines left out)") : string.Empty);
             Status = "Showing a past run, read only. Start monitoring to see live data again.";
             ChartVersion++;
@@ -526,6 +531,13 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     {
         if (card?.Path is not { } path || _interaction is null)
         {
+            return;
+        }
+
+        if (!Session.IsLocal(path))
+        {
+            _logger.LogInformation("Snapshot show in folder refused: {Path} is not on this machine", path);
+            Status = "That snapshot is not on this machine.";
             return;
         }
 

@@ -203,6 +203,9 @@ public sealed class IndexCacheFileWriter : IDisposable
         header.HeaderChecksum = XxHash3.HashToUInt64(region.AsSpan(0, headerSize + directory.Length));
         MemoryMarshal.Write(region, in header);
 
+        // Signed with this user's key (sprint 3.7, peer review P14): the region's last bytes, past the largest directory.
+        IndexCacheKey.Sign(region);
+
         stream.Position = 0;
         stream.Write(region);
         return header.HeaderChecksum;

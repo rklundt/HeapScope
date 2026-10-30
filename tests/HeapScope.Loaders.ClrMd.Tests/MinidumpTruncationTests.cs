@@ -29,23 +29,23 @@ public sealed class MinidumpTruncationTests : IDisposable
 
     [Fact]
     public void A_dump_whose_memory_list_fits_the_file_is_not_truncated() =>
-        MinidumpHeader.IsTruncated(Write(Dump(memoryBytes: 4096, fileMemoryBytes: 4096))).ShouldBeFalse();
+        MinidumpHeader.IsTruncated(Write(Dump(memoryBytes: 4096, fileMemoryBytes: 4096)), TestContext.Current.CancellationToken).ShouldBeFalse();
 
     [Fact]
     public void A_dump_whose_memory_list_reaches_past_the_end_is_truncated() =>
-        MinidumpHeader.IsTruncated(Write(Dump(memoryBytes: 4096, fileMemoryBytes: 1000))).ShouldBeTrue();
+        MinidumpHeader.IsTruncated(Write(Dump(memoryBytes: 4096, fileMemoryBytes: 1000)), TestContext.Current.CancellationToken).ShouldBeTrue();
 
     [Fact]
     public void A_file_shorter_than_the_header_is_truncated() =>
-        MinidumpHeader.IsTruncated(Write("MDMP"u8.ToArray())).ShouldBeTrue();
+        MinidumpHeader.IsTruncated(Write("MDMP"u8.ToArray()), TestContext.Current.CancellationToken).ShouldBeTrue();
 
     [Fact]
     public void A_heap_dump_memory_list_range_past_the_end_is_truncated() =>
-        MinidumpHeader.IsTruncated(Write(PlainListDump(declaredBytes: 4096, fileMemoryBytes: 100))).ShouldBeTrue();
+        MinidumpHeader.IsTruncated(Write(PlainListDump(declaredBytes: 4096, fileMemoryBytes: 100)), TestContext.Current.CancellationToken).ShouldBeTrue();
 
     [Fact]
     public void A_heap_dump_memory_list_that_fits_is_not_truncated() =>
-        MinidumpHeader.IsTruncated(Write(PlainListDump(declaredBytes: 100, fileMemoryBytes: 100))).ShouldBeFalse();
+        MinidumpHeader.IsTruncated(Write(PlainListDump(declaredBytes: 100, fileMemoryBytes: 100)), TestContext.Current.CancellationToken).ShouldBeFalse();
 
     [Fact]
     public void A_stream_directory_past_the_end_is_truncated()
@@ -53,7 +53,46 @@ public sealed class MinidumpTruncationTests : IDisposable
         var bytes = Dump(memoryBytes: 16, fileMemoryBytes: 16);
         BitConverter.GetBytes(10_000u).CopyTo(bytes, 12);
 
-        MinidumpHeader.IsTruncated(Write(bytes)).ShouldBeTrue();
+        MinidumpHeader.IsTruncated(Write(bytes), TestContext.Current.CancellationToken).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_directory_repeating_one_large_memory_list_is_read_once()
+    {
+        // Sprint 3.7, peer review P13: 100,000 directory entries naming one list of 100,000 ranges made the check walk
+        // 10 billion ranges. Each memory list is read once now.
+        const uint Entries = 100_000;
+        const ulong Ranges = 100_000;
+        var listOffset = 32 + (Entries * 12);
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(MinidumpHeader.MinidumpSignature);
+        writer.Write(0xA793u);
+        writer.Write(Entries);
+        writer.Write(32u);
+        writer.Write(0u);
+        writer.Write(0u);
+        writer.Write(MinidumpHeader.WithFullMemory);
+        for (var i = 0; i < Entries; i++)
+        {
+            writer.Write(9u);
+            writer.Write((uint)(16 + (Ranges * 16)));
+            writer.Write(listOffset);
+        }
+
+        writer.Write(Ranges);
+        writer.Write((ulong)(listOffset + 16 + (Ranges * 16)));
+        for (var r = 0UL; r < Ranges; r++)
+        {
+            writer.Write(0x10000UL + (r * 0x1000));
+            writer.Write(0UL);
+        }
+
+        writer.Flush();
+        var path = Write(stream.ToArray());
+
+        var check = Task.Run(() => MinidumpHeader.IsTruncated(path, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+        (await check.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)).ShouldBeFalse();
     }
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);

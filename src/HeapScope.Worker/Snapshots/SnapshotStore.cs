@@ -380,9 +380,16 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
 
     private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, List<string> notes, CancellationToken cancellationToken)
     {
-        var required = IndexCacheReader.GetInMemoryBytes(cachePath);
+        var required = IndexCacheReader.GetInMemoryBytes(cachePath, out var unusable);
         if (required is null)
         {
+            // An untrusted, foreign or damaged cache is rebuilt, and the log and the snapshot's notes say why (3.7 review H3).
+            if (unusable is { Reason: not IndexCacheInvalidReason.Missing })
+            {
+                logger.LogInformation("Index cache {Path} not used: {Reason} ({Detail})", cachePath, unusable.Reason, unusable.Detail);
+                notes.Add($"The index cache was rebuilt: {unusable.Detail}");
+            }
+
             return null;
         }
 

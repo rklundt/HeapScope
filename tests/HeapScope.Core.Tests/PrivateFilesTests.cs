@@ -73,5 +73,41 @@ public sealed class PrivateFilesTests : IDisposable
         File.Exists(path).ShouldBeFalse("a failed reservation leaves no file");
     }
 
+    [Fact]
+    public void A_file_it_creates_on_Windows_grants_the_user_alone_and_inherits_nothing()
+    {
+        // Sprint 3.7, peer review P15: an index cache beside a dump in a folder the user picked took that folder's list.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Off Windows the file mode does this (the test above).");
+        var path = Path.Combine(_folder, "app.dmp.hsidx");
+        using (PrivateFiles.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            var security = new FileInfo(path).GetAccessControl();
+            security.AreAccessRulesProtected.ShouldBeTrue("nothing is inherited from the folder");
+            var rules = security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(System.Security.Principal.SecurityIdentifier))
+                .Cast<System.Security.AccessControl.FileSystemAccessRule>().ToList();
+            rules.ShouldHaveSingleItem().IdentityReference.ShouldBe(System.Security.Principal.WindowsIdentity.GetCurrent().User);
+        }
+    }
+
+    [Fact]
+    public void A_data_folder_that_exists_with_a_wider_mode_is_made_owner_only()
+    {
+        // Sprint 3.7, peer review P15: a folder from an older build, or one made first in a shared place, kept its mode.
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Windows has no file modes.");
+        var folder = Path.Combine(_folder, "etlx");
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+
+            PrivateFiles.CreatePrivateDirectory(folder);
+
+            File.GetUnixFileMode(folder).ShouldBe(PrivateFiles.FolderMode);
+        }
+    }
+
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 }

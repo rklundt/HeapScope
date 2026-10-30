@@ -44,6 +44,13 @@ public static class CsvExport
     /// <summary>UTF-8 with a byte order mark, which spreadsheets need to read non-ASCII names.</summary>
     public static Encoding Encoding { get; } = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
 
+    /// <summary>
+    /// Creates the file an export writes into: new (never a file someone made beforehand) and readable by the user only
+    /// (sprint 3.7, peer review P15), for front ends, which use no Core types.
+    /// </summary>
+    public static FileStream CreatePrivate(string path) =>
+        HeapScope.Core.PrivateFiles.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
+
     /// <summary>The indices of the columns an export writes.</summary>
     public static IReadOnlyList<int> Exported(IReadOnlyList<ResultColumn> columns, bool includeValues)
     {

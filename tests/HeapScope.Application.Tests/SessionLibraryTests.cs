@@ -477,6 +477,60 @@ public sealed class SessionLibraryTests : IDisposable
     }
 
     [Fact]
+    public void Only_a_regular_file_inside_the_session_folder_is_a_file_of_the_session()
+    {
+        // Sprint 3.7, peer review S3: a received session's run may name any path, and Open timeline hands it to the system.
+        var library = new SessionLibrary(_root, _time);
+        var session = library.Current;
+        File.WriteAllText(Path.Combine(session.Folder, "counters-1.csv"), "time");
+        File.WriteAllText(Path.Combine(_root, "outside.csv"), "time");
+
+        session.FileInside("counters-1.csv").ShouldBe(Path.Combine(session.Folder, "counters-1.csv"));
+        session.FileInside("missing.csv").ShouldBeNull();
+        session.FileInside(Path.Combine("..", "outside.csv")).ShouldBeNull("not above the session folder");
+        session.FileInside(Path.Combine(_root, "outside.csv")).ShouldBeNull("not an absolute path elsewhere");
+        session.FileInside(@"\\server\share\x.csv").ShouldBeNull("never a network share");
+        session.FileInside(null).ShouldBeNull();
+
+        Session.IsLocal(@"\\server\share\app.dmp").ShouldBeFalse();
+        Session.IsLocal("//server/share/app.dmp").ShouldBeFalse();
+        Session.IsLocal(Path.Combine(session.Folder, "app.dmp")).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(@"\/server/share/app.dmp")]
+    [InlineData(@"/\server\share\app.dmp")]
+    [InlineData(@"\\?\UNC\server\share\app.dmp")]
+    [InlineData(@"\\.\pipe\x")]
+    [InlineData(@"\??\UNC\server\share\app.dmp")]
+    public void Any_form_of_a_network_or_device_path_is_not_local(string path)
+    {
+        // 3.7 review H1: Windows takes any two leading separators as a share.
+        Session.IsLocal(path).ShouldBeFalse();
+        new SessionLibrary(_root, _time).Current.FileInside(path).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_file_reached_through_a_linked_folder_is_not_a_file_of_the_session()
+    {
+        // 3.7 review H2: a received session (a tar keeps links) may carry a folder link pointing out of it.
+        var session = new SessionLibrary(_root, _time).Current;
+        var outside = Directory.CreateDirectory(Path.Combine(_root, "elsewhere")).FullName;
+        File.WriteAllText(Path.Combine(outside, "report.csv"), "time");
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(session.Folder, "link"), outside);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            Assert.Skip("Creating a symbolic link needs Developer Mode or elevation here.");
+        }
+
+        session.FileInside(Path.Combine("link", "report.csv")).ShouldBeNull();
+        File.Exists(Path.Combine(outside, "report.csv")).ShouldBeTrue();
+    }
+
+    [Fact]
     public void Members_written_by_a_newer_version_survive_a_save()
     {
         var library = new SessionLibrary(_root, _time);

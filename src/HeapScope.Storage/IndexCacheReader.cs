@@ -122,15 +122,33 @@ public static class IndexCacheReader
     }
 
     /// <summary>Bytes the graph's sections would take in memory, from the directory; null when the cache is invalid.</summary>
-    public static long? GetInMemoryBytes(string path)
+    public static long? GetInMemoryBytes(string path) => GetInMemoryBytes(path, out _);
+
+    /// <summary>
+    /// Bytes the graph's sections would take in memory, from the directory; null when the cache is missing or invalid, with
+    /// <paramref name="failure"/> saying why when it exists but is invalid (3.7 review H3: an untrusted cache is logged).
+    /// </summary>
+    public static long? GetInMemoryBytes(string path, out IndexCacheOpenResult? failure)
     {
+        failure = null;
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected: null, 0, out _, out _)?.Values.Sum(e => e.ByteLength);
+            return IndexFileDirectory.Read(stream, IndexFileLayout.Base, expected: null, 0, out _, out failure)?.Values.Sum(e => e.ByteLength);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.IoError, $"The index cache could not be read: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or OverflowException or InvalidDataException)
+        {
+            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Malformed, $"The index cache is malformed: {ex.Message}");
             return null;
         }
     }

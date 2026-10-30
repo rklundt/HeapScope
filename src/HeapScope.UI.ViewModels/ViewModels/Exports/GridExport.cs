@@ -123,12 +123,14 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
 
             // Written beside the chosen file and moved into place when complete: a stopped export leaves no short file
             // that looks whole (review).
-            partial = path + ".partial";
+            // Created new under a random name, owner-only (sprint 3.7, peer review P15): a file someone made beforehand in a
+            // shared folder is never written into.
+            partial = $"{path}.{Guid.NewGuid():N}.partial";
             var token = _cancel.Token;
             var rows = await Task.Run(
                 async () =>
                 {
-                    await using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
+                    await using (var stream = CsvExport.CreatePrivate(partial))
                     await using (var writer = new StreamWriter(stream, CsvExport.Encoding))
                     {
                         var written = await grid.WriteCsvAsync(writer, includeValues, token).ConfigureAwait(false);

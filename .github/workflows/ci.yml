@@ -8,6 +8,8 @@
 # Tests run through build/test.sh and the fixture dump through build/fixture-dump.sh, as in the local gate (build/gate.sh).
 # Test results (TRX: test names, outcomes and messages) are kept 14 days to track tests that fail now and then.
 # Fixture dumps hold fixture data only and are never uploaded (ARCHITECTURE.md 12). Nothing here sends telemetry.
+# Actions are pinned to the commit of a release (sprint 3.7, peer review P16); Dependabot proposes updates as PRs. CI
+# restores packages in locked mode (Directory.Build.props: packages.lock.json in every project).
 name: CI
 
 on:
@@ -38,8 +40,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
       - name: Build
@@ -67,7 +72,7 @@ jobs:
       - name: Keep the test results and HeapScope's logs
         # Always, so a step that timed out still leaves its results (review).
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-results-windows
           path: |
@@ -93,8 +98,11 @@ jobs:
             name: macOS
             informational: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
       - name: Build the CLI and the app (with the worker) and the fixture
@@ -117,6 +125,8 @@ jobs:
           dump="$RUNNER_TEMP/leaky.dmp"
           bash build/fixture-dump.sh "$dump" dotnet-dump
           bash build/check-known-answers.sh src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli "$dump"
+          # The trust of a DAC next to a dump, where no signature check backs it (sprint 3.7, 3.6 review M19).
+          HEAPSCOPE_FIXTURE_DUMP="$dump" HEAPSCOPE_REQUIRE_FIXTURE=1 dotnet test --project tests/HeapScope.Loaders.ClrMd.Tests -c Release --no-build --filter-class "*PlantedDacTests"
           # The Avalonia app opens the core dump headless and drills down as a user would (sprint 2.3.6).
           app=src/HeapScope.UI/bin/Release/net10.0/HeapScope
           "$app" --headless --smoke-open "$dump" --Logging:File:Directory "$RUNNER_TEMP/ui-log" || { cat "$RUNNER_TEMP"/ui-log/*.log; exit 1; }
@@ -124,7 +134,7 @@ jobs:
           grep -q "Smoke open types: .*Fixtures.Leaks.StaticCacheEntry 2000" "$RUNNER_TEMP"/ui-log/*.log || { echo "The app did not show 2000 StaticCacheEntry objects"; exit 1; }
       - name: Keep the test results and HeapScope's logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-results-${{ matrix.name }}
           path: |
@@ -157,8 +167,11 @@ jobs:
             rid: osx-x64
             runs: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
       - name: Publish the app and the CLI, self-contained, with the worker and the license files
@@ -188,7 +201,7 @@ jobs:
       - name: Upload
         # Build output only; on pushes to develop or main and manual runs (sprint 2.3.6, decision 7).
         if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: HeapScope-${{ matrix.rid }}
           path: ${{ runner.temp }}/HeapScope-${{ matrix.rid }}.tar.gz

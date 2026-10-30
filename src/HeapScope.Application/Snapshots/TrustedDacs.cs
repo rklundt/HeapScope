@@ -152,7 +152,7 @@ public sealed class TrustedDacs
 
         lock (_gate)
         {
-            PrivateFiles.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
+            PrivateFiles.CreatePrivateDirectory(System.IO.Path.GetDirectoryName(Path)!);
             using var fileLock = AcquireLock();
             var read = Read();
             if (read.Failure is { } failure)
