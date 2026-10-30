@@ -80,10 +80,11 @@ internal static class TraceReport
             }
         }
 
-        // The UI thread is the one whose stacks run the WPF dispatcher most.
+        // The UI thread is the one whose stacks run the UI dispatcher most: Avalonia's (the app since 2.3.6), or WPF's for
+        // traces of older builds (sprint 3.8, peer review S7).
         var uiThread = args.Get("thread") is { } chosen
             ? int.Parse(chosen, CultureInfo.InvariantCulture)
-            : samples.Where(s => s.Frames.Exists(f => f.Contains("System.Windows.Threading.Dispatcher", StringComparison.Ordinal)))
+            : samples.Where(s => s.Frames.Exists(IsDispatcherFrame))
                 .GroupBy(s => s.Thread).MaxBy(g => g.Count())?.Key ?? -1;
         var ui = samples.Where(s => s.Thread == uiThread).ToList();
         var busy = ui.Where(s => !IsIdle(s)).ToList();
@@ -156,13 +157,27 @@ internal static class TraceReport
         return 0;
     }
 
-    // An idle WPF UI thread waits for messages (in managed frames, Dispatcher.GetMessage on top).
-    private static bool IsIdle(Sample sample) => sample.Frames.Take(4).Any(f =>
+    private static bool IsDispatcherFrame(string frame) =>
+        frame.Contains("Avalonia.Threading.Dispatcher", StringComparison.Ordinal)
+        || frame.Contains("System.Windows.Threading.Dispatcher", StringComparison.Ordinal);
+
+    // An idle UI thread waits for messages near the top of its stack: on Windows the message loop (GetMessageW,
+    // WaitMessage, MsgWaitForMultipleObjects, under Avalonia's Win32 run loop or WPF's Dispatcher.GetMessage), on Linux
+    // Avalonia's X11 loop in epoll_wait or poll, on macOS the Cocoa run loop in mach_msg. The sample profiler records
+    // managed frames only, so a sample whose innermost frame is an Avalonia run loop (ManagedDispatcherImpl in headless
+    // runs, Win32 or X11 elsewhere) is waiting in native code.
+    private static bool IsIdle(Sample sample) =>
+        (sample.Frames.Count > 0 && sample.Frames[0].StartsWith("Avalonia.", StringComparison.Ordinal) && sample.Frames[0].Contains(".RunLoop(", StringComparison.Ordinal))
+        || sample.Frames.Take(6).Any(f =>
         f.Contains("Dispatcher.GetMessage", StringComparison.Ordinal)
         || f.Contains("GetMessageW", StringComparison.Ordinal)
         || f.Contains("WaitMessage", StringComparison.Ordinal)
         || f.Contains("MsgWaitForMultipleObjects", StringComparison.Ordinal)
-        || f.Contains("WaitHandle.WaitOne", StringComparison.Ordinal));
+        || f.Contains("WaitHandle.WaitOne", StringComparison.Ordinal)
+        || f.Contains("epoll_wait", StringComparison.Ordinal)
+        || f.Contains("!poll", StringComparison.Ordinal)
+        || f.Contains("mach_msg", StringComparison.Ordinal)
+        || f.Contains("CFRunLoopRun", StringComparison.Ordinal));
 
     private static void PrintHeaviest(List<Sample> samples, int top)
     {
