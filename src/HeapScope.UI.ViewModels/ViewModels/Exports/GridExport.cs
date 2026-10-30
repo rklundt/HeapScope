@@ -130,7 +130,7 @@ public sealed partial class GridExportService(IUserInteraction interaction, ILog
             var rows = await Task.Run(
                 async () =>
                 {
-                    await using (var stream = HeapScope.Core.PrivateFiles.Open(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous))
+                    await using (var stream = CsvExport.CreatePrivate(partial))
                     await using (var writer = new StreamWriter(stream, CsvExport.Encoding))
                     {
                         var written = await grid.WriteCsvAsync(writer, includeValues, token).ConfigureAwait(false);
