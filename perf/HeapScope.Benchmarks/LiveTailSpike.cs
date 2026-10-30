@@ -45,23 +45,28 @@ internal static class LiveTailSpike
     {
         if (args.Get("allocate") is not null)
         {
-            return Allocate(args.GetInt("seconds", 30));
+            return Allocate(args.GetInt("seconds", 30), args.GetInt("pause-every", 0));
         }
 
         var seconds = args.GetInt("seconds", 10);
+        var pauseEvery = args.GetInt("pause-every", 0);
+        var buffer = args.GetInt("buffer", 1 << 16);
         var folder = Directory.CreateTempSubdirectory("heapscope-live-tail-").FullName;
         var path = Path.Combine(folder, "live.nettrace");
-        using var target = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, ["live-tail", "--allocate", "true", "--seconds", (seconds + 10).ToString(CultureInfo.InvariantCulture)]) { UseShellExecute = false })!;
+        using var target = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, ["live-tail", "--allocate", "true", "--seconds", (seconds + 10).ToString(CultureInfo.InvariantCulture), "--pause-every", pauseEvery.ToString(CultureInfo.InvariantCulture)]) { UseShellExecute = false })!;
         try
         {
             Thread.Sleep(1500);
             var client = new DiagnosticsClient(target.Id);
             var providers = new[]
             {
-                new EventPipeProvider("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, (long)(ClrTraceEventParser.Keywords.GC | ClrTraceEventParser.Keywords.Type)),
+                // The allocations profile HeapScope records (TraceRecorder): GC, Loader and JIT at verbose, with rundown.
+                new EventPipeProvider("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, (long)(ClrTraceEventParser.Keywords.GC | ClrTraceEventParser.Keywords.Loader | ClrTraceEventParser.Keywords.Jit)),
             };
-            using var session = client.StartEventPipeSession(providers, requestRundown: false, circularBufferMB: 256);
-            using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            using var session = client.StartEventPipeSession(providers, requestRundown: true, circularBufferMB: 256);
+
+            // The recorder writes through a 64 KB buffer; --buffer 1 writes every chunk at once.
+            using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read, Math.Max(1, buffer));
             var recording = Task.Run(() => session.EventStream.CopyTo(file));
 
             var done = false;
@@ -96,7 +101,7 @@ internal static class LiveTailSpike
             lagsMs.Sort();
             double Percentile(double p) => lagsMs.Count == 0 ? double.NaN : lagsMs[(int)Math.Min(lagsMs.Count - 1, Math.Round(p * (lagsMs.Count - 1)))];
             using var self = Process.GetCurrentProcess();
-            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"live-tail: {seconds} s recorded, reader {(finished ? "finished" : "did not finish")} after {wall.TotalSeconds:N1} s"));
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"live-tail: {seconds} s recorded (pause every {pauseEvery} allocations, write buffer {buffer} bytes), reader {(finished ? "finished" : "did not finish")} after {wall.TotalSeconds:N1} s"));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  allocation ticks read {read:N0}, events lost {lost:N0}, file {new FileInfo(path).Length / 1024.0 / 1024.0:N1} MB"));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  delay from event to reader: p50 {Percentile(0.5):N0} ms, p95 {Percentile(0.95):N0} ms, max {Percentile(1):N0} ms ({lagsMs.Count:N0} sampled)"));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  this process: peak working set {self.PeakWorkingSet64 / 1024.0 / 1024.0:N0} MB, GC heap {GC.GetTotalMemory(false) / 1024.0 / 1024.0:N0} MB"));
@@ -117,7 +122,7 @@ internal static class LiveTailSpike
     }
 
     /// <summary>The target: allocates objects of a few types in a loop, keeping some, until its time is up.</summary>
-    private static int Allocate(int seconds)
+    private static int Allocate(int seconds, int pauseEvery)
     {
         var kept = new List<object>();
         var until = Stopwatch.StartNew();
@@ -141,6 +146,10 @@ internal static class LiveTailSpike
             }
 
             n++;
+            if (pauseEvery > 0 && n % pauseEvery == 0)
+            {
+                Thread.Sleep(1);
+            }
         }
 
         return kept.Count >= 0 ? 0 : 1;
