@@ -290,7 +290,8 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
     statics): the 20 largest groups are its key retention paths, the rest summed, objects no root reaches counted
     apart. Signatures are interned per path and remembered for the shared ancestors only, at most 8 million of them,
     with one walk stack reused (review M5).
-  - Framework steps (types in `System.` or `Microsoft.` namespaces between other steps) are flagged; the UI and the CLI
+  - Framework steps (types in `System.` or `Microsoft.` namespaces or in a framework module, and `Internal.` types of a
+    framework module, between other steps; `FrameworkTypes.IsFrameworkStep` since 3.8) are flagged; the UI and the CLI
     fold runs of them unless asked to show them.
   - Measured after the review fixes (`retention`, Release, 32 GB machine; the benchmark holds the graph, the reverse
     index, the type aggregation and the tree together): Medium (57.5M objects) root path tree 0.8 to 1.2 s (219 MB), key

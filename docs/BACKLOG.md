@@ -115,7 +115,8 @@ Swept in sprint 3.8:
 - Reconsider a live in-memory graph's memory mode when an optional index is computed (from 2.3 decision 4, the 1.9
   decision): today dominators that do not fit next to an in-memory graph are refused with a suggestion to reopen
   mapped; switching the open snapshot to mapped (graph and indices) would compute them without asking.
-- gcdumps at scale (from 1.8, ADR-023 in 1.9): move gcdump capture into the worker (the capturing front end peaked at
+- gcdumps at scale (from 1.8, ADR-023 in 1.9, amended by ADR-037 in 3.8: capture stays in the front end until a
+  measurement says otherwise): measure moving gcdump capture into the worker (the capturing front end peaked at
   1,191 MB near the 10 million node cap), then raise the cap (a vendored change) after measuring a gcdump capture and
   load of the Medium dump against the budgets (section 10). Do the "gcdump survivors without a recorded root" item
   above with it.

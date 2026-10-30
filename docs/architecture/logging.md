@@ -140,5 +140,7 @@ references such as "ARCHITECTURE.md 11" still name the right section.
   ("A listener of {Event} failed") and changes nothing else. A past run's timeline or trace that is not used logs which
   check refused it (not recorded, not local, outside the folder, through a link, missing, not a CSV file). A snapshot's
   open line names its unavailable features; the worker's log lines name the handler that answered (the operation name
-  is unchanged). The worker logs the reachability walks it keeps per snapshot. The worker's data folder, and so its
-  key file, is on the key's log line.
+  is unchanged; the shared services log under their own categories, such as `ObjectSetResolver` and `SnapshotStore`).
+  The worker logs the reachability walks it keeps per snapshot. Every log file's header names the data folder and where
+  it came from (the default, `HEAPSCOPE_DATA_FOLDER`), and the worker's start line names the folder it was given; the
+  variable moves the logs too, so look for a run's log in `<data folder>/logs`.

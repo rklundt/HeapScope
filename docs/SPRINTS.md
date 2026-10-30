@@ -127,12 +127,14 @@ classes.
   when it closes; Analysis keeps no static caches.
 - One `HeapScopeFolders` names every HeapScope data folder, and a worker option redirects it; the index cache signer is
   injected, with "none" written out where it is meant.
-- Every view model query goes through one runner that logs a refusal under the query's trace id.
+- The view model queries the review names go through one runner that logs a refusal under the query's trace id
+  (the rest by decision 12).
 - The CLI has a test project, a context instead of a static, reads cells by column name, and keeps only its command
   table in `CliCommands.cs`; texts and monitor rules shared with the app live in Application.
 - The monitoring run's timeline, allocation recording and run record are their own types, the trace watch is awaited,
-  and the past run file checks say which check refused; the Live page is split by section.
-- One framework type rule, one tally, a runtime layouts table, a file per detector, one type matcher.
+  and the past run file checks say which check refused; the Live page split moves to the Backlog (decision 11).
+- One framework type rule, one tally, a runtime layouts table, a file per detector; the two type matchers agree on
+  module paths (their merge is in the Backlog).
 - ADR-037 decides where live sources run, from a measured spike; ADR-023 amended.
 - ARCHITECTURE.md is an overview with a page per topic and one file per ADR; SPRINTS.md keeps the current phase, closed
   sprints and the Backlog move out, and the Backlog is swept; every link in tracked Markdown resolves (a test).
@@ -159,9 +161,10 @@ classes.
     move to the Backlog. Both rebind views the smoke runs exercise, and the workspace is only worth extracting with
     Phase 4's design for the worker's result sets of hidden snapshots (decision 7). P11's run-side problems (eight jobs
     in one type, an unawaited trace watch) are fixed in 3.8.
-12. Decided during the sprint: the query runner covers the eleven views the review names (the nine grids through the
-    grid base, the retention paths and Similar Retention); the Object view, the inspections page, the allocation trace
-    page and the icicle keep their own loading, which already logs, and move to the runner when next touched.
+12. Decided during the sprint: the query runner covers the views the review names (the nine grids through the grid
+    base, the retention paths and Similar Retention) and the Object view, which already used it; the inspections page,
+    the allocation trace page and the icicle keep their own loading and move to the runner when next touched (the
+    inspections page does not log its refusals yet: Backlog).
 13. Decided during the sprint: worker handlers (task 9), feature availability (task 12), the CLI and shared presentation
     (tasks 16 and 17) and derived state (task 14) were built by agents working from written briefs, in worktrees where
     they ran in parallel; each change was reviewed against the CLI baseline and the full test suite before it joined the

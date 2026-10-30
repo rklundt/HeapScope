@@ -70,17 +70,17 @@ public interface ISnapshot : IDisposable
 | `ThreadStacks` | Managed thread stacks | yes | no |
 
 Rules:
-- The UI disables any feature whose capability is missing and shows the reason from the Contracts copy of
-  `CapabilityDescriptions` (for example "Field values are not stored in a gcdump. Capture a full dump to
-  inspect fields."). Features are never faked or approximated silently.
+- Features are never faked or approximated silently: a capability a snapshot lacks is explained in the words of the
+  Contracts copy of `CapabilityDescriptions` (for example "Field values are not stored in a gcdump. Capture a full
+  dump to inspect fields."), which the availability list below carries.
 - Since sprint 3.8 (peer review P7) the optional features a front end offers come from the snapshot descriptor's
   availability list, not from the kind or the capability flags: one rule per feature in the worker (`FeatureRules`,
   from the capabilities, the loader facts and the kind handler) fills the list at open and refuses the feature's
   requests with the listed reason. The unreachable set needs a full dump with a complete object graph (a truncated
   dump's lost references would show live objects as garbage); interface grouping and field values need a dump reader
   with `FieldValues`; string values a reader with `StringContents`; generations `Generations`; the finalizable scope
-  the `FinalizerRegistrations` fact. The UI and the CLI show the listed reason; an id the worker did not list counts as
-  unavailable. What differs by kind (whether a snapshot holds garbage, what an unreached object means, whether objects
+  the `FinalizerRegistrations` fact. The UI shows the listed reason; the CLI shows it for generations and otherwise relays
+  the worker's refusal, which carries the same text. An id the worker did not list counts as unavailable. What differs by kind (whether a snapshot holds garbage, what an unreached object means, whether objects
   can be matched by address) is a property of the kind handler (`SnapshotKinds`), not a check of the kind.
 - Analysis entry points declare their required capabilities; calling one without them throws
   `CapabilityNotSupportedException` and the CLI reports it with a non-zero exit code.

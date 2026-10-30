@@ -381,6 +381,12 @@ of debuggable code) and exit when the process given as parent exits.
   that only arrives as a dependency counts too: `Avalonia.Fonts.Inter` (the Inter typeface, SIL Open Font License) comes
   with `Avalonia.Headless` and is kept out of the app's output (`ExcludeAssets="all"`), so it reaches only the tests. Update
   `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
+- **Adding a worker area** (sprint 3.8): a contract in Contracts (`I...Service`, methods ending in `Async` with the
+  token last, names unique across contracts), listed in `WorkerContracts.All` and in `IWorkerService`'s bases; a handler
+  (`...Handler : RpcHandler, I...Service`) registered in `WorkerRpcTargets` with `RpcTarget.For`; a fake partial in
+  `tests/HeapScope.UI.ViewModels.Tests/Fakes/`; a feature id in `SnapshotFeatureIds` with its rule in `FeatureRules`
+  when snapshots may lack it; and a protocol bump only for a removed or renamed method or a changed DTO shape
+  (`docs/architecture/process-model.md` 4.4).
 
 ## 5. Testing strategy
 - **Unit tests** (`*.Tests`): fast, deterministic. Analysis is tested on synthetic graphs built with

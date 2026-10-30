@@ -29,4 +29,8 @@ references such as "ARCHITECTURE.md 9" still name the right section.
   Backlog. Similar Retention (sprint 3.2) reserves `SimilarRetention.WorkingBytes`: 4 bytes per member, 200 per possible
   pattern (at most 1,000,000) and the path signature memo's cap (8 million objects at 48 bytes, the resize peak),
   then compacts; a retention group set reserves the same plus a set's working bytes. Matching two snapshots' objects
-  (sprint 3.3) reserves a bit per object of each.
+  (sprint 3.3) reserves a bit per object of each. Since 3.8 each snapshot keeps its reachable objects (for the leak detectors and the instances scope)
+  and its path-root reachable objects (the unreachable set) as a bit per object each, and the dominator tree's group
+  tables per grouping; they are kept unreserved, like the other derived slots, and dropped when the snapshot closes. The
+  walk that computes a reachable set reserves `Reachability.WalkBytesPerObject` (4.125 bytes per object: the bits and
+  a stack that marks on push).
