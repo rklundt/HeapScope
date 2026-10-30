@@ -24,7 +24,7 @@ anything they depend on.
   (paging used), progress and cancellation on every long operation, clear error codes.
 - **Capability model**: features declare required capabilities; nothing is faked for snapshot kinds that
   cannot support it.
-- **Extensibility**: will the next phase's candidates and the Backlog items in SPRINTS.md fit without redesign? Flag anything that forces a rewrite later
+- **Extensibility**: will the next phase's candidates and the Backlog items in docs/BACKLOG.md fit without redesign? Flag anything that forces a rewrite later
   (High).
 - **ADRs**: consistency with every ADR; significant new decisions that need an ADR.
 - **Docs**: ARCHITECTURE.md, its pages and the ADRs match the code.
