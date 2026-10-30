@@ -502,3 +502,6 @@ run.bat
 
 # Per-user Claude Code settings.
 .claude/settings.local.json
+
+# Project instructions for Claude Code: kept locally, never committed (owner, 2026-10-29).
+/CLAUDE.md
