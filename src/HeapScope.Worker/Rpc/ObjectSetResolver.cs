@@ -21,7 +21,6 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
-
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
@@ -38,81 +37,29 @@ using InspectionColumns = HeapScope.Analysis.Inspections.InspectionColumns;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>Object sets (sprint 3.1, ADR-030): resolving a spec into its members, and a set's dominators.</summary>
-internal sealed partial class WorkerService
+/// <summary>
+/// Object sets (sprint 3.1, ADR-030): resolving a spec of any kind into its members, kept in the shared
+/// <see cref="ObjectSetCache"/>. The resolver depends on the matcher, the inspection runner and the derived queries; none
+/// of them depends on it, so nested specs (compared, retention group, retained by) recurse here only.
+/// </summary>
+internal sealed class ObjectSetResolver(
+    SnapshotStore snapshots,
+    SnapshotAccess access,
+    DerivedQueries derived,
+    IdentityMatcher identities,
+    InspectionRunner inspections,
+    ObjectSetCache sets,
+    ILogger<ObjectSetResolver> logger)
 {
-    private readonly ObjectSetCache _sets = CreateSetCache(logger);
-
     // One resolution per set at a time (the 3.1 review): views asking for the same set together share it.
     private readonly ConcurrentDictionary<(Guid Snapshot, string Key), Lazy<Task<ObjectSet>>> _resolving = new();
-
-    public Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(request, async () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(request.Set);
-            var (snapshot, lease) = Lease(request.SnapshotId);
-            using var _ = lease;
-            var graph = snapshot.Graph;
-            var set = await ResolveSetAsync(request.SnapshotId, snapshot, request.Set, progress, cancellationToken).ConfigureAwait(false);
-            RequireMembers(set);
-            var (dominators, info) = await GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
-            var tree = dominators.Dominators;
-            var stopwatch = Stopwatch.StartNew();
-            const string phase = "Finding the set's dominators";
-            progress?.Report(new JobProgress(phase, 0, null));
-            var tops = await Task.Run(
-                () =>
-                {
-                    // The walks, the tops' arrays and their sort all run inside the reservation (the 3.1 review).
-                    using var reservation = snapshots.Reserve(request.SnapshotId, (long)SetDominators.WorkingBytesPerObject * graph.ObjectCount, phase)
-                        ?? throw SnapshotNotLoaded(request.SnapshotId);
-                    try
-                    {
-                        return SetDominators.Top(tree, set, cancellationToken);
-                    }
-                    finally
-                    {
-                        MemoryReservations.Collect();
-                    }
-                },
-                cancellationToken).ConfigureAwait(false);
-            var source = new SetDominatorsSource(graph, tree, tops);
-            long topRetained = 0;
-            foreach (var top in tops.Tops)
-            {
-                topRetained += (long)tree.RetainedSize(top);
-            }
-
-            // What the view rests on (2.3.7 review H3): the set, the top members and their bytes, the largest first.
-            logger.LogInformation(
-                "Set dominators: {Shape} in snapshot {Id}, {Members} members ({Unreachable} unreachable), {Tops} top members retain {Retained} bytes in {Seconds:0.00} s; largest {Largest}",
-                request.Set.Shape,
-                request.SnapshotId,
-                set.Count,
-                tops.UnreachableMembers,
-                tops.Count,
-                topRetained,
-                stopwatch.Elapsed.TotalSeconds,
-                source.Describe(5));
-
-            // The rows read the graph and the dominators while they live, so they keep a lease of their own (the 3.1 review).
-            return new SetDominatorsResult(resultSets.Add(source, snapshot.AcquireLease()), Info(set), tops.Count, topRetained, tops.UnreachableMembers, info);
-        });
-
-    private static ObjectSetCache CreateSetCache(ILogger logger)
-    {
-        var cache = new ObjectSetCache();
-        cache.Evicted += what => logger.LogDebug("Object set cache: dropped {What} to stay within its budget", what);
-        return cache;
-    }
 
     /// <summary>
     /// The members of <paramref name="spec"/> in a snapshot: from the cache, from a resolution already running, or resolved
     /// now. Every query logs the set it used (the 3.1 review), so a disputed view traces to what the set held. The caller
     /// holds the snapshot's lease.
     /// </summary>
-    private async Task<ObjectSet> ResolveSetAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth = 0)
+    public async Task<ObjectSet> ResolveAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth = 0)
     {
         ArgumentNullException.ThrowIfNull(spec);
         if (depth > ObjectSetLimits.MaxDepth)
@@ -121,7 +68,7 @@ internal sealed partial class WorkerService
         }
 
         var key = spec.CacheKey;
-        if (_sets.TryGet(snapshotId, key) is { } cached)
+        if (sets.TryGet(snapshotId, key) is { } cached)
         {
             logger.LogInformation("Object set (cached): {Shape} in snapshot {Id}: {Objects} objects of {Bytes} bytes, {Types} types", spec.Shape, snapshotId, cached.Count, cached.Bytes, cached.TypeCount);
             return cached;
@@ -149,6 +96,16 @@ internal sealed partial class WorkerService
         }
     }
 
+    public static void RequireMembers(ObjectSet set)
+    {
+        if (set.Count == 0)
+        {
+            throw new ArgumentException("The set has no objects in this snapshot.");
+        }
+    }
+
+    public static ObjectSetInfo Info(ObjectSet set) => new(set.Count, (long)set.Bytes, set.TypeCount);
+
     private async Task<ObjectSet> ResolveNowAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, string key, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth)
     {
         var graph = snapshot.Graph;
@@ -168,7 +125,7 @@ internal sealed partial class WorkerService
                 (set, detail) = await Task.Run(() => OfTypeKeys(snapshotId, graph, keys, cancellationToken), cancellationToken).ConfigureAwait(false);
                 break;
             case ObjectSetKind.Interface:
-                var interfaces = await GetInterfacesAsync(snapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
+                var interfaces = await derived.GetInterfacesAsync(snapshotId, snapshot, progress, cancellationToken).ConfigureAwait(false);
                 var interfaceMask = TypeGroups.MatchInterface(graph, interfaces, spec.Name ?? string.Empty, out var implementing);
                 if (implementing == 0)
                 {
@@ -191,7 +148,7 @@ internal sealed partial class WorkerService
                     throw new CapabilityNotSupportedException("A gcdump holds only what survived its collection, so the garbage of the process is not in it. Open a full dump (.dmp) to see the garbage it still holds.");
                 }
 
-                if (!IsComplete(snapshot))
+                if (!SnapshotAccess.IsComplete(snapshot))
                 {
                     // References were lost reading this dump: live objects would show as garbage (section 5.2, as ADR-032).
                     throw new CapabilityNotSupportedException("This dump's object graph is incomplete (some references could not be read), so live objects could look unreachable. Capture a new full dump.");
@@ -203,7 +160,7 @@ internal sealed partial class WorkerService
                         // The retention views' roots, the finalizer queue included (ADR-024): no member has a path.
                         var alive = Reachability.FromPathRoots(graph, cancellationToken);
                         var unreachable = Reserved(snapshotId, graph, () => ObjectSet.Unreachable(graph, alive, cancellationToken));
-                        return (unreachable, UnreachableDetail(graph, alive, Reachability.For(graph, cancellationToken), IsComplete(snapshot), cancellationToken));
+                        return (unreachable, UnreachableDetail(graph, alive, Reachability.For(graph, cancellationToken), SnapshotAccess.IsComplete(snapshot), cancellationToken));
                     },
                     cancellationToken).ConfigureAwait(false);
                 break;
@@ -234,7 +191,7 @@ internal sealed partial class WorkerService
                 break;
             case ObjectSetKind.RetainedBy:
                 var innerSpec = spec.Inner ?? throw new ArgumentException("A retained-by set needs its inner set.");
-                var inner = await ResolveSetAsync(snapshotId, snapshot, innerSpec, progress, cancellationToken, depth + 1).ConfigureAwait(false);
+                var inner = await ResolveAsync(snapshotId, snapshot, innerSpec, progress, cancellationToken, depth + 1).ConfigureAwait(false);
                 set = await RetainedObjectsAsync(snapshotId, graph, inner, progress, cancellationToken).ConfigureAwait(false);
                 detail = string.Create(CultureInfo.InvariantCulture, $"the inner set's {inner.Count} objects");
                 break;
@@ -245,7 +202,7 @@ internal sealed partial class WorkerService
         // A snapshot closed meanwhile keeps nothing in the cache.
         if (snapshots.TryGet(snapshotId) is not null)
         {
-            _sets.Add(snapshotId, key, set);
+            sets.Add(snapshotId, key, set);
         }
 
         if (set.EstimatedBytes > ObjectSetCache.MaxBytes / 2)
@@ -345,7 +302,7 @@ internal sealed partial class WorkerService
     /// <summary>Builds a set inside a reservation of what one set can take (a bit and an index per object; the 3.1 review).</summary>
     private ObjectSet Reserved(Guid snapshotId, HeapGraph graph, Func<ObjectSet> build)
     {
-        using var reservation = snapshots.Reserve(snapshotId, ObjectSet.WorkingBytes(graph), "Resolving an object set") ?? throw SnapshotNotLoaded(snapshotId);
+        using var reservation = snapshots.Reserve(snapshotId, ObjectSet.WorkingBytes(graph), "Resolving an object set") ?? throw SnapshotAccess.NotLoaded(snapshotId);
         try
         {
             return build();
@@ -357,6 +314,88 @@ internal sealed partial class WorkerService
     }
 
     /// <summary>
+    /// The members of a <see cref="ObjectSetKind.Compared"/> set: the inner set in the snapshot queried, matched against the
+    /// other snapshot (decision 2). New and survived sets are queried in the later snapshot, dead ones in the earlier.
+    /// </summary>
+    private async Task<(ObjectSet Set, string Detail)> ResolveComparedAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth)
+    {
+        var innerSpec = spec.Inner ?? throw new ArgumentException("A compared set needs its inner set.");
+        var change = spec.Change ?? throw new ArgumentException("A compared set needs its change: new, dead or survived.");
+        var otherId = spec.Baseline ?? throw new ArgumentException("A compared set needs the snapshot it is compared with.");
+        if (otherId == snapshotId)
+        {
+            throw new ArgumentException("A snapshot cannot be compared with itself.");
+        }
+
+        if (!Enum.IsDefined(change))
+        {
+            throw new ArgumentException($"Unknown change {(int)change}.");
+        }
+
+        var (other, otherLease) = access.Lease(otherId);
+        using var _ = otherLease;
+        var dead = change == ObjectChange.Dead;
+        var (baseline, current) = dead ? (snapshot, other) : (other, snapshot);
+        if (IdentityMatcher.WhyNoIdentity(baseline, current) is { } why)
+        {
+            throw new ArgumentException(why);
+        }
+
+        var inner = await ResolveAsync(snapshotId, snapshot, innerSpec, progress, cancellationToken, depth + 1).ConfigureAwait(false);
+        var identity = await identities.MatchAsync(snapshotId, baseline, current, progress, cancellationToken).ConfigureAwait(false);
+        if (IdentityMatcher.WhyNotOneRun(identity) is { } notOneRun)
+        {
+            throw new ArgumentException(notOneRun);
+        }
+
+        var kind = change switch
+        {
+            ObjectChange.Dead => ObjectChangeKind.Dead,
+            ObjectChange.Survived => ObjectChangeKind.Survived,
+            _ => ObjectChangeKind.New,
+        };
+        var graph = snapshot.Graph;
+        var set = await Task.Run(() => Reserved(snapshotId, graph, () => ObjectSet.OfIndices(graph, identity.Select(inner, kind).AsSpan())), cancellationToken).ConfigureAwait(false);
+        return (set, string.Create(CultureInfo.InvariantCulture, $"{set.Count} of the inner set's {inner.Count} objects are {change.ToString().ToLowerInvariant()} against snapshot {otherId} ({identity.Survivors} objects matched by address in all)"));
+    }
+
+    /// <summary>The members of a Similar Retention group: the inner set grouped again, then the group at the spec's rank.</summary>
+    private async Task<(ObjectSet Set, string Detail)> ResolveRetentionGroupAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken, int depth)
+    {
+        var innerSpec = spec.Inner ?? throw new ArgumentException("A retention group set needs its inner set.");
+        if (string.IsNullOrEmpty(spec.Name))
+        {
+            throw new ArgumentException("A retention group set needs its group's pattern key.");
+        }
+
+        var inner = await ResolveAsync(snapshotId, snapshot, innerSpec, progress, cancellationToken, depth + 1).ConfigureAwait(false);
+        RequireMembers(inner);
+        var (tree, reverse) = await derived.RetentionInputsAsync(snapshotId, progress, cancellationToken).ConfigureAwait(false);
+        var graph = snapshot.Graph;
+        var set = await Task.Run(
+            () =>
+            {
+                using var reservation = snapshots.Reserve(snapshotId, SimilarRetention.WorkingBytes(inner.Count, graph.ObjectCount) + ObjectSet.WorkingBytes(graph), "Resolving a retention group")
+                    ?? throw SnapshotAccess.NotLoaded(snapshotId);
+                try
+                {
+                    return ObjectSet.OfIndices(graph, SimilarRetention.MembersOf(graph, tree, reverse.References, inner, spec.Name ?? string.Empty, spec.Row, cancellationToken).AsSpan());
+                }
+                finally
+                {
+                    MemoryReservations.Collect();
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (set.Count == 0)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"No group of this set is retained the way group {spec.Row + 1} was (pattern #{spec.Name}) in this snapshot. List the groups again with Similar Retention (the CLI's --view similar)."));
+        }
+
+        return (set, string.Create(CultureInfo.InvariantCulture, $"group {spec.Row + 1} (pattern #{spec.Name}) of the inner set's {inner.Count} objects"));
+    }
+
+    /// <summary>
     /// The objects a row of an inspection counted: its own member list (a leak detector), or what its hidden columns open
     /// (a type in a scope, or one object). Returns how the row was resolved, for the log: the source and the row's
     /// metadata cells (type, module, scope), never a value column.
@@ -364,13 +403,13 @@ internal sealed partial class WorkerService
     private async Task<(ObjectSet Set, string Detail)> ResolveInspectionRowAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         var name = spec.Name ?? throw new ArgumentException("An inspection row set needs the inspection's name.");
-        var table = _sets.TryGetTable(snapshotId, name, spec.Baseline);
+        var table = sets.TryGetTable(snapshotId, name, spec.Baseline);
         var rerun = string.Empty;
         if (table is null)
         {
             // Not kept (a waste inspection, eviction or a worker restart): run it again for its rows only.
             logger.LogInformation("Object set: running {Inspection} on snapshot {Id} again to resolve its row {Row} (its rows were not kept)", name, snapshotId, spec.Row);
-            var run = await RunInspectionCoreAsync(new InspectionRequest(snapshotId, name, spec.Baseline), progress, cancellationToken).ConfigureAwait(false);
+            var run = await inspections.RunAsync(new InspectionRequest(snapshotId, name, spec.Baseline), progress, cancellationToken).ConfigureAwait(false);
             run.Lease.Dispose();
             table = run.Result.Rows;
             rerun = "inspection run again; ";
@@ -429,13 +468,13 @@ internal sealed partial class WorkerService
     private async Task<ObjectSet> RetainedObjectsAsync(Guid snapshotId, HeapGraph graph, ObjectSet inner, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         RequireMembers(inner);
-        var (dominators, _) = await GetDominatorsAsync(snapshotId, progress, cancellationToken).ConfigureAwait(false);
+        var (dominators, _) = await derived.GetDominatorsAsync(snapshotId, progress, cancellationToken).ConfigureAwait(false);
         const string phase = "Finding what the set retains";
         return await Task.Run(
             () =>
             {
                 using var reservation = snapshots.Reserve(snapshotId, ((long)SetRetention.WorkingBytesPerObject * graph.ObjectCount) + ObjectSet.WorkingBytes(graph), phase)
-                    ?? throw SnapshotNotLoaded(snapshotId);
+                    ?? throw SnapshotAccess.NotLoaded(snapshotId);
                 try
                 {
                     return SetRetention.Compute(graph, dominators.Dominators, inner, collectRetained: true, cancellationToken: cancellationToken).Retained!;
@@ -451,47 +490,4 @@ internal sealed partial class WorkerService
     private static ulong ParseAddress(string? text) =>
         text is { Length: > 2 } && text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             && ulong.TryParse(text.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var address) ? address : 0;
-
-    private static void RequireMembers(ObjectSet set)
-    {
-        if (set.Count == 0)
-        {
-            throw new ArgumentException("The set has no objects in this snapshot.");
-        }
-    }
-
-    private static ObjectSetInfo Info(ObjectSet set) => new(set.Count, (long)set.Bytes, set.TypeCount);
-}
-
-/// <summary>A set's top members (sprint 3.1), most retained first (<see cref="SetDominatorColumns"/>); its rows read the graph under a lease.</summary>
-internal sealed class SetDominatorsSource(HeapGraph graph, Dominators dominators, SetDominatorList tops) : IResultSource
-{
-    private static readonly ResultColumn[] s_columns =
-    [
-        new(SetDominatorColumns.Address, ResultColumnKind.Address, IsKey: true),
-        new(SetDominatorColumns.Type, ResultColumnKind.Text),
-        new(SetDominatorColumns.Bytes, ResultColumnKind.Bytes),
-        new(SetDominatorColumns.Retained, ResultColumnKind.Bytes),
-        new(SetDominatorColumns.Members, ResultColumnKind.Integer),
-    ];
-
-    public IReadOnlyList<ResultColumn> Columns => s_columns;
-
-    public int Count => tops.Count;
-
-    public long EstimatedBytes => 8L * tops.Count;
-
-    public void FormatRow(int index, string?[] cells)
-    {
-        var top = tops.Tops[index];
-        cells[0] = string.Create(CultureInfo.InvariantCulture, $"0x{graph.Addresses[top]:x}");
-        cells[1] = graph.Types.GetName(graph.TypeIndices[top]);
-        cells[2] = graph.GetSize(top).ToString(CultureInfo.InvariantCulture);
-        cells[3] = dominators.RetainedSize(top).ToString(CultureInfo.InvariantCulture);
-        cells[4] = tops.Below[index].ToString(CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>The first rows' types and retained bytes, for the log (no addresses).</summary>
-    public string Describe(int count) =>
-        string.Join("; ", Enumerable.Range(0, Math.Min(count, tops.Count)).Select(i => string.Create(CultureInfo.InvariantCulture, $"{graph.Types.GetName(graph.TypeIndices[tops.Tops[i]])} {dominators.RetainedSize(tops.Tops[i])} bytes, {tops.Below[i]} members below")));
 }

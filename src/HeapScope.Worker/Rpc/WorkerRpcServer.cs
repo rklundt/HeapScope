@@ -30,15 +30,20 @@ using StreamJsonRpc;
 namespace HeapScope.Worker.Rpc;
 
 /// <summary>
-/// Serves <see cref="IWorkerService"/> on the named pipe (ARCHITECTURE.md 4.2). The pipe accepts one client from the
-/// current user only. The worker stops when the client does not connect in time or disconnects.
+/// Serves the worker contracts (<see cref="WorkerContracts.All"/>, each by its handler) on the named pipe (ARCHITECTURE.md
+/// 4.2). The pipe accepts one client from the current user only. The worker stops when the client does not connect in time
+/// or disconnects.
 /// </summary>
 internal sealed class WorkerRpcServer(
     WorkerOptions options,
-    WorkerService service,
+    IServiceProvider services,
     IHostApplicationLifetime lifetime,
     ILogger<WorkerRpcServer> logger) : BackgroundService
 {
+    // The handlers and the stores are created with the host, before any client connects: the trace store's sweep of
+    // temporary files runs at startup.
+    private readonly Action<JsonRpc> _addTargets = WorkerRpcTargets.Resolve(services);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var pipe = new NamedPipeServerStream(
@@ -75,7 +80,7 @@ internal sealed class WorkerRpcServer(
             {
                 ActivityTracingStrategy = new ActivityTracingStrategy(),
             };
-            rpc.AddLocalRpcTarget<IWorkerService>(service, null);
+            _addTargets(rpc);
             rpc.StartListening();
             try
             {

@@ -188,9 +188,9 @@ public sealed class DominatorIndexBuilderTests : IDisposable
         // Review M6: both can overstate retained sizes, so the front ends say so beside them.
         var index = new DominatorIndex(_expected, FromSidecar: false, MemoryMode.InMemory, Saved: true, Reachable: 90, Seconds: 1, UnreachableBytes: 3 * 1024 * 1024);
 
-        var full = Rpc.WorkerService.Info(index, Core.SnapshotKind.FullDump, 100, completeGraph: true);
-        var gcdump = Rpc.WorkerService.Info(index, Core.SnapshotKind.GcDump, 100, completeGraph: true);
-        var truncated = Rpc.WorkerService.Info(index, Core.SnapshotKind.FullDump, 100, completeGraph: false);
+        var full = Rpc.DerivedQueries.Info(index, Core.SnapshotKind.FullDump, 100, completeGraph: true);
+        var gcdump = Rpc.DerivedQueries.Info(index, Core.SnapshotKind.GcDump, 100, completeGraph: true);
+        var truncated = Rpc.DerivedQueries.Info(index, Core.SnapshotKind.FullDump, 100, completeGraph: false);
 
         full.Note.ShouldBeNull("garbage in a full dump retains nothing by definition");
         gcdump.Note.ShouldNotBeNull().ShouldContain("10 objects (3.0 MB) of this gcdump");

@@ -21,29 +21,36 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Diagnostics;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>Opening and closing snapshots.</summary>
-internal sealed partial class WorkerService
+/// <summary>The crash and hang test hooks (<see cref="IWorkerTestHooks"/>), refused unless the worker started with them on.</summary>
+internal sealed class TestHooksHandler(WorkerOptions options, ILogger<TestHooksHandler> logger) : IWorkerTestHooks
 {
-    public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) =>
-        GuardAsync(() => Task.Run(() => snapshots.Probe(path), cancellationToken), LogLevel.Debug);
-
-    public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(request, () =>
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            logger.LogInformation("Opening snapshot {Path} (rebuild {Rebuild}, mode {Mode}, reopen {Reopen})", request.Path, request.Rebuild, request.Mode, request.RequireCache);
-            return snapshots.OpenAsync(request, progress, cancellationToken);
-        });
-
-    public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
+    public Task CrashForTestingAsync(CancellationToken cancellationToken)
     {
-        snapshots.Close(snapshotId);
-        _sets.Forget(snapshotId);
+        EnsureTestHooks();
+        logger.LogWarning("Crash requested by a test hook");
+        using var self = Process.GetCurrentProcess();
+        self.Kill();
         return Task.CompletedTask;
+    }
+
+    public async Task HangForTestingAsync(IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        EnsureTestHooks();
+        progress?.Report(new JobProgress("Hanging", 0, null, "Waiting until canceled"));
+        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void EnsureTestHooks()
+    {
+        if (!options.EnableTestHooks)
+        {
+            throw WorkerErrors.Create(HeapScopeErrorCode.TestHooksDisabled, "Test hooks are disabled; start the worker with --enable-test-hooks.");
+        }
     }
 }

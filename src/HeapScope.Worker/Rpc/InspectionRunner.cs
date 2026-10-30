@@ -29,47 +29,17 @@ using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>The simple inspections.</summary>
-internal sealed partial class WorkerService
+/// <summary>
+/// Runs an inspection and keeps a leak detector's rows in the object set cache, for the inspection RPC and for an
+/// inspection row resolved as a set. It writes to the cache and never resolves sets, so the set resolver can depend on it.
+/// </summary>
+internal sealed class InspectionRunner(SnapshotAccess access, DerivedQueries derived, ObjectSetCache sets, ILogger<InspectionRunner> logger)
 {
-    public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) =>
-        GuardAsync(() =>
-        {
-            var (snapshot, lease) = Lease(snapshotId);
-            using var _ = lease;
-            IReadOnlyList<InspectionInfo> list = [.. InspectionCatalog.All.Select(i => new InspectionInfo(
-                i.Name,
-                i.Title,
-                i.Cause,
-                i.Fix,
-                InspectionAvailability.Explain(i, snapshot.Capabilities, snapshot.Info),
-                i.Kind == InspectionKind.Leak ? InspectionKinds.Leak : InspectionKinds.Waste,
-                i.UsesBaseline))];
-
-            // Why an inspection was not offered (sprint 2.3.7 review M2): decided from capabilities and facts.
-            foreach (var unavailable in list.Where(i => i.Unavailable is not null))
-            {
-                logger.LogInformation("Inspection {Inspection} unavailable for snapshot {Id}: {Reason}", unavailable.Name, snapshotId, unavailable.Unavailable);
-            }
-
-            return Task.FromResult(list);
-        });
-
-    public Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
-        GuardAsync(request, async () =>
-        {
-            var run = await RunInspectionCoreAsync(request, progress, cancellationToken).ConfigureAwait(false);
-
-            // The set keeps the lease: its rows read the graph while it lives.
-            var rows = resultSets.Add(new InspectionSource(run.Result.Rows), run.Lease);
-            return new InspectionResultDto(run.Name, run.Result.Count, run.Result.Bytes, run.Result.WastedBytes, run.Result.Note, rows, run.Seconds, run.BaselineId);
-        });
-
     /// <summary>
     /// Runs an inspection and logs its answer; the caller owns the returned lease (a set's row resolution, sprint 3.1,
     /// disposes it at once; the RPC keeps it with the rows).
     /// </summary>
-    private async Task<(InspectionResult Result, string Name, Guid? BaselineId, SnapshotLease Lease, double Seconds)> RunInspectionCoreAsync(
+    public async Task<(InspectionResult Result, string Name, Guid? BaselineId, SnapshotLease Lease, double Seconds)> RunAsync(
         InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -78,7 +48,7 @@ internal sealed partial class WorkerService
         var stopwatch = Stopwatch.StartNew();
 
         // The set keeps the lease: its rows read the graph while it lives.
-        var (snapshot, lease) = Lease(request.SnapshotId);
+        var (snapshot, lease) = access.Lease(request.SnapshotId);
         SnapshotLease? baselineLease = null;
         try
         {
@@ -101,7 +71,7 @@ internal sealed partial class WorkerService
                     throw new ArgumentException("The baseline must be another snapshot: an earlier one of the same process.");
                 }
 
-                var (earlier, held) = Lease(id);
+                var (earlier, held) = access.Lease(id);
                 baselineLease = held;
 
                 // A baseline the detector cannot read (a gcdump) is refused, never silently ignored (review H8).
@@ -119,7 +89,7 @@ internal sealed partial class WorkerService
             HeapScope.Core.Graph.ReverseReferences? referrers = null;
             if (inspection.UsesReferrers)
             {
-                var (index, _) = await GetReverseAsync(request.SnapshotId, throttled, cancellationToken).ConfigureAwait(false);
+                var (index, _) = await derived.GetReverseAsync(request.SnapshotId, throttled, cancellationToken).ConfigureAwait(false);
                 referrers = index.References;
             }
 
@@ -162,7 +132,7 @@ internal sealed partial class WorkerService
             // Kept so a detector's row opens as a set (sprint 3.1) without running the inspection again.
             if (result.Rows.HasMembers)
             {
-                _sets.AddTable(request.SnapshotId, inspection.Name, baselineId, result.Rows);
+                sets.AddTable(request.SnapshotId, inspection.Name, baselineId, result.Rows);
             }
 
             return (result, inspection.Name, baselineId, lease, stopwatch.Elapsed.TotalSeconds);

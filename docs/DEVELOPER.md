@@ -30,6 +30,11 @@ dotnet test --solution HeapScope.sln
   Slow traits; a project left with no tests fails. `integration` runs the Integration project (Windows). Integration and
   Slow tests belong in that project only; the script fails when one is elsewhere. Results are TRX files.
 - Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Data folders (sprint 3.8): every test process sets `HEAPSCOPE_DATA_FOLDER` to `HeapScopeTests/data` under the temporary
+  folder (`tests/Shared/TestDataFolder.cs`) before anything reads `HeapScopeFolders`, and the workers and front ends it
+  starts inherit it, so no test writes into the user's sessions, logs, index cache key, trusted DACs or bookmarks. Set it
+  by hand to run the app or the CLI against a scratch profile. The worker also takes `--data-folder` (from
+  `Worker:DataFolder` on the client), which wins over the variable.
 - Fuzzing (sprint 3.7): the mutation tests (`SignedCacheTests`, `CraftedGcDumpTests`) run a short pass in every run;
   `HEAPSCOPE_FUZZ_ITERATIONS` and `HEAPSCOPE_FUZZ_SEED` raise and vary it. The nightly `fuzz.yml` runs 2,000 iterations on
   the run number as the seed, on `develop`; a failure names its seed, iteration and exception type. The cache half replays

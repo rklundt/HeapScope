@@ -71,7 +71,12 @@ references such as "ARCHITECTURE.md 4" still name the right section.
 - StreamJsonRpc over the named pipe, with `HeaderDelimitedMessageHandler` and the default JSON formatter.
   The default formatter is used because it supports `IProgress<T>` and `CancellationToken` marshaling with no
   extra configuration. The formatter can be swapped later without changing service interfaces.
-- `HeapScope.Contracts` defines `IWorkerService` (methods called by clients) and the DTOs. DTOs are records of
+- `HeapScope.Contracts` defines the worker's contracts, one per feature area since sprint 3.8 (peer review P5):
+  `IWorkerControl`, `IWorkerTestHooks`, `ISnapshotService`, `IResultSetService`, `IHeapQueryService`,
+  `IRetentionService`, `IInspectionService` and `IAllocationTraceService`, listed in `WorkerContracts.All`. The worker
+  serves all of them on its one JSON-RPC connection, each by its own handler; JSON-RPC carries only method names, so the
+  split changed nothing on the wire, and a test keeps method names unique across contracts and every method
+  cancellable. `IWorkerService` aggregates them for clients. The contracts and the DTOs: DTOs are records of
   primitive types, strings, arrays and Contracts enums; Contracts references no solution project, so no Core type
   can cross the pipe (ADR-016). The worker maps Core values (for example `SnapshotCapabilities`) to their
   Contracts counterparts (`SnapshotFeatures`); a test keeps the numeric values of mirrored enums identical.

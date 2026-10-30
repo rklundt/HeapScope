@@ -29,14 +29,20 @@ using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>Allocation traces (sprint 2.5, ADR-028): open, close and the queries over an interval.</summary>
-internal sealed partial class WorkerService
+/// <summary>Allocation traces (<see cref="IAllocationTraceService"/>, ADR-028): open, close and the queries over an interval.</summary>
+internal sealed class AllocationTraceHandler(
+    TraceStore traces,
+    ResultSetStore resultSets,
+    ILogger<AllocationTraceHandler> logger) : RpcHandler(logger), IAllocationTraceService
 {
     /// <summary>Rows written to a query's provenance line.</summary>
     private const int LoggedAllocationRows = 10;
 
     /// <summary>Frames of each stack written to the stacks line; the stack node gives the rest.</summary>
     private const int LoggedFrames = 16;
+
+    /// <summary>Expanded keys written to the provenance line.</summary>
+    private const int LoggedKeys = 20;
 
     public Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) =>
         GuardAsync(request, () => traces.OpenAsync(request, progress is null ? null : new ThrottledProgress<JobProgress>(progress), cancellationToken));
@@ -64,7 +70,7 @@ internal sealed partial class WorkerService
                 [.. buckets.Select(b => new AllocationBucketDto(b.StartMs / 1000, b.Bytes, b.Samples))],
                 request.BucketSeconds,
                 open.Trace.Info.DurationMs / 1000);
-            logger.LogInformation(
+            Logger.LogInformation(
                 "Allocation timeline of trace {Id}: {Buckets} stretches of {Seconds} s, busiest {Busiest}",
                 request.TraceId,
                 buckets.Length,
@@ -82,7 +88,7 @@ internal sealed partial class WorkerService
             var (rows, (bytes, samples)) = await Task.Run(
                 () => (AllocationProfile.Types(open.Trace, filter, cancellationToken), AllocationProfile.Totals(open.Trace, filter, cancellationToken)),
                 cancellationToken).ConfigureAwait(false);
-            logger.LogInformation(
+            Logger.LogInformation(
                 "Allocation types of trace {Id} from {From} s to {To}: {Types} types, {Samples} samples of {Bytes} bytes; top {Top}",
                 request.TraceId,
                 request.FromSeconds,
@@ -112,7 +118,7 @@ internal sealed partial class WorkerService
 
             // Every stack answered, with its rank, its innermost stack node (which rebuilds it from the same trace) and its
             // frames, allocating frame first: framework frames come first, so the disputed one may be deep (the 2.5 review).
-            logger.LogInformation(
+            Logger.LogInformation(
                 "Allocation stacks of trace {Id} from {From} s to {To}, type {Type}: {Samples} samples of {Bytes} bytes, {Count} stacks: {Stacks}",
                 request.TraceId,
                 request.FromSeconds,
@@ -161,7 +167,7 @@ internal sealed partial class WorkerService
             var shown = reveal >= 0 && view.Rows[reveal].Expanded
                 ? view.Rows.Where(r => r.ParentKey == request.RevealKey).Take(LoggedAllocationRows)
                 : view.Rows.Take(LoggedAllocationRows);
-            logger.LogInformation(
+            Logger.LogInformation(
                 "Allocation {Kind} of trace {Id} from {From} s to {To}, type {Type}: {Samples} samples of {Bytes} bytes, {Rows} rows{Truncated}; {Open} open rows {Keys}; reveal {Reveal} at row {RevealIndex}; rows shown under it {Shown}",
                 kind,
                 request.TraceId,

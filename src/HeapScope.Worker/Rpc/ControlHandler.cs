@@ -23,28 +23,19 @@
 
 using System.Diagnostics;
 using System.Runtime;
-using System.Runtime.CompilerServices;
 using HeapScope.Contracts;
-using HeapScope.Core;
 using HeapScope.Core.Synthetic;
-using HeapScope.Worker.Snapshots;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
-/// <summary>
-/// The worker's implementation of <see cref="IWorkerService"/>; an RPC boundary (ARCHITECTURE.md 11). Split by feature area
-/// (sprint 1.9): this file holds the worker's own calls, result pages and shared helpers; snapshots, summaries and diffs,
-/// objects, and inspections have their own files.
-/// </summary>
-internal sealed partial class WorkerService(
+/// <summary>The worker's own calls (<see cref="IWorkerControl"/>): the handshake, the synthetic job and shutdown.</summary>
+internal sealed class ControlHandler(
     WorkerOptions options,
     ResultSetStore resultSets,
-    SnapshotStore snapshots,
-    HeapScope.Worker.Traces.TraceStore traces,
     IHostApplicationLifetime lifetime,
-    ILogger<WorkerService> logger) : IWorkerService
+    ILogger<ControlHandler> logger) : RpcHandler(logger), IWorkerControl
 {
     private const int MaxSyntheticObjects = 100_000_000;
 
@@ -92,9 +83,9 @@ internal sealed partial class WorkerService(
             await _syntheticGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                logger.LogInformation("Synthetic job started: {Objects} objects, {References} references per object", request.ObjectCount, request.AverageReferences);
+                Logger.LogInformation("Synthetic job started: {Objects} objects, {References} references per object", request.ObjectCount, request.AverageReferences);
                 var result = await Task.Run(() => RunSynthetic(request, progress, cancellationToken), cancellationToken).ConfigureAwait(false);
-                logger.LogInformation("Synthetic job finished in {Seconds:N2} s", result.ElapsedSeconds);
+                Logger.LogInformation("Synthetic job finished in {Seconds:N2} s", result.ElapsedSeconds);
                 return result;
             }
             finally
@@ -103,80 +94,15 @@ internal sealed partial class WorkerService(
             }
         });
 
-    public Task<ResultPage> GetRowsAsync(Guid resultSetId, int offset, int count, CancellationToken cancellationToken)
-    {
-        if (offset < 0 || count < 0)
-        {
-            throw WorkerErrors.Create(HeapScopeErrorCode.InvalidArgument, "Offset and count must not be negative.");
-        }
-
-        // Pages of instances read string values from the dump (sprint 1.5), so paging gets the error contract (codes,
-        // the worker log). It stays on the request's thread: a further thread pool hop cost latency under load.
-        return GuardAsync(() => Task.FromResult(
-            resultSets.TryGetPage(resultSetId, offset, count)
-                ?? throw WorkerErrors.Create(
-                    HeapScopeErrorCode.ResultSetNotFound,
-                    $"Result set {resultSetId} is not available: it was released, evicted or never existed. Run the query again.")),
-            LogLevel.Debug);
-    }
-
-    public Task ReleaseResultSetAsync(Guid resultSetId, CancellationToken cancellationToken)
-    {
-        resultSets.Release(resultSetId);
-        return Task.CompletedTask;
-    }
-
     public Task ShutdownAsync(CancellationToken cancellationToken)
     {
-        logger.LogInformation("Shutdown requested by the client");
+        Logger.LogInformation("Shutdown requested by the client");
 
         // Stop after the reply has been written.
         _ = Task.Delay(TimeSpan.FromMilliseconds(50), CancellationToken.None)
             .ContinueWith(_ => lifetime.StopApplication(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         return Task.CompletedTask;
     }
-
-    public Task CrashForTestingAsync(CancellationToken cancellationToken)
-    {
-        EnsureTestHooks();
-        logger.LogWarning("Crash requested by a test hook");
-        using var self = Process.GetCurrentProcess();
-        self.Kill();
-        return Task.CompletedTask;
-    }
-
-    public async Task HangForTestingAsync(IProgress<JobProgress>? progress, CancellationToken cancellationToken)
-    {
-        EnsureTestHooks();
-        progress?.Report(new JobProgress("Hanging", 0, null, "Waiting until canceled"));
-        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
-    }
-
-    // Every answer is logged with its request (sprint 2.3.7 review H3); page reads and probes, which a grid makes many of,
-    // at Debug.
-    private Task<T> GuardAsync<T>(Func<Task<T>> body, LogLevel resultLevel = LogLevel.Information, [CallerMemberName] string operation = "") =>
-        WorkerErrors.GuardAsync(body, logger, operation, null, resultLevel);
-
-    private Task<T> GuardAsync<T>(object? request, Func<Task<T>> body, LogLevel resultLevel = LogLevel.Information, [CallerMemberName] string operation = "") =>
-        WorkerErrors.GuardAsync(body, logger, operation, request, resultLevel);
-
-    /// <summary>A loaded snapshot and a lease on it; a snapshot closed meanwhile refuses the lease.</summary>
-    private (ISnapshot Snapshot, SnapshotLease Lease) Lease(Guid snapshotId)
-    {
-        var snapshot = snapshots.TryGet(snapshotId) ?? throw SnapshotNotLoaded(snapshotId);
-        try
-        {
-            return (snapshot, snapshot.AcquireLease());
-        }
-        catch (ObjectDisposedException)
-        {
-            throw SnapshotNotLoaded(snapshotId);
-        }
-    }
-
-    private static StreamJsonRpc.LocalRpcException SnapshotNotLoaded(Guid snapshotId) => WorkerErrors.Create(
-        HeapScopeErrorCode.SnapshotNotLoaded,
-        $"Snapshot {snapshotId} is not loaded in the analysis worker: it was closed or the worker restarted. Open it again.");
 
     private static void Validate(SyntheticJobRequest request)
     {
@@ -204,14 +130,6 @@ internal sealed partial class WorkerService(
             throw WorkerErrors.Create(
                 HeapScopeErrorCode.InsufficientMemory,
                 $"A synthetic graph of {request.ObjectCount:N0} objects needs about {projected / (1024 * 1024 * 1024):N1} GB, more than the worker's budget of {budget / (1024 * 1024 * 1024):N1} GB. Use fewer objects or references.");
-        }
-    }
-
-    private void EnsureTestHooks()
-    {
-        if (!options.EnableTestHooks)
-        {
-            throw WorkerErrors.Create(HeapScopeErrorCode.TestHooksDisabled, "Test hooks are disabled; start the worker with --enable-test-hooks.");
         }
     }
 
@@ -248,16 +166,5 @@ internal sealed partial class WorkerService(
         stopwatch.Stop();
 
         return new SyntheticJobResult(graph.ObjectCount, graph.EdgeCount, graph.TotalSize, graph.ColumnBytes, stopwatch.Elapsed.TotalSeconds, summary);
-    }
-
-    private sealed class CallbackProgress(Action<long> report) : IProgress<long>
-    {
-        public void Report(long value) => report(value);
-    }
-
-    /// <summary>Reports synchronously on the reporting thread (<see cref="Progress{T}"/> would post and reorder).</summary>
-    private sealed class CallbackProgress<T>(Action<T> report) : IProgress<T>
-    {
-        public void Report(T value) => report(value);
     }
 }
