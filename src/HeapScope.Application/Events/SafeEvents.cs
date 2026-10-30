@@ -31,6 +31,10 @@ namespace HeapScope.Application.Events;
 /// </summary>
 public static class SafeEvents
 {
+    // How often each listener of each event failed: the first failure is logged with its stack, later ones at Debug with
+    // their count, so a listener that fails on every sample cannot fill the log (3.8 review).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> s_failures = new(StringComparer.Ordinal);
+
     /// <summary>Calls each listener of <paramref name="handler"/> in turn; one that throws is logged as a warning.</summary>
     public static void Raise<T>(EventHandler<T>? handler, object sender, T value, ILogger logger, string eventName)
     {
@@ -48,7 +52,7 @@ public static class SafeEvents
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "A listener of {Event} failed; the change it reported stands", eventName);
+                LogFailure(logger, eventName, listener.Method, ex);
             }
         }
     }
@@ -70,8 +74,22 @@ public static class SafeEvents
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "A listener of {Event} failed; the change it reported stands", eventName);
+                LogFailure(logger, eventName, listener.Method, ex);
             }
+        }
+    }
+
+    private static void LogFailure(ILogger logger, string eventName, System.Reflection.MethodInfo listener, Exception ex)
+    {
+        var who = $"{listener.DeclaringType?.FullName}.{listener.Name}";
+        var count = s_failures.AddOrUpdate(eventName + "|" + who, 1, (_, n) => n + 1);
+        if (count == 1)
+        {
+            logger.LogWarning(ex, "A listener of {Event} ({Listener}) failed; the change it reported stands", eventName, who);
+        }
+        else
+        {
+            logger.LogDebug("A listener of {Event} ({Listener}) failed again ({Count} times): {Error}", eventName, who, count, ex.GetType().Name);
         }
     }
 }

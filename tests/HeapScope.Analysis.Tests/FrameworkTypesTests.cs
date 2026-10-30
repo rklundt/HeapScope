@@ -47,6 +47,26 @@ public class FrameworkTypesTests
         }
     }
 
+    [Theory]
+    [InlineData("Internal.Orders.Cache", "MyApp.dll", false)]
+    [InlineData("Internal.Runtime.Helpers", "System.Private.CoreLib.dll", true)]
+    [InlineData("Internal.Runtime.Helpers", null, true)]
+    [InlineData("Interop+Kernel32", "System.Private.CoreLib.dll", true)]
+    [InlineData("MyApp.Orders.Cache", "MyApp.dll", false)]
+    [InlineData("System.Collections.Generic.List<T>", "MyApp.dll", true)]
+    public void A_retention_step_folds_an_Internal_type_only_from_a_framework_module(string name, string? module, bool fold)
+    {
+        // 3.8 review: an application may have an Internal namespace of its own; its steps stay visible.
+        FrameworkTypes.IsFrameworkStep(name, module).ShouldBe(fold);
+    }
+
+    [Fact]
+    public void A_module_given_as_a_path_is_matched_by_its_file_name()
+    {
+        FrameworkTypes.IsFramework("MyApp.Thing", Path.Combine("usr", "share", "dotnet", "System.Private.CoreLib.dll")).ShouldBeTrue();
+        FrameworkTypes.IsFrameworkModule(Path.Combine("app", "MyApp.dll")).ShouldBeFalse();
+    }
+
     [Fact]
     public void A_tally_counts_objects_bytes_and_members_in_the_order_added()
     {

@@ -63,7 +63,8 @@ internal static class RetentionMapping
     }
 
     /// <summary>Whether a type is a framework type a front end may fold when it lies between other steps.</summary>
-    public static bool IsFrameworkType(string typeName) => HeapScope.Analysis.FrameworkTypes.IsFramework(typeName);
+    public static bool IsFrameworkType(HeapGraph graph, int type) =>
+        HeapScope.Analysis.FrameworkTypes.IsFrameworkStep(graph.Types.GetName(type), graph.Types.GetModule(type));
 
     /// <summary>What "no root reaches it" means for a snapshot of <paramref name="kind"/>, as its kind handler words it.</summary>
     public static string UnreachableNote(SnapshotKind kind) => Snapshots.SnapshotKinds.Describe(kind).UnreachableNote;
@@ -78,7 +79,7 @@ internal static class RetentionMapping
         var steps = path.Steps.Select((type, i) =>
         {
             var name = graph.Types.GetName(type);
-            return new PathStepDto(name, i > 0 && IsFrameworkType(name));
+            return new PathStepDto(name, i > 0 && IsFrameworkType(graph, type));
         });
         return new KeyPathDto(
             Root(graph, path.Root),
@@ -142,10 +143,11 @@ internal static class RetentionMapping
             var path = tree.PathOf(node);
             for (var i = 0; i < path.Count - 1; i++)
             {
-                var name = graph.Types.GetName(graph.TypeIndices[tree.Nodes[path[i]].ObjectIndex]);
+                var type = graph.TypeIndices[tree.Nodes[path[i]].ObjectIndex];
+                var name = graph.Types.GetName(type);
                 if (steps.Count == 0 || steps[^1].TypeName != name)
                 {
-                    steps.Add(new PathStepDto(name, steps.Count > 0 && IsFrameworkType(name)));
+                    steps.Add(new PathStepDto(name, steps.Count > 0 && IsFrameworkType(graph, type)));
                 }
             }
 
@@ -272,7 +274,7 @@ internal static class RetentionMapping
                     typeName,
                     d.Field,
                     d.Dependent,
-                    id != 0 && d.Root is null && IsFrameworkType(typeName),
+                    id != 0 && d.Root is null && IsFrameworkType(graph, graph.TypeIndices[d.ObjectIndex]),
                     d.Depth,
                     d.Root is { } root ? Root(graph, root) : null,
                     d.RootsBelow,

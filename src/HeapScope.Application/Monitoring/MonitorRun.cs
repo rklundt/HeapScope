@@ -281,7 +281,7 @@ public sealed class MonitorRun : IAsyncDisposable
         }
 
         _logger.LogInformation("Monitoring run {RunId}: Force GC {Outcome}", Id, result.Result?.Outcome ?? "failed: " + result.Error);
-        Raise(GcForced, result);
+        Raise(GcForced, result, nameof(GcForced));
         return result;
     }
 
@@ -294,20 +294,27 @@ public sealed class MonitorRun : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Reports a problem with the allocation trace. Every problem is logged; the first is what the run shows and records,
+    /// unless a later one says the trace was not kept after all (3.8 review: a stop that failed after an early stop).
+    /// </summary>
     private void TraceProblem(string message, Exception? ex)
     {
+        _logger.LogWarning(ex, "Monitoring run {RunId} (pid {Pid}): {Message}", Id, ProcessId, message);
+        bool first;
         lock (_gate)
         {
-            if (TraceError is not null)
+            first = TraceError is null;
+            if (first || ex is not null)
             {
-                return;
+                TraceError = first ? message : TraceError + " " + message;
             }
-
-            TraceError = message;
         }
 
-        _logger.LogWarning(ex, "Monitoring run {RunId} (pid {Pid}): {Message}", Id, ProcessId, message);
-        Raise(TraceStopped, message);
+        if (first)
+        {
+            Raise(TraceStopped, message, nameof(TraceStopped));
+        }
     }
 
     /// <summary>The run's record in its session: at the start, and with its end, files and snapshots.</summary>
@@ -446,7 +453,7 @@ public sealed class MonitorRun : IAsyncDisposable
             }
         }
 
-        Raise(SampleReceived, seen);
+        Raise(SampleReceived, seen, nameof(SampleReceived));
     }
 
     private async Task<MonitorCapture> CaptureAsync(SnapshotRule? rule, string label, DateTimeOffset at, RuleDecision? decision)
@@ -498,11 +505,11 @@ public sealed class MonitorRun : IAsyncDisposable
             _timeline.WriteCapture(result);
         }
 
-        Raise(Captured, result);
+        Raise(Captured, result, nameof(Captured));
         return result;
     }
 
     /// <summary>Raises an event; a listener that throws is logged and never ends the run.</summary>
-    private void Raise<T>(EventHandler<T>? handler, T value) => SafeEvents.Raise(handler, this, value, _logger, "monitoring");
+    private void Raise<T>(EventHandler<T>? handler, T value, string eventName) => SafeEvents.Raise(handler, this, value, _logger, "monitoring run " + eventName);
 
 }

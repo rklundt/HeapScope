@@ -40,11 +40,33 @@ public static class FrameworkTypes
             || typeName.StartsWith("Internal.", StringComparison.Ordinal);
     }
 
-    /// <summary>Whether a type is a framework type by its namespace or its module (a file name).</summary>
-    public static bool IsFramework(string typeName, string? module) =>
-        IsFramework(typeName)
-        || (module is not null
-            && (module.StartsWith("System.", StringComparison.OrdinalIgnoreCase)
-                || module.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase)
-                || module.Equals("netstandard.dll", StringComparison.OrdinalIgnoreCase)));
+    /// <summary>Whether a type is a framework type by its namespace or its module (a file name or a recorded path).</summary>
+    public static bool IsFramework(string typeName, string? module) => IsFramework(typeName) || IsFrameworkModule(module);
+
+    /// <summary>
+    /// Whether a step of a retention path may be folded between the application's own steps: a type of a framework
+    /// module, or a <c>System</c> or <c>Microsoft</c> name; an <c>Internal</c> name only when its module is a framework
+    /// one or unknown, since an application may have an <c>Internal</c> namespace of its own (3.8 review).
+    /// </summary>
+    public static bool IsFrameworkStep(string typeName, string? module)
+    {
+        ArgumentNullException.ThrowIfNull(typeName);
+        if (IsFrameworkModule(module))
+        {
+            return true;
+        }
+
+        return typeName.StartsWith("Internal.", StringComparison.Ordinal)
+            ? string.IsNullOrEmpty(module)
+            : IsFramework(typeName);
+    }
+
+    /// <summary>Whether <paramref name="module"/> (a file name or a path) is a framework assembly.</summary>
+    public static bool IsFrameworkModule(string? module)
+    {
+        var file = TypeGroups.ModuleKey(module);
+        return file.StartsWith("System.", StringComparison.OrdinalIgnoreCase)
+            || file.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase)
+            || file.Equals("netstandard.dll", StringComparison.OrdinalIgnoreCase);
+    }
 }
