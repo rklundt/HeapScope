@@ -314,7 +314,14 @@ of debuggable code) and exit when the process given as parent exits.
 
 ## 4. Coding conventions
 - **Naming**: .NET conventions. `PascalCase` types and members, `_camelCase` private fields, `s_camelCase`
-  private static fields, `I` prefix for interfaces, `Async` suffix on async methods. One public type per file.
+  private static fields, `I` prefix for interfaces, `Async` suffix on async methods.
+- **Files** (sprint 3.8, peer review S9): one public type per file, except a Contracts file that holds one area's DTOs
+  and small records or enums that serve only the file's main type. `PublicTypesPerFileTests` lists the files that held
+  more in 3.8: none may be added, a listed file may not grow, and a file split below two leaves the list (update
+  `PublicTypesPerFile.txt`). Split a listed file when a change works in it anyway.
+- **Comments** (sprint 3.8, peer review S8): state the current reason, not the history. Cite a sprint, review or ADR
+  id only beside a guard someone might otherwise simplify away, so its reason can be found; the history lives in git,
+  the review files and the ADRs. Apply it to the code a change touches.
 - **Nullable** is enabled everywhere; no `!` suppressions without a comment explaining why.
 - **Warnings are errors**; do not disable a warning without a comment and reviewer agreement.
 - **Async**: every async method takes a `CancellationToken` last (after `IProgress<T>` when present). Library

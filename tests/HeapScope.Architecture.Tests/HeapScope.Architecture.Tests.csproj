@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <None Include="PublicTypesPerFile.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Core\HeapScope.Core.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Analysis\HeapScope.Analysis.csproj" />
     <ProjectReference Include="..\..\src\HeapScope.Storage\HeapScope.Storage.csproj" />
