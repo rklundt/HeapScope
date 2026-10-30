@@ -15,7 +15,8 @@ Follow these steps exactly.
    - `docs/reviews/sprint-X.Y.md` exists; every High finding is Fixed and confirmed; every Moderate finding
      has a decision.
    - The docs describe what was built. Check each against the change set (`git diff --stat <last sprint tag>`) and
-     update it now if it lags: ARCHITECTURE.md (code map, protocol version, ADRs, measurements, privacy),
+     update it now if it lags: ARCHITECTURE.md and its pages (`docs/architecture/`: code map, protocol version in
+     `process-model.md`, measurements, privacy) and ADRs (`docs/adr/`),
      DEVELOPER.md (commands, workflows), SPRINTS.md (tasks ticked, Decisions, Review summary, Backlog), CLAUDE.md
      (commands, rules), and any README the sprint touched (for example `fixtures/KnownAnswers/README.md`). The review
      file records `/wrap-sprint`'s Markdown sweep of every tracked .md file.

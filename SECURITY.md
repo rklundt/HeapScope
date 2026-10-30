@@ -1,7 +1,7 @@
 # Security policy
 
 HeapScope reads memory dumps, which hold everything a process had in memory: passwords, tokens, connection strings,
-personal data. Its design keeps them on your machine (`docs/ARCHITECTURE.md` section 12). If you find a way around that,
+personal data. Its design keeps them on your machine ([docs/architecture/security-privacy.md](docs/architecture/security-privacy.md)). If you find a way around that,
 or any other vulnerability, please report it privately.
 
 ## Reporting

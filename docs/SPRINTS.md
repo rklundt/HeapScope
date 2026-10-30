@@ -40,7 +40,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
 | 3.6 | Urgent fixes | Closed | 2026-10-29 | sprint-3.6 |
 | 3.7 | Hardening | Closed | 2026-10-30 | sprint-3.7 |
-| 3.8 | Modularity | Planned | | |
+| 3.8 | Modularity | In Progress | | |
 
 ---
 
@@ -3064,12 +3064,93 @@ classes.
 - Docs (P12): an overview ARCHITECTURE.md with module pages and one ADR per file; SPRINTS.md cut to the current phase and
   a swept Backlog; the comment and file-per-type rules (S8, S9); trace-report on Avalonia (S7).
 
-**Acceptance criteria**: to be set at /start-sprint. Behavior-preserving: known answers and smoke runs equal before and
-after.
+**Acceptance criteria** (set at /start-sprint, 2026-10-30):
+- Behavior preserving: the CLI's JSON and text for the LeakyConsole dump (summary, diff, instances, referrers, paths,
+  retainers, set, inspect, trend, open) equal a baseline taken before the sprint, except the changes listed under
+  Decisions; known answers and smoke runs pass.
+- The worker serves one contract per area (control, test hooks, snapshots, result sets, heap queries, retention,
+  inspections, allocation traces), each by its own handler with shared services injected; no class implements them all.
+  Application has one query helper and one reopen protocol for snapshots and traces; test fakes are per area.
+- The snapshot descriptor lists each optional feature as available or unavailable with the reason, the worker refuses
+  with that same reason, and the front ends offer only what the list allows; one protocol bump (21), which also removes
+  the obsolete type summary call.
+- An event handler that throws never changes a job's outcome, fails an open, or escapes a worker host call; events are
+  raised after state is final and outside locks.
+- Per-snapshot derived values (reachability, dominator groups, the set cache) live with the snapshot in the worker and go
+  when it closes; Analysis keeps no static caches.
+- One `HeapScopeFolders` names every HeapScope data folder, and a worker option redirects it; the index cache signer is
+  injected, with "none" written out where it is meant.
+- Every view model query goes through one runner that logs a refusal under the query's trace id.
+- The CLI has a test project, a context instead of a static, reads cells by column name, and keeps only its command
+  table in `CliCommands.cs`; texts and monitor rules shared with the app live in Application.
+- The monitoring run's timeline, allocation recording and run record are their own types, the trace watch is awaited,
+  and the past run file checks say which check refused; the Live page is split by section.
+- One framework type rule, one tally, a runtime layouts table, a file per detector, one type matcher.
+- ADR-037 decides where live sources run, from a measured spike; ADR-023 amended.
+- ARCHITECTURE.md is an overview with a page per topic and one file per ADR; SPRINTS.md keeps the current phase, closed
+  sprints and the Backlog move out, and the Backlog is swept; every link in tracked Markdown resolves (a test).
+
+**Decisions** (all decided autonomously, 2026-10-30, peer review sprint autonomy):
+1. The contract split keeps the wire: StreamJsonRpc serves several targets on one connection and attaches one proxy
+   over several interfaces, and JSON-RPC carries only method names. Protocol 21 comes from the availability list and the
+   removed call alone; method names stay unique across contracts (a test).
+2. Feature ids are strings in Contracts, so a new feature is not a protocol change; a missing id is unavailable.
+3. Texts: the CLI's retained-size wording becomes the shared one; the CLI summary header for a gcdump stops claiming
+   unreachable objects (a fix); a past run's file refusal says its cause.
+4. The app's monitor form keeps bare minutes; the shared parser takes the grammar as a parameter.
+5. One framework type rule, including `Internal.` names; retention paths fold those steps too.
+6. A module given as a path matches in instances, referrers and paths as it does in sets (a fix).
+7. P21 is an extraction only: one analysis workspace pointed at the selected snapshot. Workspaces per snapshot need a
+   design for the worker's result sets of hidden snapshots and a measure of rebinding cost (Phase 4).
+8. S8 and S9 as rules in DEVELOPER.md, a ratchet test for public types per file, and both applied to files 3.8 touches;
+   not a sweep of the whole code base.
+9. ARCHITECTURE.md keeps its section numbers as an overview, so the code's "ARCHITECTURE.md N" references stay valid;
+   topic pages under `docs/architecture/`, ADRs under `docs/adr/`, closed sprints under `docs/sprints/`, the Backlog in
+   `docs/BACKLOG.md`.
+10. P6 is a spike and ADR-037 only; building live allocation streaming is Phase 4.
 
 **Dependencies**: 3.6, 3.7.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**:
+1. [ ] Baseline: the CLI outputs of the acceptance criteria saved before any change; a contract test for unique method
+   names. Tests: the baseline diff after tasks 9, 12, 14 and at the end.
+2. [ ] Docs split (P12): ARCHITECTURE.md overview, topic pages, ADR files, the protocol history in one place; links in
+   README, SECURITY, DEVELOPER, the agents and skills. Tests: `DocLinksTests`.
+3. [ ] SPRINTS.md split and Backlog sweep (P12): closed sprints by phase, `docs/BACKLOG.md` without built items; the
+   skills move closed sections. Tests: `DocLinksTests`.
+4. [ ] Rules (S8, S9): DEVELOPER.md 4; `PublicTypesPerFileTests` ratchet.
+5. [ ] Safe events (P9): one raise helper; `JobTracker`, `SnapshotSession`, `AllocationSession`, `WorkerHost` raise after
+   state is final and outside gates. Tests: throwing-subscriber tests per raiser.
+6. [ ] `HeapScopeFolders` and the worker's data folder option (3.7 review). Tests: folder tests, option parsing, a text
+   rule, a worker that keeps its key in its data folder.
+7. [ ] Injected index cache signer (3.7 review M11). Tests: `SignedCacheTests`, a rule against "none" in the worker, a
+   worker-level untrusted cache test.
+8. [ ] Contracts by area (P5, S6). Tests: the contract test.
+9. [ ] Worker handlers per contract with shared services (P5). Tests: registration, in-process RPC, the integration tier,
+   the baseline.
+10. [ ] Application: one query helper, one reopen protocol (P5). Tests: `WorkerResourceTests`, reopen tests.
+11. [ ] Per-area fakes (P5). Tests: view model and UI tests.
+12. [ ] Feature availability and protocol 21 (P7, S6). Tests: availability per kind, refusals with the same reason, an
+    incomplete dump offers no unreachable set, handshake, the baseline.
+13. [ ] Detectors (P19): a file per detector, one framework rule, a shared tally, runtime layouts. Tests: detector and
+    known answer tests, `FrameworkTypesTests`, `TypeTallyTests`.
+14. [ ] Derived state (P20): reachability and dominator groups in the worker's derived slots, the set cache with the
+    snapshot. Tests: computed once for concurrent callers, no static caches, a set resolved after close is not kept.
+15. [ ] One type matcher (S5). Tests: a module path matches.
+16. [ ] Shared presentation (P18): column access, texts, monitor rules parser in Application. Tests: unit tests per text
+    and parser, view model tests.
+17. [ ] CLI (P10): `HeapScope.Cli.Tests`, a context, cells by name, one open helper, commands in their own files. Tests:
+    usage and characterization tests, the integration CLI tests, known answers.
+18. [ ] Monitoring (P11): timeline writer, awaited allocation recording, run record; `MonitorService.cs` a file per type.
+    Tests: `MonitorServiceTests`, a run disposed while its watch waits.
+19. [ ] Run file policy (3.7 review M2): checks with their cause in Application; the Live page shows and logs it. Tests:
+    `SessionLibraryTests`, a Live test with a timeline outside the folder.
+20. [ ] Live page split (P11). Tests: Live view model tests, the view test, the smoke-live run.
+21. [ ] One query runner (P8). Tests: `QueryRunnerTests`, the grid view model tests.
+22. [ ] Analysis workspace extraction (P21). Tests: Snapshots view model and view tests, smoke runs.
+23. [ ] trace-report on Avalonia (S7). Tests: a recorded smoke trace reported by hand.
+24. [ ] Live sources spike and ADR-037 (P6); ADR-023 amended.
+25. [ ] Docs: the architecture pages, ADR-036 amended, DEVELOPER, this section.
 
 **Review summary**: to be filled by /wrap-sprint.
 

@@ -9,7 +9,7 @@ review and report. You never create, edit or delete files.
 
 ## Inputs
 You receive the sprint id, the changed and new files, the sprint's section of `docs/SPRINTS.md`, and pointers
-to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md sections 5 to 10, then the changed
+to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md sections 5 to 10 (their pages under `docs/architecture/`), then the changed
 files.
 
 ## Responsibility 1: correctness of heap analysis
