@@ -57,22 +57,58 @@ internal sealed partial class FakeWorkerService : ISnapshotService
         }
 
         Opened.Add(request);
+        var kind = request.Path.EndsWith(".gcdump", StringComparison.OrdinalIgnoreCase) ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump;
+        var features = FeaturesOf(kind);
         return Task.FromResult(new SnapshotDescriptor(
-            Guid.NewGuid(), request.Path, request.Path.EndsWith(".gcdump", StringComparison.OrdinalIgnoreCase) ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump, SnapshotFeatures.ObjectGraph, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
+            Guid.NewGuid(), request.Path, kind, features, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
             1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."], CacheIdentity,
-            CaptureTimeFromFile?.Invoke(request.Path) ?? false));
+            CaptureTimeFromFile?.Invoke(request.Path) ?? false, AvailabilityOf(kind, features)));
+    }
+
+    /// <summary>The features a snapshot of <paramref name="kind"/> reports, following the fake's flags.</summary>
+    private SnapshotFeatures FeaturesOf(SnapshotKindDto kind)
+    {
+        var features = SnapshotFeatures.ObjectGraph | SnapshotFeatures.ObjectAddresses;
+        features |= CompleteGraph ? SnapshotFeatures.CompleteGraph | SnapshotFeatures.ExactCounts : SnapshotFeatures.None;
+        if (kind == SnapshotKindDto.FullDump)
+        {
+            features |= SnapshotFeatures.FieldValues | SnapshotFeatures.RootDetails;
+            features |= HasGenerations ? SnapshotFeatures.Generations : SnapshotFeatures.None;
+            features |= ValuesAvailable ? SnapshotFeatures.StringContents : SnapshotFeatures.None;
+        }
+
+        return features;
+    }
+
+    /// <summary>
+    /// The availability list the worker's rules give for <paramref name="features"/>, with <see cref="Unavailable"/> on
+    /// top, so a view model that keys on the list sees the same offers as one that keyed on the features.
+    /// </summary>
+    private List<FeatureAvailability> AvailabilityOf(SnapshotKindDto kind, SnapshotFeatures features)
+    {
+        string? Missing(SnapshotFeatures feature) => features.HasFlag(feature) ? null : CapabilityDescriptions.ExplainMissing(feature, kind);
+        var listed = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [SnapshotFeatureIds.UnreachableSet] = kind == SnapshotKindDto.GcDump
+                ? "A gcdump holds only what survived its collection."
+                : Missing(SnapshotFeatures.CompleteGraph),
+            [SnapshotFeatureIds.InterfaceGrouping] = features.HasFlag(SnapshotFeatures.FieldValues) ? null : "Interfaces need a full dump.",
+            [SnapshotFeatureIds.FieldValues] = Missing(SnapshotFeatures.FieldValues),
+            [SnapshotFeatureIds.StringValues] = Missing(SnapshotFeatures.StringContents),
+            [SnapshotFeatureIds.Generations] = Missing(SnapshotFeatures.Generations),
+            [SnapshotFeatureIds.FinalizableScope] = kind == SnapshotKindDto.GcDump ? "Listing finalizable objects needs data a gcdump does not record." : null,
+        };
+        foreach (var (feature, why) in Unavailable)
+        {
+            listed[feature] = why;
+        }
+
+        return [.. listed.Select(f => new FeatureAvailability(f.Key, f.Value))];
     }
 
     public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
     {
         Closed.Add(snapshotId);
         return Task.CompletedTask;
-    }
-
-    public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken)
-    {
-        var id = Guid.NewGuid();
-        _sets[id] = [.. Rows];
-        return Task.FromResult(new ResultSetInfo(id, Rows.Count, []));
     }
 }

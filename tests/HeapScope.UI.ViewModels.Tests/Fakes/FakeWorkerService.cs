@@ -105,6 +105,9 @@ internal sealed partial class FakeWorkerService : IWorkerService
     /// <summary>Whether the snapshot reads values (string contents).</summary>
     public bool ValuesAvailable { get; set; } = true;
 
+    /// <summary>Features the next opened snapshots list as unavailable, with the reason, whatever their features say.</summary>
+    public Dictionary<string, string> Unavailable { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Whether referrer answers come from a complete graph (sprint 2.1 review M9).</summary>
     public bool CompleteGraph { get; set; } = true;
 

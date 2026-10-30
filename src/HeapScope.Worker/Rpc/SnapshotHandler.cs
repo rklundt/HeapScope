@@ -31,7 +31,6 @@ namespace HeapScope.Worker.Rpc;
 internal sealed class SnapshotHandler(
     SnapshotStore snapshots,
     ObjectSetCache sets,
-    HeapQueryHandler queries,
     ILogger<SnapshotHandler> logger) : RpcHandler(logger), ISnapshotService
 {
     public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) =>
@@ -51,8 +50,4 @@ internal sealed class SnapshotHandler(
         sets.Forget(snapshotId);
         return Task.CompletedTask;
     }
-
-    // The short form of the type summary query, which answers and logs it under its own operation.
-    public async Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) =>
-        (await queries.QueryTypeSummaryAsync(new TypeSummaryRequest(snapshotId), null, cancellationToken).ConfigureAwait(false)).Rows;
 }

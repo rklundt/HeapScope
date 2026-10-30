@@ -320,9 +320,10 @@ public sealed partial class CompareViewModel : TypeGridViewModel<DiffRowItem>
         }
     }
 
-    // Interface rows need both snapshots' interfaces, which only full dumps record (the 3.2 review).
+    // Interface rows need both snapshots' interfaces, as each snapshot's availability list says; a side not chosen yet
+    // leaves the offer to the other.
     private void OfferInterfaces() =>
-        OfferGroupings(new[] { Baseline, Current }.All(s => s?.Handle.Descriptor?.Features.HasFlag(SnapshotFeatures.FieldValues) != false));
+        OfferGroupings(new[] { Baseline, Current }.All(s => s is null || s.Handle.Descriptor.IsAvailable(SnapshotFeatureIds.InterfaceGrouping)));
 
     protected override async Task<GridQuery<DiffRowItem>> RunQueryAsync(CancellationToken cancellationToken)
     {

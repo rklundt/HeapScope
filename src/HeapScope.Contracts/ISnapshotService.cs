@@ -47,10 +47,4 @@ public interface ISnapshotService
 
     /// <summary>Unloads a snapshot. Closing an unknown snapshot is not an error.</summary>
     Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Per-type count and shallow size of a loaded snapshot as a result set sorted by size. Unknown snapshots fail with
-    /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/>.
-    /// </summary>
-    Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken);
 }

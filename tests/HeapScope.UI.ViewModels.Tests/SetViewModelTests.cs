@@ -277,6 +277,28 @@ public sealed class SetViewModelTests : IDisposable
         _snapshots.Types.CanOpenUnreachable.ShouldBeFalse("a gcdump's collection removed its garbage");
     }
 
+    [Fact]
+    public async Task An_incomplete_full_dump_does_not_offer_the_unreachable_set()
+    {
+        // Peer review P7: the worker refuses it there (live objects could look unreachable), so it is not offered.
+        _worker.Service.CompleteGraph = false;
+
+        await OpenAsync("truncated.dmp");
+
+        _snapshots.Types.CanOpenUnreachable.ShouldBeFalse();
+        _snapshots.Types.OpenUnreachableCommand.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_unreachable_set_follows_the_worker_s_list_not_the_snapshot_kind()
+    {
+        _worker.Service.Unavailable[SnapshotFeatureIds.UnreachableSet] = "The worker says no.";
+
+        await OpenAsync("app.dmp");
+
+        _snapshots.Types.CanOpenUnreachable.ShouldBeFalse();
+    }
+
     public void Dispose()
     {
         try

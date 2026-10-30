@@ -30,7 +30,7 @@ public static class WorkerProtocol
     /// Bumped on any incompatible change to the worker's contracts or their DTOs. The history of every version, and the
     /// rule for when to bump, is in docs/architecture/process-model.md (ARCHITECTURE.md 4.4); it is kept there only.
     /// </summary>
-    public const int Version = 20;
+    public const int Version = 21;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

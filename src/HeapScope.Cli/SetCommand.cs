@@ -279,7 +279,7 @@ internal static partial class CliCommands
                         if (!s.HasGenerations)
                         {
                             // As every capability gap is said (ARCHITECTURE.md 5.2): the reason, and a failing exit code.
-                            await error.WriteLineAsync("Error: " + CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, handle.Descriptor.Kind)).ConfigureAwait(false);
+                            await error.WriteLineAsync("Error: " + handle.Descriptor.WhyUnavailable(SnapshotFeatureIds.Generations)).ConfigureAwait(false);
                             return Failure;
                         }
 

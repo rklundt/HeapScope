@@ -251,13 +251,16 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     }
 
     /// <summary>
-    /// Opens the objects no root reaches as a set (sprint 3.5): the garbage a full dump still holds. Full dumps only (a
-    /// gcdump's collection removed it).
+    /// Opens the objects no root reaches as a set (sprint 3.5): the garbage a full dump still holds. Offered as the worker
+    /// lists it (<see cref="CanOpenUnreachable"/>).
     /// </summary>
     public IRelayCommand OpenUnreachableCommand { get; }
 
-    /// <summary>Whether the unreachable objects can be opened: a full dump's own Types view.</summary>
-    public bool CanOpenUnreachable => Set is null && _snapshot?.Descriptor?.Kind == SnapshotKindDto.FullDump;
+    /// <summary>
+    /// Whether the unreachable objects can be opened: the snapshot's own Types view, where the worker lists the set as
+    /// available (a full dump whose object graph is complete).
+    /// </summary>
+    public bool CanOpenUnreachable => Set is null && _snapshot?.Descriptor?.IsAvailable(SnapshotFeatureIds.UnreachableSet) == true;
 
     private void OpenUnreachable(INavigator? navigator)
     {
@@ -409,7 +412,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
             return;
         }
 
-        OfferGroupings(snapshot.Descriptor?.Features.HasFlag(SnapshotFeatures.FieldValues) != false);
+        OfferGroupings(snapshot.Descriptor.IsAvailable(SnapshotFeatureIds.InterfaceGrouping));
         Requery();
     }
 
@@ -470,7 +473,7 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
                 HasGenerations = result.HasGenerations;
                 GenerationsExplanation = result.HasGenerations
                     ? null
-                    : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, snapshot.Descriptor.Kind);
+                    : snapshot.Descriptor.WhyUnavailable(SnapshotFeatureIds.Generations);
                 RetainedColumnShown = result.Dominators is not null;
                 // Whether the rows are lower bounds comes with the column (sprint 2.4, 2.3.7 review M7), not from here.
                 var retainedBound = result.Rows.Columns.FirstOrDefault(c => c.Name == TypeSummaryColumns.Retained)?.Bound;

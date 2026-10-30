@@ -39,9 +39,9 @@ internal sealed class IdentityMatcher(SnapshotStore snapshots)
     public static string? WhyNoIdentity(ISnapshot baseline, ISnapshot current)
     {
         const string still = " Comparing by type still works.";
-        if (baseline.Info.Kind != SnapshotKind.FullDump || current.Info.Kind != SnapshotKind.FullDump)
+        if ((SnapshotKinds.Describe(baseline.Info.Kind).WhyNoObjectIdentity ?? SnapshotKinds.Describe(current.Info.Kind).WhyNoObjectIdentity) is { } noIdentity)
         {
-            return "New and dead objects need two full dumps: a gcdump records objects after a collection it forced, which moves them, and says no process id." + still;
+            return noIdentity + still;
         }
 
         if (!baseline.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph) || !current.Capabilities.HasFlag(SnapshotCapabilities.CompleteGraph))

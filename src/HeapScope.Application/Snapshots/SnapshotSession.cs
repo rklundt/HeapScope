@@ -529,10 +529,6 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         return UseWithSetAsync(handle, set, (service, id, spec, ct) => service.QuerySimilarRetentionAsync(new SimilarRetentionRequest(id, spec!, maxGroups), progress, ct), cancellationToken);
     }
 
-    /// <summary>Per-type count and shallow size of a snapshot, as a worker result set.</summary>
-    public Task<ResultSetInfo> GetTypeSummaryAsync(SnapshotHandle handle, CancellationToken cancellationToken) =>
-        UseAsync(handle, (service, id, ct) => service.GetTypeSummaryAsync(id, ct), cancellationToken);
-
     /// <summary>
     /// A trend across <paramref name="snapshots"/> in the order given (sprint 3.3). The rows re-run the query, reopening any
     /// snapshot after a worker restart, when the set is gone.

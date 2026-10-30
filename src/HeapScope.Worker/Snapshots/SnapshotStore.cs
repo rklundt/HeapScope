@@ -322,7 +322,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         var recorded = info.Kind != SnapshotKind.FullDump || metadata.Dac is not null;
         string Recorded(long value) => recorded ? value.ToString(CultureInfo.InvariantCulture) : "not recorded";
         logger.LogInformation(
-            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); notes: {Notes}",
+            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); unavailable features {Unavailable}; notes: {Notes}",
             descriptor.SnapshotId,
             descriptor.OpenSeconds,
             descriptor.Path,
@@ -354,8 +354,13 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             Recorded(metadata.StaticFieldRoots),
             metadata.Dac?.Path ?? (metadata.Dac is not null ? "symbol server" : info.Kind == SnapshotKind.FullDump ? "not recorded (index cache from before 2.3.7)" : "none (a gcdump needs none)"),
             metadata.Dac?.Rule ?? "-",
+            Unavailable(descriptor),
             descriptor.Notes.Count == 0 ? "none" : string.Join(" | ", descriptor.Notes));
     }
+
+    // The ids only: each reason is the rule's fixed text, and a refusal logs its own.
+    private static string Unavailable(SnapshotDescriptor descriptor) =>
+        descriptor.Availability?.Where(a => a.Unavailable is not null).Select(a => a.Feature).ToList() is { Count: > 0 } ids ? string.Join(", ", ids) : "none";
 
     /// <summary>
     /// Field values and strings are read at the graph's addresses, so they must come from the dump the graph was built
@@ -570,7 +575,8 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             elapsed.TotalSeconds,
             [.. notes],
             identity,
-            info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile));
+            info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile),
+            Rpc.FeatureRules.List(snapshot));
     }
 
     private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor, IndexState Index)

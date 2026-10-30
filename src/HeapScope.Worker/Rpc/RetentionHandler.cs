@@ -89,7 +89,7 @@ internal sealed class RetentionHandler(
                         fallback = true;
                     }
 
-                    var noReader = reader is null ? ContractMapping.ExplainMissing(SnapshotCapabilities.FieldValues, snapshot.Info.Kind) : null;
+                    var noReader = reader is null ? FeatureRules.ExplainMissing(SnapshotCapabilities.FieldValues, snapshot) : null;
                     return RetentionMapping.ObjectPaths(snapshot.Graph, tree, reader, noReader, SnapshotAccess.IsComplete(snapshot), info, cancellationToken, snapshot.Info.Kind);
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -233,7 +233,7 @@ internal sealed class RetentionHandler(
             using var _ = lease;
             var graph = snapshot.Graph;
             var focus = FocusIndex(graph, request.FocusAddress);
-            var (tree, info) = await FocusAsync(request.SnapshotId, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
+            var (tree, info) = await FocusAsync(request.SnapshotId, snapshot, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
 
             progress?.Report(new JobProgress("Listing retainers", 0, null));
             var grouping = request.Grouping switch
@@ -544,7 +544,7 @@ internal sealed class RetentionHandler(
             using var _ = lease;
             var graph = snapshot.Graph;
             var focus = FocusIndex(graph, request.FocusAddress);
-            var (tree, info) = await FocusAsync(request.SnapshotId, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
+            var (tree, info) = await FocusAsync(request.SnapshotId, snapshot, request.FocusAddress, focus, progress, cancellationToken).ConfigureAwait(false);
             var segments = await Task.Run(() => IcicleLayout.Build(graph, tree, focus, request.Levels, request.MinShare, cancellationToken), cancellationToken).ConfigureAwait(false);
             var result = new IcicleResult(
                 [.. segments.Select(s => s.Object >= 0
@@ -586,17 +586,16 @@ internal sealed class RetentionHandler(
     }
 
     /// <summary>The dominators, checking that a root reaches the focus.</summary>
-    private async Task<(Dominators Tree, DominatorIndexInfo Info)> FocusAsync(Guid snapshotId, ulong address, int focus, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    private async Task<(Dominators Tree, DominatorIndexInfo Info)> FocusAsync(Guid snapshotId, ISnapshot snapshot, ulong address, int focus, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         var (dominators, info) = await derived.GetDominatorsAsync(snapshotId, progress, cancellationToken).ConfigureAwait(false);
         var tree = dominators.Dominators;
         if (focus >= 0 && !tree.IsReachable(focus))
         {
             // Why, for this kind of snapshot, and where to go instead (the 2.4 review).
-            var kind = snapshots.TryGet(snapshotId)?.Info.Kind ?? SnapshotKind.FullDump;
             throw new ArgumentException(string.Create(
                 CultureInfo.InvariantCulture,
-                $"0x{address:x} is not in the dominator tree. {RetentionMapping.UnreachableNote(kind)} It retains nothing; the biggest retainers show the tree from the top."));
+                $"0x{address:x} is not in the dominator tree. {RetentionMapping.UnreachableNote(snapshot.Info.Kind)} It retains nothing; the biggest retainers show the tree from the top."));
         }
 
         return (tree, info);

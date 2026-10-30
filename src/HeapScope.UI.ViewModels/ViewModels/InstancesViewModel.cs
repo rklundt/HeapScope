@@ -283,7 +283,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
                 ValuesExplanation = result.ValuesAvailable
                     ? result.FilterNote
-                    : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.StringContents, Snapshot.Descriptor.Kind);
+                    : Snapshot.Descriptor.WhyUnavailable(SnapshotFeatureIds.StringValues);
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
                     $"{result.Rows.TotalCount:N0} of {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)}{(Set is not null && string.IsNullOrEmpty(TypeName) ? $" of {result.MatchedTypes:N0} types" : result.MatchedTypes > 1 ? $" ({result.MatchedTypes} loaded copies of the type)" : string.Empty)}");

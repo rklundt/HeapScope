@@ -73,6 +73,9 @@ public sealed record SnapshotProbe(string Path, long FileBytes, SnapshotCacheSta
 /// 1.2 review); 0 when none was written. Optional indices next to the cache record it.</param>
 /// <param name="CaptureTimeFromFile">True when <paramref name="CapturedAtUtc"/> is the file's write time, not a time the
 /// snapshot recorded (sprint 2.3.6: Linux and macOS core dumps record none), so a copy of the file can change it.</param>
+/// <param name="Availability">Each optional feature (<see cref="SnapshotFeatureIds"/>) with null when the snapshot offers
+/// it, or the reason it does not; the worker refuses the feature with that same reason. Read it through
+/// <see cref="SnapshotAvailability"/>, which counts a feature missing from the list as unavailable.</param>
 public sealed record SnapshotDescriptor(
     Guid SnapshotId,
     string Path,
@@ -93,4 +96,5 @@ public sealed record SnapshotDescriptor(
     double OpenSeconds,
     IReadOnlyList<string> Notes,
     ulong CacheIdentity = 0,
-    bool CaptureTimeFromFile = false);
+    bool CaptureTimeFromFile = false,
+    IReadOnlyList<FeatureAvailability>? Availability = null);

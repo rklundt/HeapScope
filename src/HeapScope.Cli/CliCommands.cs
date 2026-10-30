@@ -552,16 +552,16 @@ internal static partial class CliCommands
                 await output.WriteLineAsync("Note: " + note).ConfigureAwait(false);
             }
 
-            var summary = await session.GetTypeSummaryAsync(handle, ct).ConfigureAwait(false);
-            var operations = services().GetRequiredService<WorkerOperations>();
-            var page = await operations.GetRowsAsync(summary.Id, 0, parseResult.GetValue(top), ct).ConfigureAwait(false);
+            // The type summary's defaults: by type, no filter, largest shallow size first.
+            var summary = await session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, descending: true, null, ct).ConfigureAwait(false);
+            var page = await summary.Rows.GetRowsAsync(0, parseResult.GetValue(top), ct).ConfigureAwait(false);
             await output.WriteLineAsync($"Top {page.Rows.Count} of {page.TotalCount} types by shallow size:").ConfigureAwait(false);
             foreach (var row in page.Rows)
             {
                 await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"  {long.Parse(row[1]!, CultureInfo.InvariantCulture),12:N0} {Mb(long.Parse(row[2]!, CultureInfo.InvariantCulture)),12}  {row[0]}")).ConfigureAwait(false);
             }
 
-            await operations.ReleaseResultSetAsync(summary.Id, ct).ConfigureAwait(false);
+            await summary.Rows.ReleaseAsync(ct).ConfigureAwait(false);
             return Success;
         }));
         return command;

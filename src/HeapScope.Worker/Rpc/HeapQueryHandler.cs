@@ -96,7 +96,7 @@ internal sealed class HeapQueryHandler(
                     new CallbackProgress(done => throttled.Report(new JobProgress("Summarizing types", done, total))),
                     cancellationToken).ConfigureAwait(false) ?? throw SnapshotAccess.NotLoaded(request.SnapshotId);
             }
-            var generations = snapshot.Capabilities.HasFlag(SnapshotCapabilities.Generations);
+            var generations = FeatureRules.WhyUnavailable(SnapshotFeatureIds.Generations, snapshot) is null;
             Analysis.TypeInterfaces? interfaces = null;
             if (request.GroupBy == TypeGrouping.Interface)
             {
@@ -278,9 +278,10 @@ internal sealed class HeapQueryHandler(
             try
             {
                 snapshot.TryGetService<IObjectReader>(out var reader);
-                if (request.Scope == InstanceScope.Finalizable && !snapshot.Info.Facts.HasFlag(SnapshotFacts.FinalizerRegistrations))
+                if (request.Scope == InstanceScope.Finalizable)
                 {
-                    throw new CapabilityNotSupportedException(InspectionAvailability.Explain("Listing finalizable objects", snapshot.Info));
+                    // Without recorded registrations the scope would silently hold nothing.
+                    FeatureRules.Require(SnapshotFeatureIds.FinalizableScope, snapshot);
                 }
 
                 DominatorIndex? dominators = null;
@@ -301,11 +302,9 @@ internal sealed class HeapQueryHandler(
             }
             catch (CapabilityNotSupportedException ex) when (ex.Missing != SnapshotCapabilities.None)
             {
-                // The source knows what is missing; the reason depends on the snapshot's kind (sprint 1.8).
+                // The source knows what is missing (string text for a value filter or sort); the feature's rule words it.
                 lease.Dispose();
-                throw new CapabilityNotSupportedException(
-                    ex.Missing,
-                    ContractMapping.ExplainMissing(ex.Missing, snapshot.Info.Kind));
+                throw new CapabilityNotSupportedException(ex.Missing, FeatureRules.ExplainMissing(ex.Missing, snapshot));
             }
             catch
             {
@@ -329,9 +328,9 @@ internal sealed class HeapQueryHandler(
 
             var type = graph.TypeIndices[index];
             IReadOnlyList<ObjectFieldDto>? fields = null;
-            string? unavailable = null;
+            var unavailable = FeatureRules.WhyUnavailable(SnapshotFeatureIds.FieldValues, snapshot);
             string? text = null;
-            if (snapshot.TryGetService<IObjectReader>(out var reader))
+            if (unavailable is null && snapshot.TryGetService<IObjectReader>(out var reader))
             {
                 (fields, text) = await Task.Run(
                     () =>
@@ -341,10 +340,6 @@ internal sealed class HeapQueryHandler(
                         return ((IReadOnlyList<ObjectFieldDto>)read, str);
                     },
                     cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                unavailable = ContractMapping.ExplainMissing(SnapshotCapabilities.FieldValues, snapshot.Info.Kind);
             }
 
             return new ObjectDetails(
@@ -396,7 +391,7 @@ internal sealed class HeapQueryHandler(
 
                 var (reverse, info) = await derived.GetReverseAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
                 snapshot.TryGetService<IObjectReader>(out var reader);
-                var noReader = ContractMapping.ExplainMissing(SnapshotCapabilities.FieldValues, snapshot.Info.Kind);
+                var noReader = FeatureRules.ExplainMissing(SnapshotCapabilities.FieldValues, snapshot);
                 var throttled = new ThrottledProgress<JobProgress>(progress);
                 var source = await Task.Run(
                     () => ReferrersSource.Create(snapshot.Graph, reverse.References, reader, index, noReader, throttled, cancellationToken),

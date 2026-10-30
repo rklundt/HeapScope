@@ -72,9 +72,10 @@ internal sealed class DerivedQueries(SnapshotStore snapshots)
         }
 
         var unrooted = objectCount - index.Reachable;
-        if (kind == SnapshotKind.GcDump && unrooted > 0)
+        if (!SnapshotKinds.Describe(kind).HoldsGarbage && unrooted > 0)
         {
-            // How much memory is uncertain, not only how many objects (the long-term fix is in the Backlog).
+            // Without garbage in the snapshot, an unrooted survivor lost its root, not its last reference. How much memory
+            // is uncertain, not only how many objects (the long-term fix is in the Backlog).
             notes.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{unrooted:N0} objects ({Megabytes(index.UnreachableBytes)}) of this gcdump survived its collection but have no recorded root: they retain nothing here, and the retained sizes of objects that share them with a rooted object may be overstated."));
@@ -106,14 +107,15 @@ internal sealed class DerivedQueries(SnapshotStore snapshots)
     /// </summary>
     public async Task<TypeInterfaces> GetInterfacesAsync(Guid snapshotId, ISnapshot snapshot, IProgress<JobProgress>? progress, CancellationToken cancellationToken, string? side = null)
     {
-        if (!snapshot.Capabilities.HasFlag(SnapshotCapabilities.FieldValues) || !snapshot.TryGetService<IObjectReader>(out var reader) || reader is null)
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (FeatureRules.WhyNoInterfaces(snapshot, side ?? "this snapshot") is { } why)
         {
-            throw new CapabilityNotSupportedException(
-                SnapshotCapabilities.FieldValues,
-                $"Interfaces need a full dump: {side ?? "this snapshot"} is a gcdump, which records no interfaces. Group by type, namespace or assembly, or capture a full dump.");
+            throw new CapabilityNotSupportedException(SnapshotCapabilities.FieldValues, why);
         }
 
-        return await snapshots.GetInterfacesAsync(snapshotId, reader, progress, cancellationToken).ConfigureAwait(false)
+        // The rule found the reader.
+        snapshot.TryGetService<IObjectReader>(out var reader);
+        return await snapshots.GetInterfacesAsync(snapshotId, reader!, progress, cancellationToken).ConfigureAwait(false)
             ?? throw SnapshotAccess.NotLoaded(snapshotId);
     }
 

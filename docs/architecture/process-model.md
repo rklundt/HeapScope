@@ -179,6 +179,17 @@ references such as "ARCHITECTURE.md 4" still name the right section.
   `pending-async-methods`, `finalizer-backlog` and `type-growth` in the catalog.
   Version 20 (sprint 3.6, ADR-035): `OpenSnapshotRequest.TrustedDacs`, the error code `DacNotTrusted` (1014) with
   `DacTrustDetails` as its error data.
+  Version 21 (sprint 3.8, peer review P7 and S6): `SnapshotDescriptor.Availability`, a `FeatureAvailability` per
+  optional feature (an id from `SnapshotFeatureIds`: `unreachable-set`, `interface-grouping`, `field-values`,
+  `string-values`, `generations`, `finalizable-scope`) with null when the snapshot offers it or the reason it does not.
+  The worker's `FeatureRules` fill the list when a snapshot opens and refuse the feature with the same reason (the same
+  error code as before); front ends read it through `SnapshotAvailability` (`IsAvailable`, `WhyUnavailable`), which
+  counts an id the worker did not list as unavailable. `ISnapshotService.GetTypeSummaryAsync` is removed:
+  `QueryTypeSummaryAsync` with its defaults gives the same rows.
+- When to bump `WorkerProtocol.Version`: for a removed or renamed method, or a changed DTO shape (a field added, removed,
+  renamed or retyped, a changed enum value). Not for new catalog values (an inspection, a detector) or new feature ids:
+  front ends read those from the worker's own lists (`ListInspectionsAsync`, the availability list), and a feature id
+  the worker does not list is unavailable.
 - Error data (sprint 3.6): a refusal the front end must act on carries a record typed in Contracts as its JSON-RPC error
   data, one record per code (`DacNotTrusted`: `DacTrustDetails`); every other code carries none. The client reads it
   back through the same formatter (`WorkerHost.DacTrustOf`, tested in `DacTrustRpcTests`). `DacNotTrusted` is an

@@ -88,7 +88,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
 - **ThirdParty.GcDump.** The vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the EventPipe heap
   dumper), MIT, with its five changes listed in its `CHANGES.md` [1.8, 1.9, 3.7].
 - **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
-  [0.3]; `DacTrustDetails`, the error data of `DacNotTrusted` [3.6]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
+  [0.3]; `DacTrustDetails`, the error data of `DacNotTrusted` [3.6]; `SnapshotFeatureIds`, `FeatureAvailability` (the
+  descriptor's availability list) and `SnapshotAvailability` (`IsAvailable`, `WhyUnavailable`, failing closed) [3.8]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
   [1.9], and `SetDtos` (`ObjectSetSpec`, with its shape, address hash and cache key as extension members in
   `ObjectSetSpecs`, so they are never serialized) [3.1]; the Similar Retention DTOs in `RetentionDtos` [3.2]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
@@ -115,9 +116,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   index when a reader exists) [1.5], `InspectionSource` [1.6], `ReferrersSource` (an object's referrers, each once, their
   fields named for up to 1,000 referrers) and `TypeReferrersSource` (a type's referrers by type, sortable) with
   `WorkerService.Referrers.cs` [2.1]; `ColumnSort` (sort by column name, ties by name, unknown
-  columns refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6].
+  columns refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6]; `FeatureRules`, one rule per optional
+  feature, filling the descriptor's availability list and refusing with the listed reason [3.8].
   `Snapshots/`: `SnapshotStore` (open, cache, memory mode); `SnapshotKinds` (per kind: the loader and its version, the
-  snapshot over a graph, the kind's notes) [1.9]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
+  snapshot over a graph, the kind's notes) [1.9], and whether the kind holds garbage, what an unreached object means
+  and why its objects cannot be matched by address [3.8]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
   dropped in one step when it closes: each slot is one shared computation with its own lease; a caller that cancels
   only stops waiting, and the computation is canceled when the last waiter leaves before it finishes and nobody joins
   within a 2 s grace period (so a grid's re-query joins it), or when the snapshot closes (`DerivedWaiter`, after the

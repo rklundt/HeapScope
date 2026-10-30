@@ -65,14 +65,8 @@ internal static class RetentionMapping
     /// <summary>Whether a type is a framework type a front end may fold when it lies between other steps.</summary>
     public static bool IsFrameworkType(string typeName) => HeapScope.Analysis.FrameworkTypes.IsFramework(typeName);
 
-    /// <summary>
-    /// What "no root reaches it" means for a snapshot of <paramref name="kind"/> (review M3). A full dump holds every object,
-    /// garbage included; a gcdump holds only the survivors of the collection it ran, without weak handles, so an object no
-    /// recorded root reaches points to a root the gcdump did not record.
-    /// </summary>
-    public static string UnreachableNote(SnapshotKind kind) => kind == SnapshotKind.GcDump
-        ? "No recorded root reaches it. A gcdump holds only objects that survived its collection, so a root that holds it was not recorded (the gcdump may be sampled or incomplete)."
-        : "No root reaches it: it is garbage not yet collected, or held only weakly (weak handles, weak references).";
+    /// <summary>What "no root reaches it" means for a snapshot of <paramref name="kind"/>, as its kind handler words it.</summary>
+    public static string UnreachableNote(SnapshotKind kind) => Snapshots.SnapshotKinds.Describe(kind).UnreachableNote;
 
     public static PathRootDto Root(HeapGraph graph, PathRoot root) =>
         new(root.IsFrozen ? RootKindDto.Other : root.Root.Kind.ToDto(), root.IsFrozen, PathRoots.Describe(root, PathRoots.Detail(graph, root)));
