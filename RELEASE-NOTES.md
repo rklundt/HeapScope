@@ -107,10 +107,6 @@ From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`).
   objects it counted), bookmarks, or the objects retained by another set.
 - Sets are steps in the analysis path; the CLI gets `set`.
 
-## 2.8.0: Packaging and distribution (sprint 2.8, planned)
-
-Not built yet: waits for the audiences and channels. CI already builds self-contained packages per platform.
-
 ## 2.7.0: Navigation and polish (sprint 2.7)
 
 - Full back and forward navigation history across views, object bookmarks, consistent links between views.

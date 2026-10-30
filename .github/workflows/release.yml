@@ -2,7 +2,7 @@
 # builds the release's tag for every runtime identifier with build/publish.sh (license files checked) and attaches each
 # tarball, an SBOM (CycloneDX) of the app, the CLI and the worker, and SHA256SUMS of them all, each with a build
 # provenance attestation in GitHub's attestation store. Builds are deterministic (ContinuousIntegrationBuild in CI).
-# Signing is sprint 2.8's.
+# Signing is sprint 3.9's.
 #
 # Least privilege (3.7 review): the builds, which run every restored package's build logic, hold read access only and hand
 # their files on as artifacts; one short job that runs no build holds the rights to attest and attach. A manual run takes

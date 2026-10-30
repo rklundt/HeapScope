@@ -18,6 +18,15 @@ Swept in sprint 3.8:
 ## Open
 
 **High**
+- SkiaSharp's native library without Adobe's DNG SDK (from the 3.8 owner actions, 2026-10-30; for sprint 3.9
+  Packaging, before the first commercial release). The native SkiaSharp 3.119.4 library on Windows, Linux and macOS
+  carries Skia's raw camera image decoder: Adobe's DNG SDK and Google's piex, which HeapScope never uses. The DNG SDK
+  License (in SkiaSharp's `THIRD-PARTY-NOTICES.txt`, shipped under `licenses/`) asks, in section 5, anyone who
+  distributes it in a commercial product to defend and indemnify Adobe. Either a legal review accepts that clause, or
+  HeapScope builds libSkiaSharp itself from SkiaSharp's public build scripts with Skia's `skia_use_dng_sdk` and
+  `skia_use_piex` off, per runtime identifier, ships it in place of the NuGet native assets, has
+  `build/check-package.sh` refuse a build with DNG code in it, and rebuilds it on every SkiaSharp update Avalonia takes.
+  Replacing Skia is not an option: Avalonia draws only through it.
 - Intermittent 105 to 130 ms dispatcher lag at job completion under heavy machine load (from 0.3): find the
   cause (likely CPU contention with the worker) and bring the smoke gate back to 100 ms. Capture a WPR or PerfView
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.

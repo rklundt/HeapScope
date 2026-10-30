@@ -34,7 +34,6 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
 | 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
 | 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
-| 2.8 | Packaging and distribution | Planned | | |
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
@@ -43,10 +42,14 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.6 | Urgent fixes | Closed | 2026-10-29 | sprint-3.6 |
 | 3.7 | Hardening | Closed | 2026-10-30 | sprint-3.7 |
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
+| 3.9 | Packaging and distribution | Planned | | |
 
 ---
 
-## Sprint 2.8: Packaging and distribution
+## Sprint 3.9: Packaging and distribution
+
+Planned in Phase 2 as sprint 2.8 and renumbered 3.9 on 2026-10-30 (product owner), so that its version, 3.9.0,
+follows 3.8.0.
 
 **Goal**: people install and run HeapScope without building it.
 
@@ -62,10 +65,12 @@ your proposal for a packaging sprint once you pick audiences and channels"). Opt
 Constraints: every bundled component keeps an allowed license (MIT or allowed), with its notices shipped; the
 attribution strip and the license files ship unchanged (ADR-022); before any Avalonia update, check whether anything
 used has moved to a paid model. Signing certificates, store accounts and paid services need the product owner's OK.
+Before the first commercial release, settle Adobe's DNG SDK inside SkiaSharp's native library (Backlog, High).
 
 **Open questions for /start-sprint**: audiences (who installs it, on which systems); channels (GitHub Releases only,
 or also winget, a dotnet tool, package feeds); self-contained or shared runtime; signing on which systems; how updates
-reach users; whether CI becomes the release builder.
+reach users; whether CI becomes the release builder; whether HeapScope ships its own SkiaSharp native build without the
+DNG SDK (Backlog).
 
 **Acceptance criteria**: to be set at /start-sprint with the channels; at least a clean machine of each chosen
 system installs the package, runs the app, opens a fixture dump and runs the CLI, with no SDK installed.
