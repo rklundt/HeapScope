@@ -133,6 +133,7 @@ internal static partial class CliCommands
 
             var session = context.Get<SnapshotSession>();
             var sortName = parseResult.GetValue(sort)!;
+            var progress = parseResult.GetValue(retained) ? new StderrProgress(error) : null;
             var diff = await session.QueryTypeDiffAsync(
                 before,
                 after,
@@ -140,10 +141,11 @@ internal static partial class CliCommands
                 parseResult.GetValue(filter),
                 s_sortColumns[sortName],
                 descending: sortName != "name",
-                progress: parseResult.GetValue(retained) ? new StderrProgress(error) : null,
+                progress: progress,
                 ct,
                 parseResult.GetValue(matchObjects),
                 parseResult.GetValue(retained)).ConfigureAwait(false);
+            progress?.Stop();
             var result = diff.Result;
             if (result.BaselineDominators is { } baselineDominators && result.CurrentDominators is { } currentDominators)
             {

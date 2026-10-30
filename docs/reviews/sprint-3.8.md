@@ -74,6 +74,9 @@ highest severity.
 - `AllocationTraceTests.A_recording_whose_process_exits_has_no_rundown_and_says_so` failed twice on Windows CI: every
   allocation it recorded came in one burst right before it killed the process, so whether a flush reached the file first
   was timing. The test now waits until the trace has grown before it kills the process.
+- `RetainedSizesTests` failed on Windows CI at close: a worker call's progress report can arrive after its result (as in
+  3.7), and a late phase line on stderr landed inside `summary --format json` when the two streams were merged. The CLI
+  now stops each query's progress before it writes results (`ProgressTextTests`).
 
 ## Low (listed, not raised)
 

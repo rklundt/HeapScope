@@ -88,6 +88,7 @@ internal static partial class CliCommands
             }
 
             var sortName = parseResult.GetValue(sort)!;
+            var progress = parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null;
             var instances = await session.QueryInstancesAsync(
                 handle,
                 new InstancesQuery(
@@ -97,8 +98,9 @@ internal static partial class CliCommands
                     s_instanceSortColumns[sortName],
                     Descending: sortName is "bytes" or "retained",
                     IncludeRetained: parseResult.GetValue(retained) || sortName == "retained"),
-                parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null,
+                progress,
                 ct).ConfigureAwait(false);
+            progress?.Stop();
             var result = instances.Result;
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             if (result.MatchedTypes == 0)
@@ -214,9 +216,11 @@ internal static partial class CliCommands
             var session = context.Get<SnapshotSession>();
             TryParseAddress(parseResult.GetValue(address), out var at);
             var details = await session.GetObjectAsync(handle, at, progress: null, ct).ConfigureAwait(false);
-            var retainedResult = parseResult.GetValue(retained)
-                ? await session.QueryRetainedAsync(handle, at, new StderrProgress(error), ct).ConfigureAwait(false)
+            var progress = parseResult.GetValue(retained) ? new StderrProgress(error) : null;
+            var retainedResult = progress is not null
+                ? await session.QueryRetainedAsync(handle, at, progress, ct).ConfigureAwait(false)
                 : null;
+            progress?.Stop();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wanted = parseResult.GetValue(references);
             var referenceRows = new List<IReadOnlyList<string?>>();

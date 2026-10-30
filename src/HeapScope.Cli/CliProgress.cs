@@ -78,19 +78,35 @@ internal static partial class CliCommands
 
     /// <summary>
     /// Prints a worker call's progress phases to stderr (sprint 2.3: computing dominators takes seconds), each phase once
-    /// and its percentage at most every few seconds, so piped output stays readable.
+    /// and its percentage at most every few seconds, so piped output stays readable. A command calls <see cref="Stop"/>
+    /// once the call returns: a report can arrive after the result, and must not land inside the output printed next.
     /// </summary>
     internal sealed class StderrProgress(TextWriter error) : IProgress<JobProgress>
     {
         private readonly Lock _gate = new();
         private DateTime _lastWrite = DateTime.MinValue;
         private string? _lastPhase;
+        private bool _stopped;
+
+        /// <summary>Drops every later report; waits for a report being written.</summary>
+        public void Stop()
+        {
+            lock (_gate)
+            {
+                _stopped = true;
+            }
+        }
 
         public void Report(JobProgress value)
         {
             ArgumentNullException.ThrowIfNull(value);
             lock (_gate)
             {
+                if (_stopped)
+                {
+                    return;
+                }
+
                 var now = DateTime.UtcNow;
                 if (value.Phase == _lastPhase && now - _lastWrite < TimeSpan.FromSeconds(2))
                 {
@@ -114,6 +130,7 @@ internal static partial class CliCommands
         private readonly object _gate = new();
         private DateTime _lastWrite = DateTime.MinValue;
         private string? _lastPhase;
+        private bool _stopped;
 
         public ConsoleProgress(JobTracker tracker, TrackedJob job, TextWriter error)
         {
@@ -123,7 +140,15 @@ internal static partial class CliCommands
             _tracker.JobChanged += OnJobChanged;
         }
 
-        public void Dispose() => _tracker.JobChanged -= OnJobChanged;
+        /// <summary>Stops printing: a change raised before the unsubscribe can still be on its way.</summary>
+        public void Dispose()
+        {
+            _tracker.JobChanged -= OnJobChanged;
+            lock (_gate)
+            {
+                _stopped = true;
+            }
+        }
 
         private void OnJobChanged(object? sender, TrackedJob job)
         {
@@ -134,6 +159,11 @@ internal static partial class CliCommands
 
             lock (_gate)
             {
+                if (_stopped)
+                {
+                    return;
+                }
+
                 // A new phase is always printed (it can carry a warning, such as the paused target); repeats are throttled.
                 var now = DateTime.UtcNow;
                 if (progress.Phase == _lastPhase && now - _lastWrite < TimeSpan.FromMilliseconds(250))

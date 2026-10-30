@@ -78,6 +78,7 @@ internal static partial class CliCommands
             }
 
             var sortName = parseResult.GetValue(sort);
+            var progress = parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null;
             var summary = await session.QueryTypeSummaryAsync(
                 handle,
                 Enum.Parse<TypeGrouping>(parseResult.GetValue(group)!, ignoreCase: true),
@@ -85,8 +86,9 @@ internal static partial class CliCommands
                 sortName switch { "name" => TypeSummaryColumns.Name, "count" => TypeSummaryColumns.Objects, "retained" => TypeSummaryColumns.Retained, _ => TypeSummaryColumns.Bytes },
                 descending: sortName != "name",
                 includeRetained: parseResult.GetValue(retained) || sortName == "retained",
-                progress: parseResult.GetValue(retained) || sortName == "retained" ? new StderrProgress(error) : null,
+                progress: progress,
                 ct).ConfigureAwait(false);
+            progress?.Stop();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wanted = parseResult.GetValue(all) ? summary.Result.Rows.TotalCount : Math.Min(parseResult.GetValue(top), summary.Result.Rows.TotalCount);
             var rows = await FetchRowsAsync(summary.Rows, wanted, ct).ConfigureAwait(false);
