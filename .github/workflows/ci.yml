@@ -1,8 +1,12 @@
-# HeapScope CI (sprints 2.3.5 and 2.3.6):
-# - Windows builds everything, runs the fast tests, captures the LeakyConsole fixture with the CLI and checks the known answers.
+# HeapScope CI (sprints 2.3.5, 2.3.6 and 3.6):
+# - Windows builds everything, runs the fast and the integration tests, captures the LeakyConsole fixture with the CLI and
+#   checks the known answers.
 # - Linux and macOS build the engine, the worker, the CLI and the Avalonia app, run their tests, take a core dump of the
 #   fixture with dotnet-dump, check the CLI's known answers and (Linux) open the dump in the app without a display.
-# - Packages: self-contained builds per runtime identifier, uploaded as artifacts on pushes and manual runs.
+# - Packages: self-contained builds per runtime identifier with their license files (checked), uploaded as artifacts on
+#   pushes and manual runs.
+# Tests run through build/test.sh and the fixture dump through build/fixture-dump.sh, as in the local gate (build/gate.sh).
+# Test results (TRX: test names, outcomes and messages) are kept 14 days to track tests that fail now and then.
 # Fixture dumps hold fixture data only and are never uploaded (ARCHITECTURE.md 12). Nothing here sends telemetry.
 name: CI
 
@@ -24,10 +28,13 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   # Avalonia's build statistics (sprint 2.3.6, decision 5); Directory.Build.targets also removes the task that sends them.
   AVALONIA_TELEMETRY_OPTOUT: '1'
+  # HeapScope's own logs (the CLI, the app and the workers they start; paths, counts and rules, never dump contents) go
+  # to the runner's temp folder and are kept with the test results (sprint 3.6 review).
+  Logging__File__Directory: ${{ github.workspace }}/artifacts/heapscope-logs
 
 jobs:
   windows:
-    name: Windows (build, fast tests, fixture capture)
+    name: Windows (build, fast and integration tests, fixture capture)
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -39,30 +46,35 @@ jobs:
         id: build
         run: dotnet build HeapScope.sln -c Release
       - name: Fast tests
-        run: dotnet test --solution HeapScope.sln -c Release --no-build --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8
+        timeout-minutes: 15
+        shell: bash
+        run: bash build/test.sh fast Release "$RUNNER_TEMP/test-results"
+      - name: Integration tests
+        # Sprint 3.6 (peer review P4): real captures, dumps, workers and the CLI, about three minutes.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 20
+        shell: bash
+        run: bash build/test.sh integration Release "$RUNNER_TEMP/test-results"
       - name: Capture the fixture with the CLI and check the known answers
         # Sprint 2.3.6 (2.3.5 review M3): the Windows DAC path and capture, checked by CI too.
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 15
         shell: bash
         run: |
-          fixture=fixtures/LeakyConsole/bin/Release/net10.0/LeakyConsole.dll
-          dotnet "$fixture" --leak all --count 2000 --payload 32 --late-garbage 300 > "$RUNNER_TEMP/fixture.log" 2>&1 &
-          fixture_pid=$!
-          trap 'kill $fixture_pid 2>/dev/null || true' EXIT
-          for i in $(seq 1 120); do
-            grep -q READY "$RUNNER_TEMP/fixture.log" && break
-            kill -0 "$fixture_pid" 2>/dev/null || { echo "The fixture exited before it was ready:"; cat "$RUNNER_TEMP/fixture.log"; exit 1; }
-            sleep 1
-          done
-          cat "$RUNNER_TEMP/fixture.log"
-          pid=$(sed -n 's/.*READY pid=\([0-9]*\).*/\1/p' "$RUNNER_TEMP/fixture.log")
-          [ -n "$pid" ] || { echo "The fixture did not report READY within 120 s."; exit 1; }
           cli=src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli.exe
-          dump="$RUNNER_TEMP/leaky.dmp"
-          "$cli" capture --pid "$pid" --out "$dump"
-          kill "$fixture_pid" || true
-          bash build/check-known-answers.sh "$cli" "$dump"
+          bash build/fixture-dump.sh "$RUNNER_TEMP/leaky.dmp" "cli=$cli"
+          bash build/check-known-answers.sh "$cli" "$RUNNER_TEMP/leaky.dmp"
+      - name: Keep the test results and HeapScope's logs
+        # Always, so a step that timed out still leaves its results (review).
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-windows
+          path: |
+            ${{ runner.temp }}/test-results
+            ${{ github.workspace }}/artifacts/heapscope-logs
+          if-no-files-found: warn
+          retention-days: 14
 
   unix:
     name: ${{ matrix.name }} (engine, CLI, app, fixture dump)
@@ -91,13 +103,10 @@ jobs:
           dotnet build src/HeapScope.Cli -c Release
           dotnet build src/HeapScope.UI -c Release
           dotnet build fixtures/LeakyConsole -c Release
-      - name: Engine and UI tests
-        run: |
-          failed=""
-          for project in Core Analysis Storage Worker Application Loaders.ClrMd UI.ViewModels UI; do
-            dotnet test --project "tests/HeapScope.$project.Tests" -c Release || failed="$failed $project"
-          done
-          if [ -n "$failed" ]; then echo "Failed:$failed"; exit 1; fi
+      - name: Tests
+        # Every test project that runs here, found by build/test.sh rather than listed (peer review S1).
+        timeout-minutes: 15
+        run: bash build/test.sh fast Release "$RUNNER_TEMP/test-results"
       - name: Dump the fixture, check the known answers, open it in the app without a display
         # Runs when a test failed but the build did not: the dump, the CLI and the app are what this job is for.
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -105,27 +114,24 @@ jobs:
         run: |
           dotnet tool install --global dotnet-dump --version 10.0.750501
           export PATH="$PATH:$HOME/.dotnet/tools"
-          fixture=fixtures/LeakyConsole/bin/Release/net10.0/LeakyConsole.dll
-          dotnet "$fixture" --leak all --count 2000 --payload 32 --late-garbage 300 > "$RUNNER_TEMP/fixture.log" 2>&1 &
-          fixture_pid=$!
-          trap 'kill $fixture_pid 2>/dev/null || true' EXIT
-          for i in $(seq 1 120); do
-            grep -q READY "$RUNNER_TEMP/fixture.log" && break
-            kill -0 "$fixture_pid" 2>/dev/null || { echo "The fixture exited before it was ready:"; cat "$RUNNER_TEMP/fixture.log"; exit 1; }
-            sleep 1
-          done
-          cat "$RUNNER_TEMP/fixture.log"
-          pid=$(sed -n 's/.*READY pid=\([0-9]*\).*/\1/p' "$RUNNER_TEMP/fixture.log")
-          [ -n "$pid" ] || { echo "The fixture did not report READY within 120 s."; exit 1; }
           dump="$RUNNER_TEMP/leaky.dmp"
-          dotnet-dump collect --process-id "$pid" --type Full --output "$dump"
-          kill "$fixture_pid" || true
+          bash build/fixture-dump.sh "$dump" dotnet-dump
           bash build/check-known-answers.sh src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli "$dump"
           # The Avalonia app opens the core dump headless and drills down as a user would (sprint 2.3.6).
           app=src/HeapScope.UI/bin/Release/net10.0/HeapScope
           "$app" --headless --smoke-open "$dump" --Logging:File:Directory "$RUNNER_TEMP/ui-log" || { cat "$RUNNER_TEMP"/ui-log/*.log; exit 1; }
           grep -h "Smoke open\|Smoke drill" "$RUNNER_TEMP"/ui-log/*.log | cut -c1-400
           grep -q "Smoke open types: .*Fixtures.Leaks.StaticCacheEntry 2000" "$RUNNER_TEMP"/ui-log/*.log || { echo "The app did not show 2000 StaticCacheEntry objects"; exit 1; }
+      - name: Keep the test results and HeapScope's logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/test-results
+            ${{ github.workspace }}/artifacts/heapscope-logs
+          if-no-files-found: warn
+          retention-days: 14
 
   package:
     name: Package ${{ matrix.rid }}
@@ -155,7 +161,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - name: Publish the app and the CLI, self-contained, with the worker
+      - name: Publish the app and the CLI, self-contained, with the worker and the license files
+        # publish.sh copies the license files and checks the folder (build/check-package.sh, sprint 3.6, peer review P3).
         shell: bash
         run: |
           bash build/publish.sh ${{ matrix.rid }} "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}"
@@ -171,6 +178,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/unpacked"
           (cd "$RUNNER_TEMP/unpacked" && tar -xzf "../HeapScope-${{ matrix.rid }}.tar.gz")
           dir="$RUNNER_TEMP/unpacked/HeapScope-${{ matrix.rid }}"
+          bash build/check-package.sh "$dir"
           ext=""; [ "${{ matrix.rid }}" = "win-x64" ] && ext=".exe"
           "$dir/heapscope-cli$ext" --version
           "$dir/heapscope-cli$ext" worker ping

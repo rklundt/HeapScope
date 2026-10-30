@@ -24,6 +24,7 @@
 using System.CommandLine.Help;
 using HeapScope.Cli;
 using HeapScope.Contracts;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 IHost? host = null;
@@ -54,6 +55,15 @@ host = CliHost.Build(
     parseResult.GetValue(CliCommands.AllowSymbolServerOption));
 using (host)
 {
+    // The CLI never asks: graph-only commands open a cached dump whatever its DAC, and reads that need an untrusted DAC
+    // refuse with the --trust-dac option to add (sprint 3.6 re-review).
+    host.Services.GetRequiredService<HeapScope.Application.Snapshots.SnapshotSession>().CheckDacOnCacheOpen = false;
+    var trustedDacs = host.Services.GetRequiredService<HeapScope.Application.Snapshots.TrustedDacs>();
+    foreach (var sha256 in parseResult.GetValue(CliCommands.TrustDacOption) ?? [])
+    {
+        trustedDacs.TrustForThisRun(sha256);
+    }
+
     await host.StartAsync().ConfigureAwait(false);
     try
     {

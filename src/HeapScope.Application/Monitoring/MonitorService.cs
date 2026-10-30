@@ -393,6 +393,12 @@ public sealed class MonitorRun : IAsyncDisposable
                 _inUse = _capture.Library.MarkInUse(_folder, "a monitoring run");
             }
         }
+        catch (SessionUnreadableException ex)
+        {
+            // Not a silent run without a record (sprint 3.6 review): the front end shows why and what to do.
+            _logger.LogWarning("Monitoring run {RunId} refused: {Reason}", Id, ex.Message);
+            throw;
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Monitoring run {RunId} has no session folder: it is not recorded and writes no timeline", Id);

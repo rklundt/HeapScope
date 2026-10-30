@@ -183,6 +183,7 @@ public sealed class DumpCapturerTests : IDisposable
     [Fact]
     public async Task An_exited_target_gives_a_plain_message()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Capture runs on Windows only (ADR-025): elsewhere it refuses before the writer is called.");
         _writer.Behavior = _ => throw new ServerNotAvailableException("gone");
 
         var ex = await Should.ThrowAsync<TargetUnavailableException>(() => Capturer.CaptureAsync(Process(), Dump(), null, Ct));

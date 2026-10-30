@@ -69,6 +69,29 @@ internal static partial class CliCommands
         Recursive = true,
     };
 
+    /// <summary>
+    /// DACs trusted for this run by SHA-256 (sprint 3.6, peer review P2): a DAC found only next to a dump came with it, so
+    /// it is loaded only when its hash is named here (the refusal prints the exact option to add).
+    /// </summary>
+    public static readonly Option<string[]> TrustDacOption = new("--trust-dac")
+    {
+        Description = "Trust the DAC next to a dump with this SHA-256 for this run (the refusal names it). Repeat for several.",
+        Recursive = true,
+        Validators =
+        {
+            result =>
+            {
+                foreach (var value in result.GetValueOrDefault<string[]>() ?? [])
+                {
+                    if (!HeapScope.Application.Snapshots.TrustedDacs.IsSha256(value.Trim().ToLowerInvariant()))
+                    {
+                        result.AddError($"--trust-dac takes a SHA-256 of 64 hex digits; {value} is not one.");
+                    }
+                }
+            },
+        },
+    };
+
     private static Func<IServiceProvider>? s_services;
 
     /// <summary>
@@ -86,6 +109,7 @@ internal static partial class CliCommands
         root.Options.Add(PipeOption);
         root.Options.Add(DacFolderOption);
         root.Options.Add(AllowSymbolServerOption);
+        root.Options.Add(TrustDacOption);
 
         // The built-in --version prints the raw informational version (with the source revision);
         // the product version is ProductInfo.Version everywhere (ARCHITECTURE.md 15).
@@ -168,9 +192,18 @@ internal static partial class CliCommands
         command.SetAction((parseResult, ct) => RunAsync(parseResult, async (stdout, error) =>
         {
             var capture = services().GetRequiredService<ICaptureService>();
-            if (parseResult.GetValue(sessionOption) is { } sessionName && capture.Library.Open(sessionName) is null)
+            try
             {
-                await error.WriteLineAsync($"Error: {sessionName} is not a HeapScope session under {capture.Library.Root}.").ConfigureAwait(false);
+                if (parseResult.GetValue(sessionOption) is { } sessionName && capture.Library.Open(sessionName) is null)
+                {
+                    await error.WriteLineAsync($"Error: {sessionName} is not a HeapScope session under {capture.Library.Root}.").ConfigureAwait(false);
+                    return Failure;
+                }
+            }
+            catch (SessionUnreadableException ex)
+            {
+                // A session that exists but cannot be read says why, not "is not a session" (sprint 3.6 review).
+                await error.WriteLineAsync($"Error: {ex.Message}").ConfigureAwait(false);
                 return Failure;
             }
 

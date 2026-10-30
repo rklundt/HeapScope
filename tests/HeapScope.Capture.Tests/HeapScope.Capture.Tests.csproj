@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Capture runs on Windows only (ADR-025): build/test.sh runs this project there only. -->
+    <HeapScopeTestsRunOn>Windows</HeapScopeTestsRunOn>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeapScope.Capture\HeapScope.Capture.csproj" />
   </ItemGroup>

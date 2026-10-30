@@ -36,6 +36,10 @@ case "$rid" in
   *) echo "Unsupported runtime identifier: $rid" >&2; exit 64 ;;
 esac
 for project in src/HeapScope.UI src/HeapScope.Cli; do
-  dotnet publish "$project" -c Release -r "$rid" --self-contained -p:PublishReadyToRun=true -o "$out"
+  dotnet publish "$project" -c Release -r "$rid" --self-contained -p:PublishReadyToRun=true -p:HeapScopePublish=true -o "$out"
 done
+
+# The license texts travel with every build (sprint 3.6, peer review P3): HeapScope's own and every shipped package's.
+dotnet run build/collect-licenses.cs -- "$out" "$rid" src/HeapScope.UI src/HeapScope.Cli src/HeapScope.Worker
+bash build/check-package.sh "$out"
 echo "Published HeapScope for $rid to $out"

@@ -61,7 +61,8 @@ public sealed class CaptureTests(RunningApi shared) : IClassFixture<RunningApi>,
         process.Name.ShouldBe("LeakyApi");
         process.RuntimeVersion.ShouldNotBeNull().ShouldStartWith("10.");
         process.CommandLine.ShouldNotBeNull().ShouldContain("LeakyApi");
-        process.Elevation.ShouldBe(ElevationState.NotElevated);
+        // A child of the test run shares its elevation (CI's runners run elevated, sprint 3.6).
+        process.Elevation.ShouldBe(WindowsElevationProbe.Instance.IsCurrentProcessElevated ? ElevationState.Elevated : ElevationState.NotElevated);
         process.WorkingSetBytes.ShouldNotBeNull().ShouldBeGreaterThan(0);
         new ProcessDiscovery().List(Ct).ShouldNotContain(p => p.ProcessId == Environment.ProcessId, "HeapScope's own processes are not listed");
     }
@@ -124,11 +125,31 @@ public sealed class CaptureTests(RunningApi shared) : IClassFixture<RunningApi>,
     [Fact]
     public async Task A_captured_dump_opens_with_the_loader_from_its_session_folder_alone()
     {
-        var result = await Service().StartCapture(shared.Api.ProcessId).Result;
+        var trusted = new HeapScope.Application.Snapshots.TrustedDacs(_root.Path);
+        var service = new CaptureService(new ProcessDiscovery(), new DumpCapturer(), new SessionLibrary(_root.Path), new JobTracker(TimeProvider.System), trustedDacs: trusted);
+        var result = await service.StartCapture(shared.Api.ProcessId).Result;
 
         // Only the dump's own folder (where the DAC was copied) may be searched: the dump stays readable after the
-        // runtime on this machine changes.
-        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [], SearchDumpedRuntimeDirectory = false };
+        // runtime on this machine changes. The capture trusted the DAC it copied (sprint 3.6), so it loads without asking,
+        // unless HeapScope runs elevated (CI's runners do): the target's runtime folder may then belong to a less
+        // privileged user, and the open asks instead (review).
+        if (WindowsElevationProbe.Instance.IsCurrentProcessElevated)
+        {
+            trusted.Kept().ShouldBeEmpty();
+            Should.Throw<UntrustedDacException>(() => new ClrMdDumpLoader(new ClrMdLoaderOptions { InstalledRuntimeRoots = [], SearchDumpedRuntimeDirectory = false, IsTrustedDac = trusted.All().Contains })
+                .Load(result.Path, cancellationToken: Ct));
+            return;
+        }
+
+        var copied = trusted.Kept().ShouldHaveSingleItem();
+        copied.Path.ShouldStartWith(Path.GetDirectoryName(result.Path)!);
+        var options = new ClrMdLoaderOptions
+        {
+            InstalledRuntimeRoots = [],
+            SearchDumpedRuntimeDirectory = false,
+            IsTrustedDac = trusted.All().Contains,
+            TrustedDacCopyFolder = Path.Combine(_root.Path, "dac-copies"),
+        };
         var loaded = new ClrMdDumpLoader(options).Load(result.Path, cancellationToken: Ct);
 
         loaded.Graph.ObjectCount.ShouldBeGreaterThan(1000);
@@ -227,6 +248,20 @@ public sealed class CaptureTests(RunningApi shared) : IClassFixture<RunningApi>,
         (await capture.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(capture.Output);
         capture.Process.ExitCode.ShouldBe(1, capture.Output);
         capture.Output.ShouldContain("No running .NET process");
+    }
+
+    [Fact]
+    public async Task Cli_trust_dac_takes_only_a_SHA_256()
+    {
+        // Sprint 3.6 (ADR-035): a hash trusts a DAC for the run; anything else is a usage error.
+        using var good = ChildProcess.Start(TestPaths.CliExe, "--trust-dac", new string('A', 64), "worker", "ping");
+        (await good.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(good.Output);
+        good.Process.ExitCode.ShouldBe(0, good.Output);
+
+        using var bad = ChildProcess.Start(TestPaths.CliExe, "--trust-dac", "abc", "worker", "ping");
+        (await bad.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(bad.Output);
+        bad.Process.ExitCode.ShouldBe(64, bad.Output);
+        bad.Output.ShouldContain("--trust-dac takes a SHA-256");
     }
 
     public void Dispose() => _root.Dispose();

@@ -371,12 +371,14 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Lists the current session's monitoring runs (sprint 3.4).</summary>
     [RelayCommand]
-    private void RefreshRuns()
+    private async Task RefreshRunsAsync()
     {
+        // Read from disk, off the UI thread (a read waits up to a second for a program that holds the document, sprint 3.6
+        // review): runs are recorded there as they start and end (never creating a session to list nothing).
+        var folder = _capture.Library.CurrentFolder;
+        var session = folder is null ? null : await Task.Run(() => SessionLibrary.TryRead(folder));
         PastRuns.Clear();
-
-        // Read from disk: runs are recorded there as they start and end (never creating a session to list nothing).
-        if (_capture.Library.CurrentFolder is not { } folder || SessionLibrary.TryRead(folder) is not { } session)
+        if (session is null)
         {
             return;
         }
@@ -421,7 +423,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             _gcMarkers.Clear();
             _gcMarkers.AddRange(read.Events.Where(e => e.Text == MonitorRun.GcForcedEvent).Select(e => e.At));
             Snapshots.Clear();
-            var session = SessionLibrary.TryRead(item.Folder);
+            var session = await Task.Run(() => SessionLibrary.TryRead(item.Folder));
             foreach (var snapshot in (session?.Document.Snapshots ?? []).Where(s => run.SnapshotIds.Contains(s.Id)).OrderByDescending(s => s.CapturedUtc))
             {
                 var file = session!.PathOf(snapshot);
@@ -718,7 +720,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             }
 
             IsRunning = false;
-            RefreshRuns();
+            _ = RefreshRunsCommand.ExecuteAsync(null);
         });
     }
 }

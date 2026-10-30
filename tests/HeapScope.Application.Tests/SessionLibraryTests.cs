@@ -329,6 +329,154 @@ public sealed class SessionLibraryTests : IDisposable
     }
 
     [Fact]
+    public async Task Readers_never_make_a_save_fail()
+    {
+        // Peer review P1: readers took no lock and opened without delete sharing, so a save's replace failed on Windows
+        // while any reader held the document, and the snapshot was lost from the session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        using var stop = new CancellationTokenSource();
+        using var reading = new CountdownEvent(3);
+        var readers = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+        {
+            var reads = 0;
+            while (!stop.IsCancellationRequested)
+            {
+                if (reads == 1)
+                {
+                    reading.Signal();
+                }
+
+                SessionLibrary.TryRead(folder).ShouldNotBeNull("a reader never sees a missing or half-written document");
+                library.ListRecent();
+                reads++;
+            }
+
+            return reads;
+        })).ToArray();
+
+        try
+        {
+            // Every reader is reading before the first save (review: on a busy machine they could start after the saves).
+            if (!reading.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))
+            {
+                await Task.WhenAll(readers.Where(r => r.IsFaulted));
+                Assert.Fail("The readers did not start within 30 s.");
+            }
+
+            for (var i = 0; i < 200; i++)
+            {
+                library.AddTo(folder, Snapshot(Path.Combine(folder, $"{i}.dmp")));
+            }
+        }
+        finally
+        {
+            await stop.CancelAsync();
+        }
+
+        (await Task.WhenAll(readers)).ShouldAllBe(n => n > 0);
+        SessionLibrary.TryRead(folder)!.Document.Snapshots.Count.ShouldBe(200);
+        Directory.EnumerateFiles(folder, "*.tmp").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_save_waits_for_a_reader_that_does_not_share_delete()
+    {
+        // An older build, a virus scanner or an indexer may hold the document without delete sharing for a moment.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        Task<Session> save;
+        using (new FileStream(Path.Combine(folder, SessionLibrary.DocumentName), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            save = Task.Run(() => library.AddTo(folder, Snapshot(Path.Combine(folder, "a.dmp"))));
+            await Task.Delay(300, TestContext.Current.CancellationToken);
+        }
+
+        (await save).Document.Snapshots.ShouldHaveSingleItem();
+        SessionLibrary.TryRead(folder)!.Document.Snapshots.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void An_unreadable_current_session_fails_instead_of_starting_a_new_one()
+    {
+        // Peer review P1: any failed read used to move the next captures into a brand-new session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), "{ not json");
+
+        var ex = Should.Throw<SessionUnreadableException>(() => library.Current);
+        ex.Message.ShouldContain(folder);
+        SessionLibrary.Read(folder).Status.ShouldBe(SessionReadStatus.Unreadable);
+        Directory.EnumerateDirectories(_root).ShouldHaveSingleItem("no new session was created");
+        Should.Throw<SessionUnreadableException>(() => library.AddToCurrent(Snapshot(Path.Combine(folder, "a.dmp"))));
+
+        // A document of another format version is not this build's to rewrite either.
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), """{ "FormatVersion": 2, "Name": "x", "Snapshots": [] }""");
+        Should.Throw<SessionUnreadableException>(() => library.Current).Message.ShouldContain("format version 2");
+
+        // A session folder that is gone is replaced by a new one, as before (same clock, so the same name).
+        Directory.Delete(folder, recursive: true);
+        var created = library.Current;
+        created.Document.Snapshots.ShouldBeEmpty();
+        File.Exists(Path.Combine(created.Folder, SessionLibrary.DocumentName)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void An_empty_new_session_is_kept_while_another_capture_or_run_writes_into_it()
+    {
+        // Sprint 3.6 review: a failed capture removed the session it created even when another capture had taken it.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        using var mine = library.MarkInUse(folder, "a capture");
+        using (library.MarkInUse(folder, "a monitoring run"))
+        {
+            library.DeleteIfEmpty(folder, "a capture");
+            Directory.Exists(folder).ShouldBeTrue("the run writes into it");
+            library.CurrentFolder.ShouldBe(folder);
+        }
+
+        library.DeleteIfEmpty(folder, "a capture");
+        Directory.Exists(folder).ShouldBeFalse("only the failed capture's own claim was left");
+        library.HasCurrent.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Opening_a_session_that_cannot_be_read_says_why()
+    {
+        // Sprint 3.6 review: unreadable is not missing, for the app's and the CLI's Open as for the current session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.CreateSession("damaged").Folder;
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), "{ not json");
+
+        var ex = Should.Throw<SessionUnreadableException>(() => library.Open(folder));
+        ex.Message.ShouldContain("damaged");
+        ex.Message.ShouldContain("Open another session");
+        library.HasCurrent.ShouldBeFalse("a failed open changes nothing");
+        library.Open(Path.Combine(_root, "no-such-session")).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_current_folder_answers_while_an_update_waits_for_the_session_lock()
+    {
+        // Peer review P1: the update held the same gate as CurrentFolder across its wait for session.lock (up to 30 s),
+        // so the Live page's refresh on the UI thread could block.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        Task<Session> update;
+        using (new FileStream(Path.Combine(folder, SessionLibrary.LockName), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            update = Task.Run(() => library.AddTo(folder, Snapshot(Path.Combine(folder, "a.dmp"))));
+            await Task.Delay(200, TestContext.Current.CancellationToken);
+            update.IsCompleted.ShouldBeFalse("the update waits for the lock another process holds");
+
+            var answered = Task.Run(() => (library.CurrentFolder, library.HasCurrent));
+            (await answered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).ShouldBe((folder, true));
+        }
+
+        (await update).Document.Snapshots.ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public void Members_written_by_a_newer_version_survive_a_save()
     {
         var library = new SessionLibrary(_root, _time);

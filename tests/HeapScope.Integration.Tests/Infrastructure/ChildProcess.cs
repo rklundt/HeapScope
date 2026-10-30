@@ -33,6 +33,7 @@ namespace HeapScope.Integration.Tests.Infrastructure;
 internal sealed class ChildProcess : IDisposable
 {
     private readonly StringBuilder _output = new();
+    private readonly StringBuilder _standardOutput = new();
     private readonly object _gate = new();
 
     private ChildProcess(Process process)
@@ -49,6 +50,21 @@ internal sealed class ChildProcess : IDisposable
             lock (_gate)
             {
                 return _output.ToString();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Standard output only, without the log lines stderr carries (sprint 3.6: a warning on stderr landed inside a
+    /// command's JSON in the merged <see cref="Output"/>). Parse results from this.
+    /// </summary>
+    public string StandardOutput
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _standardOutput.ToString();
             }
         }
     }
@@ -75,7 +91,7 @@ internal sealed class ChildProcess : IDisposable
 
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         var child = new ChildProcess(process);
-        process.OutputDataReceived += (_, e) => child.Append(e.Data);
+        process.OutputDataReceived += (_, e) => child.Append(e.Data, standardOutput: true);
         process.ErrorDataReceived += (_, e) => child.Append(e.Data);
         process.Start();
         process.BeginOutputReadLine();
@@ -140,7 +156,7 @@ internal sealed class ChildProcess : IDisposable
         Process.Dispose();
     }
 
-    private void Append(string? line)
+    private void Append(string? line, bool standardOutput = false)
     {
         if (line is null)
         {
@@ -150,6 +166,11 @@ internal sealed class ChildProcess : IDisposable
         lock (_gate)
         {
             _output.AppendLine(line);
+            if (standardOutput)
+            {
+                _standardOutput.AppendLine(line);
+            }
+
         }
     }
 }

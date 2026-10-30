@@ -5,4 +5,14 @@
     empty target replaces the one that would send them. CI also sets AVALONIA_TELEMETRY_OPTOUT=1.
   -->
   <Target Name="AvaloniaStats" />
+
+  <!--
+    TraceEvent copies two native Microsoft binaries into the output (KernelTraceControl.dll from the Windows Performance
+    Toolkit and msdia140.dll from the Debug Interface Access SDK). Nothing in HeapScope calls them; they stay in development
+    builds (product owner, 2026-10-24) and out of published builds until their redistribution terms are reviewed (sprint
+    3.6, peer review P3). build/publish.sh sets HeapScopePublish.
+  -->
+  <ItemGroup Condition="'$(HeapScopePublish)' == 'true'">
+    <None Remove="$(NuGetPackageRoot)microsoft.diagnostics.tracing.traceevent/*/build/native/**/*.dll" />
+  </ItemGroup>
 </Project>
