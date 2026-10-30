@@ -55,8 +55,13 @@ public sealed class StaticCacheDump : IAsyncLifetime
     }
 }
 
-/// <summary>Sprint 1.2: snapshots in the worker, through the Application session, against a real worker process.</summary>
+/// <summary>
+/// Sprint 1.2: snapshots in the worker, through the Application session, against a real worker process. Alone (sprint
+/// 3.6): the cancel test measures a load stopping within 2 s, which other dump loads beside it pushed past 3 s on CI's
+/// two-core runners.
+/// </summary>
 [Trait("Category", "Integration")]
+[Collection(nameof(HeavyTestsCollection))]
 public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDisposable
 {
     private readonly TempFolder _folder = new();
@@ -316,14 +321,41 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     [Fact]
     public async Task Canceling_a_load_stops_it_and_leaves_no_cache_file()
     {
-        var job = _session.StartOpen(_dump);
-        await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
-        job.Result.IsCompleted.ShouldBeFalse("the load finished before it could be canceled");
-        var canceledAt = System.Diagnostics.Stopwatch.StartNew();
-        job.Cancel();
+        // A dump of its own, large enough that a fast machine (CI's, sprint 3.6) is still loading when the cancel arrives:
+        // the shared 3,000-item dump loaded completely between the progress report and the cancel.
+        var large = _folder.File("large.dmp");
+        using (var fixture = await FixtureProcess.StartConsoleAsync("--leak", "StaticCache", "--count", "300000", "--payload", "16"))
+        {
+            fixture.CaptureDump(large);
+        }
 
-        await Should.ThrowAsync<OperationCanceledException>(() => job.Result);
-        canceledAt.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2), "acceptance criterion: a load stops within 2 s");
+        File.Delete(_dump);
+        File.Move(large, _dump);
+
+        // A cancel that reaches the worker after the load's last cancellation point lets the load finish; on a fast
+        // machine that race is won now and then (CI, sprint 3.6). Each attempt loads afresh, and one must be canceled.
+        TimeSpan? stoppedIn = null;
+        for (var attempt = 0; attempt < 5 && stoppedIn is null; attempt++)
+        {
+            var job = _session.StartOpen(_dump, rebuild: true);
+            await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
+            var canceledAt = System.Diagnostics.Stopwatch.StartNew();
+            job.Cancel();
+            try
+            {
+                await _session.CloseAsync(await job.Result, Ct);
+
+                // Finished: its cache is not what this test is about, and the next attempt must leave none.
+                File.Delete(CachePath);
+            }
+            catch (OperationCanceledException)
+            {
+                stoppedIn = canceledAt.Elapsed;
+            }
+        }
+
+        stoppedIn.ShouldNotBeNull("five loads in a row finished before their cancel arrived");
+        stoppedIn.Value.ShouldBeLessThan(TimeSpan.FromSeconds(2), "acceptance criterion: a load stops within 2 s");
         File.Exists(CachePath).ShouldBeFalse();
         Directory.EnumerateFiles(_folder.Path, "*.tmp").ShouldBeEmpty();
         (await _session.StartOpen(_dump).Result).Descriptor.FromCache.ShouldBeFalse("the worker stays usable");

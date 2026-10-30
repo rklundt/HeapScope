@@ -51,7 +51,9 @@ public static class WorkerProtocol
     /// Version 18 (sprint 3.3): object identity by address in diffs (New and Dead columns, the Compared set kind), retained
     /// bytes and per-kind deltas in diffs, and trends across several snapshots.
     /// Version 19 (sprint 3.5): the Unreachable set kind; the async, finalizer backlog and type growth detectors.
-    public const int Version = 19;
+    /// Version 20 (sprint 3.6): trusted DACs on open (<see cref="OpenSnapshotRequest.TrustedDacs"/>) and the
+    /// <see cref="HeapScopeErrorCode.DacNotTrusted"/> refusal with <see cref="DacTrustDetails"/>.
+    public const int Version = 20;
 
     /// <summary>Maximum rows returned by one <see cref="IWorkerService.GetRowsAsync"/> call.</summary>
     public const int MaxPageSize = 10_000;

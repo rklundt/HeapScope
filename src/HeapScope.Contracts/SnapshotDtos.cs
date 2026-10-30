@@ -44,7 +44,18 @@ public enum SnapshotMemoryMode
 /// <param name="Rebuild">Ignore an existing index cache and load the dump again.</param>
 /// <param name="Mode">Memory mode; <see cref="SnapshotMemoryMode.Auto"/> follows the memory budget.</param>
 /// <param name="RequireCache">Open only from a valid index cache (lazy reopens after a worker restart).</param>
-public sealed record OpenSnapshotRequest(string Path, bool Rebuild = false, SnapshotMemoryMode Mode = SnapshotMemoryMode.Auto, bool RequireCache = false);
+/// <param name="TrustedDacs">SHA-256 hashes (lower-case hex) of DACs the user trusts to load from next to a dump (sprint
+/// 3.6, peer review P2); the worker keeps them for its lifetime.</param>
+/// <param name="CheckDac">Whether an open from the index cache refuses a full dump whose DAC lies untrusted next to it
+/// (sprint 3.6). False opens the graph anyway, and only reads that need the DAC (field values, strings) are refused:
+/// after the user declined to trust it, and for commands that need no DAC.</param>
+public sealed record OpenSnapshotRequest(string Path, bool Rebuild = false, SnapshotMemoryMode Mode = SnapshotMemoryMode.Auto, bool RequireCache = false, IReadOnlyList<string>? TrustedDacs = null, bool CheckDac = true);
+
+/// <summary>
+/// The error data of <see cref="HeapScopeErrorCode.DacNotTrusted"/>: the DAC found next to the dump, which the user may
+/// trust by its hash (sprint 3.6).
+/// </summary>
+public sealed record DacTrustDetails(string Path, string Sha256, string RuntimeVersion);
 
 /// <summary>State of a snapshot's index cache.</summary>
 public enum SnapshotCacheState

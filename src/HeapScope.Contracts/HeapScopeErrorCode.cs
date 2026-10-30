@@ -59,4 +59,10 @@ public enum HeapScopeErrorCode
 
     /// <summary>An allocation trace's file changed since it was opened, so it is not read again silently (the 2.5 review).</summary>
     TraceChanged = 1013,
+
+    /// <summary>
+    /// The only matching DAC lies next to the dump and is not trusted (sprint 3.6, peer review P2); the error data is a
+    /// <see cref="DacTrustDetails"/>.
+    /// </summary>
+    DacNotTrusted = 1014,
 }

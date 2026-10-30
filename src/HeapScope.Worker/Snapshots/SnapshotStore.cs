@@ -77,6 +77,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         ArgumentNullException.ThrowIfNull(request);
         var path = ExistingFullPath(request.Path);
+        _kinds.Trust(request.TrustedDacs);
         await _loadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -215,6 +216,15 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             IndexCacheOpenResult? cached = null;
             if (!request.Rebuild)
             {
+                // A full dump about to open from a valid cache loads no DAC now, but its field reader will: only now can
+                // the front end ask about a DAC that needs trust (review H1). Before the cache is read (re-review), so a
+                // refusal costs no graph.
+                if (request.CheckDac && IndexCacheReader.Probe(cachePath, fingerprint) is null
+                    && SnapshotFileSignature.Detect(path) is { } kind)
+                {
+                    _kinds.For(kind).CheckBeforeCacheOpen(path);
+                }
+
                 cached = TryOpenCache(cachePath, fingerprint, forced, notes, cancellationToken);
             }
 

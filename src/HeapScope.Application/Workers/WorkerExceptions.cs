@@ -81,6 +81,9 @@ public sealed class WorkerOperationException : WorkerException
     }
 
     public HeapScopeErrorCode ErrorCode { get; } = HeapScopeErrorCode.Unknown;
+
+    /// <summary>With <see cref="HeapScopeErrorCode.DacNotTrusted"/>: the DAC next to the dump the user may trust (sprint 3.6).</summary>
+    public DacTrustDetails? DacTrust { get; init; }
 }
 
 /// <summary>The worker could not be started or connected.</summary>

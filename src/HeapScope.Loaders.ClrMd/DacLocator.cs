@@ -49,7 +49,8 @@ public sealed record DacCandidate(string Path, string Outcome)
 
 /// <summary>
 /// Finds the DAC on this machine only (ADR-017): the dumped runtime's own folder when it exists here, the matching
-/// installed shared runtime, the dump's folder and the user's DAC folder. A file is accepted only when its PE time
+/// installed shared runtime, the user's DAC folder and HeapScope's own runtime; then the dump's folder, whose DAC is loaded
+/// only once trusted (peer review P2). A file is accepted only when its PE time
 /// stamp and image size match what the dump records, so a DAC of another build is never loaded.
 /// </summary>
 public static class DacLocator
@@ -113,14 +114,6 @@ public static class DacLocator
             }
         }
 
-        var dumpFolder = Path.GetDirectoryName(Path.GetFullPath(dumpPath));
-        Add(dumpFolder);
-
-        // HeapScope's capture keeps the target's DAC under dac\<file version> next to the dump (sprint 1.1).
-        if (dumpFolder is not null)
-        {
-            Add(Path.Combine(dumpFolder, "dac", request.RuntimeVersion));
-        }
         Add(options.DacFolder);
 
         // A self-contained HeapScope carries its own runtime's DAC (sprint 2.3.6): a candidate like any folder that is not
@@ -128,6 +121,27 @@ public static class DacLocator
         if (options.OwnRuntimeDirectory is { } own)
         {
             Add(Path.TrimEndingDirectorySeparator(own));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The folders next to the dump, searched only after <see cref="CandidateDirectories"/> found nothing (peer review P2):
+    /// the dump's own folder and <c>dac/&lt;version&gt;</c> beside it, where HeapScope's capture keeps the target's DAC
+    /// (sprint 1.1). A DAC found there came with the dump, so it is loaded only once trusted.
+    /// </summary>
+    public static IReadOnlyList<string> BesideDumpDirectories(DacRequest request, string dumpPath)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var result = new List<string>();
+        var dumpFolder = Path.GetDirectoryName(Path.GetFullPath(dumpPath));
+        foreach (var directory in new[] { dumpFolder, dumpFolder is null ? null : Path.Combine(dumpFolder, "dac", request.RuntimeVersion) })
+        {
+            if (!string.IsNullOrEmpty(directory) && IsLocalFixedPath(directory) && !result.Contains(directory, PathComparer))
+            {
+                result.Add(directory);
+            }
         }
 
         return result;

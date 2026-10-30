@@ -584,8 +584,30 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
     private static WorkerOperationException Translate(RemoteInvocationException ex)
     {
         var code = Enum.IsDefined(typeof(HeapScopeErrorCode), ex.ErrorCode) ? (HeapScopeErrorCode)ex.ErrorCode : HeapScopeErrorCode.Unknown;
-        return new WorkerOperationException(code, ex.Message, ex);
+        return new WorkerOperationException(code, ex.Message, ex) { DacTrust = code == HeapScopeErrorCode.DacNotTrusted ? DacTrustOf(ex.ErrorData) : null };
     }
+
+    /// <summary>The DAC details of a <see cref="HeapScopeErrorCode.DacNotTrusted"/> refusal; null when absent or malformed.</summary>
+    internal static DacTrustDetails? DacTrustOf(object? errorData)
+    {
+        // The formatter hands error data over as its own JSON object; its text is the record as the worker wrote it.
+        if (errorData?.ToString() is not { Length: > 0 } json)
+        {
+            return null;
+        }
+
+        try
+        {
+            var details = System.Text.Json.JsonSerializer.Deserialize<DacTrustDetails>(json, s_errorJson);
+            return details is { Path.Length: > 0, Sha256.Length: 64 } ? details : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions s_errorJson = new() { PropertyNameCaseInsensitive = true };
 
     private static void KillQuietly(Process? process)
     {

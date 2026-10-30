@@ -115,6 +115,14 @@ public sealed partial class FixtureProcess : IDisposable
         }
     }
 
+    /// <summary>Asks LeakyApi for a full blocking GC (sprint 3.6), so after-GC heap sizes follow the leak at once.</summary>
+    public async Task CollectGarbageAsync(CancellationToken cancellationToken)
+    {
+        _http ??= new HttpClient { BaseAddress = Url ?? throw new InvalidOperationException("Only LeakyApi accepts work.") };
+        using var response = await _http.PostAsync(new Uri("/gc", UriKind.Relative), null, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+    }
+
     public void Dispose()
     {
         _http?.Dispose();

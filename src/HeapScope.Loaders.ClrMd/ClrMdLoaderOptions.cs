@@ -66,4 +66,17 @@ public sealed record ClrMdLoaderOptions
     /// later (sprint 2.3.7 review M3). The worker logs it; the loaders stay free of logging.
     /// </summary>
     public Action<DacChoice>? DacChosen { get; init; }
+
+    /// <summary>
+    /// Whether the DAC with this SHA-256 (lower-case hex) may be loaded from next to the dump (peer review P2). A DAC there
+    /// came with the dump, so it is native code from whoever made the dump: it is loaded only when the user trusted it or
+    /// HeapScope's own capture copied it. Null trusts none.
+    /// </summary>
+    public Func<string, bool>? IsTrustedDac { get; init; }
+
+    /// <summary>
+    /// The private folder a trusted DAC from next to the dump is copied into before it is loaded, so the file loaded is
+    /// the file hashed. Null: <c>HeapScope/dac</c> in the user's local application data.
+    /// </summary>
+    public string? TrustedDacCopyFolder { get; init; }
 }

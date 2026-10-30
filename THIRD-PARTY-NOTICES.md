@@ -78,13 +78,24 @@ Avalonia renders through ANGLE on Windows. Its native binaries are under the BSD
 > WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+### Native components inside SkiaSharp and HarfBuzzSharp
+
+The native assets of SkiaSharp and HarfBuzzSharp (via Avalonia) bundle third-party components under their own licenses,
+which the packages list in their `THIRD-PARTY-NOTICES.txt`: ANGLE, DNG SDK, etc1, expat, FreeType (used under the
+FreeType License), gif, HarfBuzz, ICU, imgui, jsoncpp, libjpeg-turbo, libmicrohttpd, libpng, libwebp, piex, SDL, sfntly,
+Skia, SPIR-V Headers and Tools, and zlib, under the BSD, MIT, Apache-2.0, zlib, ICU, FreeType, IJG and LGPL-2.1
+licenses and the Adobe DNG SDK License. This product includes DNG technology under license by Adobe Systems
+Incorporated. Every published build carries those files, with each shipped package's own license and notice files,
+under `licenses/<package>.<version>/` (sprint 3.6).
+
 ### Native binaries inside Microsoft.Diagnostics.Tracing.TraceEvent
 
-The TraceEvent package copies two native Microsoft binaries into the build output (`amd64/KernelTraceControl.dll` and
-`amd64/msdia140.dll`). They ship without source code. The package as a whole is declared MIT, but these binaries come
-from Microsoft's Windows Performance Toolkit and the Debug Interface Access SDK and may carry their own
-redistribution terms. They are kept on purpose (product owner, 2026-10-24) for future kernel tracing and symbol
-lookup; review their redistribution terms before HeapScope is distributed.
+The TraceEvent package copies native Microsoft binaries into the build output (`KernelTraceControl.dll` and
+`msdia140.dll`, per architecture). They ship without source code. The package as a whole is declared MIT, but these
+binaries come from Microsoft's Windows Performance Toolkit and the Debug Interface Access SDK and may carry their own
+redistribution terms. They are kept in development builds on purpose (product owner, 2026-10-24) for future kernel
+tracing and symbol lookup. Nothing in HeapScope calls them, and since sprint 3.6 published builds leave them out (and
+`build/check-package.sh` fails a build that has them) until their redistribution terms are reviewed.
 
 ## Development and test only (not shipped)
 
