@@ -104,6 +104,18 @@ highest severity.
   step; docs still gave fixed `%LOCALAPPDATA%` paths (fixed in logging.md and DEVELOPER); `JobAdded` is raised outside
   the job's activity.
 
+## Markdown sweep
+
+Every tracked Markdown file was checked after the fixes for what 3.8 changed (the worker contracts and handlers,
+protocol 21, the data folder, the signer, the Application helpers, the CLI's files, the detectors' files, the docs
+split). Changed: `docs/ARCHITECTURE.md` (the layout's Cli.Tests, ADR-023's index line), `docs/adr/README.md`,
+`docs/adr/ADR-036...` and `ADR-037-live-sources.md`, `docs/architecture/code-map.md` (every project touched),
+`process-model.md`, `logging.md`, `snapshots.md`, `graph-format.md`, `worker-memory.md`, `docs/DEVELOPER.md` (test
+fakes, data folders, the CLI tests, live-tail, trace-report, adding a worker area, the derived state rule),
+`docs/SPRINTS.md` (criteria, decisions 11 to 13, tasks, review summary), `docs/BACKLOG.md`, `SECURITY.md` and the
+agent briefs and skills for the docs split. Past review files and `peer-review-3.5.md` are records and stay as written.
+No em or en dashes in any changed file.
+
 ## Measurements
 
 - CLI answers on the LeakyConsole dump (34 commands, timings and set ids aside) equal the pre-sprint baseline after every

@@ -213,7 +213,17 @@ classes.
 24. [x] Live sources spike and ADR-037 (P6); ADR-023 amended.
 25. [x] Docs: the architecture pages, ADR-036 amended, DEVELOPER, this section.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (docs/reviews/sprint-3.8.md): 1 High, 17 Moderate, 41 Low after dedupe across four reviewers
+(solution-architect, senior-dev, gc-specialist, support engineer). The High, fixed and confirmed by the architect: the
+monitoring run's trace size limit never fired, because since 3.7 the recorder writes a partial file of its own name and
+the watch looked for another (one naming helper now serves the recorder, the watch, the sweep and the tests).
+Moderates: 15 fixed (among them Starting shown while the worker starts, the data folder passed absolute and logged, a
+blank data folder variable, every trace problem logged, listener failures counted, the reachability walk reserved,
+`Internal.` steps folded only from framework modules, the tests the senior dev asked for, ADR-037 measured again with
+the production profile at a realistic rate: a 64 KB write buffer made a live view 2.7 s late, 157 ms without it), 2 in
+part or deferred (the UI reading cells by name, CLI refusals logged). CI found a race in a test that killed a traced
+process before its first flush. Measured: the CLI's answers on 34 commands equal the pre-sprint baseline after every
+merge; 1,475 tests before the wrap.
 
 ---
 
