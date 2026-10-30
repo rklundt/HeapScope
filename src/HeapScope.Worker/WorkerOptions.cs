@@ -24,6 +24,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using HeapScope.Core;
 
 namespace HeapScope.Worker;
 
@@ -37,6 +38,12 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
 
     /// <summary>Configuration section of the DAC lookup options (ADR-017).</summary>
     public const string SymbolsSectionName = "Symbols";
+
+    /// <summary>HeapScope's data folder for this worker (<c>--data-folder</c>); null: <see cref="HeapScopeFolders.Default"/>.</summary>
+    public string? DataFolder { get; init; }
+
+    /// <summary>The data folders this worker uses: its cache key, the index cache fallback, DAC copies, trace conversion.</summary>
+    public HeapScopeFolders Folders => DataFolder is null ? HeapScopeFolders.Default : new HeapScopeFolders(DataFolder);
 
     /// <summary>A user folder searched for the data access component (<c>--dac-folder</c>).</summary>
     public string? DacFolder { get; init; }
@@ -58,6 +65,7 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
         ["--dac-folder"] = $"{SymbolsSectionName}:DacFolder",
         ["--allow-symbol-server"] = $"{SymbolsSectionName}:AllowMicrosoftSymbolServer",
         ["--log-level"] = $"{SectionName}:LogLevel",
+        ["--data-folder"] = $"{SectionName}:DataFolder",
     };
 
     /// <summary>
@@ -111,6 +119,7 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
         {
             LogLevel = level,
             DacFolder = string.IsNullOrWhiteSpace(symbols["DacFolder"]) ? null : symbols["DacFolder"],
+            DataFolder = string.IsNullOrWhiteSpace(configuration.GetSection(SectionName)["DataFolder"]) ? null : configuration.GetSection(SectionName)["DataFolder"],
             AllowMicrosoftSymbolServer = allow,
         };
         error = null;

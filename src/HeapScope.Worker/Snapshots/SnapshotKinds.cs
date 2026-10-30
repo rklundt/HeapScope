@@ -153,6 +153,7 @@ internal sealed class SnapshotKinds
             AllowMicrosoftSymbolServer = options.AllowMicrosoftSymbolServer,
             DacChosen = dacChosen,
             IsTrustedDac = trustedDacs.ContainsKey,
+            TrustedDacCopyFolder = options.Folders.DacCopies,
         };
     }
 

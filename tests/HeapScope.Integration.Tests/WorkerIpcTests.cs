@@ -77,6 +77,21 @@ public sealed class WorkerIpcTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_worker_given_a_data_folder_keeps_its_index_cache_key_there()
+    {
+        // Sprint 3.8 (3.7 review): the worker's folders are redirected as a whole, so tests never write into the profile.
+        using var folder = new TempFolder();
+        await using var host = new WorkerHost(
+            Options.Create(new WorkerHostOptions { WorkerPath = TestPaths.WorkerExe, DataFolder = folder.Path }),
+            _logs);
+
+        await host.EnsureStartedAsync(Ct);
+
+        File.Exists(Path.Combine(folder.Path, HeapScope.Storage.IndexCacheKey.FileName)).ShouldBeTrue();
+        _logs.Records.ShouldContain(r => r.Message.Contains("Index cache key", StringComparison.Ordinal) && r.Message.Contains(folder.Path, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Handshake_succeeds_and_worker_runs_with_server_gc()
     {
         var info = await _host.EnsureStartedAsync(Ct);

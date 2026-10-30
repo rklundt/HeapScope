@@ -231,7 +231,7 @@ internal static class ClrMdDump
     internal static string CopyTrusted(string path, string sha256, string? copyFolder)
     {
         var folder = Path.Combine(
-            copyFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "dac"),
+            copyFolder ?? HeapScopeFolders.Default.DacCopies,
             sha256);
         PrivateFiles.CreatePrivateDirectory(folder);
         var copy = Path.Combine(folder, Path.GetFileName(path));

@@ -93,8 +93,7 @@ public sealed class FileLoggerProvider : ILoggerProvider, ISupportExternalScope
         _keepDays = keepDays;
     }
 
-    public static string DefaultDirectory { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "logs");
+    public static string DefaultDirectory => HeapScope.Core.HeapScopeFolders.Default.Logs;
 
     /// <summary>The folder this provider writes to (messages that point users to the log name it, review M16).</summary>
     public string Directory => _directory;

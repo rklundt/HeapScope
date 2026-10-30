@@ -57,19 +57,21 @@ internal sealed class TraceStore
 
     private readonly ConcurrentDictionary<Guid, OpenTrace> _traces = new();
     private readonly SnapshotStore _snapshots;
+    private readonly string _etlx;
     private readonly ILogger<TraceStore> _logger;
 
-    public TraceStore(SnapshotStore snapshots, ILogger<TraceStore> logger)
+    public TraceStore(SnapshotStore snapshots, WorkerOptions options, ILogger<TraceStore> logger)
     {
         _snapshots = snapshots;
         _logger = logger;
+        _etlx = options.Folders.Etlx;
 
         // Files a killed worker left behind (the 2.5 review); off the starting thread.
         _ = Task.Run(() =>
         {
             try
             {
-                var (files, bytes) = AllocationTraceReader.SweepTemporaryFiles(s_sweepAge);
+                var (files, bytes) = AllocationTraceReader.SweepTemporaryFiles(s_sweepAge, _etlx);
                 if (files > 0)
                 {
                     _logger.LogInformation("Deleted {Files} temporary trace files ({Bytes} bytes) left by an earlier read", files, bytes);
@@ -104,7 +106,7 @@ internal sealed class TraceStore
             try
             {
                 var phases = new Progress<string>(phase => progress?.Report(new JobProgress(phase, 0, null)));
-                trace = await Task.Run(() => AllocationTraceReader.Read(path, phases, cancellationToken), cancellationToken).ConfigureAwait(false);
+                trace = await Task.Run(() => AllocationTraceReader.Read(path, phases, _etlx, cancellationToken), cancellationToken).ConfigureAwait(false);
             }
             finally
             {

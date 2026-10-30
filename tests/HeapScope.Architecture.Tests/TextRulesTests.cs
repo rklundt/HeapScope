@@ -53,6 +53,20 @@ public class TextRulesTests
         offenders.ShouldBeEmpty();
     }
 
+    // HeapScope's data folders are named in one place, so one setting (HEAPSCOPE_DATA_FOLDER, --data-folder) moves them
+    // all, and tests never write into the user's profile (sprint 3.8).
+    [Fact]
+    public void Only_HeapScopeFolders_names_the_local_application_data_folder()
+    {
+        var offenders = Directory.EnumerateFiles(Path.Combine(RepoPaths.Root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !IsIgnored(Path.GetRelativePath(RepoPaths.Root, f)) && Path.GetFileName(f) != "HeapScopeFolders.cs")
+            .Where(f => File.ReadAllText(f).Contains("SpecialFolder.LocalApplicationData", StringComparison.Ordinal))
+            .Select(f => Path.GetRelativePath(RepoPaths.Root, f))
+            .ToList();
+
+        offenders.ShouldBeEmpty();
+    }
+
     // Every source file we own starts with the license header of docs/licensing/SOURCE-HEADER.txt, in its own comment
     // syntax (LICENSE, ADDITIONAL-TERMS.md). Vendored code (a ThirdParty project or folder) keeps its own header.
     [Fact]

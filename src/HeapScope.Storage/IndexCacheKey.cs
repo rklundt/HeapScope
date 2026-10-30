@@ -56,7 +56,7 @@ public static class IndexCacheKey
     /// </summary>
     public static IndexCacheKeyOutcome UseForThisUser(string? folder = null)
     {
-        var path = Path.Combine(folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope"), FileName);
+        var path = Path.Combine(folder ?? HeapScopeFolders.Default.Root, FileName);
         try
         {
             (s_process, var how) = LoadOrCreate(path);

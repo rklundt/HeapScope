@@ -436,6 +436,12 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         info.ArgumentList.Add(pipeName);
         info.ArgumentList.Add("--parent-pid");
         info.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        if (!string.IsNullOrWhiteSpace(_options.DataFolder))
+        {
+            info.ArgumentList.Add("--data-folder");
+            info.ArgumentList.Add(_options.DataFolder);
+        }
+
         if (!string.IsNullOrWhiteSpace(_options.DacFolder))
         {
             info.ArgumentList.Add("--dac-folder");

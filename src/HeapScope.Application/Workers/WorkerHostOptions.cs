@@ -45,6 +45,10 @@ public sealed class WorkerHostOptions
     /// <summary>Configuration section of the DAC lookup options, bound onto these options too (ADR-017).</summary>
     public const string SymbolsSectionName = "Symbols";
 
+    /// <summary>HeapScope's data folder for the worker (<c>Worker:DataFolder</c>); null: the default, or the folder
+    /// <c>HEAPSCOPE_DATA_FOLDER</c> names, which the worker inherits.</summary>
+    public string? DataFolder { get; set; }
+
     /// <summary>A user folder searched for the data access component (<c>Symbols:DacFolder</c>).</summary>
     public string? DacFolder { get; set; }
 

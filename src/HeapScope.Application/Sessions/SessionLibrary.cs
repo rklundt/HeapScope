@@ -243,8 +243,7 @@ public sealed class SessionLibrary
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(DefaultRoot)!, root));
     }
 
-    public static string DefaultRoot { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "sessions");
+    public static string DefaultRoot => HeapScope.Core.HeapScopeFolders.Default.Sessions;
 
     public string Root { get; }
 

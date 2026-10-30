@@ -74,7 +74,7 @@ if (options is not null)
 {
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new ResultSetStore());
-    builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator());
+    builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator(options.Folders.Cache));
     builder.Services.AddSingleton<HeapScope.Worker.Snapshots.SnapshotStore>();
     builder.Services.AddSingleton<HeapScope.Worker.Traces.TraceStore>();
     builder.Services.AddSingleton<WorkerService>();
@@ -131,7 +131,7 @@ logger.LogInformation("Worker versions: {Versions}", WorkerVersions.Describe());
 // Index caches are signed with this user's key and a cache without its signature is never used (sprint 3.7, peer review
 // P14, ADR-036): a cache shipped next to a dump cannot decide what the analysis shows. Loaded once the log exists, so its
 // outcome, and a failure, is on record (3.7 review H4).
-var key = HeapScope.Storage.IndexCacheKey.UseForThisUser();
+var key = HeapScope.Storage.IndexCacheKey.UseForThisUser(options.Folders.Root);
 if (key.Error is { } keyError)
 {
     logger.LogWarning(

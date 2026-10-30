@@ -55,9 +55,7 @@ public static class AllocationTraceReader
     /// folder on Windows; on Linux and macOS HeapScope's data folder, since the temporary folder there is shared by every
     /// user and a folder another user created first would hold the trace (sprint 3.7, peer review P15).
     /// </summary>
-    public static string DefaultTemporaryFolder { get; } = OperatingSystem.IsWindows()
-        ? Path.Combine(Path.GetTempPath(), "HeapScope", "etlx")
-        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "etlx");
+    public static string DefaultTemporaryFolder => HeapScopeFolders.Default.Etlx;
 
     private static readonly byte[] s_magic = Encoding.ASCII.GetBytes("Nettrace");
 
@@ -73,8 +71,8 @@ public static class AllocationTraceReader
     public static AllocationTrace Read(string path, IProgress<string>? progress, CancellationToken cancellationToken) =>
         Read(path, progress, DefaultTemporaryFolder, cancellationToken);
 
-    /// <summary>Reads <paramref name="path"/>, writing the temporary <c>.etlx</c> into <paramref name="temporaryFolder"/> (tests).</summary>
-    internal static AllocationTrace Read(string path, IProgress<string>? progress, string temporaryFolder, CancellationToken cancellationToken)
+    /// <summary>Reads <paramref name="path"/>, writing the temporary <c>.etlx</c> into <paramref name="temporaryFolder"/>.</summary>
+    public static AllocationTrace Read(string path, IProgress<string>? progress, string temporaryFolder, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         var fullPath = Path.GetFullPath(path);
