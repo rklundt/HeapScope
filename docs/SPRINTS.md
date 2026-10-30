@@ -208,7 +208,7 @@ classes.
 22. [-] Analysis workspace extraction (P21): deferred (decision 11). Tests: none.
 23. [x] trace-report on Avalonia (S7). Tests: a recorded smoke trace reported by hand.
 24. [x] Live sources spike and ADR-037 (P6); ADR-023 amended.
-25. [ ] Docs: the architecture pages, ADR-036 amended, DEVELOPER, this section.
+25. [x] Docs: the architecture pages, ADR-036 amended, DEVELOPER, this section.
 
 **Review summary**: to be filled by /wrap-sprint.
 
