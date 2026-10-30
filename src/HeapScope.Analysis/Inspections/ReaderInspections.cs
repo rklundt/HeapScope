@@ -39,11 +39,11 @@ internal static class Collections
 {
     private static readonly (string Prefix, string Count, string? Free, string Items, string? Buckets)[] s_layouts =
     [
-        ("System.Collections.Generic.List<", "_size", null, "_items", null),
-        ("System.Collections.Generic.Dictionary<", "_count", "_freeCount", "_entries", "_buckets"),
-        ("System.Collections.Generic.HashSet<", "_count", "_freeCount", "_entries", "_buckets"),
-        ("System.Collections.Generic.Queue<", "_size", null, "_array", null),
-        ("System.Collections.Generic.Stack<", "_size", null, "_array", null),
+        ("System.Collections.Generic.List<", RuntimeLayouts.Collections.Size, null, RuntimeLayouts.Collections.Items, null),
+        ("System.Collections.Generic.Dictionary<", RuntimeLayouts.Collections.Count, RuntimeLayouts.Collections.FreeCount, RuntimeLayouts.Collections.Entries, RuntimeLayouts.Collections.Buckets),
+        ("System.Collections.Generic.HashSet<", RuntimeLayouts.Collections.Count, RuntimeLayouts.Collections.FreeCount, RuntimeLayouts.Collections.Entries, RuntimeLayouts.Collections.Buckets),
+        ("System.Collections.Generic.Queue<", RuntimeLayouts.Collections.Size, null, RuntimeLayouts.Collections.Array, null),
+        ("System.Collections.Generic.Stack<", RuntimeLayouts.Collections.Size, null, RuntimeLayouts.Collections.Array, null),
     ];
 
     public static readonly InspectionColumn[] Columns =

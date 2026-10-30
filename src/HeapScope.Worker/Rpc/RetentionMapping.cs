@@ -63,8 +63,7 @@ internal static class RetentionMapping
     }
 
     /// <summary>Whether a type is a framework type a front end may fold when it lies between other steps.</summary>
-    public static bool IsFrameworkType(string typeName) =>
-        typeName.StartsWith("System.", StringComparison.Ordinal) || typeName.StartsWith("Microsoft.", StringComparison.Ordinal);
+    public static bool IsFrameworkType(string typeName) => HeapScope.Analysis.FrameworkTypes.IsFramework(typeName);
 
     /// <summary>
     /// What "no root reaches it" means for a snapshot of <paramref name="kind"/> (review M3). A full dump holds every object,
