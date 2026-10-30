@@ -30,8 +30,10 @@ Swept in sprint 3.8:
 - A contribution policy before any outside contribution is accepted (from ADR-022; 2026-10-30, the repository is
   public). A contribution stays its author's, licensed to HeapScope under the AGPL only, which would end commercial
   licensing of any file it touches. Until a contributor agreement exists (a CLA that grants the owner the right to
-  license contributions commercially, or a copyright assignment; a lawyer's review), a `CONTRIBUTING.md` says outside
-  contributions are not accepted, and no outside pull request is merged: code, tests or docs.
+  license contributions commercially, or a copyright assignment; a lawyer's review), `CONTRIBUTING.md` says outside
+  contributions are not accepted, and no outside pull request is merged: code, tests or docs. The agreement's terms
+  (product owner, 2026-10-30): contributors are 18 or older; each contribution's ownership (copyright) passes to the
+  owner; contributors are credited.
 - Intermittent 105 to 130 ms dispatcher lag at job completion under heavy machine load (from 0.3): find the
   cause (likely CPU contention with the worker) and bring the smoke gate back to 100 ms. Capture a WPR or PerfView
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
