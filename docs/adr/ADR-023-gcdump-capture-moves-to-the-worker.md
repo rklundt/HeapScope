@@ -28,3 +28,7 @@
   - Elevation: the worker inherits the front end's token, so it can capture what the front end could (ADR-014).
   - Schedule: with the gcdump scale item before any 2.x sprint that needs gcdumps above the cap.
   Capture keeps process discovery and full dump capture in the front end, where the runtime writes the file itself.
+- Amended by ADR-037 (sprint 3.8, peer review P6): gcdump capture never moved, and it stays in the front end. No sprint
+  of Phase 2 or 3 needed it in the worker: captures stay under the vendored 10 million node cap, and keeping every
+  EventPipe session in the front end keeps a misbehaving target away from the worker's open snapshots. Revisit with a
+  measurement of a capture inside the worker if the cap is raised (Backlog).

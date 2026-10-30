@@ -352,6 +352,7 @@ One file per ADR in [adr/](adr/README.md):
 - [ADR-034](adr/ADR-034-runtime-leak-detectors-and-the-unreachable-set.md) Runtime leak detectors and the unreachable set (added in sprint 3.5)
 - [ADR-035](adr/ADR-035-a-dac-next-to-a-dump-is-loaded-only-once-trusted.md) A DAC next to a dump is loaded only once trusted (added in sprint 3.6, amends ADR-017)
 - [ADR-036](adr/ADR-036-index-caches-signed-with-a-per-user-key.md) Index caches signed with a per-user key (added in sprint 3.7)
+- [ADR-037](adr/ADR-037-live-sources.md) Live sources (added in sprint 3.8, amends ADR-023)
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
