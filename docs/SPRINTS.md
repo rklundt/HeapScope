@@ -195,9 +195,9 @@ classes.
 14. [x] Derived state (P20): reachability and dominator groups in the worker's derived slots, the set cache with the
     snapshot. Tests: computed once for concurrent callers, no static caches, a set resolved after close is not kept.
 15. [x] One type matcher (S5). Tests: a module path matches.
-16. [ ] Shared presentation (P18): column access, texts, monitor rules parser in Application. Tests: unit tests per text
+16. [x] Shared presentation (P18): column access, texts, monitor rules parser in Application. Tests: unit tests per text
     and parser, view model tests.
-17. [ ] CLI (P10): `HeapScope.Cli.Tests`, a context, cells by name, one open helper, commands in their own files. Tests:
+17. [x] CLI (P10): `HeapScope.Cli.Tests`, a context, cells by name, one open helper, commands in their own files. Tests:
     usage and characterization tests, the integration CLI tests, known answers.
 18. [x] Monitoring (P11): timeline writer, awaited allocation recording, run record; `MonitorService.cs` a file per type.
     Tests: `MonitorServiceTests`, a run disposed while its watch waits.
