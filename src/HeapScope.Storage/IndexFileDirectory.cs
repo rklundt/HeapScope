@@ -92,6 +92,20 @@ internal static class IndexFileDirectory
             return null;
         }
 
+        // The checksums anyone can recompute; the signature only this user's HeapScope can (sprint 3.7, peer review P14).
+        MemoryMarshal.Write(region, in header);
+        if (!IndexCacheKey.Verify(region))
+        {
+            // Unsigned (all zero) is what every cache written before 3.7 is; a signature that does not match is another
+            // user's, another machine's, or a forgery (3.7 review, support).
+            failure = IndexCacheOpenResult.Invalid(
+                IndexCacheInvalidReason.Untrusted,
+                region[^IndexCacheKey.SignatureLength..].IndexOfAnyExcept((byte)0) < 0
+                    ? "The index cache is unsigned (written by a HeapScope before 3.7, or not by HeapScope), so it is not used; the dump is read again."
+                    : "The index cache is signed with another key (another user, another machine, a deleted key file, or a HeapScope run that could not use its key file), so it is not used; the dump is read again.");
+            return null;
+        }
+
         // Every entry is validated, known or not, with overflow-safe arithmetic, before any offset is used.
         var directory = new Dictionary<IndexSection, SectionEntry>();
         foreach (var entry in MemoryMarshal.Cast<byte, SectionEntry>(region.AsSpan(headerSize, directoryBytes)))

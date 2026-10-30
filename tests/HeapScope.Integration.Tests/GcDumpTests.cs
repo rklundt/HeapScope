@@ -212,6 +212,97 @@ public sealed class GcDumpTests(AllLeaksGcDump shared) : IClassFixture<AllLeaksG
     }
 
     [Fact]
+    public void A_crafted_gcdump_whose_nodes_share_one_child_list_is_refused_quickly()
+    {
+        // 3.7 review H7: nodes of a crafted file may all point at one record in the blob, so a file of a few kilobytes
+        // states millions of children. The RCW walk, the reference walk and the root walk draw on one budget of a child
+        // per byte. Written by the vendored writer, then every RCW node's record is pointed at the first one's, whose
+        // thousand children are all itself (delta 0, a byte each).
+        using var folder = new TempFolder();
+        var path = folder.File("shared.gcdump");
+        const int Shared = 2_000;
+        const int Children = 1_000;
+        var graph = new MemoryGraph(Shared + 16) { Is64Bit = true };
+        var root = new MemoryNodeBuilder(graph, "[.NET Roots]");
+        var rcwType = graph.CreateType("[RCW System.__ComObject]", "System.Private.CoreLib.dll");
+        var fat = graph.GetNodeIndex(0x10000);
+        var self = new GrowableArray<NodeIndex>();
+        for (var i = 0; i < Children; i++)
+        {
+            self.Add(fat);
+        }
+
+        graph.SetNode(fat, rcwType, 1032, self);
+        var sharing = new List<NodeIndex>();
+        for (var i = 1; i <= Shared; i++)
+        {
+            var node = graph.GetNodeIndex(0x10000 + ((ulong)i * 0x40));
+            graph.SetNode(node, rcwType, 1032, new GrowableArray<NodeIndex>());
+            sharing.Add(node);
+        }
+
+        root.FindOrCreateChild("[local vars]").AddChild(fat);
+        graph.RootIndex = root.Build();
+        graph.AllowReading();
+        GCHeapDump.WriteMemoryGraph(graph, path, "test");
+
+        var bytes = File.ReadAllBytes(path);
+        var table = FindNodeTable(bytes, (int)graph.NodeIndexLimit);
+        var fatLabel = BitConverter.ToInt32(bytes, table + (4 * (int)fat));
+        foreach (var node in sharing)
+        {
+            BitConverter.GetBytes(fatLabel).CopyTo(bytes, table + (4 * (int)node));
+        }
+
+        File.WriteAllBytes(path, bytes);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Should.Throw<SnapshotFormatException>(() => new GcDumpLoader().Load(path, cancellationToken: Ct));
+        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10), "refused when the children pass the file's length, not after millions of them");
+        ex.Message.ShouldContain("more references than its");
+        ex.Message.ShouldContain(bytes.Length.ToString("N0", System.Globalization.CultureInfo.CurrentCulture));
+    }
+
+    [Fact]
+    public void Only_the_readers_own_errors_count_as_a_bad_file()
+    {
+        // 3.7 review H5: the same exception types thrown by HeapScope's own code are a bug, never "capture another gcdump".
+        // The reader's own errors are recognized by the mutation test (CraftedGcDumpTests), which accepts only a format
+        // refusal: a reader error not recognized would reach it as a HeapScope error and fail it.
+        var ours = Should.Throw<ArgumentOutOfRangeException>(() => ThrowOutOfRange());
+        GcDumpLoader.IsReaderInconsistency(ours).ShouldBeFalse("thrown by HeapScope's own code");
+        GcDumpLoader.IsReaderInconsistency(new InvalidOperationException("builder")).ShouldBeFalse();
+    }
+
+    private static void ThrowOutOfRange() => throw new ArgumentOutOfRangeException("targetIndices", "Target index 7 is not an object.");
+
+    /// <summary>The offset of the node label table: the node count, that many labels inside the blob, then the blob's length.</summary>
+    private static int FindNodeTable(byte[] bytes, int nodes)
+    {
+        for (var at = 0; at + 8 + (4L * nodes) <= bytes.Length; at++)
+        {
+            if (BitConverter.ToInt32(bytes, at) != nodes)
+            {
+                continue;
+            }
+
+            var blobAt = at + 4 + (4 * nodes);
+            var blob = BitConverter.ToInt32(bytes, blobAt);
+            if (blob <= 0 || blobAt + 4L + blob > bytes.Length)
+            {
+                continue;
+            }
+
+            var labels = Enumerable.Range(0, nodes).Select(i => BitConverter.ToInt32(bytes, at + 4 + (4 * i))).ToArray();
+            if (labels.All(l => l >= 0 && l < blob) && labels.Distinct().Count() > nodes / 2)
+            {
+                return at + 4;
+            }
+        }
+
+        throw new InvalidOperationException("The node table was not found.");
+    }
+
+    [Fact]
     public void A_crafted_gcdump_naming_an_unknown_type_is_refused_without_creating_it()
     {
         // A gcdump from elsewhere is untrusted input (ARCHITECTURE.md 12, sprint 1.9): its stream names the types to

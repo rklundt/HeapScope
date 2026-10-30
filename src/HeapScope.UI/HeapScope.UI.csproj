@@ -9,6 +9,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Precompiled when published for a runtime (dotnet publish -r <rid>); measured in sprint 1.2. -->
     <PublishReadyToRun>true</PublishReadyToRun>
+    <!--
+      The runtime identifiers it is published for, stated so that every SDK restores the same set: newer SDKs add the
+      machine's own for ReadyToRun, which made the lock file differ by SDK (sprint 3.7).
+    -->
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-arm64;osx-x64</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />

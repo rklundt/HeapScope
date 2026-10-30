@@ -12,6 +12,24 @@ each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 Everything else was built on `develop` and first shipped in the next release above it.
 
+## 3.7.0: Hardening (sprint 3.7)
+
+From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`).
+- **Crafted files are refused, not obeyed**: a gcdump, minidump or index cache built to hang HeapScope or exhaust its
+  memory is refused with a reason in bounded time. Mutation tests run on every pull request and nightly.
+- **Index caches are signed with your key**: a cache that arrives next to a dump, or one written by another user or
+  machine, is never used; the dump is read again and the snapshot's notes say why. Every cache written before 3.7 is
+  rebuilt once.
+- **Your files stay yours**: files HeapScope creates are readable by you only (on Windows from the moment they are
+  created), a finished dump is made private, and the capture says so when it cannot be. Trace conversion no longer uses
+  the shared `/tmp` on Linux and macOS.
+- **A session from someone else cannot reach out**: snapshots on a network path are never looked at or opened, and a
+  run's timeline opens only when it is a CSV file inside the session folder, reached through no link.
+- **Supply chain**: packages from nuget.org only with lock files, Actions pinned to commits, Dependabot, `SECURITY.md`,
+  and release builds with SBOMs, checksums and build provenance attestations.
+- Limited: locked restores cover CI's builds, not yet publishes for a platform; a dump is private only once the capture
+  ends, since the runtime writes it.
+
 ## 3.6.0: Urgent fixes (sprint 3.6)
 
 From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`).

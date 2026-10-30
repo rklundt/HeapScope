@@ -128,6 +128,23 @@ logger.LogInformation(
 // upgrade is traced to the rules that produced it.
 logger.LogInformation("Worker versions: {Versions}", WorkerVersions.Describe());
 
+// Index caches are signed with this user's key and a cache without its signature is never used (sprint 3.7, peer review
+// P14, ADR-036): a cache shipped next to a dump cannot decide what the analysis shows. Loaded once the log exists, so its
+// outcome, and a failure, is on record (3.7 review H4).
+var key = HeapScope.Storage.IndexCacheKey.UseForThisUser();
+if (key.Error is { } keyError)
+{
+    logger.LogWarning(
+        "Index cache key {Path} could not be read or created ({Error}: {Message}); this run signs with a key of its own, so index caches written now are rebuilt on the next run. Check that the folder exists, belongs to this user and has free space.",
+        key.Path,
+        keyError.GetType().Name,
+        keyError.Message);
+}
+else
+{
+    logger.LogInformation("Index cache key {Path}: {Source}", key.Path, key.Source);
+}
+
 if (options.AllowMicrosoftSymbolServer)
 {
     logger.LogWarning("Symbol server downloads are on (Symbols:AllowMicrosoftSymbolServer): a missing DAC may be downloaded from Microsoft's symbol server, which sends module identifiers (never dump contents)");

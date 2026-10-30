@@ -1,0 +1,54 @@
+# HeapScope nightly fuzzing (sprint 3.7, peer review P13): the mutation tests of the index cache reader and the gcdump
+# loader run with many more iterations than in CI, on a new seed every night (the run number). A failure names its seed
+# and iteration, so `HEAPSCOPE_FUZZ_SEED=<seed> HEAPSCOPE_FUZZ_ITERATIONS=<n>` replays it locally; the gcdump half also
+# needs the base gcdump it mutated (`HEAPSCOPE_FUZZ_BASE`), which is kept with the results, with any failing input and
+# the iteration in progress (fixture data from LeakyConsole only). A schedule runs on the default branch's copy of this
+# file, so it checks out develop explicitly: the nightly fuzzes the code in progress, not the last release.
+name: Fuzz
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  AVALONIA_TELEMETRY_OPTOUT: '1'
+  HEAPSCOPE_FUZZ_ITERATIONS: '2000'
+  HEAPSCOPE_FUZZ_SEED: ${{ github.run_number }}
+
+jobs:
+  fuzz:
+    name: Fuzz the cache reader and the gcdump loader
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build HeapScope.sln -c Release
+      - name: Index caches
+        shell: bash
+        run: dotnet test --project tests/HeapScope.Storage.Tests -c Release --no-build --filter-class "*SignedCacheTests" --report-xunit-trx --results-directory "$RUNNER_TEMP/fuzz-results"
+      - name: Gcdumps
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          HEAPSCOPE_FUZZ_KEEP: ${{ runner.temp }}/fuzz-results/inputs
+        run: dotnet test --project tests/HeapScope.Integration.Tests -c Release --no-build --filter-class "*CraftedGcDumpTests" --report-xunit-trx --results-directory "$RUNNER_TEMP/fuzz-results"
+      - name: Keep the results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-results
+          path: ${{ runner.temp }}/fuzz-results
+          if-no-files-found: warn
+          retention-days: 14

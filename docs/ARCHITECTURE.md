@@ -234,6 +234,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   header and directory checks both readers share) and `IndexCacheLocator.GetSidecarPath` [2.1]. `MappedIndexFileWriter`
   (sections planned up front and filled in place through a read-write mapping of the temporary file, then hashed, header
   last, rename) and the sidecar semantics version (`IndexFileLayout.SemanticsVersion`, checked on open) [2.3].
+  `IndexCacheKey` (the per-user key that signs and checks every index file's header region, ADR-036;
+  `IndexCacheKeyOutcome` says where the worker's key came from) [3.7].
 - **Capture.** Process discovery and elevation, `DumpSizeEstimator` (the disk preflight's estimate) [1.1]; `DumpCapturer` (full dumps written by the runtime) and `GcDumpCapturer`
   (the vendored heap snapshot over EventPipe, failures classified, its log lines sent to the HeapScope log) [1.8], both
   writing through `PartialSnapshotFile` (reserve, never overwrite, commit by rename, discard with retries) [1.9];
@@ -258,7 +260,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
 - **Loaders.GcDump.** `GcDumpLoader`, `RootClass` (pseudo node names to root kinds), `TypeNames` (names normalized to
   the full dump loader's form), `ObservedReadStream` (progress and cancellation while the vendored reader reads) [1.8].
 - **ThirdParty.GcDump.** The vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the EventPipe heap
-  dumper), MIT, with its four changes listed in its `CHANGES.md` [1.8, 1.9].
+  dumper), MIT, with its five changes listed in its `CHANGES.md` [1.8, 1.9, 3.7].
 - **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
   [0.3]; `DacTrustDetails`, the error data of `DacNotTrusted` [3.6]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
   [1.9], and `SetDtos` (`ObjectSetSpec`, with its shape, address hash and cache key as extension members in
@@ -339,7 +341,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
   `Sessions/SessionDocumentFile`: the file protocol of `session.json` (`SessionRead`, `SessionUnreadableException`)
-  [3.6]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
+  [3.6]; `Session.FileInside` and `Session.IsLocal` for paths a received session names [3.7]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
   the session library or for one run (ADR-035) [3.6].
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
@@ -435,8 +437,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
 - **Allocation traces [2.5, ADR-028].** Capture: `TraceProfile.Allocations` (GC events at verbose with loader and JIT
   events; the rundown on stop). Core: `Allocations/AllocationTrace` (frames, a deduplicated stack tree, types, and per
   sample its time, innermost stack node, type and bytes; `NativeFrame`, `NoStackFrame`). Loaders.Trace:
-  `AllocationTraceReader` (the `Nettrace` signature checked first, TraceEvent's `.etlx` written to a private temporary
-  folder and deleted, runs of native frames merged, cancellation). Analysis: `Allocations/AllocationProfile` (sample
+  `AllocationTraceReader` (the `Nettrace` signature checked first, TraceEvent's `.etlx` written to a private folder
+  (section 12) and deleted, runs of native frames merged, cancellation). Analysis: `Allocations/AllocationProfile` (sample
   ranges by binary search, the timeline, types, totals, top stacks, a stack's frames) and `AllocationTreeRows` (the call
   tree and back traces flattened from open keys like ADR-027, with `AllocationRow`, `AllocationTreeView`,
   `AllocationFilter`). Worker: `Traces/TraceStore` (open traces, a memory reservation while reading,
@@ -1245,7 +1247,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Layout (format version 2 since sprint 2.2, little-endian):
   - Header region (4096 bytes): a 64 byte fixed header (magic `HSIDX`, format version, header region length,
     section count, snapshot fingerprint, XxHash3 checksum over header and directory), then the section
-    directory (40 bytes per section: id, element size, offset, byte length, element count, XxHash3 checksum).
+    directory (40 bytes per section: id, element size, offset, byte length, element count, XxHash3 checksum). Since
+    3.7 (ADR-036) the region's last 32 bytes hold an HMAC-SHA256 of the rest with the user's key; with a key in effect
+    (the worker's), a cache whose signature does not match is `Untrusted` and the dump is read again.
   - Sections, each aligned to 4096 bytes (ready for mapping): Addresses, TypeIndices, Sizes, HeapKinds,
     ObjectFlags, EdgeStarts, Edges, LargeSizes, Roots, the six type table columns, Strings (count, offsets,
     UTF-8 bytes), Metadata (UTF-8 JSON: `SnapshotInfo`, capabilities, writer version, dropped counts) and, since format
@@ -1295,8 +1299,8 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   every directory entry (known ids only, no repeats, element size, non-negative counts, page-aligned offsets past
   the header, overflow-safe bounds against the file length), fingerprint and every section checksum are verified
   before a graph is returned. Invalid caches return a reason (`Missing`, `Truncated`, `BadMagic`,
-  `VersionMismatch`, `HeaderCorrupted`, `Malformed`, `FingerprintMismatch`, `ChecksumMismatch`, `IoError`) and a
-  plain-language detail, never an exception and never a read outside the file; they are rebuilt, never patched.
+  `VersionMismatch`, `HeaderCorrupted`, `Malformed`, `FingerprintMismatch`, `ChecksumMismatch`, `IoError`,
+  `BaseMismatch` for a sidecar, `Untrusted` since 3.7) and a plain-language detail, never an exception and never a read outside the file; they are rebuilt, never patched.
 - Modes: in memory, every section is read into exact-size arrays and verified in the same pass (nothing more is
   allocated after a failure). Mapped, the sections are first verified with a sequential read (pooled 4 MB buffer,
   several times faster than hashing through the mapping and without growing the working set), then the
@@ -1657,6 +1661,15 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   node and first 16 frames);
   user actions on the page (an interval, a type, an expansion, the tree kind) log under a `HeapScope.Allocations`
   activity whose trace id the worker's answer lines carry. Never event payloads beyond type names and sizes.
+- Hardening (sprint 3.7): the worker logs where its index cache key came from (`Index cache key {Path}: Loaded`,
+  `Created`, `ReplacedDamaged`) or, when the key file can be neither read nor created, a Warning naming the path, the
+  error and the next step (this run signs with a key of its own; ADR-036). A cache not used logs its reason with the
+  snapshot's note, for the base cache as for sidecars (`Untrusted` says whether it was unsigned or signed with another
+  key). A gcdump refused as inconsistent names the reader's exception type in its message, and the worker logs a
+  refusal's wrapped exception with its stack at Debug; any other error while building the graph is a HeapScope error,
+  logged at Error with its stack. A capture whose dump could not be made private logs a Warning with the path and error,
+  and the result says so. The app logs a session snapshot or Show in folder refused because the path is not on this
+  machine. Paths and exception types only, never dump contents.
 
 ## 12. Security and privacy
 - Full dumps contain everything in the process memory: connection strings, tokens, personal data. HeapScope
@@ -1675,6 +1688,36 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   which may be shared) holds per trusted DAC its SHA-256, the path it was found at, when, and why (which names the dump
   it was opened with); the private copies sit under `%LOCALAPPDATA%/HeapScope/dac/<sha256>/`. Deleting an entry, or the
   file, revokes the trust.
+- Crafted input (sprint 3.7, peer review P13): every reader of a file HeapScope did not write bounds what the file states.
+  The address index cannot loop on a span of 2^63 or more; the minidump truncation check reads each memory list once and
+  is cancellable; the vendored gcdump reader refuses counts its stream cannot hold before allocating (`CHANGES.md` change
+  5; the address table must cover every node), and the loader's object, reference and root walks share one budget of a
+  child per byte of the file, check every child and type index and duplicate addresses, and refuse an inconsistency the
+  reader throws with a reason; HeapScope's own errors are never reported as a bad file (3.7 review H5). Mutation tests
+  run in every CI run and nightly with more iterations (`fuzz.yml`).
+- Index caches are signed with a per-user key (sprint 3.7, ADR-036): a cache shipped next to a dump, written by another
+  user or machine, or forged with recomputed checksums is never used.
+- Private files (sprint 3.7, peer review P15): on Windows a file HeapScope creates is created with an owner-only access
+  list in one step (the profile's list does not cover a dump's cache in a folder the user picked), and a finished dump is
+  made owner-only (`PrivateFiles.Protect`; the runtime writes a dump with the folder's permissions, so until the capture
+  ends the folder's list applies; a dump that cannot be protected is logged and the capture says so); HeapScope's own data folders (the cache key, trusted DACs and their copies, trace conversion)
+  are made owner-only when they exist with a wider mode, and refused when they belong to another user
+  (`CreatePrivateDirectory`); trace conversion (`.etlx`) uses HeapScope's data folder instead of the shared `/tmp` off
+  Windows; partial traces and CSV exports are created new and private, never written into a file someone made first.
+  The partial-file sweep skips links and never sweeps a folder the user picked.
+- Paths a received `session.json` names (sprint 3.7, peer review S3): a run's timeline is opened only when it is a
+  regular `.csv` file inside the session folder, reached through no folder link (the rule deleting a session uses); its
+  trace only inside the folder; a snapshot on a network path (any two leading separators, `\??\`, a mapped network
+  drive) is never looked at or opened.
+- Supply chain (sprint 3.7, peer review P16): packages come from nuget.org only (`nuget.config`, `<clear />` and source
+  mapping), every project has a `packages.lock.json` and CI's builds restore in locked mode (a publish for a runtime
+  identifier, including the release builds, restores unlocked: the gap is in the Backlog), Actions are pinned to release
+  commits with no token left in checkouts, Dependabot proposes NuGet and Actions updates, and `SECURITY.md` says how to
+  report a vulnerability privately.
+- Releases (sprint 3.7, peer review P17): publishing a GitHub release builds its tag for every runtime identifier and
+  attaches the tarballs, an SBOM (CycloneDX) of the app, the CLI and the worker, and `SHA256SUMS`, all with build
+  provenance attestations in GitHub's attestation store (`release.yml`; the builds hold read access only, one job that
+  builds nothing attests and attaches; a manual run is a dry run by default); CI and release builds are deterministic (`ContinuousIntegrationBuild`).
 - Published builds (sprint 3.6, peer review P3; CI uploads them as artifacts) carry `LICENSE`, `ADDITIONAL-TERMS.md`,
   `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and every shipped package's own license and notice files under `licenses/`;
   the TraceEvent native binaries (`KernelTraceControl.dll`, `msdia140.dll`), which nothing calls and whose redistribution
@@ -1713,8 +1756,8 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 
 - Allocation traces (sprint 2.5) hold type and method names, times and sizes, not heap contents. Record allocations writes
   them into the session folder (user-only, like dumps); the CLI writes them where `--out` says. Reading one writes
-  TraceEvent's `.etlx` (the same names, indexed) into a private temporary folder (`HeapScope/etlx` under the user's
-  temp folder, 0700 off Windows) and deletes it when the read ends, failed or canceled; nothing is written next to the
+  TraceEvent's `.etlx` (the same names, indexed) into a private folder (`HeapScope/etlx` under the user's temp folder on
+  Windows, under HeapScope's data folder elsewhere since 3.7, 0700) and deletes it when the read ends, failed or canceled; nothing is written next to the
   trace. A worker killed mid-read leaves its `.etlx`: the next worker deletes those over an hour old that no reader
   holds, and logs it; a canceled recording's file is deleted, and the session sweep removes `*.nettrace.partial` files.
   Methods are named from the trace's own events, never a symbol server (ADR-017).
@@ -1815,6 +1858,9 @@ sprint 0.1.
   every job's test results (TRX) for 14 days; CI and the local gate (`build/gate.sh`, bash, which replaces `gate.ps1`)
   share `build/test.sh` and `build/fixture-dump.sh`. Making the CI jobs required checks is a repository setting the
   product owner applies.
+- Amended in sprint 3.7 (peer review P13, P16, P17): a nightly fuzz workflow (`fuzz.yml`, on `develop`), a release
+  workflow run by a published release or by hand as a dry run (`release.yml`), Actions pinned to commits, locked
+  restores, Dependabot; the Linux job's DAC trust check fails rather than skips (`HEAPSCOPE_REQUIRE_FIXTURE`).
 
 ### ADR-013 Leaky fixtures as source of truth
 - Context: analysis correctness can only be proven against known leaks.
@@ -2358,19 +2404,43 @@ sprint 0.1.
   confirmed by a test (Backlog), and on Linux and macOS the trust step is the only check. Every full-dump cache open now
   opens the dump with ClrMD and runs the DAC lookup; its cost on a large dump is to be measured (Backlog).
 
+### ADR-036 Index caches signed with a per-user key (added in sprint 3.7)
+- Context: the peer review of 3.5.0 (P14) found that an index cache next to its dump is preferred and trusted on unkeyed
+  checksums and a fingerprint of size, time and the first and last MiB. A dump's time survives unzipping, so a shipped
+  `app.dmp.hsidx` decided every count, size and root HeapScope showed.
+- Decision: the worker loads this user's key at startup (`IndexCacheKey.UseForThisUser`: `index-cache.key`, 32 random
+  bytes, owner-only, in HeapScope's data folder, created on first use under a lock file so processes starting together
+  share one key). The writer signs the header region (header and
+  section directory, which carries every section's checksum) with HMAC-SHA256 into the region's last 32 bytes, past the
+  largest possible directory, so the format does not change; base caches and sidecars alike. The reader verifies it after
+  the header checksum; a mismatch is `IndexCacheInvalidReason.Untrusted`, treated like any invalid cache: the dump is read
+  again and the cache rewritten. Without a key (tests, tools) nothing is signed or checked; tests use a scoped key. The
+  worker loads the key once its log exists and logs where it came from; when the key file can be neither read nor
+  created (a folder of another user, a full disk), that run signs with a random key of its own and logs a Warning,
+  never running without a key (3.7 review H4).
+- Consequences: every cache written before 3.7 is rebuilt once (its note says it was unsigned). A cache moved between
+  users or machines is rebuilt. Deleting the key file makes every cache rebuild; so does a run with a key of its own, for
+  the caches it wrote, and a worker restarted during such a run refuses to reopen its snapshots automatically (the log
+  shows why). The key protects against files that arrive with a dump, not against a process of the same user, which can
+  read the key. The signature covers the header region, which carries each section's XxHash3: a section's integrity rests
+  on that unkeyed hash, so someone who can write into the cache's folder after the user's HeapScope signed a cache there
+  could in principle substitute colliding section contents; that is outside the threat model (files that arrive with a
+  dump), and keyed section digests are the step if it widens. The fail-open default without a key is to become an
+  injected signer in 3.8.
+
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
 authoritative list.
 
 | Package | Version | License | Used by |
 |---|---|---|---|
-| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.13 | MIT | Worker, Application, Cli, UI |
-| System.IO.Hashing | 10.0.13 | MIT | Storage, Analysis |
+| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.14 | MIT | Worker, Application, Cli, UI |
+| System.IO.Hashing | 10.0.14 | MIT | Storage, Analysis |
 | StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.ViewModels, UI |
 | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.4 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT) | UI, UI tests (2.3.6) |
 | Avalonia.Controls.DataGrid | 12.1.2 | MIT | UI (2.3.6) |
-| System.CommandLine | 2.0.13 | MIT | Cli |
+| System.CommandLine | 2.0.14 | MIT | Cli |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |
 | Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | MIT | Capture |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | MIT | Capture (Loaders.GcDump in 1.8, Loaders.Trace in 2.5) |

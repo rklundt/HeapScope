@@ -50,8 +50,14 @@ public static class AllocationTraceReader
     /// <summary>TraceEvent's version, for the worker's versions line.</summary>
     public static string LibraryVersion { get; } = typeof(TraceLog).Assembly.GetName().Version?.ToString() ?? "unknown";
 
-    /// <summary>The temporary folder the <c>.etlx</c> files are written to.</summary>
-    public static string DefaultTemporaryFolder { get; } = Path.Combine(Path.GetTempPath(), "HeapScope", "etlx");
+    /// <summary>
+    /// The folder the <c>.etlx</c> files (method names, the trace's contents) are written to: the user's own temporary
+    /// folder on Windows; on Linux and macOS HeapScope's data folder, since the temporary folder there is shared by every
+    /// user and a folder another user created first would hold the trace (sprint 3.7, peer review P15).
+    /// </summary>
+    public static string DefaultTemporaryFolder { get; } = OperatingSystem.IsWindows()
+        ? Path.Combine(Path.GetTempPath(), "HeapScope", "etlx")
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "etlx");
 
     private static readonly byte[] s_magic = Encoding.ASCII.GetBytes("Nettrace");
 
@@ -75,7 +81,7 @@ public static class AllocationTraceReader
         CheckSignature(fullPath);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var folder = PrivateFiles.CreateDirectory(temporaryFolder);
+        var folder = PrivateFiles.CreatePrivateDirectory(temporaryFolder);
         var etlx = Path.Combine(folder.FullName, Guid.NewGuid().ToString("N") + ".etlx");
         try
         {
