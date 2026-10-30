@@ -244,28 +244,28 @@ public sealed class ReverseSidecarTests : IClassFixture<StaticCacheDump>, IAsync
     [Fact]
     public async Task The_cli_lists_an_objects_referrers_and_a_types_referrer_types()
     {
-        var (code, output) = await RunCliAsync("referrers", _dump, "--type", Entry, "--format", "json");
+        var (code, output, stdout) = await RunCliAsync("referrers", _dump, "--type", Entry, "--format", "json");
 
         code.ShouldBe(0, output);
-        using var json = JsonDocument.Parse(output[output.IndexOf('{', StringComparison.Ordinal)..(output.LastIndexOf('}') + 1)]);
+        using var json = JsonDocument.Parse(stdout[stdout.IndexOf('{', StringComparison.Ordinal)..(stdout.LastIndexOf('}') + 1)]);
         json.RootElement.GetProperty("TargetObjects").GetInt64().ShouldBe(StaticCacheDump.Items);
         var rows = json.RootElement.GetProperty("Rows").EnumerateArray().ToList();
         rows.ShouldContain(r => DumpAnalysis.StripGenericArguments(r.GetProperty("Type").GetString()!).Contains("+Entry[]", StringComparison.Ordinal));
 
-        var (instancesCode, instances) = await RunCliAsync("instances", _dump, "--type", Entry, "--top", "1", "--format", "csv");
+        var (instancesCode, instances, _) = await RunCliAsync("instances", _dump, "--type", Entry, "--top", "1", "--format", "csv");
         instancesCode.ShouldBe(0, instances);
         var address = instances.Split('\n').Select(l => l.Trim()).First(l => l.StartsWith("0x", StringComparison.Ordinal)).Split(',')[0];
 
-        var (objectCode, table) = await RunCliAsync("referrers", _dump, "--address", address);
+        var (objectCode, table, _) = await RunCliAsync("referrers", _dump, "--address", address);
 
         objectCode.ShouldBe(0, table);
         table.ShouldContain($"Referrers of {address}: 1 objects, 1 references");
         table.ShouldContain("via [");
 
-        var (usage, _) = await RunCliAsync("referrers", _dump);
+        var (usage, _, _) = await RunCliAsync("referrers", _dump);
         usage.ShouldBe(64);
 
-        var (unknown, message) = await RunCliAsync("referrers", _dump, "--type", Entry, "--module", "Other.dll");
+        var (unknown, message, _) = await RunCliAsync("referrers", _dump, "--type", Entry, "--module", "Other.dll");
         unknown.ShouldBe(1, message);
         message.ShouldContain("there is no type");
     }
@@ -276,11 +276,11 @@ public sealed class ReverseSidecarTests : IClassFixture<StaticCacheDump>, IAsync
         _folder.Dispose();
     }
 
-    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    private static async Task<(int Code, string Output, string StandardOutput)> RunCliAsync(params string[] arguments)
     {
         using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
-        return (cli.Process.ExitCode, cli.Output);
+        return (cli.Process.ExitCode, cli.Output, cli.StandardOutput);
     }
 }
 

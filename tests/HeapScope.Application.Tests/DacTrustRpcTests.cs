@@ -37,7 +37,8 @@ public sealed class DacTrustRpcTests
     [Fact]
     public async Task A_refusal_reaches_the_client_with_its_DAC_details()
     {
-        var pipe = $"heapscope-test-{Guid.NewGuid():N}";
+        // Short: off Windows the pipe is a socket under the temp folder, and macOS limits its path to 104 bytes.
+        var pipe = $"hs-{Guid.NewGuid():N}"[..15];
         await using var server = new NamedPipeServerStream(pipe, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         await using var client = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous);
         await Task.WhenAll(server.WaitForConnectionAsync(TestContext.Current.CancellationToken), client.ConnectAsync(TestContext.Current.CancellationToken));

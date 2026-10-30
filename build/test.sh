@@ -59,8 +59,9 @@ case "$tier" in
         continue
       fi
 
-      if grep -q -- '-windows</TargetFramework>' "$project" && [ "$windows" = false ]; then
-        echo "== $name: targets Windows, skipped here"
+      # A Windows target framework, or <HeapScopeTestsRunOn>Windows (tests of what runs on Windows only, such as capture).
+      if { grep -q -- '-windows</TargetFramework>' "$project" || grep -q '<HeapScopeTestsRunOn>Windows<' "$project"; } && [ "$windows" = false ]; then
+        echo "== $name: runs on Windows only, skipped here"
         continue
       fi
 

@@ -185,6 +185,10 @@ The draft PR's first runs (CI now runs every test project and the integration ti
 - Two capture tests expected behavior from capture, which refuses before writing off Windows (Linux, macOS).
 - The runner is elevated, so a discovery test's "not elevated" assumption failed (Windows).
 - The cancel-a-load test raced a fast machine with a 3,000-object dump (Windows; now a dump of its own, 300,000 items).
+- The second CI run found three more: the capture tests assume Windows throughout (capture is Windows only, ADR-025;
+  the project now says `HeapScopeTestsRunOn=Windows` and `test.sh` runs it on Windows only, as the old hand-written list
+  did), the new RPC test's pipe name was longer than a macOS socket path allows, and a CLI JSON test parsed stdout and
+  stderr merged (`ChildProcess.StandardOutput` now keeps stdout alone).
 - The gate's run found one more: `Force_gc_runs_a_full_collection_in_the_target` waited a fixed three counter samples
   for the forced collection to show; it now waits until a sample counts it (bounded), passing three runs in a row.
 - Stopping a counter session can cut the EventPipe stream inside a block ("Read past end of stream"); the counter
