@@ -204,7 +204,7 @@ internal static partial class CliCommands
                 // A gate whose filter matches nothing checks nothing: a typo or a renamed type must not pass forever.
                 if (result.Rows.TotalCount == 0 && !string.IsNullOrWhiteSpace(parseResult.GetValue(filter)))
                 {
-                    await error.WriteLineAsync($"Error: --filter '{parseResult.GetValue(filter)}' matches no rows, so --fail-on-growth has nothing to check. Fix the filter.").ConfigureAwait(false);
+                    await error.WriteLineAsync("Error: the --filter matches no rows, so --fail-on-growth has nothing to check. Fix the filter.").ConfigureAwait(false);
                     return Failure;
                 }
 
