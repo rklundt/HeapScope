@@ -30,7 +30,6 @@ namespace HeapScope.Worker.Rpc;
 /// <summary>Opening and closing snapshots (<see cref="ISnapshotService"/>).</summary>
 internal sealed class SnapshotHandler(
     SnapshotStore snapshots,
-    ObjectSetCache sets,
     ILogger<SnapshotHandler> logger) : RpcHandler(logger), ISnapshotService
 {
     public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) =>
@@ -44,10 +43,10 @@ internal sealed class SnapshotHandler(
             return snapshots.OpenAsync(request, progress, cancellationToken);
         });
 
+    /// <summary>Closes the snapshot; the store drops its derived data and its object sets with it.</summary>
     public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken)
     {
         snapshots.Close(snapshotId);
-        sets.Forget(snapshotId);
         return Task.CompletedTask;
     }
 }

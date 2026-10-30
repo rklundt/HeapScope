@@ -55,9 +55,22 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
 
     private DominatorIndexBuilder DominatorBuilder => _dominatorBuilder ??= new(logger, _reservations, _signer);
 
+    private ObjectSetCache? _sets;
+
     private bool _disposed;
 
     public int Count => _snapshots.Count;
+
+    /// <summary>
+    /// The resolved object sets and detector tables of the open snapshots (sprint 3.1), within one budget over all of them.
+    /// Closing a snapshot forgets its entries, and the cache refuses entries for snapshots that are no longer open.
+    /// </summary>
+    public ObjectSetCache Sets => LazyInitializer.EnsureInitialized(ref _sets, () =>
+    {
+        var cache = new ObjectSetCache(_snapshots.ContainsKey);
+        cache.Evicted += what => logger.LogDebug("Object set cache: dropped {What} to stay within its budget", what);
+        return cache;
+    });
 
     /// <summary>
     /// Looks at a file without loading it (sprint 1.2 review): size, index cache state (header and fingerprint, no
@@ -116,8 +129,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             return false;
         }
 
-        // Never blocks: outstanding leases (result sets, running queries) keep the graph until they are released.
+        // Never blocks: outstanding leases (result sets, running queries) keep the graph until they are released. The sets
+        // are forgotten after the snapshot left the open list, so a resolution finishing now cannot add one back.
         entry.Derived.Close();
+        Sets.Forget(snapshotId);
         entry.Snapshot.Dispose();
         logger.LogInformation("Snapshot {Id} closed", snapshotId);
         return true;

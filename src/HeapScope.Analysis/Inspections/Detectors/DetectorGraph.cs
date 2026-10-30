@@ -51,6 +51,14 @@ internal static class DetectorGraph
     public static bool[] TypesNamed(HeapGraph graph, params string[] names) =>
         TypeMask(graph, t => names.Contains(graph.Types.GetName(t), StringComparer.Ordinal));
 
+    /// <summary>The snapshot's reachable objects, which the host supplies to a detector that declares <see cref="IInspection.UsesReachable"/>.</summary>
+    public static Reachability Reachable(InspectionContext context) =>
+        context.Reachable ?? throw new InvalidOperationException("A detector that counts reachable objects needs them in its context.");
+
+    /// <summary>The baseline's reachable objects, supplied like the snapshot's.</summary>
+    public static Reachability Reachable(InspectionBaseline baseline) =>
+        baseline.Reachable ?? throw new InvalidOperationException("A detector that counts reachable objects needs the baseline's in its context.");
+
     /// <summary>The reachable objects of the types in <paramref name="types"/>, in index order.</summary>
     public static List<int> ReachableOf(HeapGraph graph, Reachability reachable, bool[] types, InspectionContext context, string phase)
     {

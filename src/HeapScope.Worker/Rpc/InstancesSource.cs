@@ -138,9 +138,10 @@ internal sealed class InstancesSource : IResultSource
 
     /// <summary>
     /// The objects of a type in a scope, in address order (sprint 3.1): what an inspection row without its own member list
-    /// opens as a set, the same objects its instances list shows.
+    /// opens as a set, the same objects its instances list shows. <paramref name="reachable"/> is the snapshot's
+    /// <see cref="Reachability.Compute"/>, needed for the reachable scope only.
     /// </summary>
-    public static int[] Select(HeapGraph graph, IObjectReader? reader, string typeName, string? module, InstanceScope scope, ulong sameValueAs, CancellationToken cancellationToken)
+    public static int[] Select(HeapGraph graph, IObjectReader? reader, string typeName, string? module, InstanceScope scope, ulong sameValueAs, Reachability? reachable, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(graph);
         var matches = TypeGroups.MatchTypes(graph, typeName, module, out _);
@@ -169,12 +170,13 @@ internal sealed class InstancesSource : IResultSource
 
         return scope == InstanceScope.All
             ? objects
-            : Scoped(graph, reader, objects, new InstancesRequest(Guid.Empty, typeName, module, Scope: scope, SameValueAs: sameValueAs), cancellationToken);
+            : Scoped(graph, reader, objects, new InstancesRequest(Guid.Empty, typeName, module, Scope: scope, SameValueAs: sameValueAs), reachable, cancellationToken);
     }
 
     /// <param name="dominators">The snapshot's dominators, for the retained bytes column (sprint 2.3); null without it.</param>
     /// <param name="set">The resolved <see cref="InstancesRequest.Set"/> (sprint 3.1): its members are listed instead of a type's objects.</param>
-    public static InstancesSource Create(HeapGraph graph, IObjectReader? reader, InstancesRequest request, CancellationToken cancellationToken, IProgress<JobProgress>? progress = null, Dominators? dominators = null, ObjectSet? set = null)
+    /// <param name="reachable">The snapshot's reachable objects (<see cref="Reachability.Compute"/>), for the reachable scope.</param>
+    public static InstancesSource Create(HeapGraph graph, IObjectReader? reader, InstancesRequest request, CancellationToken cancellationToken, IProgress<JobProgress>? progress = null, Dominators? dominators = null, ObjectSet? set = null, Reachability? reachable = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(request);
@@ -243,7 +245,7 @@ internal sealed class InstancesSource : IResultSource
         // A scope (sprint 1.6, what an inspection row opens) narrows the set first; totals then describe the scope.
         if (request.Scope != InstanceScope.All)
         {
-            objects = Scoped(graph, reader, objects, request, cancellationToken);
+            objects = Scoped(graph, reader, objects, request, reachable, cancellationToken);
             total = objects.Length;
             totalBytes = 0;
             foreach (var obj in objects)
@@ -314,7 +316,7 @@ internal sealed class InstancesSource : IResultSource
     }
 
     /// <summary>The objects of the scope: on the large object heap, still to be finalized, strings equal to one string, or reachable from a root.</summary>
-    private static int[] Scoped(HeapGraph graph, IObjectReader? reader, int[] objects, InstancesRequest request, CancellationToken cancellationToken)
+    private static int[] Scoped(HeapGraph graph, IObjectReader? reader, int[] objects, InstancesRequest request, Reachability? reachable, CancellationToken cancellationToken)
     {
         switch (request.Scope)
         {
@@ -324,8 +326,8 @@ internal sealed class InstancesSource : IResultSource
                 var ready = HeapScope.Analysis.Inspections.Finalization.ReadyObjects(graph);
                 return [.. objects.Where(o => graph.Flags[o].HasFlag(ObjectFlags.HasFinalizer) || ready.Contains(o))];
             case InstanceScope.Reachable:
-                var reachable = HeapScope.Analysis.Retention.Reachability.For(graph, cancellationToken);
-                return [.. objects.Where(reachable.IsReachable)];
+                var rooted = reachable ?? throw new ArgumentException("The reachable objects have not been computed.", nameof(reachable));
+                return [.. objects.Where(rooted.IsReachable)];
             case InstanceScope.SameValue:
                 if (reader is null)
                 {

@@ -66,6 +66,8 @@ internal sealed class TypeGrowthDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public bool UsesBaseline => true;
 
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinGrowth={MinGrowth};MinGrowthShare={MinGrowthShare:P0};Framework=left out by namespace or module");
@@ -88,9 +90,9 @@ internal sealed class TypeGrowthDetector : IInspection
         }
 
         var graph = context.Graph;
-        var reachable = Reachability.For(graph, context.CancellationToken);
+        var reachable = DetectorGraph.Reachable(context);
         var (current, currentObjects, currentBytes) = Census(graph, reachable, context, "Counting reachable objects per type");
-        var (before, beforeObjects, beforeBytes) = Census(baseline.Graph, Reachability.For(baseline.Graph, context.CancellationToken), context, "Counting the baseline's reachable objects per type");
+        var (before, beforeObjects, beforeBytes) = Census(baseline.Graph, DetectorGraph.Reachable(baseline), context, "Counting the baseline's reachable objects per type");
         var rows = new List<Row>();
         var nearMisses = new List<Row>();
         long framework = 0;

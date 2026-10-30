@@ -295,8 +295,9 @@ internal sealed class HeapQueryHandler(
                     (dominators, info) = await derived.GetDominatorsAsync(request.SnapshotId, progress, cancellationToken).ConfigureAwait(false);
                 }
 
+                var reachable = request.Scope == InstanceScope.Reachable ? await derived.GetReachableAsync(request.SnapshotId, cancellationToken).ConfigureAwait(false) : null;
                 var throttled = new ThrottledProgress<JobProgress>(progress);
-                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators, set), cancellationToken).ConfigureAwait(false);
+                var source = await Task.Run(() => InstancesSource.Create(snapshot.Graph, reader, request, cancellationToken, throttled, dominators?.Dominators, set, reachable), cancellationToken).ConfigureAwait(false);
                 var rows = resultSets.Add(source, lease);
                 return new InstancesResult(rows, source.TotalObjects, source.TotalBytes, source.MatchedTypes, reader is not null, stopwatch.Elapsed.TotalSeconds, info, source.Note);
             }

@@ -557,10 +557,21 @@ public sealed class LeakDetectorTests
         builder.Reference(garbage, builder.Object("App.GarbageChild", 16));
         var graph = builder.Build();
 
-        var set = HeapScope.Analysis.Sets.ObjectSet.Unreachable(graph, Reachability.FromPathRoots(graph, Ct), Ct);
+        var set = HeapScope.Analysis.Sets.ObjectSet.Unreachable(graph, Reachability.ComputeFromPathRoots(graph, Ct), Ct);
 
         (set.Count, set.Bytes).ShouldBe((2, 48UL));
-        Reachability.For(graph, Ct).Count.ShouldBe(2, "the leak detectors' walk does not start from the finalizer queue");
+        Reachability.Compute(graph, Ct).Count.ShouldBe(2, "the leak detectors' walk does not start from the finalizer queue");
+    }
+
+    [Fact]
+    public void The_detectors_that_count_reachable_objects_take_them_from_the_host()
+    {
+        // The host walks them once per snapshot and keeps them; a detector never walks them itself.
+        var (graph, reader) = Clients(owning: 3, sharing: 0);
+        var users = InspectionCatalog.All.Where(i => i.UsesReachable).Select(i => i.Name).ToList();
+        users.ShouldBe(["event-handler-leaks", "timer-leaks", "disposed-but-referenced", "httpclient-instances", "undisposed-service-scopes", "pending-async-methods", "type-growth"], ignoreOrder: true);
+        var detector = InspectionCatalog.Find("httpclient-instances")!;
+        Should.Throw<InvalidOperationException>(() => detector.Run(new InspectionContext(graph, s_info, reader, null, Ct)));
     }
 
     private static (HeapGraph Graph, FakeReader Reader) Clients(int owning, int sharing, bool sharedHandler = false)
@@ -607,8 +618,18 @@ public sealed class LeakDetectorTests
         return (builder.Build(), reader);
     }
 
-    private static InspectionResult Run(string name, HeapGraph graph, FakeReader reader, InspectionBaseline? baseline = null, ReverseReferences? referrers = null) =>
-        InspectionCatalog.Find(name)!.Run(new InspectionContext(graph, s_info, reader, null, Ct, baseline, referrers));
+    // As the worker runs them: the detectors that count reachable objects get them, the baseline's included.
+    private static InspectionResult Run(string name, HeapGraph graph, FakeReader reader, InspectionBaseline? baseline = null, ReverseReferences? referrers = null)
+    {
+        var inspection = InspectionCatalog.Find(name)!;
+        if (inspection.UsesReachable && baseline is not null)
+        {
+            baseline = baseline with { Reachable = Reachability.Compute(baseline.Graph, Ct) };
+        }
+
+        var reachable = inspection.UsesReachable ? Reachability.Compute(graph, Ct) : null;
+        return inspection.Run(new InspectionContext(graph, s_info, reader, null, Ct, baseline, referrers, reachable));
+    }
 
     private static List<string?[]> Rows(InspectionResult result)
     {

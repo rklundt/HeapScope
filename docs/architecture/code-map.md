@@ -41,7 +41,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   spans the caller gives), `Dominators` (the kept columns, managed or from a sidecar) and `GroupRetention` (a group's
   retained lower bound), with `TypeGroups.GroupOfType` numbering the groups of a grouping [2.3]; the dominator tree's
   children (`DominatorTree.BuildChildren`, kept with the dominators), `DominatorTreeRows` (the tree flattened for a paged
-  grid, with `DominatorRow`, `DominatorTreeView` and `DominatorGrouping`), `IcicleLayout` and `SetRetention` (what a set
+  grid, with `DominatorRow`, `DominatorTreeView`, `DominatorGrouping` and, since 3.8, the caller's `DominatorGroupTables`), `IcicleLayout` and `SetRetention` (what a set
   retains together, exactly) [2.4]. `Sets/ObjectSet` (a set's members as sorted object indices and a bit mask, built from
   types, addresses or indices), `Sets/SetDominators` (the members no other member dominates), `TypeAggregation.Compute`
   over a set, `SetRetention.Compute` over a set (optionally returning the retained objects as a set),
@@ -126,7 +126,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   within a 2 s grace period (so a grid's re-query joins it), or when the snapshot closes (`DerivedWaiter`, after the
   2.3 review M13) [1.3]; the reverse references slot [2.1] and the
   dominators slot with the retained lower bounds per grouping [2.3], with `SharedProgress` sending the computation's
-  progress to every caller waiting for it (review M7). `ReverseIndexBuilder`: the reverse index opened from its sidecar,
+  progress to every caller waiting for it (review M7); the two reachable sets and the dominator tree's group tables
+  per grouping (`SnapshotStore.Reachability.cs`), which Analysis computes and no longer caches [3.8]. `ReverseIndexBuilder`: the reverse index opened from its sidecar,
   or built straight into it [2.3] (in managed arrays when there is none), and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
   identity, fingerprint, memory mode and forced mode, and attaches the result to the graph [2.1].
   `SnapshotStore.RootPaths.cs` (the root path tree slot), `WorkerService.Retention.cs` and `RetentionMapping` (roots,
@@ -137,7 +138,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   asked [2.3]. `WorkerService.Dominators.cs` (the tree and the icicle) with `DominatorTreeSource`, and
   `WorkerService.SetRetention.cs` with `RetainedBySetSource` [2.4]. `WorkerService.Sets.cs` (resolving an
   `ObjectSetSpec` into its members, logged with its size; a set's dominators with `SetDominatorsSource`), `ObjectSetCache`
-  (resolved sets and the inspection tables their rows come from, least recently used out, dropped with their snapshot),
+  (resolved sets and the inspection tables their rows come from, least recently used out, dropped with their snapshot;
+  owned by `SnapshotStore` since 3.8, which forgets a closed snapshot's entries and refuses entries for one no longer open),
   `InstancesSource.Select` (a type's objects in a scope) and the set on instances, type summaries and set retention [3.1].
   `WorkerService.RetentionViews.cs` (Similar Retention, a retention group resolved as a set, and each snapshot's
   interfaces per type, read once from the dump through one object per type and dropped with the snapshot), the two new
@@ -145,7 +147,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   and diffs [3.2]. `WorkerService.Comparison.cs` (a diff's extras: objects matched when both snapshots are of one process,
   both snapshots' group retention, kinds; the `Compared` set kind resolved under both leases; trends) and
   `TypeTrendSource` [3.3]. The `Unreachable` set kind (`ObjectSet.Unreachable`, the complement of
-  `Reachability.FromPathRoots`; refused for gcdumps and incomplete dumps) [3.5].
+  `Reachability.ComputeFromPathRoots`; refused for gcdumps and incomplete dumps) [3.5].
 - **Application.** `Workers/` (`WorkerHost`, `IWorkerClient`, exceptions, log forwarding), `Jobs/JobTracker`,
   `Logging/FileLoggerProvider`, `WorkerOperations` [0.3]; `Snapshots/`: `SnapshotSession` (summaries, diffs with both
   snapshots reopened after a restart through `UseBothAsync`, instances, objects, inspections, referrers [2.1], retention paths [2.2], retained sizes [2.3]) and
@@ -257,8 +259,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `System.Timers.Timer`), `DisposedButReferencedDetector` (reachable objects whose disposed flag is set),
   `HttpClientInstancesDetector`, `UndisposedServiceScopesDetector`, and since 3.5 `PendingAsyncMethodsDetector` (with
   `AsyncMethods.MethodOf`), `FinalizerBacklogDetector` and `TypeGrowthDetector` (ADR-034); `IInspection.Kind`, `UsesBaseline`,
-  `UsesReferrers`; `InspectionBaseline` and `InspectionContext.Referrers`; `Retention/Reachability` (a bit per object
-  from the retaining roots other than the finalizer queue, computed once per graph by `Reachability.For`) and the
+  `UsesReferrers`, `UsesReachable` [3.8]; `InspectionBaseline` and `InspectionContext.Referrers` and `.Reachable`;
+  `Retention/Reachability` (a bit per object from the retaining roots other than the finalizer queue,
+  `Reachability.Compute`; the worker walks it once per snapshot and supplies it [3.8]) and the
   shared `ChunkedStack`; `InspectionScopes.Reachable`, the scope a detector row opens (Worker: `InstancesSource`). Worker: `WorkerService.Inspections` leases the baseline and passes the
   reverse index. Application: `RunInspectionAsync(..., baseline)`. UI.ViewModels: the Inspections tab's detector group
   and `BaselineChoice`. Cli: `inspect --baseline`. Fixtures: `DetectorLeaks.cs` (`TimerLeak`, `DisposedReferencedLeak`,

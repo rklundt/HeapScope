@@ -21,11 +21,16 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Analysis.Retention;
+using HeapScope.Core.Synthetic;
 using HeapScope.Worker.Snapshots;
 
 namespace HeapScope.Worker.Tests;
 
-/// <summary>The 2.3 review M13: a shared computation nobody waits for is canceled; one somebody waits for runs on.</summary>
+/// <summary>
+/// The 2.3 review M13: a shared computation nobody waits for is canceled; one somebody waits for runs on. Each is computed
+/// once for its callers and dropped when the snapshot closes.
+/// </summary>
 public sealed class DerivedDataTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -103,6 +108,49 @@ public sealed class DerivedDataTests
         using var closed = derived.JoinGroupRetention(Analysis.GroupKey.Type, computation.Start);
         computation.Tokens.Count.ShouldBe(2, "closing drops the result");
         computation.Tokens[1].IsCancellationRequested.ShouldBeTrue("a computation started after close is canceled at once");
+    }
+
+    [Fact]
+    public async Task Reachability_is_walked_once_for_concurrent_callers_and_dropped_on_close()
+    {
+        var derived = new DerivedData(TimeSpan.Zero);
+        var builder = new SyntheticGraphBuilder();
+        var root = builder.Object("App.Root", size: 8);
+        builder.Root(root);
+        builder.Reference(root, builder.Object("App.Child", size: 8));
+        builder.Object("App.Garbage", size: 8);
+        using var graph = builder.Build();
+        var walks = 0;
+        using var gate = new ManualResetEventSlim();
+        Task<Reachability> Walk(CancellationToken token) => Task.Run(
+            () =>
+            {
+                Interlocked.Increment(ref walks);
+                gate.Wait(token);
+                return Reachability.Compute(graph, token);
+            },
+            token);
+
+        // Callers on many threads at once, all joining before the walk can finish.
+        var waiters = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(() => derived.JoinReachable(Walk), Ct)));
+        gate.Set();
+        var results = await Task.WhenAll(waiters.Select(w => w.Task));
+        foreach (var waiter in waiters)
+        {
+            waiter.Dispose();
+        }
+
+        walks.ShouldBe(1);
+        results.Distinct().ShouldHaveSingleItem().Count.ShouldBe(2);
+        using (var later = derived.JoinReachable(Walk))
+        {
+            (await later.Task).ShouldBeSameAs(results[0], "kept with the snapshot");
+        }
+
+        derived.Close();
+        using var closed = derived.JoinReachable(Walk);
+        await Should.ThrowAsync<OperationCanceledException>(() => closed.Task);
+        walks.ShouldBe(1, "a walk started after close is canceled before it runs");
     }
 
     /// <summary>A computation that waits for its result or its cancellation, recording each start's token.</summary>

@@ -38,7 +38,7 @@ using InspectionColumns = HeapScope.Analysis.Inspections.InspectionColumns;
 namespace HeapScope.Worker.Rpc;
 
 /// <summary>
-/// Object sets (sprint 3.1, ADR-030): resolving a spec of any kind into its members, kept in the shared
+/// Object sets (sprint 3.1, ADR-030): resolving a spec of any kind into its members, kept in the snapshot store's
 /// <see cref="ObjectSetCache"/>. The resolver depends on the matcher, the inspection runner and the derived queries; none
 /// of them depends on it, so nested specs (compared, retention group, retained by) recurse here only.
 /// </summary>
@@ -48,7 +48,6 @@ internal sealed class ObjectSetResolver(
     DerivedQueries derived,
     IdentityMatcher identities,
     InspectionRunner inspections,
-    ObjectSetCache sets,
     ILogger<ObjectSetResolver> logger)
 {
     // One resolution per set at a time (the 3.1 review): views asking for the same set together share it.
@@ -68,7 +67,7 @@ internal sealed class ObjectSetResolver(
         }
 
         var key = spec.CacheKey;
-        if (sets.TryGet(snapshotId, key) is { } cached)
+        if (snapshots.Sets.TryGet(snapshotId, key) is { } cached)
         {
             logger.LogInformation("Object set (cached): {Shape} in snapshot {Id}: {Objects} objects of {Bytes} bytes, {Types} types", spec.Shape, snapshotId, cached.Count, cached.Bytes, cached.TypeCount);
             return cached;
@@ -147,13 +146,15 @@ internal sealed class ObjectSetResolver(
                 // lists the same rule.
                 FeatureRules.Require(SnapshotFeatureIds.UnreachableSet, snapshot);
 
+                // The retention views' roots, the finalizer queue included (ADR-024): no member has a path. The leak
+                // detectors' reachable objects tell, for the log, what only the finalizer queue holds.
+                var alive = await derived.GetPathRootReachableAsync(snapshotId, cancellationToken).ConfigureAwait(false);
+                var rooted = await derived.GetReachableAsync(snapshotId, cancellationToken).ConfigureAwait(false);
                 (set, detail) = await Task.Run(
                     () =>
                     {
-                        // The retention views' roots, the finalizer queue included (ADR-024): no member has a path.
-                        var alive = Reachability.FromPathRoots(graph, cancellationToken);
                         var unreachable = Reserved(snapshotId, graph, () => ObjectSet.Unreachable(graph, alive, cancellationToken));
-                        return (unreachable, UnreachableDetail(graph, alive, Reachability.For(graph, cancellationToken), SnapshotAccess.IsComplete(snapshot), cancellationToken));
+                        return (unreachable, UnreachableDetail(graph, alive, rooted, SnapshotAccess.IsComplete(snapshot), cancellationToken));
                     },
                     cancellationToken).ConfigureAwait(false);
                 break;
@@ -192,12 +193,8 @@ internal sealed class ObjectSetResolver(
                 throw new ArgumentException($"Unknown set kind {(int)spec.Kind}.");
         }
 
-        // A snapshot closed meanwhile keeps nothing in the cache.
-        if (snapshots.TryGet(snapshotId) is not null)
-        {
-            sets.Add(snapshotId, key, set);
-        }
-
+        // The cache drops it when the snapshot closed meanwhile.
+        snapshots.Sets.Add(snapshotId, key, set);
         if (set.EstimatedBytes > ObjectSetCache.MaxBytes / 2)
         {
             detail += string.Create(CultureInfo.InvariantCulture, $"; too large to keep ({set.EstimatedBytes} bytes), so each view resolves it again");
@@ -396,7 +393,7 @@ internal sealed class ObjectSetResolver(
     private async Task<(ObjectSet Set, string Detail)> ResolveInspectionRowAsync(Guid snapshotId, ISnapshot snapshot, ObjectSetSpec spec, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         var name = spec.Name ?? throw new ArgumentException("An inspection row set needs the inspection's name.");
-        var table = sets.TryGetTable(snapshotId, name, spec.Baseline);
+        var table = snapshots.Sets.TryGetTable(snapshotId, name, spec.Baseline);
         var rerun = string.Empty;
         if (table is null)
         {
@@ -452,7 +449,8 @@ internal sealed class ObjectSetResolver(
         var scope = Enum.TryParse<InstanceScope>(Cell(InspectionColumns.Scope), out var parsed) ? parsed : InstanceScope.All;
         var module = Cell(InspectionColumns.Module);
         snapshot.TryGetService<IObjectReader>(out var reader);
-        var objects = await Task.Run(() => InstancesSource.Select(graph, reader, typeName, module, scope, address, cancellationToken), cancellationToken).ConfigureAwait(false);
+        var reachable = scope == InstanceScope.Reachable ? await derived.GetReachableAsync(snapshotId, cancellationToken).ConfigureAwait(false) : null;
+        var objects = await Task.Run(() => InstancesSource.Select(graph, reader, typeName, module, scope, address, reachable, cancellationToken), cancellationToken).ConfigureAwait(false);
         return (Reserved(snapshotId, graph, () => ObjectSet.OfIndices(graph, objects.AsSpan())),
             $"{rerun}rule v{version}; type {typeName} ({(string.IsNullOrEmpty(module) ? "no module" : module)}) in scope {scope}");
     }

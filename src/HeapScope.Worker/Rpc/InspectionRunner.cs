@@ -25,15 +25,16 @@ using System.Diagnostics;
 using HeapScope.Analysis.Inspections;
 using HeapScope.Contracts;
 using HeapScope.Core;
+using HeapScope.Worker.Snapshots;
 using Microsoft.Extensions.Logging;
 
 namespace HeapScope.Worker.Rpc;
 
 /// <summary>
-/// Runs an inspection and keeps a leak detector's rows in the object set cache, for the inspection RPC and for an
-/// inspection row resolved as a set. It writes to the cache and never resolves sets, so the set resolver can depend on it.
+/// Runs an inspection and keeps a leak detector's rows in the snapshot's object set cache, for the inspection RPC and for
+/// an inspection row resolved as a set. It writes to the cache and never resolves sets, so the set resolver can depend on it.
 /// </summary>
-internal sealed class InspectionRunner(SnapshotAccess access, DerivedQueries derived, ObjectSetCache sets, ILogger<InspectionRunner> logger)
+internal sealed class InspectionRunner(SnapshotStore snapshots, SnapshotAccess access, DerivedQueries derived, ILogger<InspectionRunner> logger)
 {
     /// <summary>
     /// Runs an inspection and logs its answer; the caller owns the returned lease (a set's row resolution, sprint 3.1,
@@ -81,7 +82,8 @@ internal sealed class InspectionRunner(SnapshotAccess access, DerivedQueries der
                 }
 
                 earlier.TryGetService<IObjectReader>(out var baselineReader);
-                baseline = new InspectionBaseline(earlier.Graph, earlier.Info, baselineReader);
+                var baselineReachable = inspection.UsesReachable ? await derived.GetReachableAsync(id, cancellationToken).ConfigureAwait(false) : null;
+                baseline = new InspectionBaseline(earlier.Graph, earlier.Info, baselineReader, baselineReachable);
                 baselineName = $"{id} ({System.IO.Path.GetFileName(earlier.Info.SourcePath)}, captured {earlier.Info.CapturedAtUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture) ?? "at an unknown time"})";
             }
 
@@ -93,6 +95,8 @@ internal sealed class InspectionRunner(SnapshotAccess access, DerivedQueries der
                 referrers = index.References;
             }
 
+            // The reachable objects for the detectors that count only those, walked once per snapshot and shared.
+            var reachable = inspection.UsesReachable ? await derived.GetReachableAsync(request.SnapshotId, cancellationToken).ConfigureAwait(false) : null;
             var context = new InspectionContext(
                 snapshot.Graph,
                 snapshot.Info,
@@ -100,7 +104,8 @@ internal sealed class InspectionRunner(SnapshotAccess access, DerivedQueries der
                 new CallbackProgress<InspectionProgress>(p => throttled.Report(new JobProgress(p.Phase, p.Done, p.Total))),
                 cancellationToken,
                 baseline,
-                referrers);
+                referrers,
+                reachable);
             InspectionResult result;
             try
             {
@@ -132,7 +137,7 @@ internal sealed class InspectionRunner(SnapshotAccess access, DerivedQueries der
             // Kept so a detector's row opens as a set (sprint 3.1) without running the inspection again.
             if (result.Rows.HasMembers)
             {
-                sets.AddTable(request.SnapshotId, inspection.Name, baselineId, result.Rows);
+                snapshots.Sets.AddTable(request.SnapshotId, inspection.Name, baselineId, result.Rows);
             }
 
             return (result, inspection.Name, baselineId, lease, stopwatch.Elapsed.TotalSeconds);

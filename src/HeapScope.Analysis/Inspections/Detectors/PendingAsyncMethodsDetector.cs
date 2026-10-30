@@ -53,13 +53,15 @@ internal sealed class PendingAsyncMethodsDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinPending={MinPending};Ended=m_stateFlags & 0x1600000;Framework=left out");
 
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
         var reader = Readers.Of(context);
-        var reachable = Reachability.For(graph, context.CancellationToken);
+        var reachable = DetectorGraph.Reachable(context);
         var methods = new string?[graph.Types.Count];
         for (var t = 0; t < methods.Length; t++)
         {

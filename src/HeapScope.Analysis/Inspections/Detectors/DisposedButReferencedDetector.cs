@@ -56,6 +56,8 @@ internal sealed class DisposedButReferencedDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinObjects={MinObjects};Flags={string.Join(",", FlagNames)}");
 
     public InspectionResult Run(InspectionContext context)
@@ -63,7 +65,7 @@ internal sealed class DisposedButReferencedDetector : IInspection
         var graph = context.Graph;
         var reader = Readers.Of(context);
         var ct = context.CancellationToken;
-        var reachable = Reachability.For(graph, ct);
+        var reachable = DetectorGraph.Reachable(context);
 
         // Reachable objects per type, and each type's first one: only types with enough of them are probed (review H7).
         var perType = new long[graph.Types.Count];

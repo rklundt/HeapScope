@@ -34,7 +34,8 @@ namespace HeapScope.Worker.Rpc;
 
 /// <summary>
 /// What a snapshot derives once and keeps (reverse references, dominators, the root path tree, interfaces, group
-/// retention), with how each was obtained, for the handlers and the shared services. It depends on the snapshot store only.
+/// retention, the reachable objects, the dominator tree's group tables), with how each was obtained, for the handlers and
+/// the shared services. It depends on the snapshot store only.
 /// </summary>
 internal sealed class DerivedQueries(SnapshotStore snapshots)
 {
@@ -91,6 +92,22 @@ internal sealed class DerivedQueries(SnapshotStore snapshots)
             completeGraph,
             notes.Count == 0 ? null : string.Join(" ", notes));
     }
+
+    /// <summary>The objects the leak detectors and the reachable scope count (<see cref="Reachability.Compute"/>), walked once per snapshot.</summary>
+    public async Task<Reachability> GetReachableAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        await snapshots.GetReachableAsync(snapshotId, cancellationToken).ConfigureAwait(false)
+            ?? throw SnapshotAccess.NotLoaded(snapshotId);
+
+    /// <summary>The objects the retention views count as alive (<see cref="Reachability.ComputeFromPathRoots"/>), walked once per snapshot.</summary>
+    public async Task<Reachability> GetPathRootReachableAsync(Guid snapshotId, CancellationToken cancellationToken) =>
+        await snapshots.GetPathRootReachableAsync(snapshotId, cancellationToken).ConfigureAwait(false)
+            ?? throw SnapshotAccess.NotLoaded(snapshotId);
+
+    /// <summary>The dominator tree's group tables of a grouping, built once per snapshot and grouping; null without grouping.</summary>
+    public async Task<DominatorGroupTables?> GetDominatorGroupsAsync(Guid snapshotId, DominatorGrouping grouping, CancellationToken cancellationToken) =>
+        grouping == DominatorGrouping.None
+            ? null
+            : await snapshots.GetDominatorGroupsAsync(snapshotId, grouping, cancellationToken).ConfigureAwait(false) ?? throw SnapshotAccess.NotLoaded(snapshotId);
 
     /// <summary>The root path tree and the reverse references, built or opened once per snapshot.</summary>
     public async Task<(RootPathTree Tree, ReverseIndex Reverse)> RetentionInputsAsync(Guid snapshotId, IProgress<JobProgress>? progress, CancellationToken cancellationToken)

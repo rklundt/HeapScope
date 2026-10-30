@@ -25,15 +25,20 @@
 using HeapScope.Analysis.Inspections;
 using HeapScope.Analysis.Sets;
 
-namespace HeapScope.Worker.Rpc;
+namespace HeapScope.Worker.Snapshots;
 
 /// <summary>
 /// Resolved object sets and the leak detector tables their rows come from (sprint 3.1, ADR-030), kept per snapshot so the
 /// views of one set (types, instances, generations, dominators, retained) resolve it once. Least recently used entries
 /// go first beyond <see cref="MaxSets"/> sets or <see cref="MaxBytes"/> of them, and beyond <see cref="MaxTableBytes"/> of
-/// tables; a set larger than half the budget is not kept; a closed snapshot's entries go with it.
+/// tables; a set larger than half the budget is not kept. The snapshot store owns it: closing a snapshot forgets its
+/// entries, and an entry for a snapshot that is no longer open (a resolution that finished after the close) is dropped.
 /// </summary>
-internal sealed class ObjectSetCache
+/// <param name="isOpen">
+/// Whether a snapshot is still open, read under the cache's lock: a close removes the snapshot, then calls
+/// <see cref="Forget"/>, so an entry added meanwhile is either dropped by it or refused.
+/// </param>
+internal sealed class ObjectSetCache(Func<Guid, bool> isOpen)
 {
     /// <summary>Sets kept over all snapshots.</summary>
     public const int MaxSets = 8;
@@ -60,9 +65,14 @@ internal sealed class ObjectSetCache
         }
     }
 
-    /// <summary>Keeps <paramref name="set"/> (replacing an entry of the same key) unless it alone is over half the budget.</summary>
+    /// <summary>
+    /// Keeps <paramref name="set"/> (replacing an entry of the same key) unless it alone is over half the budget, or its
+    /// snapshot, or a snapshot its key names (a compared set's or an inspection row's baseline), is no longer open.
+    /// </summary>
     public void Add(Guid snapshotId, string key, ObjectSet set)
     {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(set);
         if (set.EstimatedBytes > MaxBytes / 2)
         {
             return;
@@ -70,6 +80,11 @@ internal sealed class ObjectSetCache
 
         lock (_gate)
         {
+            if (!isOpen(snapshotId) || NamesClosed(key))
+            {
+                return;
+            }
+
             Remove(_sets, e => e.Snapshot == snapshotId && e.Key == key);
             _sets.AddFirst((snapshotId, key, set));
             var bytes = _sets.Sum(s => s.Set.EstimatedBytes);
@@ -93,6 +108,7 @@ internal sealed class ObjectSetCache
         }
     }
 
+    /// <summary>Keeps a detector's rows unless they are over half the budget, or the snapshot or its baseline is no longer open.</summary>
     public void AddTable(Guid snapshotId, string inspection, Guid? baseline, InspectionTable table)
     {
         ArgumentNullException.ThrowIfNull(table);
@@ -104,6 +120,11 @@ internal sealed class ObjectSetCache
 
         lock (_gate)
         {
+            if (!isOpen(snapshotId) || (baseline is { } other && !isOpen(other)))
+            {
+                return;
+            }
+
             Remove(_tables, e => e.Snapshot == snapshotId && e.Key == key);
             _tables.AddFirst((snapshotId, key, table));
             var bytes = _tables.Sum(t => t.Table.EstimatedBytes);
@@ -124,6 +145,20 @@ internal sealed class ObjectSetCache
             Remove(_sets, e => e.Snapshot == snapshotId || e.Key.Contains(snapshotId.ToString(), StringComparison.Ordinal));
             Remove(_tables, e => e.Snapshot == snapshotId || e.Key.Contains(snapshotId.ToString(), StringComparison.Ordinal));
         }
+    }
+
+    /// <summary>Whether a part of <paramref name="key"/> names a snapshot that is not open (the ids <see cref="Forget"/> matches).</summary>
+    private bool NamesClosed(string key)
+    {
+        foreach (var part in key.Split('|'))
+        {
+            if (Guid.TryParseExact(part, "D", out var named) && !isOpen(named))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string TableKey(string inspection, Guid? baseline) => inspection.ToLowerInvariant() + "|" + baseline;

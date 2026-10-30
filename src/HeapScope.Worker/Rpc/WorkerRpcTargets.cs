@@ -23,7 +23,6 @@
 
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using StreamJsonRpc;
 
 namespace HeapScope.Worker.Rpc;
@@ -31,7 +30,7 @@ namespace HeapScope.Worker.Rpc;
 /// <summary>
 /// The worker's RPC targets: one handler per contract of <see cref="WorkerContracts.All"/>, and the shared services they
 /// use, all singletons. Dependencies point one way: handlers use the shared services; the set resolver uses the matcher,
-/// the inspection runner and the derived queries; those use the snapshot store and the set cache only.
+/// the inspection runner and the derived queries; those use the snapshot store only (which owns the set cache).
 /// </summary>
 internal static class WorkerRpcTargets
 {
@@ -54,8 +53,6 @@ internal static class WorkerRpcTargets
     /// </summary>
     public static IServiceCollection AddWorkerRpcTargets(this IServiceCollection services)
     {
-        // One set cache for every handler: its budgets hold over all snapshots, and closing a snapshot forgets its sets.
-        services.AddSingleton(sp => CreateSetCache(sp.GetRequiredService<ILogger<ObjectSetCache>>()));
         services.AddSingleton<SnapshotAccess>();
         services.AddSingleton<DerivedQueries>();
         services.AddSingleton<IdentityMatcher>();
@@ -84,12 +81,5 @@ internal static class WorkerRpcTargets
                 add(rpc);
             }
         };
-    }
-
-    private static ObjectSetCache CreateSetCache(ILogger logger)
-    {
-        var cache = new ObjectSetCache();
-        cache.Evicted += what => logger.LogDebug("Object set cache: dropped {What} to stay within its budget", what);
-        return cache;
     }
 }

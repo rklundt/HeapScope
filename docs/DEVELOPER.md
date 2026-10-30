@@ -327,6 +327,9 @@ of debuggable code) and exit when the process given as parent exits.
 - **Comments** (sprint 3.8, peer review S8): state the current reason, not the history. Cite a sprint, review or ADR
   id only beside a guard someone might otherwise simplify away, so its reason can be found; the history lives in git,
   the review files and the ADRs. Apply it to the code a change touches.
+- **Derived state** (sprint 3.8, peer review P20): Analysis returns values and keeps nothing, no static caches and no
+  mutable static state (`AnalysisStateTests`). What a snapshot derives gets a `DerivedData` slot in the worker:
+  computed once for concurrent callers and dropped when the snapshot closes.
 - **Nullable** is enabled everywhere; no `!` suppressions without a comment explaining why.
 - **Warnings are errors**; do not disable a warning without a comment and reviewer agreement.
 - **Async**: every async method takes a `CancellationToken` last (after `IProgress<T>` when present). Library

@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using HeapScope.Analysis.Retention;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
 
@@ -68,6 +69,12 @@ public interface IInspection
     /// <summary>Whether it needs the incoming references index (<see cref="InspectionContext.Referrers"/>).</summary>
     bool UsesReferrers => false;
 
+    /// <summary>
+    /// Whether it counts reachable objects only (<see cref="InspectionContext.Reachable"/>, and the baseline's when it
+    /// uses one): <see cref="Reachability.Compute"/>, the leak detectors' walk.
+    /// </summary>
+    bool UsesReachable => false;
+
     InspectionResult Run(InspectionContext context);
 }
 
@@ -81,13 +88,16 @@ public enum InspectionKind
     Leak = 1,
 }
 
-/// <summary>An earlier snapshot of the same process, for growth (sprint 2.6); objects are matched by stable keys, never addresses (ADR-018).</summary>
-public sealed record InspectionBaseline(HeapGraph Graph, SnapshotInfo Info, IObjectReader? Reader);
+/// <summary>
+/// An earlier snapshot of the same process, for growth (sprint 2.6); objects are matched by stable keys, never addresses
+/// (ADR-018). <see cref="Reachable"/> is set when the inspection asked for reachable objects.
+/// </summary>
+public sealed record InspectionBaseline(HeapGraph Graph, SnapshotInfo Info, IObjectReader? Reader, Reachability? Reachable = null);
 
 /// <summary>
 /// What an inspection runs over. <see cref="Reader"/> is set when the snapshot has a typed reader; <see cref="Baseline"/>
-/// when the user chose an earlier snapshot and the inspection uses one; <see cref="Referrers"/> when it asked for them
-/// (sprint 2.6, ADR-020's derived data).
+/// when the user chose an earlier snapshot and the inspection uses one; <see cref="Referrers"/> and <see cref="Reachable"/>
+/// when it asked for them (sprint 2.6, ADR-020's derived data). The host computes each once per snapshot and keeps it.
 /// </summary>
 public sealed record InspectionContext(
     HeapGraph Graph,
@@ -96,7 +106,8 @@ public sealed record InspectionContext(
     IProgress<InspectionProgress>? Progress,
     CancellationToken CancellationToken,
     InspectionBaseline? Baseline = null,
-    ReverseReferences? Referrers = null)
+    ReverseReferences? Referrers = null,
+    Reachability? Reachable = null)
 {
     public void Report(string phase, long done, long total) => Progress?.Report(new InspectionProgress(phase, done, total));
 }

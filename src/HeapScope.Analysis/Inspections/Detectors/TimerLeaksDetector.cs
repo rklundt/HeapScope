@@ -68,6 +68,8 @@ internal sealed class TimerLeaksDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinTimers={MinTimers};Timers=periodic,queued");
 
     public InspectionResult Run(InspectionContext context)
@@ -75,7 +77,7 @@ internal sealed class TimerLeaksDetector : IInspection
         var graph = context.Graph;
         var reader = Readers.Of(context);
         var ct = context.CancellationToken;
-        var reachable = Reachability.For(graph, ct);
+        var reachable = DetectorGraph.Reachable(context);
         var targets = new Dictionary<string, Target>(StringComparer.Ordinal);
         long active = 0, canceled = 0, paused = 0, oneShot = 0, unreadable = 0;
         var owners = new HashSet<string>(StringComparer.Ordinal);

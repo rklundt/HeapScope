@@ -51,13 +51,15 @@ internal sealed class UndisposedServiceScopesDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinScopes={MinScopes}");
 
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
         var reader = Readers.Of(context);
-        var reachable = Reachability.For(graph, context.CancellationToken);
+        var reachable = DetectorGraph.Reachable(context);
         long open = 0, closed = 0, roots = 0, unreadable = 0, bytes = 0;
         var openScopes = new List<int>();
         var type = -1;

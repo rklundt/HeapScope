@@ -243,7 +243,8 @@ internal sealed class RetentionHandler(
                 _ => DominatorGrouping.None,
             };
             var expanded = request.Expanded.ToHashSet(StringComparer.Ordinal);
-            var view = await Task.Run(() => DominatorTreeRows.Build(graph, tree, focus, expanded, grouping, request.MaxChildren, cancellationToken), cancellationToken).ConfigureAwait(false);
+            var groups = await derived.GetDominatorGroupsAsync(request.SnapshotId, grouping, cancellationToken).ConfigureAwait(false);
+            var view = await Task.Run(() => DominatorTreeRows.Build(graph, tree, focus, expanded, groups, request.MaxChildren, cancellationToken), cancellationToken).ConfigureAwait(false);
             var reveal = -1;
             for (var i = 0; request.RevealKey is not null && i < view.Rows.Count; i++)
             {

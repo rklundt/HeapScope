@@ -51,13 +51,15 @@ internal sealed class HttpClientInstancesDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinInstances={MinInstances};Counted=owns its handler");
 
     public InspectionResult Run(InspectionContext context)
     {
         var graph = context.Graph;
         var reader = Readers.Of(context);
-        var reachable = Reachability.For(graph, context.CancellationToken);
+        var reachable = DetectorGraph.Reachable(context);
         long owning = 0, sharing = 0, unreadable = 0, bytes = 0;
         var handlers = new HashSet<ulong>();
         var clients = new List<int>();

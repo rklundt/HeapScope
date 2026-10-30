@@ -65,6 +65,8 @@ internal sealed class EventHandlerLeaksDetector : IInspection
 
     public InspectionKind Kind => InspectionKind.Leak;
 
+    public bool UsesReachable => true;
+
     public bool UsesReferrers => true;
 
     public string Parameters => string.Create(CultureInfo.InvariantCulture, $"MinSubscribers={MinSubscribers};Events=field-like");
@@ -103,7 +105,7 @@ internal sealed class EventHandlerLeaksDetector : IInspection
         }
 
         var candidates = DetectorGraph.TypeMask(graph, t => perType[t] >= MinSubscribers);
-        var reachable = Reachability.For(graph, ct);
+        var reachable = DetectorGraph.Reachable(context);
 
         // Subscribers by publisher: each publisher's fields are read once, so two events of one delegate type stay apart (review H2).
         var pending = new Dictionary<int, List<Pending>>();
