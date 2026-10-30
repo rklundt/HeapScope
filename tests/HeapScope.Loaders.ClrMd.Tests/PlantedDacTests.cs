@@ -29,8 +29,10 @@ namespace HeapScope.Loaders.ClrMd.Tests;
 /// <summary>
 /// The trust of a DAC found next to a dump (ADR-035) on a real dump of any system (sprint 3.7, 3.6 review M19): Linux and
 /// macOS have no signature check behind it, so it must hold there. Runs when <c>HEAPSCOPE_FIXTURE_DUMP</c> names a dump of
-/// the LeakyConsole fixture (CI's Linux and macOS jobs set it after taking the core dump); skipped otherwise. The dump's
-/// folder must be writable: the DAC is planted there and removed after.
+/// the LeakyConsole fixture (CI's Linux and macOS jobs set it after taking the core dump); skipped otherwise, and failed
+/// instead when <c>HEAPSCOPE_REQUIRE_FIXTURE</c> is 1 (CI sets it, so the check cannot vanish quietly). The dump's folder must
+/// be writable: the DAC is planted there and removed after. A folder that already holds a DAC or runtime library is left
+/// alone (3.7 review: a developer's own copy is never overwritten or deleted).
 /// </summary>
 public sealed class PlantedDacTests : IDisposable
 {
@@ -40,24 +42,25 @@ public sealed class PlantedDacTests : IDisposable
     public void A_DAC_found_only_next_to_a_real_dump_is_refused_until_trusted_then_loaded_from_a_private_copy()
     {
         var dump = Environment.GetEnvironmentVariable("HEAPSCOPE_FIXTURE_DUMP");
-        Assert.SkipWhen(string.IsNullOrEmpty(dump) || !File.Exists(dump), "HEAPSCOPE_FIXTURE_DUMP names no dump (set by CI after it takes one).");
+        SkipUnless(!string.IsNullOrEmpty(dump) && File.Exists(dump), "HEAPSCOPE_FIXTURE_DUMP names no dump (set by CI after it takes one).");
 
         DacChoice? installed = null;
         new ClrMdDumpLoader(new ClrMdLoaderOptions { DacChosen = c => installed = c }).Load(dump!, cancellationToken: TestContext.Current.CancellationToken).Graph.Dispose();
         var runtime = Path.GetDirectoryName(installed?.Path);
-        Assert.SkipWhen(runtime is null, "The dumped runtime's DAC was not found on this machine.");
+        SkipUnless(runtime is not null, "The dumped runtime's DAC was not found on this machine.");
         string[] names = OperatingSystem.IsWindows() ? ["mscordaccore.dll"]
             : OperatingSystem.IsMacOS() ? ["libmscordaccore.dylib", "libcoreclr.dylib"]
             : ["libmscordaccore.so", "libcoreclr.so"];
         var folder = Path.GetDirectoryName(Path.GetFullPath(dump!))!;
         var planted = names.Select(n => Path.Combine(folder, n)).ToArray();
+        SkipUnless(!planted.Any(File.Exists), "The dump's folder already holds a DAC or runtime library, which this test does not touch.");
         var noRuntimes = Directory.CreateDirectory(Path.Combine(_work, "no-runtimes")).FullName;
         var copies = Path.Combine(_work, "copies");
         try
         {
             foreach (var name in names)
             {
-                File.Copy(Path.Combine(runtime!, name), Path.Combine(folder, name), overwrite: true);
+                File.Copy(Path.Combine(runtime!, name), Path.Combine(folder, name), overwrite: false);
             }
 
             var untrusted = new ClrMdLoaderOptions { InstalledRuntimeRoots = [noRuntimes], SearchDumpedRuntimeDirectory = false, OwnRuntimeDirectory = null };
@@ -82,4 +85,15 @@ public sealed class PlantedDacTests : IDisposable
     }
 
     public void Dispose() => Directory.Delete(_work, recursive: true);
+
+    private static void SkipUnless(bool condition, string reason)
+    {
+        if (condition)
+        {
+            return;
+        }
+
+        Assert.False(Environment.GetEnvironmentVariable("HEAPSCOPE_REQUIRE_FIXTURE") == "1", reason);
+        Assert.Skip(reason);
+    }
 }

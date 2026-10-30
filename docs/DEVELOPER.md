@@ -32,9 +32,14 @@ dotnet test --solution HeapScope.sln
 - Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
 - Fuzzing (sprint 3.7): the mutation tests (`SignedCacheTests`, `CraftedGcDumpTests`) run a short pass in every run;
   `HEAPSCOPE_FUZZ_ITERATIONS` and `HEAPSCOPE_FUZZ_SEED` raise and vary it. The nightly `fuzz.yml` runs 2,000 iterations on
-  the run number as the seed; a failure names its seed and iteration, which replays it locally.
+  the run number as the seed, on `develop`; a failure names its seed, iteration and exception type. The cache half replays
+  from the seed alone. The gcdump half mutates a gcdump captured live, so it also needs that base: with
+  `HEAPSCOPE_FUZZ_KEEP=<folder>` (set by the nightly, kept with its results) the test keeps the base (`base.gcdump`), the
+  iteration in progress and any failing input there, and `HEAPSCOPE_FUZZ_BASE=<base.gcdump>` replays from it.
 - The DAC trust check on a real dump of any system: `HEAPSCOPE_FIXTURE_DUMP=<dump> dotnet test --project
-  tests/HeapScope.Loaders.ClrMd.Tests --filter-class "*PlantedDacTests"` (CI's Linux and macOS jobs run it).
+  tests/HeapScope.Loaders.ClrMd.Tests --filter-class "*PlantedDacTests"` (CI's Linux and macOS jobs run it, with
+  `HEAPSCOPE_REQUIRE_FIXTURE=1` so a skip fails). It plants the DAC next to the dump and removes it after; a folder that
+  already holds a DAC or runtime library is skipped, never overwritten.
 - Packages (sprint 3.7): nuget.org only (`nuget.config`); every project has a `packages.lock.json` and CI restores in
   locked mode, so after changing `Directory.Packages.props` or a project's references run `dotnet restore HeapScope.sln
   --force-evaluate` and commit the changed lock files. Dependabot opens weekly PRs into `develop` for NuGet and Actions.
@@ -248,7 +253,9 @@ dotnet test --solution HeapScope.sln
 - Ctrl+C in tests: `LoadGen --launch <exe> [args]` runs a program with Ctrl+C enabled (children of the test host
   inherit "ignore Ctrl+C"), and `LoadGen --ctrl-c <pid>` sends Ctrl+C to that program's console.
 - A canceled capture waits for the runtime to finish writing and then deletes the dump: the CLI waits up to an hour
-  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`, `*.gcdump.partial`) is swept at the next start.
+  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`, `*.gcdump.partial`) in the session
+  library is swept at the next start; a folder the user picked (`--out`) is never swept (sprint 3.7), so a leftover there
+  is the user's to delete.
 - Logs (sprint 2.3.7, ARCHITECTURE 11): a file per process and day, `heapscope-yyyyMMdd-<ui|cli>-<pid>.log`, in
   `%LOCALAPPDATA%\HeapScope\logs` (Linux `~/.local/share/HeapScope/logs`, macOS `~/Library/Application Support/HeapScope/logs`),
   with forwarded worker lines (`w<pid> g<generation>`); override the folder with `--Logging:File:Directory <dir>` (UI)
@@ -447,8 +454,13 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
 - Release builds (sprint 3.7): publishing the GitHub release runs `release.yml`, which builds the tag for every runtime
-  identifier and attaches the tarballs, their build provenance attestations, an SBOM per front end and the worker, and
-  `SHA256SUMS` (`gh attestation verify <file> --repo rklundt/HeapScope` checks one). Security reports: `SECURITY.md`.
+  identifier (read access only) and then, in one job that builds nothing, attaches the tarballs, an SBOM of the app, the
+  CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store (`gh attestation verify <file> --repo
+  rklundt/HeapScope` checks one; attestations need a public repository or GitHub Enterprise). To try it before a
+  release: `gh workflow run release.yml -f tag=<tag>` builds without attaching (a dry run; `-f dry-run=false` attaches);
+  manual runs need the workflow on the default branch. If a build fails after publishing, rerun the failed jobs: one
+  runtime failing does not cancel the others, and attaching replaces files of the same name. Security reports:
+  `SECURITY.md`.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
   adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no

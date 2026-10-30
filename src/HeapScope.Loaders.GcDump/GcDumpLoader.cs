@@ -72,26 +72,67 @@ public sealed class GcDumpLoader : ISnapshotLoader
         {
             return Build(fullPath, dump, source, stopwatch, open, progress, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not InsufficientExecutionStackException and not SnapshotFormatException)
+        catch (Exception ex) when (IsReaderInconsistency(ex))
         {
-            // A file the reader accepted whose tables disagree (a child or type index past its table): crafted or damaged,
-            // refused with a reason, never a crash (sprint 3.7, peer review P13; found by the mutation test).
-            throw new SnapshotFormatException($"{fullPath} is not a consistent gcdump ({ex.Message}). The file may be damaged or crafted; capture another gcdump.", ex);
+            // A file the reader accepted whose blob disagrees with its tables (a child list running past the blob): crafted
+            // or damaged, refused with a reason, never a crash (sprint 3.7, peer review P13; found by the mutation test).
+            // Indices are checked explicitly below, and HeapScope's own errors (the builder's) are not caught here, so a bug
+            // never reads as a bad file (3.7 review H5). The exception's type is in the message, which the worker logs.
+            throw new SnapshotFormatException($"{fullPath} is not a consistent gcdump ({ex.GetType().Name}: {ex.Message}). The file may be damaged or crafted; capture another gcdump.", ex);
         }
+        catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException or InsufficientExecutionStackException or SnapshotFormatException or IOException or UnauthorizedAccessException))
+        {
+            // Anything else is HeapScope's own error, never the file's: wrapped so the worker logs it as an unexpected
+            // failure with its stack, not as a refusal of a bad request or a bad file (3.7 review H5).
+            throw new InvalidOperationException($"HeapScope could not build the graph of {fullPath}. This is a HeapScope error, not a problem with the file: please report it with the log.", ex);
+        }
+    }
+
+    /// <summary>
+    /// What the vendored reader throws when a node's child list runs past the blob it reads from: a bare
+    /// <see cref="Exception"/> from its stream reader, or an index or argument out of range from its lists. Decided by
+    /// where it was thrown (3.7 review H5): the first frame that is not the runtime's must be the vendored reader's, so the
+    /// same exception types from HeapScope's own builder or loader (a bug) are never read as a bad file. A reader accessor
+    /// inlined into the loader hides its frame; that case fails safe, as an unexpected error with its stack.
+    /// </summary>
+    internal static bool IsReaderInconsistency(Exception ex)
+    {
+        if (ex.GetType() != typeof(Exception) && ex is not (IndexOutOfRangeException or ArgumentOutOfRangeException or EndOfStreamException or InvalidDataException))
+        {
+            return false;
+        }
+
+        var reader = typeof(MemoryGraph).Assembly;
+        foreach (var frame in new StackTrace(ex, fNeedFileInfo: false).GetFrames())
+        {
+            var assembly = frame.GetMethod()?.Module.Assembly;
+            if (assembly == reader)
+            {
+                return true;
+            }
+
+            if (assembly?.GetName().Name is { } name && name.StartsWith("HeapScope", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static LoadResult Build(string fullPath, GCHeapDump dump, MemoryGraph source, Stopwatch stopwatch, TimeSpan open, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
     {
         using var builder = new HeapGraphBuilder();
-        var (nodesByObject, undefined, unknownTypes) = AddObjects(source, builder, progress, cancellationToken);
+        var children = new ChildBudget(source, new FileInfo(fullPath).Length, cancellationToken);
+        var (nodesByObject, undefined, unknownTypes) = AddObjects(source, builder, children, progress, cancellationToken);
         builder.FreezeObjects(cancellationToken);
         var objects = stopwatch.Elapsed - open;
 
-        AddReferences(source, builder, nodesByObject, new FileInfo(fullPath).Length, progress, cancellationToken);
+        AddReferences(source, builder, nodesByObject, children, progress, cancellationToken);
         var references = stopwatch.Elapsed - open - objects;
 
         progress?.Report(new LoadProgress("Reading roots", 0, null));
-        var staticRoots = AddRoots(source, builder, cancellationToken);
+        var staticRoots = AddRoots(source, builder, children, cancellationToken);
         var roots = stopwatch.Elapsed - open - objects - references;
 
         progress?.Report(new LoadProgress("Building graph", 0, null));
@@ -147,7 +188,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
     }
 
     /// <summary>Adds every node with an address and a description. Returns the node of each object, in address order.</summary>
-    private static (int[] NodesByObject, long Undefined, int UnknownTypes) AddObjects(MemoryGraph source, HeapGraphBuilder builder, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
+    private static (int[] NodesByObject, long Undefined, int UnknownTypes) AddObjects(MemoryGraph source, HeapGraphBuilder builder, ChildBudget children, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
     {
         var unknownTypes = 0;
         var limit = (int)source.NodeIndexLimit;
@@ -181,7 +222,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
             }
 
             source.GetNode(index, node);
-            source.GetType(node.TypeIndex, type);
+            ReadType(source, node, type);
             var rawName = type.Name ?? string.Empty;
             if (TypeNames.IsComCallableWrapper(rawName))
             {
@@ -198,7 +239,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
                 var last = NodeIndex.Invalid;
                 for (var child = node.GetFirstChildIndex(); child != NodeIndex.Invalid; child = node.GetNextChildIndex())
                 {
-                    last = child;
+                    last = children.Take(child);
                 }
 
                 if (last != NodeIndex.Invalid && !source.IsDefined(last) && source.GetAddress(last) != 0)
@@ -235,17 +276,23 @@ public sealed class GcDumpLoader : ISnapshotLoader
         var sortedAddresses = addresses.ToArray();
         var nodesByObject = nodes.ToArray();
         Array.Sort(sortedAddresses, nodesByObject);
+        for (var k = 1; k < sortedAddresses.Length; k++)
+        {
+            // The runtime reports each object once; two at one address are the file's, not the builder's, error (3.7 review
+            // H5: found by the mutation test once the loader stopped turning every error into a format refusal).
+            if (sortedAddresses[k] == sortedAddresses[k - 1])
+            {
+                throw new SnapshotFormatException($"The gcdump states two objects at 0x{sortedAddresses[k]:X}. The file is damaged or crafted; capture another gcdump.");
+            }
+        }
+
         return (nodesByObject, undefined, unknownTypes);
     }
 
-    /// <param name="edgeBudget">The file's length: every reference takes at least a byte of it, so more references than
-    /// bytes mean nodes share their child lists, which only a crafted file does (sprint 3.7, peer review P13: billions of
-    /// references from a file of a few megabytes).</param>
-    private static void AddReferences(MemoryGraph source, HeapGraphBuilder builder, int[] nodesByObject, long edgeBudget, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
+    private static void AddReferences(MemoryGraph source, HeapGraphBuilder builder, int[] nodesByObject, ChildBudget children, IProgress<LoadProgress>? progress, CancellationToken cancellationToken)
     {
         var node = source.AllocNodeStorage();
         var targets = new List<ulong>();
-        long edges = 0;
         for (var objectIndex = 0; objectIndex < nodesByObject.Length; objectIndex++)
         {
             if (objectIndex % CheckInterval == 0)
@@ -258,20 +305,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
             targets.Clear();
             for (var child = node.GetFirstChildIndex(); child != NodeIndex.Invalid; child = node.GetNextChildIndex())
             {
-                if ((long)child < 0 || (long)child >= (long)source.NodeIndexLimit)
-                {
-                    throw new SnapshotFormatException($"The gcdump references node {(long)child}, past its {(long)source.NodeIndexLimit:N0} nodes. The file is damaged or crafted; capture another gcdump.");
-                }
-
-                if (++edges > edgeBudget)
-                {
-                    throw new SnapshotFormatException($"The gcdump states more references than its {edgeBudget:N0} bytes can hold. The file is damaged or crafted; capture another gcdump.");
-                }
-
-                if ((edges & 0xFFFF) == 0)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                }
+                children.Take(child);
 
                 // Pseudo nodes have no address; undescribed nodes (COM pointers, lost events) are not objects.
                 var address = source.GetAddress(child);
@@ -294,7 +328,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
     /// Walks the root tree: every object below a pseudo node is a root of the kind the nearest named pseudo node stands
     /// for. Returns the number of static field roots.
     /// </summary>
-    private static int AddRoots(MemoryGraph source, HeapGraphBuilder builder, CancellationToken cancellationToken)
+    private static int AddRoots(MemoryGraph source, HeapGraphBuilder builder, ChildBudget children, CancellationToken cancellationToken)
     {
         if (source.RootIndex == NodeIndex.Invalid)
         {
@@ -306,9 +340,9 @@ public sealed class GcDumpLoader : ISnapshotLoader
         var pending = new Stack<(NodeIndex Node, RootClass Class)>();
         pending.Push((source.RootIndex, RootClass.Other));
         var statics = 0;
-        var checks = 0;
         while (pending.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var (index, inherited) = pending.Pop();
             if (!visited.Add(index))
             {
@@ -317,19 +351,19 @@ public sealed class GcDumpLoader : ISnapshotLoader
 
             // Child storage is per pseudo node: the walk below pushes children before reading the next node.
             var node = source.GetNode(index, source.AllocNodeStorage());
-            source.GetType(node.TypeIndex, type);
+            ReadType(source, node, type);
             var rootClass = RootClass.Of(type.Name, inherited);
             for (var child = node.GetFirstChildIndex(); child != NodeIndex.Invalid; child = node.GetNextChildIndex())
             {
-                if (++checks % CheckInterval == 0)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                }
-
-                var address = source.GetAddress(child);
+                var address = source.GetAddress(children.Take(child));
                 if (address == 0 || IsComCallableWrapper(source, child, type))
                 {
-                    pending.Push((child, rootClass));
+                    // A pseudo node already walked is not pushed again: many may share one child list (3.7 review H7).
+                    if (!visited.Contains(child))
+                    {
+                        pending.Push((child, rootClass));
+                    }
+
                     continue;
                 }
 
@@ -349,6 +383,49 @@ public sealed class GcDumpLoader : ISnapshotLoader
         return statics;
     }
 
+    /// <summary>
+    /// The children every walk of one load reads, together (3.7 review H7): each must be a node of the file, and every child
+    /// takes at least a byte of it, so more children than bytes mean nodes share their child lists, which only a crafted
+    /// file does (sprint 3.7, peer review P13: billions of references from a file of a few megabytes). The object, reference
+    /// and root walks all draw on it, so none can spend what another left. Checks cancellation every 64K children.
+    /// </summary>
+    private sealed class ChildBudget(MemoryGraph source, long budget, CancellationToken cancellationToken)
+    {
+        private readonly long _nodes = (long)source.NodeIndexLimit;
+        private long _taken;
+
+        public NodeIndex Take(NodeIndex child)
+        {
+            if ((long)child < 0 || (long)child >= _nodes)
+            {
+                throw new SnapshotFormatException($"The gcdump references node {(long)child}, past its {_nodes:N0} nodes. The file is damaged or crafted; capture another gcdump.");
+            }
+
+            if (++_taken > budget)
+            {
+                throw new SnapshotFormatException($"The gcdump states more references than its {budget:N0} bytes can hold. The file is damaged or crafted; capture another gcdump.");
+            }
+
+            if ((_taken & (CheckInterval - 1)) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return child;
+        }
+    }
+
+    /// <summary>Reads a node's type after checking its index against the type table, which the file states (3.7 review).</summary>
+    private static void ReadType(MemoryGraph source, Node node, NodeType storage)
+    {
+        if ((long)node.TypeIndex < 0 || (long)node.TypeIndex >= (long)source.NodeTypeIndexLimit)
+        {
+            throw new SnapshotFormatException($"The gcdump's node {(long)node.Index} has type {(long)node.TypeIndex}, past its {(long)source.NodeTypeIndexLimit:N0} types. The file is damaged or crafted; capture another gcdump.");
+        }
+
+        source.GetType(node.TypeIndex, storage);
+    }
+
     private static bool IsComCallableWrapper(MemoryGraph source, NodeIndex index, NodeType storage)
     {
         if (!source.IsDefined(index))
@@ -356,7 +433,7 @@ public sealed class GcDumpLoader : ISnapshotLoader
             return false;
         }
 
-        source.GetType(source.GetNode(index, source.AllocNodeStorage()).TypeIndex, storage);
+        ReadType(source, source.GetNode(index, source.AllocNodeStorage()), storage);
         return TypeNames.IsComCallableWrapper(storage.Name ?? string.Empty);
     }
 }

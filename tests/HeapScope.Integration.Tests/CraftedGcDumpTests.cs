@@ -31,7 +31,11 @@ namespace HeapScope.Integration.Tests;
 /// <summary>
 /// A real gcdump mutated at random (sprint 3.7, peer review P13): the loader answers with a graph or a format error within
 /// a bounded time, never hangs, never allocates what the file cannot hold. A short pass in every run; the nightly job
-/// raises <c>HEAPSCOPE_FUZZ_ITERATIONS</c> and varies <c>HEAPSCOPE_FUZZ_SEED</c>.
+/// raises <c>HEAPSCOPE_FUZZ_ITERATIONS</c> and varies <c>HEAPSCOPE_FUZZ_SEED</c>. The gcdump is captured live, so a seed
+/// replays a failure only with the same base file (3.7 review): with <c>HEAPSCOPE_FUZZ_KEEP</c> set to a folder, the base
+/// is kept there, the seed and iteration of the load in progress are written there (so a crash of the test host still
+/// names them), and a failing input is kept; <c>HEAPSCOPE_FUZZ_BASE</c> names a kept base to replay from. Fixture data
+/// only: LeakyConsole's heap holds nothing private.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class CraftedGcDumpTests(StaticCacheGcDumps shared) : IClassFixture<StaticCacheGcDumps>, IDisposable
@@ -43,7 +47,15 @@ public sealed class CraftedGcDumpTests(StaticCacheGcDumps shared) : IClassFixtur
     {
         var iterations = int.TryParse(Environment.GetEnvironmentVariable("HEAPSCOPE_FUZZ_ITERATIONS"), CultureInfo.InvariantCulture, out var n) ? n : 20;
         var seed = int.TryParse(Environment.GetEnvironmentVariable("HEAPSCOPE_FUZZ_SEED"), CultureInfo.InvariantCulture, out var s) ? s : 1;
-        var original = await File.ReadAllBytesAsync(shared.BaselineGcDump, TestContext.Current.CancellationToken);
+        var basePath = Environment.GetEnvironmentVariable("HEAPSCOPE_FUZZ_BASE") is { Length: > 0 } given ? given : shared.BaselineGcDump;
+        var original = await File.ReadAllBytesAsync(basePath, TestContext.Current.CancellationToken);
+        var keep = Environment.GetEnvironmentVariable("HEAPSCOPE_FUZZ_KEEP");
+        if (!string.IsNullOrEmpty(keep))
+        {
+            Directory.CreateDirectory(keep);
+            await File.WriteAllBytesAsync(Path.Combine(keep, "base.gcdump"), original, TestContext.Current.CancellationToken);
+        }
+
         var random = new Random(seed);
         Directory.CreateDirectory(_folder.Path);
         var mutated = _folder.File("mutated.gcdump");
@@ -58,6 +70,11 @@ public sealed class CraftedGcDumpTests(StaticCacheGcDumps shared) : IClassFixtur
             }
 
             await File.WriteAllBytesAsync(mutated, bytes, TestContext.Current.CancellationToken);
+            if (!string.IsNullOrEmpty(keep))
+            {
+                await File.WriteAllTextAsync(Path.Combine(keep, "in-progress.txt"), $"seed {seed}, iteration {i}", TestContext.Current.CancellationToken);
+            }
+
             var load = Task.Run(
                 () =>
                 {
@@ -72,8 +89,21 @@ public sealed class CraftedGcDumpTests(StaticCacheGcDumps shared) : IClassFixtur
                 },
                 TestContext.Current.CancellationToken);
 
-            (await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken))).ShouldBe(load, $"seed {seed}, iteration {i}: the load did not end within 60 s");
-            await load;
+            var ended = await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken)) == load;
+            if ((!ended || load.IsFaulted) && !string.IsNullOrEmpty(keep))
+            {
+                File.Copy(mutated, Path.Combine(keep, $"failing-seed{seed}-iteration{i}.gcdump"), overwrite: true);
+            }
+
+            ended.ShouldBeTrue($"seed {seed}, iteration {i}: the load did not end within 60 s");
+            try
+            {
+                await load;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new InvalidOperationException($"seed {seed}, iteration {i}: {ex.GetType().Name}: {ex.Message}", ex);
+            }
         }
     }
 

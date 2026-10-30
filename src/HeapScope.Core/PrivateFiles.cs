@@ -81,9 +81,19 @@ public static class PrivateFiles
             settings.UnixCreateMode = FileMode;
         }
 
-        var stream = new FileStream(path, settings);
         if (OperatingSystem.IsWindows() && mode is System.IO.FileMode.CreateNew or System.IO.FileMode.Create)
         {
+            // The file is created with its owner-only list in one step, so no handle can be opened under the folder's list
+            // in between (3.7 review), then opened as asked; an existing file keeps its list when overwritten, so a second
+            // Create keeps the new one and still preallocates.
+            FileSystemAclExtensions.Create(new FileInfo(path), mode, System.Security.AccessControl.FileSystemRights.Write, FileShare.None, 1, FileOptions.None, OwnerOnly()).Dispose();
+            settings.Mode = System.IO.FileMode.Create;
+        }
+
+        var stream = new FileStream(path, settings);
+        if (OperatingSystem.IsWindows() && mode is System.IO.FileMode.Create)
+        {
+            // A file that existed before keeps its own list through the step above: it is made owner-only here.
             try
             {
                 Protect(path);
@@ -112,12 +122,19 @@ public static class PrivateFiles
             return;
         }
 
+        new FileInfo(path).SetAccessControl(OwnerOnly());
+    }
+
+    /// <summary>An access list granting the current Windows user full control and inheriting nothing.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static System.Security.AccessControl.FileSecurity OwnerOnly()
+    {
         var user = System.Security.Principal.WindowsIdentity.GetCurrent().User
             ?? throw new UnauthorizedAccessException("The current Windows user has no security identifier.");
         var security = new System.Security.AccessControl.FileSecurity();
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(user, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
-        new FileInfo(path).SetAccessControl(security);
+        return security;
     }
 
     /// <summary>

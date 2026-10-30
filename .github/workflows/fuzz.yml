@@ -1,7 +1,9 @@
 # HeapScope nightly fuzzing (sprint 3.7, peer review P13): the mutation tests of the index cache reader and the gcdump
 # loader run with many more iterations than in CI, on a new seed every night (the run number). A failure names its seed
-# and iteration, so `HEAPSCOPE_FUZZ_SEED=<seed> HEAPSCOPE_FUZZ_ITERATIONS=<n>` replays it locally. The gcdump comes from
-# the LeakyConsole fixture; nothing is uploaded but the test results.
+# and iteration, so `HEAPSCOPE_FUZZ_SEED=<seed> HEAPSCOPE_FUZZ_ITERATIONS=<n>` replays it locally; the gcdump half also
+# needs the base gcdump it mutated (`HEAPSCOPE_FUZZ_BASE`), which is kept with the results, with any failing input and
+# the iteration in progress (fixture data from LeakyConsole only). A schedule runs on the default branch's copy of this
+# file, so it checks out develop explicitly: the nightly fuzzes the code in progress, not the last release.
 name: Fuzz
 
 on:
@@ -26,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           persist-credentials: false
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
@@ -38,6 +41,8 @@ jobs:
       - name: Gcdumps
         if: ${{ !cancelled() }}
         shell: bash
+        env:
+          HEAPSCOPE_FUZZ_KEEP: ${{ runner.temp }}/fuzz-results/inputs
         run: dotnet test --project tests/HeapScope.Integration.Tests -c Release --no-build --filter-class "*CraftedGcDumpTests" --report-xunit-trx --results-directory "$RUNNER_TEMP/fuzz-results"
       - name: Keep the results
         if: ${{ always() }}

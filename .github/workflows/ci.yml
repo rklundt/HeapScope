@@ -126,7 +126,7 @@ jobs:
           bash build/fixture-dump.sh "$dump" dotnet-dump
           bash build/check-known-answers.sh src/HeapScope.Cli/bin/Release/net10.0/heapscope-cli "$dump"
           # The trust of a DAC next to a dump, where no signature check backs it (sprint 3.7, 3.6 review M19).
-          HEAPSCOPE_FIXTURE_DUMP="$dump" dotnet test --project tests/HeapScope.Loaders.ClrMd.Tests -c Release --no-build --filter-class "*PlantedDacTests"
+          HEAPSCOPE_FIXTURE_DUMP="$dump" HEAPSCOPE_REQUIRE_FIXTURE=1 dotnet test --project tests/HeapScope.Loaders.ClrMd.Tests -c Release --no-build --filter-class "*PlantedDacTests"
           # The Avalonia app opens the core dump headless and drills down as a user would (sprint 2.3.6).
           app=src/HeapScope.UI/bin/Release/net10.0/HeapScope
           "$app" --headless --smoke-open "$dump" --Logging:File:Directory "$RUNNER_TEMP/ui-log" || { cat "$RUNNER_TEMP"/ui-log/*.log; exit 1; }

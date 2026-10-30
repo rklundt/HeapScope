@@ -96,29 +96,29 @@ public static class TraceRecorder
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        var partial = fullPath + ".partial";
+        // Created new under a name of its own before the session starts (sprint 3.7, peer review P15; 3.7 review): a file made
+        // beforehand by someone else is never written into or deleted, and a recording into the same folder never meets it.
+        var partial = $"{fullPath}.{Guid.NewGuid():N}.partial";
         var stopwatch = Stopwatch.StartNew();
-        EventPipeSession session;
-        try
-        {
-            session = await new DiagnosticsClient(processId)
-                .StartEventPipeSessionAsync(Providers(profile), requestRundown: true, circularBufferMB: 256, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is ServerNotAvailableException or ServerErrorException or UnauthorizedAccessException)
-        {
-            throw Translate(processId, ex);
-        }
-
+        var file = PrivateFiles.Open(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
         var stoppedEarly = false;
         try
         {
-            using (session)
+            await using (file.ConfigureAwait(false))
             {
-                // Created new (sprint 3.7, peer review P15): a file of that name made beforehand by someone else is never
-                // written into; the sweep removes HeapScope's own leftovers.
-                var file = PrivateFiles.Open(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
-                await using (file.ConfigureAwait(false))
+                EventPipeSession session;
+                try
+                {
+                    session = await new DiagnosticsClient(processId)
+                        .StartEventPipeSessionAsync(Providers(profile), requestRundown: true, circularBufferMB: 256, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is ServerNotAvailableException or ServerErrorException or UnauthorizedAccessException)
+                {
+                    throw Translate(processId, ex);
+                }
+
+                using (session)
                 {
                     // The stream ends when the session stops (with the rundown that names methods) or the process exits.
                     var copy = session.EventStream.CopyToAsync(file, CancellationToken.None);

@@ -39,7 +39,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
 | 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
 | 3.6 | Urgent fixes | Closed | 2026-10-29 | sprint-3.6 |
-| 3.7 | Hardening | In Progress | | |
+| 3.7 | Hardening | Closed | 2026-10-30 | sprint-3.7 |
 | 3.8 | Modularity | Planned | | |
 
 ---
@@ -3021,10 +3021,23 @@ are verifiable.
 6. [x] Session paths and the sweep (S3, S4): `Session.FileInside`, `Session.IsLocal`, the Live page's checks, the sweep
    without links and without the user's folder. Tests: `SessionLibraryTests`.
 7. [x] DAC trust off Windows (3.6 M19): `PlantedDacTests` on `HEAPSCOPE_FIXTURE_DUMP`, run by the Linux and macOS jobs.
-8. [ ] Docs: ARCHITECTURE (section 7, section 12, ADR-036, the repository ADR, code map), DEVELOPER, THIRD-PARTY-NOTICES,
-   this section.
+8. [x] Docs: ARCHITECTURE (section 7, section 11, section 12, ADR-036, the repository ADR, code map), DEVELOPER,
+   THIRD-PARTY-NOTICES, SECURITY.md, this section.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** (docs/reviews/sprint-3.7.md): 8 High, 16 Moderate, 32 Low after dedupe across four reviewers
+(solution-architect, senior-dev, gc-specialist, support engineer). All Highs fixed and confirmed by the reviewers that
+raised them: a received session could still reach a network path (`\/server`, `\??\`, mapped drives; the Home page opened
+its latest snapshot unchecked); a folder link let Open and Delete timeline reach an outside file (one rule with deleting
+a session now); an untrusted base cache was rebuilt silently; the key's lifecycle was unlogged and a key failure stopped
+every worker (a key of its own for that run now, logged); the gcdump loader turned HeapScope's own errors into "the file
+is damaged" (decided by the throw site now, after two re-reviews; the mutation test then found a duplicate address, now a
+format refusal); a dump that could not be made private said nothing; the RCW and root walks read children outside the
+budget (one budget per load, a crafted shared child list refused at once); the address table count was unchecked.
+Moderates: 9 fixed (the two Untrusted wordings, the trace recorder's partial file, the nightly's branch and replay, the
+release workflow's privileges, attestations, dry run and SBOM flag, Windows files created owner-only in one step, the
+planted DAC test, the capture's wider catch, section 11), 2 in part (count minimums, tests), 5 deferred (3.8: the
+injected cache signer, run file refusal reasons; Backlog: the cache folder fallback, structural cache checks, locked
+publishes, folder ownership). Measured: 3,200 gcdump mutations on 16 seeds after the fixes, none failing.
 
 ---
 
@@ -3043,6 +3056,11 @@ classes.
 - Analysis: detectors one per file with one framework classifier (P19); derived state in the worker's slots (P20); one
   type matcher (S5).
 - UI seam: an analysis workspace per snapshot (P21).
+- From the 3.7 review: an injected index cache signer with an explicit "none" for tools and tests, replacing the ambient
+  key and its `AsyncLocal` seam (M11); one `HeapScopeFolders` in Core with a worker option to redirect it, so tests keep
+  the key and trust files out of the profile and a worker-level signature test becomes possible (L, M10); the run file
+  policy (`FileInside` with the check that refused, a status per cause) moved from `LiveViewModel` into Application with
+  the P11 split (M2).
 - Docs (P12): an overview ARCHITECTURE.md with module pages and one ADR per file; SPRINTS.md cut to the current phase and
   a swept Backlog; the comment and file-per-type rules (S8, S9); trace-report on Avalonia (S7).
 
@@ -3100,6 +3118,16 @@ Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Ph
   on every full-dump cache open measured on Medium, and skipped when the cache's recorded DAC still comes from a trusted
   folder (re-review); an option for the trust file's folder, so front ends started by tests keep it in their own root
   (L30).
+- From the 3.7 review (decided autonomously): a cache next to the dump that is untrusted or cannot be replaced written to
+  and read from the user's cache folder instead (M4); checks behind the checksums on cache open (monotonic edge starts,
+  index ranges, sorted addresses, sidecars; M9); gcdump counts checked against the bytes left with each COM record's
+  real minimum (M8); locked restores for publishes and release builds, runtime identifiers for the CLI and the worker, a
+  fixed SDK feature band, a lock file drift check after publish (M12); one ownership check for HeapScope's data folders
+  with a next step (M3); SBOMs per runtime identifier from the published output (M7); tests: a cache fuzz mode that
+  recomputes checksums and signs, an untrusted sidecar per kind, deterministic gcdump count tests with an allocation
+  bound, a builder error through `Load` and the worker's error path, the capture's not-private warning reaching
+  `CaptureResult`, the budget tripped by the root walk alone (M10, Lows); the root walk queuing a pseudo node once
+  (gc-specialist Low); monitoring cards showing a capture's warning (support Low).
 
 **Medium**
 - From the 3.4 review (decided autonomously): `session.json` runs read one by one, an unreadable run kept as its JSON

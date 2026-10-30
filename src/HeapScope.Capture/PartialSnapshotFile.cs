@@ -93,17 +93,6 @@ public sealed class PartialSnapshotFile
                 ? new DumpFileExistsException($"{FullPath} appeared while the {_noun} was written; the new {_noun} was removed. Capture again with another name.", ex)
                 : new DumpWriteFailedException($"The {_noun} could not be moved to {FullPath}: {ex.Message}", ex);
         }
-
-        try
-        {
-            // The runtime wrote it with the folder's permissions; a folder the user picked may let others read it, and a
-            // dump holds every secret of the process (sprint 3.7, peer review P15).
-            HeapScope.Core.PrivateFiles.Protect(FullPath);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
-        {
-            // The target's account owns it (an elevated capture of another user's process): its own permissions stay.
-        }
     }
 
     /// <summary>Deletes the partial file; if a writer still holds it, retries for up to 30 seconds in the background.</summary>

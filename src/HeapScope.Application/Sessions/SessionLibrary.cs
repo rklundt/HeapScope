@@ -145,12 +145,36 @@ public sealed record Session(string Folder, SessionDocument Document)
     }
 
     /// <summary>
-    /// True for a path on this machine: not a network share (<c>\\server</c>, <c>//server</c>) and not a device path
-    /// (<c>\\?\</c>, <c>\\.\</c>). A session received from someone else may name any path (sprint 3.7, peer review S3);
-    /// looking at a network one reaches out to that server.
+    /// True for a path on this machine: not a network share or device path (any two leading separators, so
+    /// <c>\\server</c>, <c>//server</c>, <c>\/server</c>, <c>\\?\</c> and <c>\\.\</c>, nor <c>\??\</c>) and, on Windows, not
+    /// on a mapped network drive. A session received from someone else may name any path (sprint 3.7, peer review S3);
+    /// looking at a network one reaches out to that server and offers it the user's credentials (3.7 review H1). Nothing
+    /// here touches the path itself.
     /// </summary>
-    public static bool IsLocal(string path) =>
-        !string.IsNullOrEmpty(path) && !path.StartsWith(@"\\", StringComparison.Ordinal) && !path.StartsWith("//", StringComparison.Ordinal);
+    public static bool IsLocal(string path)
+    {
+        if (string.IsNullOrEmpty(path) || path.Length >= 2 && IsSeparator(path[0]) && IsSeparator(path[1])
+            || path.StartsWith(@"\??\", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!OperatingSystem.IsWindows() || path.Length < 2 || path[1] != ':' || !char.IsAsciiLetter(path[0]))
+        {
+            return true;
+        }
+
+        try
+        {
+            return new DriveInfo(path[..1]).DriveType != DriveType.Network;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSeparator(char c) => c is '\\' or '/';
 
     /// <summary>
     /// The full path of <paramref name="relative"/> when it is a regular file inside this session's folder, reached through
@@ -163,9 +187,11 @@ public sealed record Session(string Folder, SessionDocument Document)
             return null;
         }
 
+        // The rule deleting a session's files uses: inside the folder by its full path, with no folder on the way a link
+        // (3.7 review H2); then the file itself is no link either.
         var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Folder));
         var path = Path.GetFullPath(Path.Combine(folder, relative));
-        if (!path.StartsWith(folder + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        if (!IsLocal(path) || !SessionLibrary.IsUnder(path, folder) || SessionLibrary.ThroughLink(path, folder))
         {
             return null;
         }
@@ -666,14 +692,14 @@ public sealed class SessionLibrary
 
     private static bool IsFile(string? a, string? b) => a is not null && b is not null && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsUnder(string file, string folder) =>
+    internal static bool IsUnder(string file, string folder) =>
         Path.GetFullPath(file).StartsWith(Path.TrimEndingDirectorySeparator(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsLink(string path) =>
         (File.Exists(path) || Directory.Exists(path)) && File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
 
     /// <summary>Whether a folder between <paramref name="folder"/> and <paramref name="path"/> is a link (a junction out).</summary>
-    private static bool ThroughLink(string path, string folder)
+    internal static bool ThroughLink(string path, string folder)
     {
         for (var dir = Path.GetDirectoryName(path); dir is not null && IsUnder(dir, folder); dir = Path.GetDirectoryName(dir))
         {

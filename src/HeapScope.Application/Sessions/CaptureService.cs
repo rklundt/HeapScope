@@ -219,6 +219,7 @@ public sealed class CaptureService : ICaptureService
                 CopyDac(process, Path.GetDirectoryName(path!)!);
             }
 
+            var notPrivate = MakePrivate(path!);
             try
             {
                 var snapshotId = Guid.NewGuid();
@@ -226,18 +227,39 @@ public sealed class CaptureService : ICaptureService
                     snapshotId, path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
                     Kind: kind, Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
                 _logger.LogInformation("Recorded {Path} as snapshot {SnapshotId} ({Source}, {Label}) in session {Folder}", path, snapshotId, source, label ?? "no label", session.Folder);
-                return new CaptureResult(path, size, ToEntry(process), session, Kind: kind, SnapshotId: snapshotId);
+                return new CaptureResult(path, size, ToEntry(process), session, notPrivate, Kind: kind, SnapshotId: snapshotId);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // The snapshot is valid; only the record failed.
                 _logger.LogWarning(ex, "The capture {Path} could not be recorded in its session", path);
-                return new CaptureResult(path, size, ToEntry(process), null, $"The snapshot was written, but the session could not be updated: {ex.Message}", kind);
+                var warning = $"The snapshot was written, but the session could not be updated: {ex.Message}";
+                return new CaptureResult(path, size, ToEntry(process), null, notPrivate is null ? warning : warning + " " + notPrivate, kind);
             }
         });
     }
 
     public bool IsBusy(int processId) => _busy.ContainsKey(processId);
+
+    /// <summary>
+    /// Makes a finished snapshot readable by this user only: the runtime wrote it with the folder's permissions, a folder the
+    /// user picked may let others read it, and a dump holds every secret of the process (sprint 3.7, peer review P15). When
+    /// that fails (an elevated capture of another user's process, whose account owns the file), the file keeps its
+    /// permissions and the log and the result say so (3.7 review H6). Returns that warning, or null.
+    /// </summary>
+    private string? MakePrivate(string path)
+    {
+        try
+        {
+            PrivateFiles.Protect(path);
+            return null;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or NotSupportedException or InvalidOperationException)
+        {
+            _logger.LogWarning("The snapshot {Path} could not be made readable by this user only ({Error}: {Message}); it keeps its folder's permissions", path, ex.GetType().Name, ex.Message);
+            return "HeapScope could not make the snapshot readable by you only, so it keeps its folder's permissions. A dump holds the process's secrets: if others can read this folder, move the file to a private one.";
+        }
+    }
 
     /// <summary>Removes the session a failed capture created, never hiding the capture's own failure (re-review).</summary>
     private void RemoveIfEmpty(string folder)

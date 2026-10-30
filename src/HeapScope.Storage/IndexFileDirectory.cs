@@ -96,7 +96,13 @@ internal static class IndexFileDirectory
         MemoryMarshal.Write(region, in header);
         if (!IndexCacheKey.Verify(region))
         {
-            failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.Untrusted, "The index cache was not written by HeapScope for this user (its signature does not match), so it is not used; the dump is read again.");
+            // Unsigned (all zero) is what every cache written before 3.7 is; a signature that does not match is another
+            // user's, another machine's, or a forgery (3.7 review, support).
+            failure = IndexCacheOpenResult.Invalid(
+                IndexCacheInvalidReason.Untrusted,
+                region[^IndexCacheKey.SignatureLength..].IndexOfAnyExcept((byte)0) < 0
+                    ? "The index cache is unsigned (written by a HeapScope before 3.7, or not by HeapScope), so it is not used; the dump is read again."
+                    : "The index cache is signed with another key (another user, another machine, a deleted key file, or a HeapScope run that could not use its key file), so it is not used; the dump is read again.");
             return null;
         }
 

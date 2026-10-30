@@ -79,6 +79,52 @@ public sealed class SignedCacheTests : IDisposable
     }
 
     [Fact]
+    public void An_unsigned_cache_and_one_signed_with_another_key_are_told_apart()
+    {
+        // 3.7 review: every cache from before 3.7 is unsigned; the note must not call it foreign.
+        var unsigned = Write("unsigned-detail.hsidx", key: null);
+        var foreign = Write("foreign-detail.hsidx", [.. _key.Select(b => (byte)(b ^ 0x5A))]);
+
+        using (IndexCacheKey.UseScoped(_key))
+        {
+            IndexCacheReader.Probe(unsigned, s_fingerprint).ShouldNotBeNull().Detail!.ShouldContain("unsigned");
+            IndexCacheReader.Probe(foreign, s_fingerprint).ShouldNotBeNull().Detail!.ShouldContain("another key");
+            IndexCacheReader.GetInMemoryBytes(foreign, out var failure).ShouldBeNull();
+            failure.ShouldNotBeNull().Reason.ShouldBe(IndexCacheInvalidReason.Untrusted, "the worker logs why the base cache was not used");
+        }
+    }
+
+    [Fact]
+    public void The_key_file_is_created_once_reloaded_and_replaced_when_damaged()
+    {
+        // 3.7 review: the key's lifecycle, which the worker logs.
+        var path = Path.Combine(_directory, "data", IndexCacheKey.FileName);
+        var (created, how) = IndexCacheKey.LoadOrCreate(path);
+        how.ShouldBe(IndexCacheKeySource.Created);
+        created.Length.ShouldBe(32);
+        File.ReadAllBytes(path).ShouldBe(created);
+
+        var (loaded, again) = IndexCacheKey.LoadOrCreate(path);
+        again.ShouldBe(IndexCacheKeySource.Loaded);
+        loaded.ShouldBe(created);
+
+        File.WriteAllBytes(path, [1, 2, 3]);
+        var (replaced, repaired) = IndexCacheKey.LoadOrCreate(path);
+        repaired.ShouldBe(IndexCacheKeySource.ReplacedDamaged);
+        replaced.Length.ShouldBe(32);
+        File.ReadAllBytes(path).ShouldBe(replaced);
+    }
+
+    [Fact]
+    public async Task Processes_creating_the_key_at_once_end_with_one_key()
+    {
+        var path = Path.Combine(_directory, "race", IndexCacheKey.FileName);
+        var keys = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => IndexCacheKey.LoadOrCreate(path).Key, TestContext.Current.CancellationToken)));
+        keys.Select(Convert.ToHexString).Distinct().ShouldHaveSingleItem();
+        (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).ShouldBe(keys[0]);
+    }
+
+    [Fact]
     public async Task A_cache_mutated_at_random_answers_with_a_graph_or_a_reason()
     {
         // A small fuzz pass in every run; the nightly job raises HEAPSCOPE_FUZZ_ITERATIONS (sprint 3.7, peer review P13).

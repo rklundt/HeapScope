@@ -574,7 +574,7 @@ namespace Graphs
 
             // Read in the Types
             TypeInfo info = default(TypeInfo);
-            int typeCount = GCHeapDump.CheckedCount(deserializer.ReadInt(), 4); // HeapScope change 5
+            int typeCount = GCHeapDump.CheckedCount(deserializer.ReadInt(), 12); // HeapScope change 5: a name, a size and a module, 4 bytes each at least
             m_types = new GrowableArray<TypeInfo>(typeCount);
             for (int i = 0; i < typeCount; i++)
             {
@@ -716,7 +716,8 @@ namespace Graphs
             }
 
             m_numChildrenLeft = ReadCompressedInt(m_graph.m_reader);
-            Debug.Assert(m_numChildrenLeft < 1660000);     // Not true in general but good enough for unit testing.
+            // HeapScope change 5: no assertion on the child count or the child index here, both come from the file (the loader
+            // refuses a child past the node table and more children than the file has bytes).
             m_current = m_graph.m_reader.Current;
         }
 
@@ -739,7 +740,6 @@ namespace Graphs
             m_graph.m_reader.Goto(m_current);
 
             NodeIndex ret = (NodeIndex)(ReadCompressedInt(m_graph.m_reader) + (int)m_index);
-            Debug.Assert((uint)ret < (uint)m_graph.NodeIndexLimit);
 
             m_current = m_graph.m_reader.Current;
             --m_numChildrenLeft;

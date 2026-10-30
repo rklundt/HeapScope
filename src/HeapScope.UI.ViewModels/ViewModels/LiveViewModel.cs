@@ -534,6 +534,13 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
+        if (!Session.IsLocal(path))
+        {
+            _logger.LogInformation("Snapshot show in folder refused: {Path} is not on this machine", path);
+            Status = "That snapshot is not on this machine.";
+            return;
+        }
+
         if (!File.Exists(path))
         {
             Status = "That snapshot file is no longer there.";

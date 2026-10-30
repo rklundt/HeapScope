@@ -19,14 +19,17 @@ using Address = System.UInt64;
 public class GCHeapDump : IFastSerializable, IFastSerializableVersion
 {
     public GCHeapDump(string inputFileName) :
-        this(new Deserializer(inputFileName, SerializationSettings.Default.WithStreamLabelWidth(StreamLabelWidth.FourBytes)))
-    { }
+        this(OpenChecked(inputFileName))
+    {
+        t_streamBytes = -1; // HeapScope change 5
+    }
 
     public GCHeapDump(Stream inputStream, string streamName) :
         this(OpenChecked(inputStream, streamName))
     {
-        // HeapScope change 5: the counts of this read are checked against the stream's length (see CheckedCount).
-        t_streamBytes = long.MaxValue;
+        // HeapScope change 5: the counts of this read are checked against the stream's length (see CheckedCount). Every
+        // read sets the limit before it starts, so a read that failed and left its limit behind cannot affect the next.
+        t_streamBytes = -1;
     }
 
     // HeapScope change 5 (sprint 3.7, peer review P13): a crafted file states counts the reader allocates up front (a
@@ -38,8 +41,14 @@ public class GCHeapDump : IFastSerializable, IFastSerializableVersion
 
     private static Deserializer OpenChecked(Stream inputStream, string streamName)
     {
-        t_streamBytes = inputStream.CanSeek ? inputStream.Length : long.MaxValue;
+        t_streamBytes = inputStream.CanSeek ? inputStream.Length : -1;
         return new Deserializer(inputStream, streamName, SerializationSettings.Default.WithStreamLabelWidth(StreamLabelWidth.FourBytes));
+    }
+
+    private static Deserializer OpenChecked(string inputFileName)
+    {
+        t_streamBytes = new FileInfo(inputFileName).Length;
+        return new Deserializer(inputFileName, SerializationSettings.Default.WithStreamLabelWidth(StreamLabelWidth.FourBytes));
     }
 
     /// <summary>HeapScope change 5: <paramref name="count"/> when the stream can hold that many items, else an error.</summary>
@@ -48,7 +57,7 @@ public class GCHeapDump : IFastSerializable, IFastSerializableVersion
     /// <summary>HeapScope change 5: <paramref name="count"/> when the stream can hold that many items, else an error.</summary>
     internal static long CheckedCount(long count, int bytesPerItem)
     {
-        var limit = t_streamBytes == 0 ? long.MaxValue : t_streamBytes;
+        var limit = t_streamBytes <= 0 ? long.MaxValue : t_streamBytes;
         if (count < 0 || count > limit / Math.Max(1, bytesPerItem))
         {
             throw new InvalidDataException($"The file states {count} items, more than its {limit} bytes can hold.");

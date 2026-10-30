@@ -50,12 +50,23 @@ public static class IndexCacheKey
 
     /// <summary>
     /// Loads this user's key for the whole process, creating it on first use, from <paramref name="folder"/> (null:
-    /// HeapScope's data folder). The worker calls it at startup.
+    /// HeapScope's data folder). The worker calls it at startup and logs the outcome. When the key can be neither read nor
+    /// created (a folder of another user, a full disk), the process uses a random key of its own instead (3.7 review H4):
+    /// caches are still signed and checked, only rebuilt on the next run, and the analysis keeps working. Never no key.
     /// </summary>
-    public static void UseForThisUser(string? folder = null)
+    public static IndexCacheKeyOutcome UseForThisUser(string? folder = null)
     {
         var path = Path.Combine(folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope"), FileName);
-        s_process = LoadOrCreate(path);
+        try
+        {
+            (s_process, var how) = LoadOrCreate(path);
+            return new IndexCacheKeyOutcome(path, how, null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            s_process = RandomNumberGenerator.GetBytes(SignatureLength);
+            return new IndexCacheKeyOutcome(path, IndexCacheKeySource.ThisRunOnly, ex);
+        }
     }
 
     /// <summary>Uses <paramref name="key"/> in the calling flow until the result is disposed (tests).</summary>
@@ -89,8 +100,9 @@ public static class IndexCacheKey
         return CryptographicOperations.FixedTimeEquals(expected, region[^SignatureLength..]);
     }
 
-    private static byte[] LoadOrCreate(string path)
+    internal static (byte[] Key, IndexCacheKeySource How) LoadOrCreate(string path)
     {
+        var damaged = false;
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -98,8 +110,10 @@ public static class IndexCacheKey
                 var bytes = File.ReadAllBytes(path);
                 if (bytes.Length == SignatureLength)
                 {
-                    return bytes;
+                    return (bytes, IndexCacheKeySource.Loaded);
                 }
+
+                damaged = true;
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
@@ -117,7 +131,7 @@ public static class IndexCacheKey
                 }
 
                 File.Move(temp, path, overwrite: File.Exists(path) && new FileInfo(path).Length != SignatureLength);
-                return key;
+                return (key, damaged ? IndexCacheKeySource.ReplacedDamaged : IndexCacheKeySource.Created);
             }
             catch (IOException) when (attempt < 3 && File.Exists(path))
             {
@@ -135,3 +149,23 @@ public static class IndexCacheKey
         public void Dispose() => restore();
     }
 }
+
+/// <summary>Where the process's index cache key came from (3.7 review H4).</summary>
+public enum IndexCacheKeySource
+{
+    /// <summary>Read from the key file.</summary>
+    Loaded,
+
+    /// <summary>The key file did not exist: a new key was written (every existing cache is rebuilt once).</summary>
+    Created,
+
+    /// <summary>The key file had the wrong length: a new key replaced it (every existing cache is rebuilt once).</summary>
+    ReplacedDamaged,
+
+    /// <summary>The key file could be neither read nor written: this process uses a random key of its own.</summary>
+    ThisRunOnly,
+}
+
+/// <summary>The outcome of <see cref="IndexCacheKey.UseForThisUser"/>: the key file, where the key came from, and the error
+/// when it is <see cref="IndexCacheKeySource.ThisRunOnly"/>.</summary>
+public sealed record IndexCacheKeyOutcome(string Path, IndexCacheKeySource Source, Exception? Error);
