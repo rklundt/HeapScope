@@ -198,7 +198,7 @@ public sealed class FileLoggerProvider : ILoggerProvider, ISupportExternalScope
         _written = stream.Length;
         var header = string.Create(
             CultureInfo.InvariantCulture,
-            $"# {RuntimeEnvironment.Summary}; {_app} pid {_processId}; part {_part}; level {_minimumLevel}; log folder {_directory}; opened {Timestamp(now)}");
+            $"# {RuntimeEnvironment.Summary}; {_app} pid {_processId}; part {_part}; level {_minimumLevel}; log folder {_directory}; data folder {HeapScope.Core.HeapScopeFolders.Default.Root} ({HeapScope.Core.HeapScopeFolders.Default.Source}); opened {Timestamp(now)}");
         _writer.WriteLine(header);
         _written += Encoding.UTF8.GetByteCount(header) + Environment.NewLine.Length;
     }

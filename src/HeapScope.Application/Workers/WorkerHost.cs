@@ -436,11 +436,10 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         info.ArgumentList.Add(pipeName);
         info.ArgumentList.Add("--parent-pid");
         info.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
-        if (!string.IsNullOrWhiteSpace(_options.DataFolder))
-        {
-            info.ArgumentList.Add("--data-folder");
-            info.ArgumentList.Add(_options.DataFolder);
-        }
+        // Always the absolute folder this process resolved (3.8 review): the worker starts in its own folder, so it must
+        // not resolve a relative path, or the variable, on its own.
+        info.ArgumentList.Add("--data-folder");
+        info.ArgumentList.Add(Path.GetFullPath(string.IsNullOrWhiteSpace(_options.DataFolder) ? HeapScope.Core.HeapScopeFolders.Default.Root : _options.DataFolder));
 
         if (!string.IsNullOrWhiteSpace(_options.DacFolder))
         {

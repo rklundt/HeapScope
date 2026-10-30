@@ -112,7 +112,7 @@ if (!optionsValid || options is null)
 // self-contained worker's own DAC depend on them (sprint 2.3.7 review H4).
 var gc = GC.GetConfigurationVariables();
 logger.LogInformation(
-    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, protocol {Protocol}; {Environment}; path {Path}; server GC {ServerGc}, GC heaps {GcHeaps}, GC dynamic adaptation {Datas}; DAC folder {DacFolder}; log level {LogLevel}; test hooks {TestHooks}",
+    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, protocol {Protocol}; {Environment}; path {Path}; server GC {ServerGc}, GC heaps {GcHeaps}, GC dynamic adaptation {Datas}; DAC folder {DacFolder}; data folder {DataFolder} ({DataFolderSource}); log level {LogLevel}; test hooks {TestHooks}",
     ProductInfo.Name,
     ProductInfo.InformationalVersion,
     Environment.ProcessId,
@@ -125,6 +125,8 @@ logger.LogInformation(
     gc.GetValueOrDefault("HeapCount"),
     gc.GetValueOrDefault("GCDynamicAdaptationMode"),
     options.DacFolder ?? "(none)",
+    options.Folders.Root,
+    options.Folders.Source,
     options.LogLevel,
     options.EnableTestHooks);
 

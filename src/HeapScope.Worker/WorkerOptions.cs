@@ -43,7 +43,7 @@ public sealed record WorkerOptions(string Pipe, int? ParentPid, bool EnableTestH
     public string? DataFolder { get; init; }
 
     /// <summary>The data folders this worker uses: its cache key, the index cache fallback, DAC copies, trace conversion.</summary>
-    public HeapScopeFolders Folders => DataFolder is null ? HeapScopeFolders.Default : new HeapScopeFolders(DataFolder);
+    public HeapScopeFolders Folders => DataFolder is null ? HeapScopeFolders.Default : new HeapScopeFolders(DataFolder, "--data-folder");
 
     /// <summary>A user folder searched for the data access component (<c>--dac-folder</c>).</summary>
     public string? DacFolder { get; init; }

@@ -55,7 +55,10 @@ public class QueryRunnerTests
 
         status.ShouldBe("A gcdump has no field values.");
         traceSeenByWorker.ShouldNotBeNullOrEmpty();
-        logger.Entries.ShouldContain(e => e.Level == LogLevel.Information && e.Line.Contains("Retention paths shown as: A gcdump has no field values.", StringComparison.Ordinal));
+        var shown = logger.Entries.Select((e, i) => (e.Level, e.Line, Trace: logger.TraceIds[i]))
+            .Single(e => e.Line.Contains("Retention paths shown as: A gcdump has no field values.", StringComparison.Ordinal));
+        shown.Level.ShouldBe(LogLevel.Information);
+        shown.Trace.ShouldBe(traceSeenByWorker, "the refusal is logged under the trace id the worker's lines carry");
     }
 
     [Fact]

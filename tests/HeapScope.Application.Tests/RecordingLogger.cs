@@ -30,6 +30,19 @@ namespace HeapScope.Application.Tests;
 public class RecordingLogger : ILogger
 {
     private readonly List<(LogLevel Level, string Line)> _entries = [];
+    private readonly List<string?> _traceIds = [];
+
+    /// <summary>The trace id current when each entry was logged (null outside an activity), in the order of <see cref="Entries"/>.</summary>
+    public IReadOnlyList<string?> TraceIds
+    {
+        get
+        {
+            lock (_entries)
+            {
+                return [.. _traceIds];
+            }
+        }
+    }
 
     public IReadOnlyList<string> Lines
     {
@@ -64,6 +77,7 @@ public class RecordingLogger : ILogger
         lock (_entries)
         {
             _entries.Add((logLevel, formatter(state, exception)));
+            _traceIds.Add(System.Diagnostics.Activity.Current?.TraceId.ToString());
         }
     }
 }
