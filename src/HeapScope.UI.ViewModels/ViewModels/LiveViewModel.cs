@@ -404,15 +404,13 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         }
 
         var run = item.Run;
-        // Only a CSV timeline inside its session folder, reached through no link: Delete timeline acts on this path (3.4
-        // re-review), and Open timeline hands it to the system, so a received session cannot name a program to run
-        // (sprint 3.7, peer review S3).
-        var inSession = new Session(item.Folder, new SessionDocument(SessionDocument.CurrentFormatVersion, "", default, default, []));
-        if (run.Timeline is not { } timeline || inSession.FileInside(timeline) is not { } path
-            || !string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase))
+        // Only a CSV timeline inside its session folder, reached through no link: Delete timeline acts on this path, and
+        // Open timeline hands it to the system, so a received session cannot name a program to run (peer review S3).
+        var (timelineCheck, traceCheck) = Session.RunFiles(item.Folder, run);
+        if (timelineCheck.Path is not { } path)
         {
-            _logger.LogInformation("Monitoring run {RunId} not reopened: its timeline {Timeline} is not there", run.Id, run.Timeline ?? "(none recorded)");
-            Status = "This run's timeline file is not there any more.";
+            _logger.LogInformation("Monitoring run {RunId} not reopened: its timeline {Timeline} was refused ({Refusal})", run.Id, run.Timeline ?? "(none recorded)", timelineCheck.Refusal);
+            Status = timelineCheck.Describe("This run's timeline");
             return;
         }
 
@@ -436,7 +434,11 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             }
 
             TimelinePath = path;
-            TracePath = inSession.FileInside(run.Trace);
+            TracePath = traceCheck.Path;
+            if (run.Trace is not null && traceCheck.Path is null)
+            {
+                _logger.LogInformation("Monitoring run {RunId}: its trace {Trace} was refused ({Refusal})", run.Id, run.Trace, traceCheck.Refusal);
+            }
             PastRunShown = item.Title + (read.SkippedLines > 0 ? string.Create(CultureInfo.CurrentCulture, $" ({read.SkippedLines} unreadable lines left out)") : string.Empty);
             Status = "Showing a past run, read only. Start monitoring to see live data again.";
             ChartVersion++;
