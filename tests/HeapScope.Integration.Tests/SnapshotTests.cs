@@ -55,8 +55,13 @@ public sealed class StaticCacheDump : IAsyncLifetime
     }
 }
 
-/// <summary>Sprint 1.2: snapshots in the worker, through the Application session, against a real worker process.</summary>
+/// <summary>
+/// Sprint 1.2: snapshots in the worker, through the Application session, against a real worker process. Alone (sprint
+/// 3.6): the cancel test measures a load stopping within 2 s, which other dump loads beside it pushed past 3 s on CI's
+/// two-core runners.
+/// </summary>
 [Trait("Category", "Integration")]
+[Collection(nameof(HeavyTestsCollection))]
 public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDisposable
 {
     private readonly TempFolder _folder = new();

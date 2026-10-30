@@ -185,7 +185,8 @@ The draft PR's first runs (CI now runs every test project and the integration ti
 - Two capture tests expected behavior from capture, which refuses before writing off Windows (Linux, macOS).
 - The runner is elevated, so a discovery test's "not elevated" assumption failed (Windows).
 - The cancel-a-load test raced a fast machine with a 3,000-object dump (Windows; now a dump of its own, 300,000 items,
-  and, after it raced once more on the close commit, up to five fresh loads until a cancel lands mid-load).
+  and, after it raced once more on the close commit, up to five fresh loads until a cancel lands mid-load; its class now
+  runs alone, since loads beside it pushed the 2 s stop past 3 s on CI's two-core runners).
 - The second CI run found three more: the capture tests assume Windows throughout (capture is Windows only, ADR-025;
   the project now says `HeapScopeTestsRunOn=Windows` and `test.sh` runs it on Windows only, as the old hand-written list
   did), the new RPC test's pipe name was longer than a macOS socket path allows, and a CLI JSON test parsed stdout and
