@@ -38,6 +38,9 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
 | 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
 | 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
+| 3.6 | Urgent fixes | Planned | | |
+| 3.7 | Hardening | Planned | | |
+| 3.8 | Modularity | Planned | | |
 
 ---
 
@@ -2827,6 +2830,104 @@ types), 2 in part (memory of the detectors, after a re-review fix of the first a
 growth). Measured: the detector integration tests find PendingAsync and FinalizerBacklog with exactly 6,000 each on a
 LeakyApi run, type growth names every leak's item type with its growth, the clean run fires nothing with or without a
 baseline, and the unreachable set matches ClrMD's walk exactly in count and bytes.
+
+---
+
+## Peer review sprints
+
+Planned 2026-10-29. After the v3.5.0 release the product owner asked for an outside peer review of the whole codebase
+from a tech trio (solution architect, senior developer, DevSecOps): "what do we need to change, refactor, modularize".
+The findings are in `docs/reviews/peer-review-3.5.md` (P1 to P21, S1 to S9). The product owner split the work into
+three sprints, run before Phase 4 ("write the three sprints and save the review - then execute on the sprints"); they
+run autonomously like Phase 3, one sprint at a time.
+
+---
+
+## Sprint 3.6: Urgent fixes
+
+**Goal**: no lost session records, no untrusted native code, licenses travel with every build, and a CI that can be
+trusted and required.
+
+**Scope** (peer review P1 to P4, P11's flaky tests, S1, S2):
+- Session documents (P1): one type owns `session.json`'s file protocol: reads that never block a save, a bounded retry
+  of the replace, no silent new session when a document cannot be read, current-folder state off the update lock, and a
+  two-process stress test.
+- DAC trust (P2): a DAC beside a dump is never loaded without an explicit trust step (the app asks, naming the file and
+  its SHA-256; the CLI takes a flag); installed runtimes, `Symbols:DacFolder` and HeapScope's own runtime stay trusted.
+  ARCHITECTURE 12 updated.
+- Licenses in builds (P3): the publish copies LICENSE, ADDITIONAL-TERMS.md, COMMERCIAL.md, THIRD-PARTY-NOTICES.md and
+  every package's bundled notices; the unused TraceEvent natives stay out; CI checks a package holds them;
+  THIRD-PARTY-NOTICES names the native components SkiaSharp and HarfBuzzSharp bundle.
+- CI (P4, S1, S2): the integration tier runs in CI on Windows; test results are kept as artifacts; tests chosen by trait,
+  not a project list; shared build scripts for CI and the gate. Making checks required is a repository setting the
+  product owner applies.
+- Flaky tests (P11): the worker cancellation tests in a non-parallel collection, the CLI monitor test made
+  deterministic, no delay-based "nothing happened" assertions.
+
+**Acceptance criteria**: to be set at /start-sprint.
+
+**Dependencies**: none.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 3.7: Hardening
+
+**Goal**: crafted files cannot hang, exhaust or fake the analysis, files stay private, and the supply chain and releases
+are verifiable.
+
+**Scope** (peer review P13 to P17, S3, S4):
+- Crafted input (P13): the address index loop bounded and addresses validated; the minidump header check deduplicated
+  and cancellable; gcdump counts checked against the bytes left and an edge budget per load (vendored code change 5); a
+  fuzz harness for the gcdump, index cache and minidump header readers, run nightly.
+- Index caches (P14): an HMAC over the header with a per-user key, also on the sidecars; rebuilt on mismatch; structural
+  checks on open.
+- Private files (P15): a per-user etlx folder; existing folders and files repaired; partial and export files created new
+  under random names; owner-only ACLs on dumps written with `--out` on Windows.
+- Supply chain (P16): `nuget.config` with source mapping, lock files in locked mode, Dependabot for NuGet and Actions,
+  actions pinned by SHA, SECURITY.md, the patch package updates. Repository settings are the product owner's call.
+- Releases (P17): a tag-driven `release.yml` with checksums, an SBOM and a build attestation.
+- Session paths (S3) and the partial-file sweep (S4).
+
+**Acceptance criteria**: to be set at /start-sprint.
+
+**Dependencies**: 3.6 (the integration tier in CI runs the new crafted-input tests).
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
+
+---
+
+## Sprint 3.8: Modularity
+
+**Goal**: each feature area has its own contract, handler and services, so Phase 4 adds modules instead of growing god
+classes.
+
+**Scope** (peer review P5 to P12, P18 to P21, S5 to S9):
+- Live sources (P6): a spike and ADR-035 deciding where live allocation data runs; ADR-023 amended.
+- Worker contracts by area (P5, S6) with a feature availability list on the snapshot descriptor (P7), in one protocol
+  bump; worker handlers per contract; one query helper and one reopen protocol in Application; per-area test fakes.
+- Front ends: one query runner for every view model load (P8); safe event raising (P9); the CLI's context, test project,
+  columns by name and commands out of `CliCommands.cs` (P10); shared presentation in Application (P18).
+- Monitoring split (P11): timeline writer, allocation recording, run record; LiveViewModel split.
+- Analysis: detectors one per file with one framework classifier (P19); derived state in the worker's slots (P20); one
+  type matcher (S5).
+- UI seam: an analysis workspace per snapshot (P21).
+- Docs (P12): an overview ARCHITECTURE.md with module pages and one ADR per file; SPRINTS.md cut to the current phase and
+  a swept Backlog; the comment and file-per-type rules (S8, S9); trace-report on Avalonia (S7).
+
+**Acceptance criteria**: to be set at /start-sprint. Behavior-preserving: known answers and smoke runs equal before and
+after.
+
+**Dependencies**: 3.6, 3.7.
+
+**Task breakdown**: to be filled by /start-sprint.
+
+**Review summary**: to be filled by /wrap-sprint.
 
 ---
 
