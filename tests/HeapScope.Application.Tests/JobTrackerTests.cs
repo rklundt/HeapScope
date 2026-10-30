@@ -121,6 +121,42 @@ public class JobTrackerTests
     }
 
     [Fact]
+    public async Task A_throwing_listener_leaves_a_completed_job_completed()
+    {
+        // Peer review P9: the outcome is final before listeners hear of it, and a listener's failure is only logged.
+        var logger = new RecordingLogger<JobTracker>();
+        var tracker = new JobTracker(TimeProvider.System, logger);
+        tracker.JobAdded += (_, _) => throw new InvalidOperationException("added listener");
+        tracker.JobChanged += (_, _) => throw new InvalidOperationException("changed listener");
+
+        var job = tracker.Start("answer", (progress, _) =>
+        {
+            progress.Report(new JobProgress("half", 1, 2));
+            return Task.FromResult(42);
+        });
+
+        (await job.Result).ShouldBe(42);
+        await job.Completion;
+        job.Status.ShouldBe(JobStatus.Completed);
+        job.Error.ShouldBeNull();
+        logger.Entries.Count(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning && e.Line.Contains("listener of", StringComparison.Ordinal)).ShouldBeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task A_throwing_listener_does_not_replace_a_jobs_failure()
+    {
+        var tracker = new JobTracker(TimeProvider.System);
+        tracker.JobChanged += (_, _) => throw new InvalidOperationException("listener");
+
+        var job = tracker.Start<int>("broken", (_, _) => throw new FormatException("boom"));
+
+        await Should.ThrowAsync<FormatException>(() => job.Result);
+        await job.Completion;
+        job.Status.ShouldBe(JobStatus.Failed);
+        job.Error.ShouldBe("boom");
+    }
+
+    [Fact]
     public async Task Progress_after_completion_is_ignored()
     {
         IProgress<JobProgress>? captured = null;

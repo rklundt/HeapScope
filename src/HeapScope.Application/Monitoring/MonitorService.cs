@@ -28,6 +28,7 @@ using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using HeapScope.Core;
+using HeapScope.Application.Events;
 
 namespace HeapScope.Application.Monitoring;
 
@@ -832,26 +833,8 @@ public sealed class MonitorRun : IAsyncDisposable
         return result;
     }
 
-    /// <summary>Raises an event; a listener that throws is logged and never ends the run (review of 1.7).</summary>
-    private void Raise<T>(EventHandler<T>? handler, T value)
-    {
-        if (handler is null)
-        {
-            return;
-        }
-
-        foreach (var listener in handler.GetInvocationList().Cast<EventHandler<T>>())
-        {
-            try
-            {
-                listener(this, value);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "A monitoring listener failed");
-            }
-        }
-    }
+    /// <summary>Raises an event; a listener that throws is logged and never ends the run.</summary>
+    private void Raise<T>(EventHandler<T>? handler, T value) => SafeEvents.Raise(handler, this, value, _logger, "monitoring");
 
     /// <summary>A timeline row holding only an event (a forced collection), its text quoted for CSV (call under the gate).</summary>
     private void WriteEvent(DateTimeOffset at, string text) =>

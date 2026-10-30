@@ -29,6 +29,7 @@ using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using HeapScope.Application.Events;
 
 namespace HeapScope.Application.Allocations;
 
@@ -195,7 +196,7 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
         }
 
         _logger.LogInformation("Allocation trace {Path} (worker trace {WorkerTraceId}) closed", handle.Path, handle.WorkerTraceId);
-        TracesChanged?.Invoke(this, EventArgs.Empty);
+        SafeEvents.Raise(TracesChanged, this, _logger, nameof(TracesChanged));
         if (handle.Generation == worker.Generation && worker.State == WorkerState.Running)
         {
             await worker.InvokeAsync((service, ct) => service.CloseTraceAsync(handle.WorkerTraceId, ct), cancellationToken).ConfigureAwait(false);
@@ -300,7 +301,7 @@ public sealed class AllocationSession(IWorkerClient worker, JobTracker jobs, Tra
             descriptor.Samples,
             descriptor.SampledBytes,
             descriptor.DurationSeconds);
-        TracesChanged?.Invoke(this, EventArgs.Empty);
+        SafeEvents.Raise(TracesChanged, this, _logger, nameof(TracesChanged));
         return handle;
     }
 

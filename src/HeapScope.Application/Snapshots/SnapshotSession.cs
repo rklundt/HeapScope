@@ -27,6 +27,7 @@ using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using HeapScope.Application.Events;
 
 namespace HeapScope.Application.Snapshots;
 
@@ -138,7 +139,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
                 descriptor.CacheIdentity,
                 rebuild,
                 descriptor.Mode);
-            SnapshotsChanged?.Invoke(this, EventArgs.Empty);
+            SafeEvents.Raise(SnapshotsChanged, this, _logger, nameof(SnapshotsChanged));
             return handle;
         });
     }
@@ -188,7 +189,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         }
 
         _logger.LogInformation("Snapshot {Path} (worker snapshot {WorkerSnapshotId}) closed", handle.Path, handle.WorkerSnapshotId);
-        SnapshotsChanged?.Invoke(this, EventArgs.Empty);
+        SafeEvents.Raise(SnapshotsChanged, this, _logger, nameof(SnapshotsChanged));
         if (handle.Generation == worker.Generation && worker.State == WorkerState.Running)
         {
             await worker.InvokeAsync((service, ct) => service.CloseSnapshotAsync(handle.WorkerSnapshotId, ct), cancellationToken).ConfigureAwait(false);
@@ -747,7 +748,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
             ThrowIfClosed(handle);
         }
 
-        SnapshotsChanged?.Invoke(this, EventArgs.Empty);
+        SafeEvents.Raise(SnapshotsChanged, this, _logger, nameof(SnapshotsChanged));
     }
 
     private static void ThrowIfClosed(SnapshotHandle handle)
