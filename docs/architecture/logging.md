@@ -134,3 +134,11 @@ references such as "ARCHITECTURE.md 11" still name the right section.
   logged at Error with its stack. A capture whose dump could not be made private logs a Warning with the path and error,
   and the result says so. The app logs a session snapshot or Show in folder refused because the path is not on this
   machine. Paths and exception types only, never dump contents.
+- Modularity (sprint 3.8): every view's query logs a worker refusal as shown ("{Section} shown as: {Message}") under the
+  activity whose trace id the worker's answer lines carry, grids included (they showed refusals without logging them);
+  an optional retained column the worker refused is logged once. An event listener that throws is logged as a Warning
+  ("A listener of {Event} failed") and changes nothing else. A past run's timeline or trace that is not used logs which
+  check refused it (not recorded, not local, outside the folder, through a link, missing, not a CSV file). A snapshot's
+  open line names its unavailable features; the worker's log lines name the handler that answered (the operation name
+  is unchanged). The worker logs the reachability walks it keeps per snapshot. The worker's data folder, and so its
+  key file, is on the key's log line.

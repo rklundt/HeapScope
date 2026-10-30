@@ -30,6 +30,11 @@ dotnet test --solution HeapScope.sln
   Slow traits; a project left with no tests fails. `integration` runs the Integration project (Windows). Integration and
   Slow tests belong in that project only; the script fails when one is elsewhere. Results are TRX files.
 - Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Test fakes (sprint 3.8): `FakeWorkerService` (UI tests) is split into a partial per worker contract under
+  `tests/HeapScope.UI.ViewModels.Tests/Fakes/`; a test that needs one area only builds an `IWorkerService` from the
+  parts it implements with `AreaWorkerService.Create(...)` (Application tests), and any other call fails naming its
+  contract. `HeapScope.Cli.Tests` runs the CLI in process (`CliApp.RunAsync` with its own output and error writers):
+  usage errors need no host, and the tables are checked as text against fixed rows.
 - Data folders (sprint 3.8): every test process sets `HEAPSCOPE_DATA_FOLDER` to `HeapScopeTests/data` under the temporary
   folder (`tests/Shared/TestDataFolder.cs`) before anything reads `HeapScopeFolders`, and the workers and front ends it
   starts inherit it, so no test writes into the user's sessions, logs, index cache key, trusted DACs or bookmarks. Set it
@@ -213,7 +218,12 @@ dotnet test --solution HeapScope.sln
   and by the Allocations page (sprint 2.5). Read any trace with PerfView,
   Visual Studio, or `dotnet run -c Release --project perf/HeapScope.Benchmarks -- trace-report --trace <file>`
   (`--timeline` for busy UI time per window, `--from HH:mm:ss.fff --to ...` for one stretch, `--focus <frame text>` for
-  the callers of a frame). Traced runs are slower: use them to find where time goes, not to check budgets.
+  the callers of a frame). It finds the UI thread by Avalonia's dispatcher (WPF's for old traces) and counts a sample
+  idle when the thread waits in its run loop (sprint 3.8). Traced runs are slower: use them to find where time goes,
+  not to check budgets.
+- Live sources (sprint 3.8, ADR-037): `dotnet run -c Release --project perf/HeapScope.Benchmarks -- live-tail --seconds
+  10` records an allocating copy of itself and reads the trace file while it grows, reporting events read and lost,
+  the delay to the reader and its memory.
 - Hybrid CPUs: when measuring UI responsiveness, remember Windows may put a background window's threads on efficiency
   cores. HeapScope's UI opts out (ADR-019); pinning a process (`ProcessorAffinity`) to performance or efficiency cores
   is how that was proven.
