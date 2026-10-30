@@ -39,7 +39,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
 | 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
 | 3.6 | Urgent fixes | Closed | 2026-10-29 | sprint-3.6 |
-| 3.7 | Hardening | Planned | | |
+| 3.7 | Hardening | In Progress | | |
 | 3.8 | Modularity | Planned | | |
 
 ---
@@ -2966,11 +2966,63 @@ are verifiable.
 - From the 3.6 review (M19): the integration tier on Linux and macOS (a capture by `dotnet-dump`, or tests that bring
   their own dumps), so the trust of a DAC beside a dump and the private copy run where no signature check backs them.
 
-**Acceptance criteria**: to be set at /start-sprint.
+**Acceptance criteria** (set at /start-sprint, 2026-10-30):
+- Two objects at 0x1000 and 0x8000000000001000, and a span of the whole address range, build an address index in
+  bounded time; a minidump directory repeating one memory list of 100,000 ranges 100,000 times is checked in seconds.
+- Mutated gcdumps and index caches (fixed seeds in every run, more nightly) load or are refused with a reason in bounded
+  time, never with another exception; counts a gcdump's stream cannot hold are refused before allocating.
+- A cache signed with one key opens with that key only; an unsigned cache is untrusted where a key is in effect; the
+  worker signs and checks with the user's key.
+- On Windows a file HeapScope creates has an access list granting the user alone, inheriting nothing; off Windows an
+  existing data folder with a wider mode is made owner-only; trace conversion leaves the shared temporary folder off
+  Windows; partial traces and exports are created new.
+- A received session cannot make Open timeline hand a non-CSV or outside file to the system, and no network path is
+  looked at; the sweep never touches a folder the user picked.
+- Packages restore from nuget.org only, in locked mode in CI; Actions are pinned to commits; Dependabot and SECURITY.md
+  exist; the patch updates are in.
+- Publishing a release attaches per-RID tarballs with attestations, SBOMs and SHA256SUMS (the workflow; it runs at the
+  next release).
+- The DAC trust test runs on real Linux and macOS core dumps in CI.
+
+**Decisions** (all decided autonomously, 2026-10-30, peer review sprint autonomy):
+1. Fuzzing is mutation testing in the test projects (fixed seeds in every run; `fuzz.yml` nightly with 2,000 iterations
+   on the run number), not SharpFuzz or libFuzzer: no new dependency, runs on every system, replays from a seed.
+2. Index caches are signed with an HMAC in the header region's spare last 32 bytes (no format change); a missing or wrong
+   signature is a new reason, `Untrusted`, and the cache is rebuilt. The key is per user in HeapScope's data folder and
+   loaded by the worker only; tests use a scoped key. ADR-036 (the live session design of 3.8 becomes ADR-037).
+3. Windows files HeapScope creates get an owner-only, protected access list; folders are not changed on Windows (the
+   profile covers HeapScope's own, and a folder the user picked stays theirs). Dumps are made owner-only after they are
+   complete, best effort (an elevated capture of another user's process keeps that user's permissions).
+4. Lock files everywhere, locked only in CI and only without a runtime identifier: a publish for a runtime restores
+   runtime packs the lock files do not list.
+5. Actions stay on their current major versions, pinned by commit; Dependabot proposes the newer majors (checkout 7,
+   setup-dotnet 6, upload-artifact 7) as PRs to review.
+6. Releases: the workflow runs when the owner publishes a release (the manual step of DEVELOPER.md 7 stays), builds from
+   the tag, and attaches tarballs, attestations, SBOMs and checksums. Signing and installers stay with 2.8.
+7. The integration tier stays Windows only (capture and its fixtures are Windows only, ADR-025); the DAC trust is checked
+   off Windows by a loader test on the core dump CI's Linux and macOS jobs already take (3.6 review M19).
 
 **Dependencies**: 3.6 (the integration tier in CI runs the new crafted-input tests).
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**:
+1. [x] Crafted input (P13): `AddressIndex` loop bounded; `MinidumpHeader.IsTruncated` reads each memory list once and
+   is cancellable; the vendored reader's counts checked against the stream (`CHANGES.md` change 5); the gcdump loader's
+   reference budget, child index check and format refusal; `fuzz.yml`. Tests: `AddressIndexTests` (extreme spans),
+   `MinidumpTruncationTests` (a repeated list), `CraftedGcDumpTests` (it found a crash: a child index past the node table,
+   then a blob past its buffer; both refused now; 480 mutations on six seeds pass), `SignedCacheTests` (mutations).
+2. [x] Signed caches (P14): `IndexCacheKey`, the signature in the writer and the check in the reader, `Untrusted`, the
+   worker's key. Tests: `SignedCacheTests`.
+3. [x] Private files (P15): `PrivateFiles.Protect` and the owner-only access list on Windows, `CreatePrivateDirectory`,
+   the etlx folder, `CreateNew` for partial traces and exports, dumps protected when complete. Tests: `PrivateFilesTests`.
+4. [x] Supply chain (P16): `nuget.config`, lock files and locked mode, pinned Actions without persisted credentials,
+   `dependabot.yml`, `SECURITY.md`, the patch updates (Microsoft.Extensions 10.0.14, System.IO.Hashing 10.0.14,
+   System.CommandLine 2.0.14). Tests: a locked restore; CI.
+5. [x] Releases (P17): `release.yml`, `ContinuousIntegrationBuild`. Tests: the workflow at the next release.
+6. [x] Session paths and the sweep (S3, S4): `Session.FileInside`, `Session.IsLocal`, the Live page's checks, the sweep
+   without links and without the user's folder. Tests: `SessionLibraryTests`.
+7. [x] DAC trust off Windows (3.6 M19): `PlantedDacTests` on `HEAPSCOPE_FIXTURE_DUMP`, run by the Linux and macOS jobs.
+8. [ ] Docs: ARCHITECTURE (section 7, section 12, ADR-036, the repository ADR, code map), DEVELOPER, THIRD-PARTY-NOTICES,
+   this section.
 
 **Review summary**: to be filled by /wrap-sprint.
 
@@ -2982,7 +3034,7 @@ are verifiable.
 classes.
 
 **Scope** (peer review P5 to P12, P18 to P21, S5 to S9):
-- Live sources (P6): a spike and ADR-036 deciding where live allocation data runs; ADR-023 amended.
+- Live sources (P6): a spike and ADR-037 deciding where live allocation data runs; ADR-023 amended.
 - Worker contracts by area (P5, S6) with a feature availability list on the snapshot descriptor (P7), in one protocol
   bump; worker handlers per contract; one query helper and one reopen protocol in Application; per-area test fakes.
 - Front ends: one query runner for every view model load (P8); safe event raising (P9); the CLI's context, test project,

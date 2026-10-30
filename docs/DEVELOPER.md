@@ -30,6 +30,14 @@ dotnet test --solution HeapScope.sln
   Slow traits; a project left with no tests fails. `integration` runs the Integration project (Windows). Integration and
   Slow tests belong in that project only; the script fails when one is elsewhere. Results are TRX files.
 - Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Fuzzing (sprint 3.7): the mutation tests (`SignedCacheTests`, `CraftedGcDumpTests`) run a short pass in every run;
+  `HEAPSCOPE_FUZZ_ITERATIONS` and `HEAPSCOPE_FUZZ_SEED` raise and vary it. The nightly `fuzz.yml` runs 2,000 iterations on
+  the run number as the seed; a failure names its seed and iteration, which replays it locally.
+- The DAC trust check on a real dump of any system: `HEAPSCOPE_FIXTURE_DUMP=<dump> dotnet test --project
+  tests/HeapScope.Loaders.ClrMd.Tests --filter-class "*PlantedDacTests"` (CI's Linux and macOS jobs run it).
+- Packages (sprint 3.7): nuget.org only (`nuget.config`); every project has a `packages.lock.json` and CI restores in
+  locked mode, so after changing `Directory.Packages.props` or a project's references run `dotnet restore HeapScope.sln
+  --force-evaluate` and commit the changed lock files. Dependabot opens weekly PRs into `develop` for NuGet and Actions.
 - A LeakyConsole dump for checks by hand: `bash build/fixture-dump.sh <dump> cli=<heapscope-cli>` (or `dotnet-dump`), then
   `bash build/check-known-answers.sh <heapscope-cli> <dump>`.
 - A test run that never finishes: run the test executable directly with hung test detection, for example
@@ -438,6 +446,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
+- Release builds (sprint 3.7): publishing the GitHub release runs `release.yml`, which builds the tag for every runtime
+  identifier and attaches the tarballs, their build provenance attestations, an SBOM per front end and the worker, and
+  `SHA256SUMS` (`gh attestation verify <file> --repo rklundt/HeapScope` checks one). Security reports: `SECURITY.md`.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
   adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no

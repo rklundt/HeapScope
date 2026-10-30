@@ -339,7 +339,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
   `Sessions/SessionDocumentFile`: the file protocol of `session.json` (`SessionRead`, `SessionUnreadableException`)
-  [3.6]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
+  [3.6]; `Session.FileInside` and `Session.IsLocal` for paths a received session names [3.7]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
   the session library or for one run (ADR-035) [3.6].
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
@@ -1245,7 +1245,9 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
 - Layout (format version 2 since sprint 2.2, little-endian):
   - Header region (4096 bytes): a 64 byte fixed header (magic `HSIDX`, format version, header region length,
     section count, snapshot fingerprint, XxHash3 checksum over header and directory), then the section
-    directory (40 bytes per section: id, element size, offset, byte length, element count, XxHash3 checksum).
+    directory (40 bytes per section: id, element size, offset, byte length, element count, XxHash3 checksum). Since
+    3.7 (ADR-036) the region's last 32 bytes hold an HMAC-SHA256 of the rest with the user's key; with a key in effect
+    (the worker's), a cache whose signature does not match is `Untrusted` and the dump is read again.
   - Sections, each aligned to 4096 bytes (ready for mapping): Addresses, TypeIndices, Sizes, HeapKinds,
     ObjectFlags, EdgeStarts, Edges, LargeSizes, Roots, the six type table columns, Strings (count, offsets,
     UTF-8 bytes), Metadata (UTF-8 JSON: `SnapshotInfo`, capabilities, writer version, dropped counts) and, since format
@@ -1675,6 +1677,30 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
   which may be shared) holds per trusted DAC its SHA-256, the path it was found at, when, and why (which names the dump
   it was opened with); the private copies sit under `%LOCALAPPDATA%/HeapScope/dac/<sha256>/`. Deleting an entry, or the
   file, revokes the trust.
+- Crafted input (sprint 3.7, peer review P13): every reader of a file HeapScope did not write bounds what the file states.
+  The address index cannot loop on a span of 2^63 or more; the minidump truncation check reads each memory list once and
+  is cancellable; the vendored gcdump reader refuses counts its stream cannot hold before allocating (`CHANGES.md` change
+  5), and the loader caps references at one per byte of the file, checks every child index and turns any inconsistency
+  into a format refusal. Mutation tests run in every CI run and nightly with more iterations (`fuzz.yml`).
+- Index caches are signed with a per-user key (sprint 3.7, ADR-036): a cache shipped next to a dump, written by another
+  user or machine, or forged with recomputed checksums is never used.
+- Private files (sprint 3.7, peer review P15): on Windows a file HeapScope creates gets an owner-only access list (the
+  profile's list does not cover a dump's cache in a folder the user picked), and a finished dump is made owner-only
+  (`PrivateFiles.Protect`); HeapScope's own data folders (the cache key, trusted DACs and their copies, trace conversion)
+  are made owner-only when they exist with a wider mode, and refused when they belong to another user
+  (`CreatePrivateDirectory`); trace conversion (`.etlx`) uses HeapScope's data folder instead of the shared `/tmp` off
+  Windows; partial traces and CSV exports are created new and private, never written into a file someone made first.
+  The partial-file sweep skips links and never sweeps a folder the user picked.
+- Paths a received `session.json` names (sprint 3.7, peer review S3): a run's timeline is opened only when it is a
+  regular `.csv` file inside the session folder, reached through no link; its trace only inside the folder; a snapshot on
+  a network path is never looked at.
+- Supply chain (sprint 3.7, peer review P16): packages come from nuget.org only (`nuget.config`, `<clear />` and source
+  mapping), every project has a `packages.lock.json` and CI restores in locked mode, Actions are pinned to release
+  commits with no token left in checkouts, Dependabot proposes NuGet and Actions updates, and `SECURITY.md` says how to
+  report a vulnerability privately.
+- Releases (sprint 3.7, peer review P17): publishing a GitHub release builds its tag for every runtime identifier and
+  attaches the tarballs with a build provenance attestation, an SBOM (CycloneDX) of the app, the CLI and the worker, and
+  `SHA256SUMS` (`release.yml`); CI and release builds are deterministic (`ContinuousIntegrationBuild`).
 - Published builds (sprint 3.6, peer review P3; CI uploads them as artifacts) carry `LICENSE`, `ADDITIONAL-TERMS.md`,
   `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and every shipped package's own license and notice files under `licenses/`;
   the TraceEvent native binaries (`KernelTraceControl.dll`, `msdia140.dll`), which nothing calls and whose redistribution
@@ -1811,6 +1837,8 @@ sprint 0.1.
 - Amended in sprint 2.3.5: CI runs on GitHub's hosted runners (`.github/workflows/ci.yml`; DEVELOPER.md 7) for every PR
   into `develop` or `main`; it is not yet a required check. The local gate stays the full check before closing a
   sprint.
+- Amended in sprint 3.7 (peer review P13, P16, P17): a nightly fuzz workflow (`fuzz.yml`), a release workflow run by a
+  published release (`release.yml`), Actions pinned to commits, locked restores, Dependabot.
 - Amended in sprint 3.6 (peer review P4): CI also runs the integration tier on Windows (about three minutes) and keeps
   every job's test results (TRX) for 14 days; CI and the local gate (`build/gate.sh`, bash, which replaces `gate.ps1`)
   share `build/test.sh` and `build/fixture-dump.sh`. Making the CI jobs required checks is a repository setting the
@@ -2357,6 +2385,20 @@ sprint 0.1.
   (`VerifyDacOnWindows`, on by default) is expected to refuse an unsigned DAC before loading it; that is not yet
   confirmed by a test (Backlog), and on Linux and macOS the trust step is the only check. Every full-dump cache open now
   opens the dump with ClrMD and runs the DAC lookup; its cost on a large dump is to be measured (Backlog).
+
+### ADR-036 Index caches signed with a per-user key (added in sprint 3.7)
+- Context: the peer review of 3.5.0 (P14) found that an index cache next to its dump is preferred and trusted on unkeyed
+  checksums and a fingerprint of size, time and the first and last MiB. A dump's time survives unzipping, so a shipped
+  `app.dmp.hsidx` decided every count, size and root HeapScope showed.
+- Decision: the worker loads this user's key at startup (`IndexCacheKey.UseForThisUser`: `index-cache.key`, 32 random
+  bytes, owner-only, in HeapScope's data folder, created on first use). The writer signs the header region (header and
+  section directory, which carries every section's checksum) with HMAC-SHA256 into the region's last 32 bytes, past the
+  largest possible directory, so the format does not change; base caches and sidecars alike. The reader verifies it after
+  the header checksum; a mismatch is `IndexCacheInvalidReason.Untrusted`, treated like any invalid cache: the dump is read
+  again and the cache rewritten. Without a key (tests, tools) nothing is signed or checked; tests use a scoped key.
+- Consequences: every cache written before 3.7 is rebuilt once. A cache moved between users or machines is rebuilt.
+  Deleting the key file makes every cache rebuild. The key protects against files that arrive with a dump, not against
+  a process of the same user, which can read the key.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
