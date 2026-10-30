@@ -47,6 +47,7 @@ public sealed unsafe class MappedIndexFileWriter : IDisposable
 
     private readonly string _path;
     private readonly string _temp;
+    private readonly IndexCacheSigner _signer;
     private readonly CancellationToken _cancellationToken;
     private readonly Dictionary<IndexSection, SectionEntry> _sections = [];
     private FileStream? _stream;
@@ -55,8 +56,9 @@ public sealed unsafe class MappedIndexFileWriter : IDisposable
     private byte* _pointer;
     private bool _committed;
 
-    private MappedIndexFileWriter(string path, string temp, CancellationToken cancellationToken)
+    private MappedIndexFileWriter(string path, string temp, IndexCacheSigner signer, CancellationToken cancellationToken)
     {
+        _signer = signer;
         _path = path;
         _temp = temp;
         _cancellationToken = cancellationToken;
@@ -69,12 +71,12 @@ public sealed unsafe class MappedIndexFileWriter : IDisposable
     /// Creates the temporary file for <paramref name="path"/> with room for <paramref name="sections"/> (each id once) and
     /// maps it read-write. Temporary files of this file left by a writer that died are removed first.
     /// </summary>
-    public static MappedIndexFileWriter Create(string path, IReadOnlyList<PlannedSection> sections, CancellationToken cancellationToken = default)
+    public static MappedIndexFileWriter Create(string path, IndexCacheSigner signer, IReadOnlyList<PlannedSection> sections, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentNullException.ThrowIfNull(sections);
         var (fullPath, temp) = IndexCacheFileWriter.PrepareTemporary(path);
-        var writer = new MappedIndexFileWriter(fullPath, temp, cancellationToken);
+        var writer = new MappedIndexFileWriter(fullPath, temp, signer, cancellationToken);
         try
         {
             writer.Map(sections);
@@ -144,7 +146,7 @@ public sealed unsafe class MappedIndexFileWriter : IDisposable
             }
 
             IndexCacheWriter.BeforeHeaderForTesting?.Invoke(_temp);
-            identity = IndexCacheFileWriter.WriteHeader(stream, entries, fingerprint, baseIdentity, semanticsVersion);
+            identity = IndexCacheFileWriter.WriteHeader(stream, _signer, entries, fingerprint, baseIdentity, semanticsVersion);
             stream.Flush(flushToDisk: true);
         }
         finally

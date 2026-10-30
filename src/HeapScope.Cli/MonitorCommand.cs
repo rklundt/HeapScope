@@ -24,8 +24,8 @@
 using System.CommandLine;
 using System.Globalization;
 using HeapScope.Application.Monitoring;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Sessions;
-using HeapScope.Application.Snapshots;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HeapScope.Cli;
@@ -48,36 +48,22 @@ internal static partial class CliCommands
             }
         });
         var duration = new Option<int?>("--duration") { Description = "Seconds to monitor; default: until Ctrl+C or the process exits." };
+        // Each rule option is checked on its own by the parser the app shares (in the CLI's grammar), so each says what is wrong.
         var every = new Option<string?>("--every") { Description = "Take a snapshot every interval: 90s, 5m, 1h." };
-        every.Validators.Add(r =>
-        {
-            if (r.GetValueOrDefault<string?>() is { } text && !TryParseInterval(text, out _))
-            {
-                r.AddError($"--every: '{text}' is not an interval such as 90s, 5m or 1h.");
-            }
-        });
+        AddRuleValidator(every, text => new MonitorRulesInput(Every: text), parse => parse.EveryError);
         var above = new Option<string?>("--above") { Description = "Take a snapshot when the GC heap exceeds this size: 500MB, 2GB." };
+        AddRuleValidator(above, text => new MonitorRulesInput(Above: text), parse => parse.AboveError);
         var growth = new Option<string?>("--growth") { Description = "Take a snapshot when the GC heap grew by this much over the first sample: 100MB or 50%." };
-        foreach (var option in new[] { above, growth })
-        {
-            option.Validators.Add(r =>
-            {
-                if (r.GetValueOrDefault<string?>() is { } text
-                    && (!GrowthThreshold.TryParse(text, out var threshold) || (option == above && threshold.Percent is not null) || threshold.Bytes is 0 || threshold.Percent is 0))
-                {
-                    r.AddError($"{option.Name}: '{text}' is not a size above zero such as 500MB{(option == growth ? " or a percent such as 50%" : string.Empty)}.");
-                }
-            });
-        }
-
+        AddRuleValidator(growth, text => new MonitorRulesInput(Growth: text), parse => parse.GrowthError);
         var rearm = new Option<string>("--rearm") { Description = "After a size rule fired: once (never again), below (again after the heap falls back under it) or step (again for each further step).", DefaultValueFactory = _ => "below" };
         rearm.AcceptOnlyFromAmong("once", "below", "step");
         var max = new Option<int?>("--max") { Description = "Take at most this many snapshots." };
         max.Validators.Add(r =>
         {
-            if (r.GetValueOrDefault<int?>() is < 1)
+            if (r.GetValueOrDefault<int?>() is { } count
+                && MonitorRulesParser.Parse(new MonitorRulesInput(Max: MaxText(count)), MonitorRuleGrammar.Suffixed).MaxError is { } error)
             {
-                r.AddError("--max must be 1 or more.");
+                r.AddError(error);
             }
         });
         var format = new Option<string>("--format") { Description = "Output: table or csv.", DefaultValueFactory = _ => "table" };
@@ -90,25 +76,14 @@ internal static partial class CliCommands
             command.Options.Add(option);
         }
 
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var mode = parseResult.GetValue(rearm) switch { "once" => RearmMode.Once, "step" => RearmMode.Step, _ => RearmMode.Below };
-            var rules = new List<SnapshotRule>();
-            if (parseResult.GetValue(every) is { } everyText && TryParseInterval(everyText, out var everyInterval))
-            {
-                rules.Add(new EveryRule(everyInterval));
-            }
-
-            if (parseResult.GetValue(above) is { } aboveText && GrowthThreshold.TryParse(aboveText, out var aboveSize) && aboveSize.Bytes is { } aboveBytes)
-            {
-                rules.Add(new AboveRule(aboveBytes, mode));
-            }
-
-            if (parseResult.GetValue(growth) is { } growthText && GrowthThreshold.TryParse(growthText, out var growthSize))
-            {
-                rules.Add(new GrowthRule(growthSize.Bytes, growthSize.Percent, mode));
-            }
-
+            var (output, error) = (context.Output, context.Error);
+            // The validators refused anything the parser refuses, so the rules parse here.
+            var monitorRules = MonitorRulesParser.Parse(
+                new MonitorRulesInput(parseResult.GetValue(every), parseResult.GetValue(above), parseResult.GetValue(growth), parseResult.GetValue(max) is { } count ? MaxText(count) : null, parseResult.GetValue(rearm)),
+                MonitorRuleGrammar.Suffixed).Rules!;
+            var rules = monitorRules.Rules;
             var csv = parseResult.GetValue(format) == "csv";
             await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
                 $"Monitoring pid {parseResult.GetValue(pid)} every {parseResult.GetValue(interval)} s{(rules.Count > 0 ? "; rules: " + string.Join(", ", rules.Select(r => r.Label)) : string.Empty)} (Ctrl+C stops)...")).ConfigureAwait(false);
@@ -121,11 +96,11 @@ internal static partial class CliCommands
                 await output.WriteLineAsync("time,gc_heap_bytes,gen0_bytes,gen1_bytes,gen2_bytes,loh_bytes,poh_bytes,gen0_gcs,gen1_gcs,gen2_gcs,allocated_bytes,time_in_gc_percent,working_set_bytes").ConfigureAwait(false);
             }
 
-            var monitor = services().GetRequiredService<MonitorService>();
+            var monitor = context.Get<MonitorService>();
             var gate = new object();
             await using var run = monitor.Start(
                 parseResult.GetValue(pid),
-                new MonitorOptions(TimeSpan.FromSeconds(parseResult.GetValue(interval)), new MonitorRules(rules, parseResult.GetValue(max)), CaptureKind: KindOf(parseResult.GetValue(kind))),
+                new MonitorOptions(TimeSpan.FromSeconds(parseResult.GetValue(interval)), monitorRules, CaptureKind: KindOf(parseResult.GetValue(kind))),
                 attached =>
                 {
                     attached.SampleReceived += (_, s) =>
@@ -170,25 +145,18 @@ internal static partial class CliCommands
         return command;
     }
 
-    /// <summary>An interval such as 90s, 5m or 1h.</summary>
-    internal static bool TryParseInterval(string text, out TimeSpan interval)
-    {
-        interval = default;
-        var trimmed = text.Trim().ToLowerInvariant();
-        if (trimmed.Length < 2 || !double.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var amount) || amount <= 0 || !double.IsFinite(amount))
+    /// <summary>Refuses a rule option's value with the shared parser's message for that field.</summary>
+    private static void AddRuleValidator(Option<string?> option, Func<string, MonitorRulesInput> input, Func<MonitorRulesParse, string?> error) =>
+        option.Validators.Add(r =>
         {
-            return false;
-        }
+            if (r.GetValueOrDefault<string?>() is { } text && error(MonitorRulesParser.Parse(input(text), MonitorRuleGrammar.Suffixed)) is { } message)
+            {
+                r.AddError(message);
+            }
+        });
 
-        interval = trimmed[^1] switch
-        {
-            's' => TimeSpan.FromSeconds(amount),
-            'm' => TimeSpan.FromMinutes(amount),
-            'h' => TimeSpan.FromHours(amount),
-            _ => default,
-        };
-        return interval >= TimeSpan.FromSeconds(1);
-    }
+    /// <summary>The <c>--max</c> count as the parser reads it (System.CommandLine has already read the integer).</summary>
+    private static string MaxText(int count) => count.ToString(CultureInfo.InvariantCulture);
 
     private static string TableLine(MonitorSample sample)
     {

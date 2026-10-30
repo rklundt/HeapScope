@@ -25,7 +25,10 @@ using HeapScope.Analysis.Inspections;
 using HeapScope.Analysis.Sets;
 using HeapScope.Contracts;
 using HeapScope.Core.Synthetic;
-using HeapScope.Worker.Rpc;
+using HeapScope.Storage;
+using HeapScope.Tests.Shared;
+using HeapScope.Worker.Snapshots;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HeapScope.Worker.Tests;
 
@@ -35,7 +38,7 @@ public sealed class ObjectSetCacheTests
     [Fact]
     public void Sets_are_found_by_snapshot_and_key_and_the_least_recently_used_go_first()
     {
-        var cache = new ObjectSetCache();
+        var cache = new ObjectSetCache(_ => true);
         var snapshot = Guid.NewGuid();
         var set = Set();
         for (var i = 0; i < ObjectSetCache.MaxSets; i++)
@@ -54,7 +57,7 @@ public sealed class ObjectSetCacheTests
     [Fact]
     public void Forgetting_a_snapshot_drops_its_sets_its_tables_and_the_tables_that_used_it_as_a_baseline()
     {
-        var cache = new ObjectSetCache();
+        var cache = new ObjectSetCache(_ => true);
         var (snapshot, other, baseline) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         var table = new RowTable<int>([], [], 0, (_, _) => { });
         cache.Add(snapshot, "k", Set());
@@ -72,9 +75,51 @@ public sealed class ObjectSetCacheTests
     }
 
     [Fact]
+    public void A_set_resolved_after_its_snapshot_closed_is_not_kept()
+    {
+        // The store's close: the snapshot leaves the open list, then its entries are forgotten; a resolution that started
+        // before and finishes after must not add its set back.
+        var open = new HashSet<Guid>();
+        var cache = new ObjectSetCache(id => open.Contains(id));
+        var (snapshot, baseline) = (Guid.NewGuid(), Guid.NewGuid());
+        open.UnionWith([snapshot, baseline]);
+        var compared = ObjectSetSpec.ComparedOf(ObjectSetSpec.OfNamespace("App"), ObjectChange.New, baseline).CacheKey;
+        var table = new RowTable<int>([], [], 0, (_, _) => { });
+        cache.Add(snapshot, compared, Set());
+        cache.TryGet(snapshot, compared).ShouldNotBeNull("both snapshots are open");
+
+        open.Remove(baseline);
+        cache.Forget(baseline);
+        cache.Add(snapshot, compared, Set());
+        cache.AddTable(snapshot, "type-growth", baseline, table);
+        cache.TryGet(snapshot, compared).ShouldBeNull("its baseline closed");
+        cache.TryGetTable(snapshot, "type-growth", baseline).ShouldBeNull("its baseline closed");
+
+        open.Remove(snapshot);
+        cache.Forget(snapshot);
+        cache.Add(snapshot, "k", Set());
+        cache.AddTable(snapshot, "loh", null, table);
+        cache.TryGet(snapshot, "k").ShouldBeNull("resolved after the close");
+        cache.TryGetTable(snapshot, "loh", null).ShouldBeNull("run after the close");
+    }
+
+    [Fact]
+    public void The_snapshot_stores_set_cache_keeps_nothing_for_a_snapshot_that_is_not_open()
+    {
+        var options = new WorkerOptions("unused", null) { DataFolder = TestDataFolder.Path };
+        using var store = new SnapshotStore(options, new IndexCacheLocator(options.Folders.Cache), IndexCacheSigner.None, NullLogger<SnapshotStore>.Instance);
+        var closed = Guid.NewGuid();
+        store.Close(closed).ShouldBeFalse();
+
+        store.Sets.ShouldBeSameAs(store.Sets);
+        store.Sets.Add(closed, "k", Set());
+        store.Sets.TryGet(closed, "k").ShouldBeNull();
+    }
+
+    [Fact]
     public void Adding_a_key_again_replaces_it_and_tables_without_room_are_not_kept()
     {
-        var cache = new ObjectSetCache();
+        var cache = new ObjectSetCache(_ => true);
         var snapshot = Guid.NewGuid();
         var (first, second) = (Set(), Set());
         cache.Add(snapshot, "k", first);

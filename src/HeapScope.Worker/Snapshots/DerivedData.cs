@@ -50,7 +50,8 @@ internal sealed class DerivedWaiter<T>(Task<T> task, Action leave) : IDisposable
 /// <summary>
 /// Data computed from a loaded snapshot on first use and dropped with it in one step when the snapshot closes
 /// (sprint 1.3: the type aggregation; sprint 2.1: the reverse references index; sprint 2.2: the root path tree; sprint
-/// 2.3: the dominators and the retained sizes per grouping; later detector results get their slots here). Each slot holds
+/// 2.3: the dominators and the retained sizes per grouping; the two reachable sets and the dominator tree's group tables;
+/// later detector results get their slots here). Each slot holds
 /// one shared computation for the callers waiting for it: it keeps running while any caller waits (a caller that cancels
 /// only stops waiting), and is canceled when the last one leaves before it finishes and nobody joins within the grace
 /// period (2.3 review M13), or when the snapshot closes. The next caller then starts it again. Indices that own memory or
@@ -76,7 +77,10 @@ internal sealed class DerivedData(TimeSpan? grace = null)
     private Slot<RootPathTree> _rootPaths = new();
     private Slot<DominatorIndex> _dominators = new();
     private Slot<TypeInterfaces> _interfaces = new();
+    private Slot<Reachability> _reachable = new();
+    private Slot<Reachability> _pathRootReachable = new();
     private readonly Dictionary<GroupKey, Slot<ulong[]>> _groupRetention = [];
+    private readonly Dictionary<DominatorGrouping, Slot<DominatorGroupTables>> _dominatorGroups = [];
 
     /// <summary>Joins the aggregation, starting it when there is none (or it failed or was canceled).</summary>
     public DerivedWaiter<TypeAggregation> JoinAggregation(Func<CancellationToken, Task<TypeAggregation>> compute) => Join(_aggregation, compute);
@@ -105,20 +109,19 @@ internal sealed class DerivedData(TimeSpan? grace = null)
     /// <summary>Progress of the interface read, sent to every caller waiting for it.</summary>
     public SharedProgress<Contracts.JobProgress> InterfaceProgress { get; } = new();
 
-    /// <summary>Joins the retained sizes per group of one grouping (sprint 2.3), each computed once.</summary>
-    public DerivedWaiter<ulong[]> JoinGroupRetention(GroupKey grouping, Func<CancellationToken, Task<ulong[]>> compute)
-    {
-        Slot<ulong[]> slot;
-        lock (_lock)
-        {
-            if (!_groupRetention.TryGetValue(grouping, out slot!))
-            {
-                _groupRetention[grouping] = slot = new Slot<ulong[]>();
-            }
-        }
+    /// <summary>Joins the objects the leak detectors count as reachable (<see cref="Reachability.Compute"/>), walking them when there are none.</summary>
+    public DerivedWaiter<Reachability> JoinReachable(Func<CancellationToken, Task<Reachability>> compute) => Join(_reachable, compute);
 
-        return Join(slot, compute);
-    }
+    /// <summary>Joins the objects the retention views count as alive (<see cref="Reachability.ComputeFromPathRoots"/>), walking them when there are none.</summary>
+    public DerivedWaiter<Reachability> JoinPathRootReachable(Func<CancellationToken, Task<Reachability>> compute) => Join(_pathRootReachable, compute);
+
+    /// <summary>Joins the retained sizes per group of one grouping (sprint 2.3), each computed once.</summary>
+    public DerivedWaiter<ulong[]> JoinGroupRetention(GroupKey grouping, Func<CancellationToken, Task<ulong[]>> compute) =>
+        Join(Keyed(_groupRetention, grouping), compute);
+
+    /// <summary>Joins the dominator tree's group tables of one grouping (by type or by namespace), each built once.</summary>
+    public DerivedWaiter<DominatorGroupTables> JoinDominatorGroups(DominatorGrouping grouping, Func<CancellationToken, Task<DominatorGroupTables>> compute) =>
+        Join(Keyed(_dominatorGroups, grouping), compute);
 
     /// <summary>Stops running computations and drops the results.</summary>
     public void Close()
@@ -131,7 +134,24 @@ internal sealed class DerivedData(TimeSpan? grace = null)
             _rootPaths = new();
             _dominators = new();
             _interfaces = new();
+            _reachable = new();
+            _pathRootReachable = new();
             _groupRetention.Clear();
+            _dominatorGroups.Clear();
+        }
+    }
+
+    private Slot<T> Keyed<TKey, T>(Dictionary<TKey, Slot<T>> slots, TKey key)
+        where TKey : notnull
+    {
+        lock (_lock)
+        {
+            if (!slots.TryGetValue(key, out var slot))
+            {
+                slots[key] = slot = new Slot<T>();
+            }
+
+            return slot;
         }
     }
 

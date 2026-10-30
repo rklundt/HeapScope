@@ -46,8 +46,7 @@ public static class IndexCachePaths
     public static IReadOnlyList<string> SidecarKinds { get; } = [ReverseKind, DominatorKind];
 
     /// <summary>The fallback folder for snapshots in folders HeapScope cannot write.</summary>
-    public static string DefaultFallbackRoot { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "cache");
+    public static string DefaultFallbackRoot => HeapScopeFolders.Default.Cache;
 
     /// <summary>The cache next to the snapshot.</summary>
     public static string Beside(string snapshotPath) => Path.GetFullPath(snapshotPath) + Extension;

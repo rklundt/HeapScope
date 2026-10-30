@@ -251,17 +251,12 @@ public sealed class CaptureTests(RunningApi shared) : IClassFixture<RunningApi>,
     }
 
     [Fact]
-    public async Task Cli_trust_dac_takes_only_a_SHA_256()
+    public async Task Cli_trust_dac_takes_a_SHA_256()
     {
-        // Sprint 3.6 (ADR-035): a hash trusts a DAC for the run; anything else is a usage error.
+        // Sprint 3.6 (ADR-035): a hash trusts a DAC for the run (anything else is a usage error, tested in HeapScope.Cli.Tests).
         using var good = ChildProcess.Start(TestPaths.CliExe, "--trust-dac", new string('A', 64), "worker", "ping");
         (await good.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(good.Output);
         good.Process.ExitCode.ShouldBe(0, good.Output);
-
-        using var bad = ChildProcess.Start(TestPaths.CliExe, "--trust-dac", "abc", "worker", "ping");
-        (await bad.WaitForExitAsync(TimeSpan.FromSeconds(60))).ShouldBeTrue(bad.Output);
-        bad.Process.ExitCode.ShouldBe(64, bad.Output);
-        bad.Output.ShouldContain("--trust-dac takes a SHA-256");
     }
 
     public void Dispose() => _root.Dispose();

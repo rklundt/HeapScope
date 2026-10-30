@@ -5,4 +5,7 @@
   <ItemGroup>
     <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.Analysis.Tests" />
+  </ItemGroup>
 </Project>

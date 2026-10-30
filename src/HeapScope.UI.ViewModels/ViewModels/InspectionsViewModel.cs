@@ -25,6 +25,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;

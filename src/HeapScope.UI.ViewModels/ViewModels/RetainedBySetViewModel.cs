@@ -24,6 +24,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using HeapScope.UI.Services;
@@ -187,6 +188,6 @@ public sealed partial class RetainedBySetViewModel : GridQueryViewModel<CellRowI
         return string.Create(
                 CultureInfo.CurrentCulture,
                 $"{result.SetObjects:N0} reachable objects of {Format.Bytes(result.SetBytes)}{(unreachable > 0 ? $" ({unreachable:N0} more that no root reaches retain nothing)" : string.Empty)} retain {result.RetainedObjects:N0} objects, {Format.Bytes(result.RetainedBytes)} exactly ({100.0 * result.RetainedBytes / Math.Max(1, result.TotalRetained):N1}% of the reachable heap).{(result.LowerBoundBytes > 0 ? $" The types grid shows at least {Format.Bytes(result.LowerBoundBytes)}: it leaves out what several of them hold together." : string.Empty)} ")
-            + RetainedText.Source(result.Dominators);
+            + RetainedSizeTexts.Source(result.Dominators, CultureInfo.CurrentCulture);
     }
 }

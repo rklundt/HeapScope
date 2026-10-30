@@ -76,7 +76,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
     [Fact]
     public void The_top_level_is_the_biggest_retainers_in_retained_order()
     {
-        var view = DominatorTreeRows.Build(_graph, _dominators, -1, s_none, DominatorGrouping.None, 100, Ct);
+        var view = DominatorTreeRows.Build(_graph, _dominators, -1, s_none, null, 100, Ct);
 
         view.Rows.Select(r => (r.Name, r.Retained, r.Depth)).ShouldBe([("App.Cache", 840UL, 0), ("App.List", 46UL, 0), ("Lib.Shared", 20UL, 0), ("App.Other", 10UL, 0)]);
         view.Rows[0].Key.ShouldBe(DominatorTreeRows.ObjectKey(_cache.Address));
@@ -89,7 +89,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
     public void An_expanded_row_shows_its_children_below_it_and_a_more_row_sums_the_rest()
     {
         var cacheKey = DominatorTreeRows.ObjectKey(_cache.Address);
-        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheKey }, DominatorGrouping.None, maxChildren: 2, Ct);
+        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheKey }, null, maxChildren: 2, Ct);
 
         view.Rows.Select(r => (r.Kind, r.Name, r.Depth, r.Retained)).ShouldBe(
         [
@@ -105,7 +105,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
 
         // Expanding the "more" row shows the next batch, and the keys of the rows already shown stay the same.
         var more = view.Rows[3].Key;
-        var next = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheKey, more }, DominatorGrouping.None, maxChildren: 2, Ct);
+        var next = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheKey, more }, null, maxChildren: 2, Ct);
         next.Rows.Count(r => r.ParentKey == cacheKey && r.Kind == DominatorRowKind.Object).ShouldBe(4);
         next.Rows.Take(3).Select(r => r.Key).ShouldBe(view.Rows.Take(3).Select(r => r.Key));
     }
@@ -117,14 +117,14 @@ public sealed class DominatorTreeRowsTests : IDisposable
         var cacheGroup = DominatorTreeRows.GroupKey(DominatorTreeRows.RootKey, "App.Cache [App.dll]");
         var cacheKey = DominatorTreeRows.ObjectKey(_cache.Address);
         var entriesKey = DominatorTreeRows.GroupKey(cacheKey, "App.Entry [App.dll]");
-        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheGroup, cacheKey, entriesKey }, DominatorGrouping.Type, 100, Ct);
+        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheGroup, cacheKey, entriesKey }, DominatorGroupTables.Build(_graph, DominatorGrouping.Type), 100, Ct);
 
         var group = view.Rows.Single(r => r.Kind == DominatorRowKind.Group && r.ParentKey == cacheKey);
         (group.Name, group.Module, group.Objects, group.Retained, group.Bytes, group.Expanded).ShouldBe(("App.Entry", "App.dll", 5L, 800UL, 500UL, true));
         view.Rows.Count(r => r.ParentKey == entriesKey).ShouldBe(5);
         view.Rows.Where(r => r.ParentKey == DominatorTreeRows.RootKey).Select(r => r.Name).ShouldBe(["App.Cache", "App.List", "Lib.Shared", "App.Other"]);
 
-        var byNamespace = DominatorTreeRows.Build(_graph, _dominators, -1, s_none, DominatorGrouping.Namespace, 100, Ct);
+        var byNamespace = DominatorTreeRows.Build(_graph, _dominators, -1, s_none, DominatorGroupTables.Build(_graph, DominatorGrouping.Namespace), 100, Ct);
         byNamespace.Rows.Select(r => (r.Name, r.Objects, r.Retained)).ShouldBe([("App", 3L, 896UL), ("Lib", 1L, 20UL)]);
     }
 
@@ -132,7 +132,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
     public void A_focus_shows_itself_expanded_with_its_ancestors()
     {
         var entry = RetainedOrder.Top(_dominators.ChildrenOf(_cache.Id), 1, _dominators)[0];
-        var view = DominatorTreeRows.Build(_graph, _dominators, entry, s_none, DominatorGrouping.None, 100, Ct);
+        var view = DominatorTreeRows.Build(_graph, _dominators, entry, s_none, null, 100, Ct);
 
         view.Rows[0].Object.ShouldBe(entry);
         view.Rows[0].Expanded.ShouldBeTrue();
@@ -149,14 +149,14 @@ public sealed class DominatorTreeRowsTests : IDisposable
         using (graph)
         using (dominators)
         {
-            var view = DominatorTreeRows.Build(graph, dominators, chain[^1].Id, s_none, DominatorGrouping.None, 100, Ct);
+            var view = DominatorTreeRows.Build(graph, dominators, chain[^1].Id, s_none, null, 100, Ct);
 
             view.AncestorDepth.ShouldBe(9_999);
             view.Ancestors.Count.ShouldBe(DominatorTreeRows.TrailHead + DominatorTreeRows.TrailTail);
             view.Ancestors.Take(DominatorTreeRows.TrailHead).ShouldBe(chain.Take(DominatorTreeRows.TrailHead).Select(o => o.Id));
             view.Ancestors.Skip(DominatorTreeRows.TrailHead).ShouldBe(chain.Skip(9_999 - DominatorTreeRows.TrailTail).Take(DominatorTreeRows.TrailTail).Select(o => o.Id));
 
-            var short_ = DominatorTreeRows.Build(graph, dominators, chain[5].Id, s_none, DominatorGrouping.None, 100, Ct);
+            var short_ = DominatorTreeRows.Build(graph, dominators, chain[5].Id, s_none, null, 100, Ct);
             (short_.AncestorDepth, short_.Ancestors.Count).ShouldBe((5, 5));
             short_.Ancestors.ShouldBe(chain.Take(5).Select(o => o.Id));
         }
@@ -172,7 +172,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
         {
             var all = chain.Select(o => DominatorTreeRows.ObjectKey(o.Address)).ToHashSet();
 
-            var view = DominatorTreeRows.Build(graph, dominators, -1, all, DominatorGrouping.None, 100, Ct);
+            var view = DominatorTreeRows.Build(graph, dominators, -1, all, null, 100, Ct);
 
             view.Rows.Max(r => r.Depth).ShouldBe(DominatorTreeRows.MaxDepth);
             view.Rows.Last().Expanded.ShouldBeFalse();
@@ -186,7 +186,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
         var cacheKey = DominatorTreeRows.ObjectKey(_cache.Address);
         var entriesKey = DominatorTreeRows.GroupKey(cacheKey, "App.Entry [App.dll]");
 
-        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheGroup, cacheKey, entriesKey }, DominatorGrouping.Type, maxChildren: 2, Ct);
+        var view = DominatorTreeRows.Build(_graph, _dominators, -1, new HashSet<string> { cacheGroup, cacheKey, entriesKey }, DominatorGroupTables.Build(_graph, DominatorGrouping.Type), maxChildren: 2, Ct);
 
         var entries = view.Rows.Where(r => r.ParentKey == entriesKey).ToList();
         entries.Select(r => (r.Kind, r.Retained)).ShouldBe([(DominatorRowKind.Object, 400UL), (DominatorRowKind.Object, 100UL), (DominatorRowKind.More, 300UL)]);
@@ -211,7 +211,7 @@ public sealed class DominatorTreeRowsTests : IDisposable
         var holderKey = DominatorTreeRows.ObjectKey(holder.Address);
         var open = Enumerable.Range(1, 59).Select(b => DominatorTreeRows.MoreKey(holderKey, b * 1_000)).Append(holderKey).ToHashSet();
 
-        var view = DominatorTreeRows.Build(graph, dominators, -1, open, DominatorGrouping.None, 1_000, Ct);
+        var view = DominatorTreeRows.Build(graph, dominators, -1, open, null, 1_000, Ct);
 
         view.Truncated.ShouldBeTrue();
         view.Rows.Count.ShouldBe(DominatorTreeRows.MaxRows);
@@ -240,8 +240,15 @@ public sealed class DominatorTreeRowsTests : IDisposable
     [Fact]
     public void Arguments_are_checked()
     {
-        Should.Throw<ArgumentOutOfRangeException>(() => DominatorTreeRows.Build(_graph, _dominators, _graph.ObjectCount, s_none, DominatorGrouping.None, 100, Ct));
-        Should.Throw<ArgumentOutOfRangeException>(() => DominatorTreeRows.Build(_graph, _dominators, -1, s_none, DominatorGrouping.None, 0, Ct));
+        Should.Throw<ArgumentOutOfRangeException>(() => DominatorTreeRows.Build(_graph, _dominators, _graph.ObjectCount, s_none, null, 100, Ct));
+        Should.Throw<ArgumentOutOfRangeException>(() => DominatorTreeRows.Build(_graph, _dominators, -1, s_none, null, 0, Ct));
+        Should.Throw<ArgumentOutOfRangeException>(() => DominatorGroupTables.Build(_graph, DominatorGrouping.None));
+        var (other, otherDominators, _) = Chain(3);
+        using (other)
+        using (otherDominators)
+        {
+            Should.Throw<ArgumentException>(() => DominatorTreeRows.Build(_graph, _dominators, -1, s_none, DominatorGroupTables.Build(other, DominatorGrouping.Type), 100, Ct));
+        }
     }
 
     public void Dispose()

@@ -56,9 +56,9 @@ public sealed class DependentHandleCacheTests : IDisposable
         builder.DependentHandle(key, value);
         using var graph = builder.Build();
         var cache = Path.Combine(_directory, "app.dmp.hsidx");
-        IndexCacheWriter.Write(cache, graph, _metadata, SnapshotFingerprint.Compute(_snapshot), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, SnapshotFingerprint.Compute(_snapshot), cancellationToken: TestContext.Current.CancellationToken);
 
-        var opened = IndexCacheReader.Open(cache, SnapshotFingerprint.Compute(_snapshot), mode, TestContext.Current.CancellationToken);
+        var opened = IndexCacheReader.Open(cache, IndexCacheSigner.None, SnapshotFingerprint.Compute(_snapshot), mode, TestContext.Current.CancellationToken);
 
         opened.Success.ShouldBeTrue(opened.Detail);
         using var copy = opened.Graph!;
@@ -71,7 +71,7 @@ public sealed class DependentHandleCacheTests : IDisposable
     {
         using var graph = SyntheticGraphs.Chain(3);
         var cache = Path.Combine(_directory, "old.hsidx");
-        IndexCacheWriter.Write(cache, graph, _metadata, SnapshotFingerprint.Compute(_snapshot), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, SnapshotFingerprint.Compute(_snapshot), cancellationToken: TestContext.Current.CancellationToken);
         using (var stream = new FileStream(cache, FileMode.Open, FileAccess.Write))
         {
             // FormatVersion follows the 8-byte magic.
@@ -79,7 +79,7 @@ public sealed class DependentHandleCacheTests : IDisposable
             stream.Write(BitConverter.GetBytes(1));
         }
 
-        var opened = IndexCacheReader.Open(cache, SnapshotFingerprint.Compute(_snapshot), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var opened = IndexCacheReader.Open(cache, IndexCacheSigner.None, SnapshotFingerprint.Compute(_snapshot), MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         opened.Reason.ShouldBe(IndexCacheInvalidReason.VersionMismatch);
         IndexCacheFormat.Version.ShouldBe(2);

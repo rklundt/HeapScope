@@ -48,7 +48,7 @@ public sealed class MalformedCacheTests : IDisposable
         _cache = Path.Combine(_directory, "cache.hsidx");
         using var graph = SyntheticGraphs.Random(new RandomGraphOptions(2_000, 2, TypeCount: 20, RootCount: 5, Seed: 3));
         var metadata = new IndexCacheMetadata(new SnapshotInfo(SnapshotKind.FullDump, "x.dmp"), SnapshotCapabilities.FullDump, "test");
-        IndexCacheWriter.Write(_cache, graph, metadata, new SnapshotFingerprint(1, 2, 3), cancellationToken: TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(_cache, IndexCacheSigner.None, graph, metadata, new SnapshotFingerprint(1, 2, 3), cancellationToken: TestContext.Current.CancellationToken);
     }
 
     public static TheoryData<string, MemoryMode, IndexCacheInvalidReason> Cases()
@@ -80,7 +80,7 @@ public sealed class MalformedCacheTests : IDisposable
     {
         Damage(damage);
 
-        var result = IndexCacheReader.Open(_cache, null, mode, TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(_cache, IndexCacheSigner.None, null, mode, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
         result.Reason.ShouldBe(expected, result.Detail);

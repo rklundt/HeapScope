@@ -74,10 +74,14 @@ if (options is not null)
 {
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new ResultSetStore());
-    builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator());
+    builder.Services.AddSingleton(new HeapScope.Storage.IndexCacheLocator(options.Folders.Cache));
+
+    // Index caches are signed with this user's key and a cache without its signature is never used (ADR-036): a cache
+    // shipped next to a dump cannot decide what the analysis shows. Injected, so no code path reads caches unchecked.
+    builder.Services.AddSingleton(sp => LoadSigner(options, sp.GetRequiredService<ILoggerFactory>().CreateLogger("HeapScope.Worker")));
     builder.Services.AddSingleton<HeapScope.Worker.Snapshots.SnapshotStore>();
     builder.Services.AddSingleton<HeapScope.Worker.Traces.TraceStore>();
-    builder.Services.AddSingleton<WorkerService>();
+    builder.Services.AddWorkerRpcTargets();
     builder.Services.AddHostedService<ParentProcessWatcher>();
     builder.Services.AddHostedService<WorkerRpcServer>();
 }
@@ -108,7 +112,7 @@ if (!optionsValid || options is null)
 // self-contained worker's own DAC depend on them (sprint 2.3.7 review H4).
 var gc = GC.GetConfigurationVariables();
 logger.LogInformation(
-    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, protocol {Protocol}; {Environment}; path {Path}; server GC {ServerGc}, GC heaps {GcHeaps}, GC dynamic adaptation {Datas}; DAC folder {DacFolder}; log level {LogLevel}; test hooks {TestHooks}",
+    "{Product} worker {Version} started: pid {Pid}, pipe {Pipe}, parent {ParentPid}, protocol {Protocol}; {Environment}; path {Path}; server GC {ServerGc}, GC heaps {GcHeaps}, GC dynamic adaptation {Datas}; DAC folder {DacFolder}; data folder {DataFolder} ({DataFolderSource}); log level {LogLevel}; test hooks {TestHooks}",
     ProductInfo.Name,
     ProductInfo.InformationalVersion,
     Environment.ProcessId,
@@ -121,6 +125,8 @@ logger.LogInformation(
     gc.GetValueOrDefault("HeapCount"),
     gc.GetValueOrDefault("GCDynamicAdaptationMode"),
     options.DacFolder ?? "(none)",
+    options.Folders.Root,
+    options.Folders.Source,
     options.LogLevel,
     options.EnableTestHooks);
 
@@ -128,22 +134,8 @@ logger.LogInformation(
 // upgrade is traced to the rules that produced it.
 logger.LogInformation("Worker versions: {Versions}", WorkerVersions.Describe());
 
-// Index caches are signed with this user's key and a cache without its signature is never used (sprint 3.7, peer review
-// P14, ADR-036): a cache shipped next to a dump cannot decide what the analysis shows. Loaded once the log exists, so its
-// outcome, and a failure, is on record (3.7 review H4).
-var key = HeapScope.Storage.IndexCacheKey.UseForThisUser();
-if (key.Error is { } keyError)
-{
-    logger.LogWarning(
-        "Index cache key {Path} could not be read or created ({Error}: {Message}); this run signs with a key of its own, so index caches written now are rebuilt on the next run. Check that the folder exists, belongs to this user and has free space.",
-        key.Path,
-        keyError.GetType().Name,
-        keyError.Message);
-}
-else
-{
-    logger.LogInformation("Index cache key {Path}: {Source}", key.Path, key.Source);
-}
+// The index cache signer is loaded now, once the log exists, so its outcome and a failure are on record (3.7 review H4).
+host.Services.GetRequiredService<HeapScope.Storage.IndexCacheSigner>();
 
 if (options.AllowMicrosoftSymbolServer)
 {
@@ -153,3 +145,22 @@ if (options.AllowMicrosoftSymbolServer)
 await host.RunAsync().ConfigureAwait(false);
 logger.LogInformation("Worker stopped");
 return 0;
+
+static HeapScope.Storage.IndexCacheSigner LoadSigner(WorkerOptions options, ILogger logger)
+{
+    var (signer, key) = HeapScope.Storage.IndexCacheSigner.ForThisUser(options.Folders.Root);
+    if (key.Error is { } error)
+    {
+        logger.LogWarning(
+            "Index cache key {Path} could not be read or created ({Error}: {Message}); this run signs with a key of its own, so index caches written now are rebuilt on the next run. Check that the folder exists, belongs to this user and has free space.",
+            key.Path,
+            error.GetType().Name,
+            error.Message);
+    }
+    else
+    {
+        logger.LogInformation("Index cache key {Path}: {Source}", key.Path, key.Source);
+    }
+
+    return signer;
+}

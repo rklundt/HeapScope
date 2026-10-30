@@ -45,6 +45,14 @@ public sealed class WorkerHostOptions
     /// <summary>Configuration section of the DAC lookup options, bound onto these options too (ADR-017).</summary>
     public const string SymbolsSectionName = "Symbols";
 
+    /// <summary>
+    /// The worker's data folder (<c>Worker:DataFolder</c>), for tests and tools that keep a worker's key, cache fallback
+    /// and DAC copies apart: it moves the worker's folders only, not the front end's (sessions, logs, trusted DACs), so
+    /// deleting a session does not see its fallback caches. Null: this process's folder (<c>HEAPSCOPE_DATA_FOLDER</c> or
+    /// the default), which the worker always receives as an absolute <c>--data-folder</c>.
+    /// </summary>
+    public string? DataFolder { get; set; }
+
     /// <summary>A user folder searched for the data access component (<c>Symbols:DacFolder</c>).</summary>
     public string? DacFolder { get; set; }
 

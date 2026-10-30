@@ -122,7 +122,7 @@ public sealed class ResultSetHandleTests
     }
 
     /// <summary>A worker holding ten-row result sets, with gates to hold queries and pages in flight.</summary>
-    private sealed class PagingWorker : IWorkerClient, IWorkerService
+    private sealed class PagingWorker : IWorkerClient, IResultSetService
     {
         private readonly HashSet<Guid> _live = [];
         private readonly Lock _lock = new();
@@ -170,9 +170,9 @@ public sealed class ResultSetHandleTests
 
         public Task<WorkerInfo> EnsureStartedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<T> InvokeAsync<T>(Func<IWorkerService, CancellationToken, Task<T>> call, CancellationToken cancellationToken) => call(this, cancellationToken);
+        public Task<T> InvokeAsync<T>(Func<IWorkerService, CancellationToken, Task<T>> call, CancellationToken cancellationToken) => call(AreaWorkerService.Create(this), cancellationToken);
 
-        public Task InvokeAsync(Func<IWorkerService, CancellationToken, Task> call, CancellationToken cancellationToken) => call(this, cancellationToken);
+        public Task InvokeAsync(Func<IWorkerService, CancellationToken, Task> call, CancellationToken cancellationToken) => call(AreaWorkerService.Create(this), cancellationToken);
 
         public Task RestartAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -199,72 +199,6 @@ public sealed class ResultSetHandleTests
             Evict(resultSetId);
             return Task.CompletedTask;
         }
-
-        public Task<WorkerInfo> GetInfoAsync(int clientProtocolVersion, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<SyntheticJobResult> RunSyntheticJobAsync(SyntheticJobRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<SnapshotProbe> ProbeSnapshotAsync(string path, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task CloseSnapshotAsync(Guid snapshotId, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<ResultSetInfo> GetTypeSummaryAsync(Guid snapshotId, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<TypeSummaryResult> QueryTypeSummaryAsync(TypeSummaryRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<TypeDiffResult> QueryTypeDiffAsync(TypeDiffRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<InstancesResult> QueryInstancesAsync(InstancesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<ObjectDetails> GetObjectAsync(ObjectRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<ResultSetInfo> QueryReferencesAsync(ReferencesRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<ReferrersResult> QueryReferrersAsync(ReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<TypeReferrersResult> QueryTypeReferrersAsync(TypeReferrersRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<ObjectPathsResult> QueryObjectPathsAsync(ObjectPathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<TypePathsResult> QueryTypePathsAsync(TypePathsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<RetainedResult> QueryRetainedAsync(RetainedRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<DominatorTreeResult> QueryDominatorTreeAsync(DominatorTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<RetainedBySetResult> QueryRetainedBySetAsync(RetainedBySetRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<SetDominatorsResult> QuerySetDominatorsAsync(SetDominatorsRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<SimilarRetentionResult> QuerySimilarRetentionAsync(SimilarRetentionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<TypeTrendResult> QueryTypeTrendAsync(TypeTrendRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<IcicleResult> QueryIcicleAsync(IcicleRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<TraceDescriptor> OpenTraceAsync(OpenTraceRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task CloseTraceAsync(Guid traceId, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<AllocationTimelineResult> QueryAllocationTimelineAsync(AllocationTimelineRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<AllocationTypesResult> QueryAllocationTypesAsync(AllocationTypesRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<AllocationStacksResult> QueryAllocationStacksAsync(AllocationStacksRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<AllocationTreeResult> QueryAllocationTreeAsync(AllocationTreeRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<InspectionInfo>> ListInspectionsAsync(Guid snapshotId, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task<InspectionResultDto> RunInspectionAsync(InspectionRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task ShutdownAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task CrashForTestingAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task HangForTestingAsync(IProgress<JobProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         private async Task<ResultSetInfo> RunQueryAsync(CancellationToken cancellationToken)
         {

@@ -297,13 +297,14 @@ public static class TypeGroups
 
     /// <summary>
     /// The types named <paramref name="typeName"/> in the module whose file name is <paramref name="module"/> (null or
-    /// empty for types without one): a type of the summary and diff rows (ADR-018) can be several method tables. Sets
-    /// <paramref name="matched"/> to how many types match.
+    /// empty for types without one): a type of the summary and diff rows (ADR-018) can be several method tables. A module
+    /// given as a path matches by its file name, as type sets match (peer review S5). Sets <paramref name="matched"/> to
+    /// how many types match.
     /// </summary>
     public static bool[] MatchTypes(HeapGraph graph, string typeName, string? module, out int matched)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        var key = module ?? string.Empty;
+        var key = ModuleKey(module);
         var matches = new bool[graph.Types.Count];
         matched = 0;
         for (var t = 0; t < matches.Length; t++)

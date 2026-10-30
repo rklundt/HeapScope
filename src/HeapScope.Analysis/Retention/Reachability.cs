@@ -22,7 +22,6 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
 
@@ -36,12 +35,6 @@ namespace HeapScope.Analysis.Retention;
 /// </summary>
 public sealed class Reachability
 {
-    // One per graph, computed once (review M6): the graph never changes, and five detectors and the instances scope ask.
-    private static readonly ConditionalWeakTable<HeapGraph, Reachability> s_cache = [];
-
-    // The retention views' reachability (sprint 3.5, ADR-024): from every path root, the finalizer queue included.
-    private static readonly ConditionalWeakTable<HeapGraph, Reachability> s_fromPathRoots = [];
-
     private readonly ulong[] _bits;
 
     private Reachability(ulong[] bits, long count)
@@ -50,8 +43,14 @@ public sealed class Reachability
         Count = count;
     }
 
-    /// <summary>Bytes kept per object while the graph lives (the bit set; the walk's stack is chunked and small).</summary>
+    /// <summary>Bytes kept per object while the snapshot keeps it (the bit set).</summary>
     public const double BytesPerObject = 0.125;
+
+    /// <summary>
+    /// Bytes per object the walk may need at its peak: the bit set and a stack of object indices, which marks on push and
+    /// so can hold up to every object once (one large array's references at a time).
+    /// </summary>
+    public const double WalkBytesPerObject = 4.125;
 
     /// <summary>Reachable objects.</summary>
     public long Count { get; }
@@ -62,37 +61,20 @@ public sealed class Reachability
 
     public bool IsReachable(int objectIndex) => (_bits[objectIndex >> 6] & (1UL << (objectIndex & 63))) != 0;
 
-    /// <summary>The graph's reachability, computed on first use and kept as long as the graph.</summary>
-    public static Reachability For(HeapGraph graph, CancellationToken cancellationToken)
+    /// <summary>
+    /// What the retention views count as alive (sprint 3.5): a walk from <see cref="PathRoots.Sources"/>, the finalizer
+    /// queue included, so an object this leaves out has no retention path and retains nothing (ADR-024).
+    /// </summary>
+    public static Reachability ComputeFromPathRoots(HeapGraph graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        if (s_cache.TryGetValue(graph, out var known))
-        {
-            return known;
-        }
-
-        // Two callers at once may both walk; the first one stored wins.
-        var computed = Compute(graph, cancellationToken);
-        return s_cache.GetValue(graph, _ => computed);
+        return Walk(graph, PathRoots.Sources(graph), cancellationToken);
     }
 
     /// <summary>
-    /// What the retention views count as alive (sprint 3.5): a walk from <see cref="PathRoots.Sources"/>, the finalizer
-    /// queue included, so an object this leaves out has no retention path and retains nothing (ADR-024). Computed on first
-    /// use and kept as long as the graph.
+    /// The leak detectors' reachability: a walk from the retaining roots other than the finalizer queue, and the frozen
+    /// objects. Nothing is kept here; the worker computes it once per snapshot and keeps it with the snapshot.
     /// </summary>
-    public static Reachability FromPathRoots(HeapGraph graph, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(graph);
-        if (s_fromPathRoots.TryGetValue(graph, out var known))
-        {
-            return known;
-        }
-
-        var computed = Walk(graph, PathRoots.Sources(graph), cancellationToken);
-        return s_fromPathRoots.GetValue(graph, _ => computed);
-    }
-
     public static Reachability Compute(HeapGraph graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(graph);

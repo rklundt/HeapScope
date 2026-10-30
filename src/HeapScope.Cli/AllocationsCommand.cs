@@ -24,7 +24,6 @@
 using System.CommandLine;
 using System.Globalization;
 using HeapScope.Application.Allocations;
-using HeapScope.Application.Jobs;
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -113,8 +112,9 @@ internal static partial class CliCommands
                 result.AddError("The types view needs --types 1 or more.");
             }
         });
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
+            var (output, error) = (context.Output, context.Error);
             var file = parseResult.GetValue(trace)!;
             if (!file.Exists)
             {
@@ -122,16 +122,8 @@ internal static partial class CliCommands
                 return Failure;
             }
 
-            var session = services().GetRequiredService<AllocationSession>();
-            var openJob = session.StartOpen(file.FullName);
-            TraceHandle handle;
-            using (var openProgress = new ConsoleProgress(services().GetRequiredService<JobTracker>(), openJob, error))
-            using (ct.Register(openJob.Cancel))
-            {
-                handle = await openJob.Result.ConfigureAwait(false);
-                openProgress.Complete();
-            }
-
+            var session = context.Get<AllocationSession>();
+            var handle = await AwaitJobAsync(context, session.StartOpen(file.FullName), ct).ConfigureAwait(false);
             var descriptor = handle.Descriptor;
             var scope = new AllocationScope(parseResult.GetValue(from), parseResult.GetValue(to), parseResult.GetValue(type));
             var shownView = parseResult.GetValue(view)!;

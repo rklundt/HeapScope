@@ -26,6 +26,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HeapScope.Application.Monitoring;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Sessions;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
@@ -404,15 +405,13 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         }
 
         var run = item.Run;
-        // Only a CSV timeline inside its session folder, reached through no link: Delete timeline acts on this path (3.4
-        // re-review), and Open timeline hands it to the system, so a received session cannot name a program to run
-        // (sprint 3.7, peer review S3).
-        var inSession = new Session(item.Folder, new SessionDocument(SessionDocument.CurrentFormatVersion, "", default, default, []));
-        if (run.Timeline is not { } timeline || inSession.FileInside(timeline) is not { } path
-            || !string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase))
+        // Only a CSV timeline inside its session folder, reached through no link: Delete timeline acts on this path, and
+        // Open timeline hands it to the system, so a received session cannot name a program to run (peer review S3).
+        var (timelineCheck, traceCheck) = Session.RunFiles(item.Folder, run);
+        if (timelineCheck.Path is not { } path)
         {
-            _logger.LogInformation("Monitoring run {RunId} not reopened: its timeline {Timeline} is not there", run.Id, run.Timeline ?? "(none recorded)");
-            Status = "This run's timeline file is not there any more.";
+            _logger.LogInformation("Monitoring run {RunId} not reopened: its timeline {Timeline} was refused ({Refusal})", run.Id, run.Timeline ?? "(none recorded)", timelineCheck.Refusal);
+            Status = timelineCheck.Describe("This run's timeline");
             return;
         }
 
@@ -436,7 +435,11 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             }
 
             TimelinePath = path;
-            TracePath = inSession.FileInside(run.Trace);
+            TracePath = traceCheck.Path;
+            if (run.Trace is not null && traceCheck.Path is null)
+            {
+                _logger.LogInformation("Monitoring run {RunId}: its trace {Trace} was refused ({Refusal})", run.Id, run.Trace, traceCheck.Refusal);
+            }
             PastRunShown = item.Title + (read.SkippedLines > 0 ? string.Create(CultureInfo.CurrentCulture, $" ({read.SkippedLines} unreadable lines left out)") : string.Empty);
             Status = "Showing a past run, read only. Start monitoring to see live data again.";
             ChartVersion++;
@@ -579,67 +582,19 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     /// <summary>The rules from the form, or null after saying what is wrong.</summary>
     private MonitorRules? ParseRules()
     {
-        var mode = Rearm switch { "once" => RearmMode.Once, "step" => RearmMode.Step, _ => RearmMode.Below };
-        var rules = new List<SnapshotRule>();
-        if (!string.IsNullOrWhiteSpace(Every))
+        // The form's empty fields set no rule; minutes in the current culture (the app's grammar).
+        var parsed = MonitorRulesParser.Parse(
+            new MonitorRulesInput(Filled(Every), Filled(Above), Filled(Growth), Filled(MaxSnapshots), Rearm),
+            MonitorRuleGrammar.Minutes(CultureInfo.CurrentCulture));
+        if (parsed.FirstError is { } error)
         {
-            if (!TryParseMinutes(Every, out var interval))
-            {
-                Status = "Every: enter minutes, such as 5 or 0.5.";
-                return null;
-            }
-
-            rules.Add(new EveryRule(interval));
+            Status = error;
         }
 
-        if (!string.IsNullOrWhiteSpace(Above))
-        {
-            if (!GrowthThreshold.TryParse(Above, out var size) || size.Bytes is not { } bytes || bytes == 0)
-            {
-                Status = "Above: enter a size above zero, such as 500MB or 2GB.";
-                return null;
-            }
-
-            rules.Add(new AboveRule(bytes, mode));
-        }
-
-        if (!string.IsNullOrWhiteSpace(Growth))
-        {
-            if (!GrowthThreshold.TryParse(Growth, out var growth) || growth.Bytes is 0 || growth.Percent is 0)
-            {
-                Status = "Growth: enter a size or a percent above zero, such as 100MB or 50%.";
-                return null;
-            }
-
-            rules.Add(new GrowthRule(growth.Bytes, growth.Percent, mode));
-        }
-
-        int? max = null;
-        if (!string.IsNullOrWhiteSpace(MaxSnapshots))
-        {
-            if (!int.TryParse(MaxSnapshots, NumberStyles.Integer, CultureInfo.CurrentCulture, out var count) || count < 1)
-            {
-                Status = "Max snapshots: enter a whole number of 1 or more.";
-                return null;
-            }
-
-            max = count;
-        }
-
-        return new MonitorRules(rules, max);
+        return parsed.Rules;
     }
 
-    private static bool TryParseMinutes(string text, out TimeSpan interval)
-    {
-        interval = default;
-        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var minutes) || !double.IsFinite(minutes) || minutes * 60 < 1)
-        {
-            return false;
-        }
-
-        interval = TimeSpan.FromMinutes(minutes);
-        return true;
-    }
+    private static string? Filled(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
 
     private void OnSample(MonitorRun run, MonitorSample sample)
     {

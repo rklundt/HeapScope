@@ -9,7 +9,7 @@ log must show why HeapScope proposed it. You only review and report. You never c
 
 ## Inputs
 You receive the sprint id, the changed and new files, the sprint's section of `docs/SPRINTS.md`, and pointers
-to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md sections 11 (error handling and logging) and
+to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md sections 11 (error handling and logging, `docs/architecture/logging.md`) and
 12 (security and privacy) fully, then the changed files and the logging they add or change.
 
 ## What to check

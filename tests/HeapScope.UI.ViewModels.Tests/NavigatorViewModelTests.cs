@@ -102,6 +102,20 @@ public sealed class NavigatorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Without_string_values_the_objects_view_shows_the_reason_the_worker_listed()
+    {
+        _worker.Service.ValuesAvailable = false;
+        _worker.Service.Unavailable[SnapshotFeatureIds.StringValues] = "The worker's own reason.";
+        await OpenAsync("app.dmp");
+
+        _snapshots.Navigate(NavigationTarget.Instances(_snapshots.Selected!.Handle, "App.Order", "App.dll"));
+        var instances = Navigator.Current.ShouldBeOfType<InstancesViewModel>();
+        await instances.QueryTask;
+
+        instances.ValuesExplanation.ShouldBe("The worker's own reason.");
+    }
+
+    [Fact]
     public async Task An_object_shows_its_fields_and_references_and_a_reference_opens_the_next_object()
     {
         var instances = await OpenInstancesAsync();

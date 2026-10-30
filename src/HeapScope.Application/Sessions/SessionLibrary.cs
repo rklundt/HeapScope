@@ -180,24 +180,65 @@ public sealed record Session(string Folder, SessionDocument Document)
     /// The full path of <paramref name="relative"/> when it is a regular file inside this session's folder, reached through
     /// no link; null otherwise (sprint 3.7, peer review S3: a received session's run may name any file).
     /// </summary>
-    public string? FileInside(string? relative)
+    public string? FileInside(string? relative) => CheckFile(relative).Path;
+
+    /// <summary>
+    /// <see cref="FileInside"/> with the reason when the path is refused, and, with <paramref name="extension"/>, a check of
+    /// the file's kind (a timeline is opened by the system, so only a <c>.csv</c> file is).
+    /// </summary>
+    public SessionFileCheck CheckFile(string? relative, string? extension = null)
     {
-        if (string.IsNullOrEmpty(relative) || !IsLocal(relative))
+        if (string.IsNullOrEmpty(relative))
         {
-            return null;
+            return new(null, SessionFileRefusal.NotRecorded);
+        }
+
+        if (!IsLocal(relative))
+        {
+            return new(null, SessionFileRefusal.NotLocal);
         }
 
         // The rule deleting a session's files uses: inside the folder by its full path, with no folder on the way a link
         // (3.7 review H2); then the file itself is no link either.
         var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Folder));
         var path = Path.GetFullPath(Path.Combine(folder, relative));
-        if (!IsLocal(path) || !SessionLibrary.IsUnder(path, folder) || SessionLibrary.ThroughLink(path, folder))
+        if (!IsLocal(path))
         {
-            return null;
+            return new(null, SessionFileRefusal.NotLocal);
+        }
+
+        if (!SessionLibrary.IsUnder(path, folder))
+        {
+            return new(null, SessionFileRefusal.OutsideFolder);
+        }
+
+        if (SessionLibrary.ThroughLink(path, folder))
+        {
+            return new(null, SessionFileRefusal.ThroughLink);
         }
 
         var file = new FileInfo(path);
-        return file.Exists && !file.Attributes.HasFlag(FileAttributes.ReparsePoint) && file.LinkTarget is null ? path : null;
+        if (!file.Exists)
+        {
+            return new(null, SessionFileRefusal.Missing);
+        }
+
+        if (file.Attributes.HasFlag(FileAttributes.ReparsePoint) || file.LinkTarget is not null)
+        {
+            return new(null, SessionFileRefusal.ThroughLink);
+        }
+
+        return extension is not null && !string.Equals(file.Extension, extension, StringComparison.OrdinalIgnoreCase)
+            ? new(null, SessionFileRefusal.WrongKind)
+            : new(path, null);
+    }
+
+    /// <summary>A monitoring run's timeline (a <c>.csv</c> file) and trace, checked as files of the session <paramref name="folder"/>.</summary>
+    public static (SessionFileCheck Timeline, SessionFileCheck Trace) RunFiles(string folder, SessionRun run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        var session = new Session(folder, new SessionDocument(SessionDocument.CurrentFormatVersion, string.Empty, default, default, []));
+        return (session.CheckFile(run.Timeline, ".csv"), session.CheckFile(run.Trace));
     }
 }
 
@@ -243,8 +284,7 @@ public sealed class SessionLibrary
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(DefaultRoot)!, root));
     }
 
-    public static string DefaultRoot { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "sessions");
+    public static string DefaultRoot => HeapScope.Core.HeapScopeFolders.Default.Sessions;
 
     public string Root { get; }
 
@@ -781,7 +821,7 @@ public sealed class SessionLibrary
     }
 
     /// <summary>
-    /// Deletes snapshots left half-written (<c>*.dmp.partial</c>, <c>*.gcdump.partial</c> since 1.8, <c>*.nettrace.partial</c> recordings since 2.5) under <paramref name="folder"/> (default: the root) that
+    /// Deletes snapshots left half-written (<c>*.dmp.partial</c>, <c>*.gcdump.partial</c> since 1.8, <c>*.nettrace.partial</c> recordings since 2.5, <c>*.nettrace.*.partial</c> since 3.7) under <paramref name="folder"/> (default: the root) that
     /// are older than <paramref name="minimumAge"/> and no longer held by a writer: the safety net when HeapScope was
     /// killed while a canceled capture was still being written. Returns the number of files removed.
     /// </summary>
@@ -799,7 +839,7 @@ public sealed class SessionLibrary
         {
             // Links are never followed (sprint 3.7, peer review S4): a junction in the library could point anywhere.
             var options = new EnumerationOptions { RecurseSubdirectories = folder is null, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
-            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", options).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.partial", options)))
+            foreach (var file in Directory.EnumerateFiles(root, "*.dmp.partial", options).Concat(Directory.EnumerateFiles(root, "*.gcdump.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.partial", options)).Concat(Directory.EnumerateFiles(root, "*.nettrace.*.partial", options)))
             {
                 try
                 {

@@ -59,6 +59,7 @@ public static class IndexCacheWriter
     /// </summary>
     public static ulong Write(
         string path,
+        IndexCacheSigner signer,
         HeapGraph graph,
         IndexCacheMetadata metadata,
         SnapshotFingerprint fingerprint,
@@ -69,7 +70,7 @@ public static class IndexCacheWriter
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        using var writer = IndexCacheFileWriter.Create(path, progress, cancellationToken);
+        using var writer = IndexCacheFileWriter.Create(path, signer, progress, cancellationToken);
         writer.WriteSection(IndexSection.Addresses, graph.Addresses.Span);
         writer.WriteSection(IndexSection.TypeIndices, graph.TypeIndices.Span);
         writer.WriteSection(IndexSection.Sizes, graph.Sizes.Span);

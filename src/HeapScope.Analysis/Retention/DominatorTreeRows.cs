@@ -23,7 +23,6 @@
 
 using System.Buffers;
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using HeapScope.Core.Graph;
 
 namespace HeapScope.Analysis.Retention;
@@ -53,9 +52,6 @@ public static class DominatorTreeRows
     /// <summary>The key of the virtual root's list (the top level).</summary>
     public const string RootKey = "";
 
-    // Each grouping's tables per graph: computed once per snapshot, not per click (the 2.4 review).
-    private static readonly ConditionalWeakTable<HeapGraph, GroupTables?[]> s_groupTables = [];
-
     public static string ObjectKey(ulong address) => "o:" + address.ToString("x", CultureInfo.InvariantCulture);
 
     public static string GroupKey(string listKey, string group) => listKey + "|g:" + group;
@@ -69,13 +65,15 @@ public static class DominatorTreeRows
     /// The rows of the tree below <paramref name="focus"/> (an object index; -1 for the virtual root), with the rows whose
     /// keys are in <paramref name="expanded"/> expanded. The focus itself is the first row and is always expanded. The
     /// trail of the focus's dominators keeps the top <see cref="TrailHead"/> and the nearest <see cref="TrailTail"/>.
+    /// Children are grouped by <paramref name="groups"/> (the caller keeps them per graph and grouping), or listed one
+    /// object per row when it is null.
     /// </summary>
     public static DominatorTreeView Build(
         HeapGraph graph,
         Dominators dominators,
         int focus,
         IReadOnlySet<string> expanded,
-        DominatorGrouping grouping,
+        DominatorGroupTables? groups,
         int maxChildren,
         CancellationToken cancellationToken = default)
     {
@@ -88,7 +86,12 @@ public static class DominatorTreeRows
             throw new ArgumentOutOfRangeException(nameof(focus));
         }
 
-        var builder = new Builder(graph, dominators, expanded, grouping, maxChildren, cancellationToken);
+        if (groups is not null && groups.GroupOfType.Length != graph.Types.Count)
+        {
+            throw new ArgumentException("The group tables were built for another graph.", nameof(groups));
+        }
+
+        var builder = new Builder(graph, dominators, expanded, groups, maxChildren, cancellationToken);
         IReadOnlyList<int> ancestors = [];
         var depth = 0;
         if (focus >= 0)
@@ -155,15 +158,6 @@ public static class DominatorTreeRows
         return (trail, depth);
     }
 
-    private static GroupTables Tables(HeapGraph graph, DominatorGrouping grouping)
-    {
-        var all = s_groupTables.GetValue(graph, _ => new GroupTables?[3]);
-        lock (all)
-        {
-            return all[(int)grouping] ??= GroupTables.Build(graph, grouping);
-        }
-    }
-
     private sealed class Builder
     {
         private readonly HeapGraph _graph;
@@ -171,16 +165,16 @@ public static class DominatorTreeRows
         private readonly IReadOnlySet<string> _expanded;
         private readonly int _maxChildren;
         private readonly CancellationToken _cancellationToken;
-        private readonly GroupTables? _groups;
+        private readonly DominatorGroupTables? _groups;
 
-        public Builder(HeapGraph graph, Dominators dominators, IReadOnlySet<string> expanded, DominatorGrouping grouping, int maxChildren, CancellationToken cancellationToken)
+        public Builder(HeapGraph graph, Dominators dominators, IReadOnlySet<string> expanded, DominatorGroupTables? groups, int maxChildren, CancellationToken cancellationToken)
         {
             _graph = graph;
             _dominators = dominators;
             _expanded = expanded;
             _maxChildren = maxChildren;
             _cancellationToken = cancellationToken;
-            _groups = grouping == DominatorGrouping.None ? null : Tables(graph, grouping);
+            _groups = groups;
         }
 
         public List<DominatorRow> Rows { get; } = [];
@@ -271,7 +265,7 @@ public static class DominatorTreeRows
             return (retained, bytes);
         }
 
-        private void Groups(string listKey, ReadOnlySpan<int> children, GroupTables tables, int depth)
+        private void Groups(string listKey, ReadOnlySpan<int> children, DominatorGroupTables tables, int depth)
         {
             // Dense sums per group, pooled and reset where touched: no hashing per child (the 2.4 review; DEVELOPER 4).
             var groupCount = tables.Groups.Count;
@@ -409,38 +403,6 @@ public static class DominatorTreeRows
             }
 
             return true;
-        }
-    }
-
-    /// <summary>Each type's group and each group's name and module, for one grouping of one graph.</summary>
-    private sealed class GroupTables(int[] groupOfType, List<(string Name, string? Module)> groups)
-    {
-        public int[] GroupOfType { get; } = groupOfType;
-
-        public List<(string Name, string? Module)> Groups { get; } = groups;
-
-        public static GroupTables Build(HeapGraph graph, DominatorGrouping grouping)
-        {
-            var ids = new Dictionary<(string Name, string Module), int>(TypeKeyComparer.Type);
-            var groups = new List<(string Name, string? Module)>();
-            var groupOfType = new int[graph.Types.Count];
-            for (var t = 0; t < groupOfType.Length; t++)
-            {
-                var name = graph.Types.GetName(t);
-                var key = grouping == DominatorGrouping.Namespace
-                    ? (TypeGroups.NamespaceOf(name), string.Empty)
-                    : (name, TypeGroups.ModuleKey(graph.Types.GetModule(t)));
-                if (!ids.TryGetValue(key, out var id))
-                {
-                    id = groups.Count;
-                    ids.Add(key, id);
-                    groups.Add((key.Item1, key.Item2.Length == 0 ? null : key.Item2));
-                }
-
-                groupOfType[t] = id;
-            }
-
-            return new GroupTables(groupOfType, groups);
         }
     }
 }

@@ -24,6 +24,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using HeapScope.UI.Services;
@@ -96,7 +97,7 @@ public sealed partial class SetDominatorsViewModel : GridQueryViewModel<CellRowI
             () =>
             {
                 Columns = [.. result.Rows.Columns.Select((c, i) => (c, i)).Where(c => !c.c.IsHidden)];
-                Summary = Describe(result) + " " + RetainedText.Source(result.Dominators);
+                Summary = Describe(result) + " " + RetainedSizeTexts.Source(result.Dominators, CultureInfo.CurrentCulture);
                 Totals = string.Create(CultureInfo.CurrentCulture, $"{result.TopMembers:N0} rows");
             },
             onError => CellRowItem.CreateList(answer.Rows, result.Rows, onError, Logger));

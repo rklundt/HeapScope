@@ -111,8 +111,7 @@ public sealed class BookmarkStore
         Folder = folder ?? DefaultFolder;
     }
 
-    public static string DefaultFolder { get; } =
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope");
+    public static string DefaultFolder => HeapScope.Core.HeapScopeFolders.Default.Root;
 
     public string Folder { get; }
 

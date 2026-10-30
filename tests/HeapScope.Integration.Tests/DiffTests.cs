@@ -218,10 +218,7 @@ public sealed class DiffTests(LeakyApiPair pair) : IClassFixture<LeakyApiPair>, 
         missing.Code.ShouldBe(1, missing.Output);
         missing.Output.ShouldContain("does not exist");
 
-        (await RunCliAsync("diff", pair.Baseline, pair.Current, "--sort", "size")).Code.ShouldBe(64);
-        (await RunCliAsync("diff", pair.Baseline, pair.Current, "--fail-on-growth", "lots")).Code.ShouldBe(64);
-        (await RunCliAsync("diff", pair.Baseline, pair.Current, "--top", "0")).Code.ShouldBe(64);
-        (await RunCliAsync("diff", pair.Baseline, pair.Current, "--top", "3", "--all")).Code.ShouldBe(64);
+        // The built executable's usage exit; the usage cases themselves run in process in HeapScope.Cli.Tests.
         (await RunCliAsync("diff", pair.Baseline)).Code.ShouldBe(64);
     }
 

@@ -5,7 +5,7 @@
     <RootNamespace>HeapScope.Cli</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="HeapScope.Integration.Tests" />
+    <InternalsVisibleTo Include="HeapScope.Cli.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\HeapScope.Application\HeapScope.Application.csproj" />

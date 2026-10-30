@@ -9,7 +9,8 @@ edit or delete files.
 
 ## Inputs
 You receive the sprint id, the changed and new files, the sprint's section of `docs/SPRINTS.md`, and pointers
-to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md fully, then the changed files and
+to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md (the overview, with the dependency table) and the pages under `docs/architecture/` and the ADRs
+under `docs/adr/` that the change touches, then the changed files and
 anything they depend on.
 
 ## What to check
@@ -23,10 +24,10 @@ anything they depend on.
   (paging used), progress and cancellation on every long operation, clear error codes.
 - **Capability model**: features declare required capabilities; nothing is faked for snapshot kinds that
   cannot support it.
-- **Extensibility**: will the next phase's candidates and the Backlog items in SPRINTS.md fit without redesign? Flag anything that forces a rewrite later
+- **Extensibility**: will the next phase's candidates and the Backlog items in docs/BACKLOG.md fit without redesign? Flag anything that forces a rewrite later
   (High).
 - **ADRs**: consistency with every ADR; significant new decisions that need an ADR.
-- **Docs**: ARCHITECTURE.md matches the code.
+- **Docs**: ARCHITECTURE.md, its pages and the ADRs match the code.
 
 ## Severity rubric
 - **High / Urgent**: incorrect analysis results, crashes, data loss, security or privacy issues, layering

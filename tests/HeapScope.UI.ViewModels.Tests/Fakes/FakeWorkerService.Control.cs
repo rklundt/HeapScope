@@ -1,0 +1,47 @@
+// HeapScope
+// Copyright (C) 2026 Ray Klundt
+// https://github.com/rklundt/HeapScope
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, version 3 only, with additional terms
+// under Section 7 of that license.
+//
+// Additional terms, including attribution requirements, apply.
+// See the ADDITIONAL-TERMS.md file distributed with this program.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program (see the LICENSE file). If not, see
+// <https://www.gnu.org/licenses/>.
+//
+// Commercial licenses are available. See COMMERCIAL.md.
+
+using System.Globalization;
+using System.IO;
+using HeapScope.Application.Workers;
+using HeapScope.Contracts;
+
+namespace HeapScope.UI.ViewModels.Tests;
+
+/// <summary>The fake worker's Control (<see cref="IWorkerControl"/>).</summary>
+internal sealed partial class FakeWorkerService : IWorkerControl
+{
+    public Task<WorkerInfo> GetInfoAsync(int clientProtocolVersion, CancellationToken cancellationToken) =>
+        Task.FromResult(new WorkerInfo(Guid.NewGuid(), WorkerProtocol.Version, "0.0.0", 1234, true, 1, 2, 3, false));
+
+    public Task<SyntheticJobResult> RunSyntheticJobAsync(SyntheticJobRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
+    {
+        _synthetic = new TaskCompletionSource<SyntheticJobResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        LastProgress = progress;
+        LastToken = cancellationToken;
+        cancellationToken.Register(() => _synthetic.TrySetCanceled(cancellationToken));
+        return _synthetic.Task;
+    }
+
+    public Task ShutdownAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}

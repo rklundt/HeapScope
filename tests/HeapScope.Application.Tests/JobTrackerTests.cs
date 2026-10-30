@@ -63,6 +63,8 @@ public class JobTrackerTests
         var refused = tracker.Start("Run duplicate-strings", (_, _) => Task.FromException<int>(new Workers.WorkerOperationException(HeapScopeErrorCode.CapabilityNotSupported, "This snapshot does not support: string contents.", null)));
         await refused.Completion;
 
+        // Observed here, so the finalizer never reports it to a test that counts unobserved task exceptions.
+        await Should.ThrowAsync<Workers.WorkerOperationException>(() => refused.Result);
         traceInside.ShouldNotBeNull();
         System.Diagnostics.Activity.Current.ShouldBeNull("the job's activity does not leak to the caller");
         logger.Lines.ShouldContain($"Job {done.Id} started: Open app.dmp");
@@ -115,6 +117,42 @@ public class JobTrackerTests
         var job = _tracker.Start<int>("broken", (_, _) => throw new InvalidOperationException("boom"));
 
         await Should.ThrowAsync<InvalidOperationException>(() => job.Result);
+        await job.Completion;
+        job.Status.ShouldBe(JobStatus.Failed);
+        job.Error.ShouldBe("boom");
+    }
+
+    [Fact]
+    public async Task A_throwing_listener_leaves_a_completed_job_completed()
+    {
+        // Peer review P9: the outcome is final before listeners hear of it, and a listener's failure is only logged.
+        var logger = new RecordingLogger<JobTracker>();
+        var tracker = new JobTracker(TimeProvider.System, logger);
+        tracker.JobAdded += (_, _) => throw new InvalidOperationException("added listener");
+        tracker.JobChanged += (_, _) => throw new InvalidOperationException("changed listener");
+
+        var job = tracker.Start("answer", (progress, _) =>
+        {
+            progress.Report(new JobProgress("half", 1, 2));
+            return Task.FromResult(42);
+        });
+
+        (await job.Result).ShouldBe(42);
+        await job.Completion;
+        job.Status.ShouldBe(JobStatus.Completed);
+        job.Error.ShouldBeNull();
+        logger.Entries.Count(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning && e.Line.Contains("listener of", StringComparison.Ordinal)).ShouldBeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task A_throwing_listener_does_not_replace_a_jobs_failure()
+    {
+        var tracker = new JobTracker(TimeProvider.System);
+        tracker.JobChanged += (_, _) => throw new InvalidOperationException("listener");
+
+        var job = tracker.Start<int>("broken", (_, _) => throw new FormatException("boom"));
+
+        await Should.ThrowAsync<FormatException>(() => job.Result);
         await job.Completion;
         job.Status.ShouldBe(JobStatus.Failed);
         job.Error.ShouldBe("boom");

@@ -235,7 +235,8 @@ public sealed class SessionLibraryTests : IDisposable
         var library = new SessionLibrary(_root, _time);
         var folder = library.Current.Folder;
         var old = _time.GetUtcNow().UtcDateTime.AddHours(-1);
-        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial")];
+        // A recording's partial carries a random part since 3.7 (3.8 review: the sweep missed it).
+        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial"), HeapScope.Capture.TraceRecorder.PartialName(Path.Combine(folder, "t.nettrace"))];
         foreach (var file in stale)
         {
             File.WriteAllBytes(file, new byte[10]);
@@ -246,7 +247,7 @@ public sealed class SessionLibraryTests : IDisposable
         File.WriteAllBytes(fresh, new byte[10]);
         File.SetLastWriteTimeUtc(fresh, _time.GetUtcNow().UtcDateTime);
 
-        library.SweepPartialDumps().ShouldBe(2);
+        library.SweepPartialDumps().ShouldBe(3);
 
         stale.ShouldAllBe(f => !File.Exists(f));
         File.Exists(fresh).ShouldBeTrue();
@@ -495,6 +496,30 @@ public sealed class SessionLibraryTests : IDisposable
         Session.IsLocal(@"\\server\share\app.dmp").ShouldBeFalse();
         Session.IsLocal("//server/share/app.dmp").ShouldBeFalse();
         Session.IsLocal(Path.Combine(session.Folder, "app.dmp")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_refused_session_file_says_which_check_refused_it()
+    {
+        // Sprint 3.8 (3.7 review M2): the Live page shows and logs the cause, not "not there" for every refusal.
+        var session = new SessionLibrary(_root, _time).Current;
+        File.WriteAllText(Path.Combine(session.Folder, "counters-1.csv"), "time");
+        File.WriteAllText(Path.Combine(session.Folder, "run.bat"), "echo");
+        File.WriteAllText(Path.Combine(_root, "outside.csv"), "time");
+
+        session.CheckFile("counters-1.csv", ".csv").ShouldBe(new SessionFileCheck(Path.Combine(session.Folder, "counters-1.csv"), null));
+        session.CheckFile(null).Refusal.ShouldBe(SessionFileRefusal.NotRecorded);
+        session.CheckFile(@"\\server\share\x.csv").Refusal.ShouldBe(SessionFileRefusal.NotLocal);
+        session.CheckFile(Path.Combine("..", "outside.csv")).Refusal.ShouldBe(SessionFileRefusal.OutsideFolder);
+        session.CheckFile("gone.csv").Refusal.ShouldBe(SessionFileRefusal.Missing);
+        session.CheckFile("run.bat", ".csv").Refusal.ShouldBe(SessionFileRefusal.WrongKind);
+        session.CheckFile("run.bat").Path.ShouldNotBeNull("a trace may have any extension");
+
+        session.CheckFile("gone.csv").Describe("This run's timeline").ShouldBe("This run's timeline file is not there any more.");
+        session.CheckFile("run.bat", ".csv").Describe("This run's timeline").ShouldContain("not a CSV file");
+        var run = new SessionRun(Guid.NewGuid(), "app", 1, 1, "none", HeapScope.Contracts.SnapshotKindDto.FullDump, default, null, "counters-1.csv", "../outside.csv", []);
+        var (timeline, trace) = Session.RunFiles(session.Folder, run);
+        (timeline.Refusal, trace.Refusal).ShouldBe((null, SessionFileRefusal.OutsideFolder));
     }
 
     [Theory]

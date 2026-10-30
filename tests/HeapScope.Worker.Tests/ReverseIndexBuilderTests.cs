@@ -37,7 +37,7 @@ public sealed class ReverseIndexBuilderTests : IDisposable
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "HeapScopeTests", Guid.NewGuid().ToString("N"));
     private readonly HeapGraph _graph = SyntheticGraphs.Random(new RandomGraphOptions(2_000, 3, TypeCount: 10, RootCount: 5, Seed: 3));
-    private readonly ReverseIndexBuilder _builder = new(NullLogger.Instance);
+    private readonly ReverseIndexBuilder _builder = new(NullLogger.Instance, IndexCacheSigner.None);
 
     public ReverseIndexBuilderTests() => Directory.CreateDirectory(_folder);
 
@@ -97,7 +97,7 @@ public sealed class ReverseIndexBuilderTests : IDisposable
         _builder.OpenOrBuild(_graph, new ReverseIndexTarget(Sidecar, 0x42, s_fingerprint, MemoryMode.InMemory), null, Ct).References.Dispose();
         using var expected = ReverseReferences.Build(_graph, cancellationToken: Ct);
         var streamed = Path.Combine(_folder, "streamed.rev.hsidx");
-        using (var writer = IndexCacheFileWriter.Create(streamed, cancellationToken: Ct))
+        using (var writer = IndexCacheFileWriter.Create(streamed, IndexCacheSigner.None, cancellationToken: Ct))
         {
             writer.WriteSection(IndexSection.InEdgeStarts, expected.InEdgeStarts.Span);
             writer.WriteSection(IndexSection.InEdges, expected.InEdges.Span);

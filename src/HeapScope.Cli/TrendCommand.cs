@@ -23,6 +23,7 @@
 
 using System.CommandLine;
 using System.Globalization;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,12 +58,13 @@ internal static partial class CliCommands
                 result.AddError("Give each dump once.");
             }
         });
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
+            var (output, error) = (context.Output, context.Error);
             var handles = new List<SnapshotHandle>();
             foreach (var file in parseResult.GetValue(dumps)!)
             {
-                var handle = await OpenForQueryAsync(file, error, ct).ConfigureAwait(false);
+                var handle = await OpenForQueryAsync(context, file, ct).ConfigureAwait(false);
                 if (handle is null)
                 {
                     return Failure;
@@ -71,7 +73,7 @@ internal static partial class CliCommands
                 handles.Add(handle);
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             var sortName = parseResult.GetValue(sort);
             var trend = await session.QueryTypeTrendAsync(
                 handles,
@@ -110,16 +112,7 @@ internal static partial class CliCommands
                     await WriteJsonAsync(output, new { Snapshots = handles.Select(h => h.Path), result.TotalBytes, result.UnfilteredRows, result.ExactCounts, Rows = JsonRows(columns, rows) }).ConfigureAwait(false);
                     break;
                 default:
-                    var n = handles.Count;
-                    await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} rows across {n} dumps; heap bytes {string.Join(", then ", result.TotalBytes.Select(b => b.ToString("N0", CultureInfo.InvariantCulture)))}; showing {rows.Count:N0}")).ConfigureAwait(false);
-                    await output.WriteLineAsync(string.Join(" ", Enumerable.Range(1, n).Select(i => $"{"Bytes " + i,14}")) + $" {"Bytes delta",14} {"Grew",5}  Name").ConfigureAwait(false);
-                    foreach (var row in rows)
-                    {
-                        var bytes = Enumerable.Range(1, n).Select(i => $"{long.Parse(row[ColumnAt(columns, TypeTrendColumns.Bytes(i))]!, CultureInfo.InvariantCulture),14:N0}");
-                        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{string.Join(" ", bytes)} {Signed(long.Parse(row[ColumnAt(columns, TypeTrendColumns.BytesDelta)]!, CultureInfo.InvariantCulture)),14} {row[ColumnAt(columns, TypeTrendColumns.GrowthSteps)],5}  {row[0]}")).ConfigureAwait(false);
-                    }
-
+                    await WriteTrendTableAsync(output, result, handles.Count, columns, rows).ConfigureAwait(false);
                     break;
             }
 
@@ -127,5 +120,19 @@ internal static partial class CliCommands
             return Success;
         }));
         return command;
+    }
+
+    /// <summary>Each row's bytes in each of <paramref name="n"/> dumps, the change from first to last, and its growth steps.</summary>
+    internal static async Task WriteTrendTableAsync(TextWriter output, TypeTrendResult result, int n, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
+    {
+        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"{result.Rows.TotalCount:N0} of {result.UnfilteredRows:N0} rows across {n} dumps; heap bytes {string.Join(", then ", result.TotalBytes.Select(b => b.ToString("N0", CultureInfo.InvariantCulture)))}; showing {rows.Count:N0}")).ConfigureAwait(false);
+        await output.WriteLineAsync(string.Join(" ", Enumerable.Range(1, n).Select(i => $"{"Bytes " + i,14}")) + $" {"Bytes delta",14} {"Grew",5}  Name").ConfigureAwait(false);
+        var cells = new ColumnMap(columns);
+        foreach (var row in rows)
+        {
+            var bytes = Enumerable.Range(1, n).Select(i => string.Create(CultureInfo.InvariantCulture, $"{cells.Long(row, TypeTrendColumns.Bytes(i)),14:N0}"));
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"{string.Join(" ", bytes)} {Signed(cells.Long(row, TypeTrendColumns.BytesDelta)),14} {cells.Text(row, TypeTrendColumns.GrowthSteps),5}  {cells.Text(row, TypeTrendColumns.Name)}")).ConfigureAwait(false);
+        }
     }
 }

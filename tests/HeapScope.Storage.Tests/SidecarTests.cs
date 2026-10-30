@@ -62,9 +62,9 @@ public sealed class SidecarTests : IDisposable
         using var graph = SyntheticGraphs.Random(new RandomGraphOptions(1_000, 2, TypeCount: 5, RootCount: 3, Seed: 4), cancellationToken: TestContext.Current.CancellationToken);
         var cache = Path.Combine(_directory, "app.dmp.hsidx");
 
-        var identity = IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        var identity = IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
 
-        var opened = IndexCacheReader.Open(cache, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var opened = IndexCacheReader.Open(cache, IndexCacheSigner.None, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
         opened.Success.ShouldBeTrue(opened.Detail);
         using var _ = opened.Graph!;
         identity.ShouldNotBe(0UL);
@@ -78,7 +78,7 @@ public sealed class SidecarTests : IDisposable
     {
         var path = WriteSidecar(baseIdentity: 0x1234, starts: [0, 2, 3, 3], edges: [1, 2, 0]);
 
-        var result = IndexCacheFile.Open(path, IndexFileLayout.ReverseReferences, 0x1234, Fingerprint(), mode, TestContext.Current.CancellationToken);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 0x1234, Fingerprint(), mode, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue(result.Detail);
         using var file = result.File!;
@@ -108,7 +108,7 @@ public sealed class SidecarTests : IDisposable
             [IndexSection.Roots] = 12,
         });
         var path = Path.Combine(_directory, "sizes.hsidx");
-        using (var writer = IndexCacheFileWriter.Create(path, cancellationToken: TestContext.Current.CancellationToken))
+        using (var writer = IndexCacheFileWriter.Create(path, IndexCacheSigner.None, cancellationToken: TestContext.Current.CancellationToken))
         {
             writer.WriteSection<byte>(IndexSection.HeapKinds, [1, 2, 3]);
             writer.WriteSection<ushort>(IndexSection.TypeKinds, [7, 65535]);
@@ -118,7 +118,7 @@ public sealed class SidecarTests : IDisposable
             writer.Commit(Fingerprint(), baseIdentity: 3);
         }
 
-        var result = IndexCacheFile.Open(path, layout, 3, Fingerprint(), mode, TestContext.Current.CancellationToken);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, layout, 3, Fingerprint(), mode, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue(result.Detail);
         using var file = result.File!;
@@ -140,7 +140,7 @@ public sealed class SidecarTests : IDisposable
     {
         var path = WriteSidecar(baseIdentity: 0x1234, starts: [0, 0], edges: []);
 
-        var result = IndexCacheFile.Open(path, IndexFileLayout.ReverseReferences, 0x9999, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 0x9999, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
         result.Reason.ShouldBe(IndexCacheInvalidReason.BaseMismatch);
@@ -152,7 +152,7 @@ public sealed class SidecarTests : IDisposable
     {
         var path = WriteSidecar(baseIdentity: 1, starts: [0, 0], edges: []);
 
-        var result = IndexCacheFile.Open(path, IndexFileLayout.ReverseReferences, 1, new SnapshotFingerprint(1, 2, 3), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 1, new SnapshotFingerprint(1, 2, 3), MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         result.Reason.ShouldBe(IndexCacheInvalidReason.FingerprintMismatch);
     }
@@ -161,14 +161,14 @@ public sealed class SidecarTests : IDisposable
     public void A_missing_or_foreign_section_is_malformed()
     {
         var missing = Path.Combine(_directory, "missing.rev.hsidx");
-        using (var writer = IndexCacheFileWriter.Create(missing, cancellationToken: TestContext.Current.CancellationToken))
+        using (var writer = IndexCacheFileWriter.Create(missing, IndexCacheSigner.None, cancellationToken: TestContext.Current.CancellationToken))
         {
             writer.WriteSection<int>(IndexSection.InEdgeStarts, [0]);
             writer.Commit(Fingerprint(), baseIdentity: 1);
         }
 
         var foreign = Path.Combine(_directory, "foreign.rev.hsidx");
-        using (var writer = IndexCacheFileWriter.Create(foreign, cancellationToken: TestContext.Current.CancellationToken))
+        using (var writer = IndexCacheFileWriter.Create(foreign, IndexCacheSigner.None, cancellationToken: TestContext.Current.CancellationToken))
         {
             writer.WriteSection<int>(IndexSection.InEdgeStarts, [0]);
             writer.WriteSection<int>(IndexSection.InEdges, []);
@@ -176,8 +176,8 @@ public sealed class SidecarTests : IDisposable
             writer.Commit(Fingerprint(), baseIdentity: 1);
         }
 
-        var a = IndexCacheFile.Open(missing, IndexFileLayout.ReverseReferences, 1, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
-        var b = IndexCacheFile.Open(foreign, IndexFileLayout.ReverseReferences, 1, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
+        var a = IndexCacheFile.Open(missing, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 1, null, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var b = IndexCacheFile.Open(foreign, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 1, null, MemoryMode.Mapped, TestContext.Current.CancellationToken);
 
         a.Reason.ShouldBe(IndexCacheInvalidReason.Malformed);
         a.Detail!.ShouldContain("InEdges is missing");
@@ -197,7 +197,7 @@ public sealed class SidecarTests : IDisposable
             stream.WriteByte(0x5A);
         }
 
-        var result = IndexCacheFile.Open(path, IndexFileLayout.ReverseReferences, 7, Fingerprint(), mode, TestContext.Current.CancellationToken);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, 7, Fingerprint(), mode, TestContext.Current.CancellationToken);
 
         result.Reason.ShouldBe(IndexCacheInvalidReason.ChecksumMismatch);
     }
@@ -207,11 +207,11 @@ public sealed class SidecarTests : IDisposable
     {
         using var graph = SyntheticGraphs.Chain(10);
         var cache = Path.Combine(_directory, "app.dmp.hsidx");
-        var identity = IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        var identity = IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
         var sidecar = WriteSidecar(identity, starts: [0, 0], edges: []);
 
-        var baseAsSidecar = IndexCacheFile.Open(cache, IndexFileLayout.ReverseReferences, identity, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
-        var sidecarAsBase = IndexCacheReader.Open(sidecar, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var baseAsSidecar = IndexCacheFile.Open(cache, IndexCacheSigner.None, IndexFileLayout.ReverseReferences, identity, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        var sidecarAsBase = IndexCacheReader.Open(sidecar, IndexCacheSigner.None, Fingerprint(), MemoryMode.InMemory, TestContext.Current.CancellationToken);
 
         baseAsSidecar.Success.ShouldBeFalse();
         sidecarAsBase.Success.ShouldBeFalse();
@@ -222,9 +222,9 @@ public sealed class SidecarTests : IDisposable
     {
         using var graph = SyntheticGraphs.Chain(10);
         var cache = Path.Combine(_directory, "app.dmp.hsidx");
-        var identity = IndexCacheWriter.Write(cache, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
+        var identity = IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, _metadata, Fingerprint(), cancellationToken: TestContext.Current.CancellationToken);
 
-        var result = IndexCacheFile.Open(cache, IndexFileLayout.Base, 0, Fingerprint(), MemoryMode.Mapped, TestContext.Current.CancellationToken);
+        var result = IndexCacheFile.Open(cache, IndexCacheSigner.None, IndexFileLayout.Base, 0, Fingerprint(), MemoryMode.Mapped, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue(result.Detail);
         using var file = result.File!;
@@ -237,7 +237,7 @@ public sealed class SidecarTests : IDisposable
     public void An_uncommitted_writer_leaves_nothing_behind()
     {
         var path = Path.Combine(_directory, "aborted.rev.hsidx");
-        using (var writer = IndexCacheFileWriter.Create(path, cancellationToken: TestContext.Current.CancellationToken))
+        using (var writer = IndexCacheFileWriter.Create(path, IndexCacheSigner.None, cancellationToken: TestContext.Current.CancellationToken))
         {
             writer.WriteSection<int>(IndexSection.InEdgeStarts, [0, 1]);
             Should.Throw<ArgumentException>(() => writer.WriteSection<int>(IndexSection.InEdgeStarts, [0]));
@@ -253,7 +253,7 @@ public sealed class SidecarTests : IDisposable
     private string WriteSidecar(ulong baseIdentity, int[] starts, int[] edges)
     {
         var path = Path.Combine(_directory, $"app.dmp.{Guid.NewGuid():N}.rev.hsidx");
-        using var writer = IndexCacheFileWriter.Create(path, cancellationToken: TestContext.Current.CancellationToken);
+        using var writer = IndexCacheFileWriter.Create(path, IndexCacheSigner.None, cancellationToken: TestContext.Current.CancellationToken);
         writer.WriteSection<int>(IndexSection.InEdgeStarts, starts);
         writer.WriteSection<int>(IndexSection.InEdges, edges);
         writer.Commit(Fingerprint(), baseIdentity);

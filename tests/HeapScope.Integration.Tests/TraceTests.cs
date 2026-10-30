@@ -54,7 +54,7 @@ public sealed class TraceTests(RunningApi shared) : IClassFixture<RunningApi>, I
         result.StoppedEarly.ShouldBeFalse();
         result.Path.ShouldBe(path);
         result.Bytes.ShouldBe(new FileInfo(path).Length);
-        File.Exists(path + ".partial").ShouldBeFalse("the partial file is renamed when complete");
+        Directory.GetFiles(Path.GetDirectoryName(path)!, "*.partial").ShouldBeEmpty("the partial file is renamed when complete");
         var events = Read(path);
         events.GetValueOrDefault(s_sampleProfiler).ShouldBeGreaterThan(0, "CPU samples");
         events.GetValueOrDefault(s_rundown).ShouldBeGreaterThan(0, "the rundown that names methods");

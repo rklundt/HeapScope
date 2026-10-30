@@ -40,23 +40,37 @@ namespace HeapScope.Worker.Snapshots;
 /// ClrMD and writes the cache; the memory mode follows the budget (ADR-015). Loads are serialized: two first loads would
 /// stack their peaks.
 /// </summary>
-internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLocator locator, ILogger<SnapshotStore> logger) : IDisposable
+internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLocator locator, IndexCacheSigner signer, ILogger<SnapshotStore> logger) : IDisposable
 {
     private readonly ConcurrentDictionary<Guid, Entry> _snapshots = new();
     private readonly SemaphoreSlim _loadGate = new(1, 1);
     private readonly SnapshotKinds _kinds = new(options, choice => LogDac(logger, choice));
-    private readonly ReverseIndexBuilder _reverseBuilder = new(logger);
+    private readonly IndexCacheSigner _signer = signer;
+    private readonly ReverseIndexBuilder _reverseBuilder = new(logger, signer);
 
     /// <summary>The memory reserved by large derived computations of every snapshot (sprint 2.3 review M2).</summary>
     private readonly MemoryReservations _reservations = new();
 
     private DominatorIndexBuilder? _dominatorBuilder;
 
-    private DominatorIndexBuilder DominatorBuilder => _dominatorBuilder ??= new(logger, _reservations);
+    private DominatorIndexBuilder DominatorBuilder => _dominatorBuilder ??= new(logger, _reservations, _signer);
+
+    private ObjectSetCache? _sets;
 
     private bool _disposed;
 
     public int Count => _snapshots.Count;
+
+    /// <summary>
+    /// The resolved object sets and detector tables of the open snapshots (sprint 3.1), within one budget over all of them.
+    /// Closing a snapshot forgets its entries, and the cache refuses entries for snapshots that are no longer open.
+    /// </summary>
+    public ObjectSetCache Sets => LazyInitializer.EnsureInitialized(ref _sets, () =>
+    {
+        var cache = new ObjectSetCache(_snapshots.ContainsKey);
+        cache.Evicted += what => logger.LogDebug("Object set cache: dropped {What} to stay within its budget", what);
+        return cache;
+    });
 
     /// <summary>
     /// Looks at a file without loading it (sprint 1.2 review): size, index cache state (header and fingerprint, no
@@ -66,7 +80,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         var path = ExistingFullPath(requestedPath);
         var cachePath = locator.GetCachePath(path);
-        var failure = IndexCacheReader.Probe(cachePath, SnapshotFingerprint.Compute(path));
+        var failure = IndexCacheReader.Probe(cachePath, _signer, SnapshotFingerprint.Compute(path));
         var state = failure is null ? SnapshotCacheState.Valid
             : failure.Reason == IndexCacheInvalidReason.Missing ? SnapshotCacheState.Missing
             : SnapshotCacheState.Invalid;
@@ -115,8 +129,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             return false;
         }
 
-        // Never blocks: outstanding leases (result sets, running queries) keep the graph until they are released.
+        // Never blocks: outstanding leases (result sets, running queries) keep the graph until they are released. The sets
+        // are forgotten after the snapshot left the open list, so a resolution finishing now cannot add one back.
         entry.Derived.Close();
+        Sets.Forget(snapshotId);
         entry.Snapshot.Dispose();
         logger.LogInformation("Snapshot {Id} closed", snapshotId);
         return true;
@@ -219,7 +235,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
                 // A full dump about to open from a valid cache loads no DAC now, but its field reader will: only now can
                 // the front end ask about a DAC that needs trust (review H1). Before the cache is read (re-review), so a
                 // refusal costs no graph.
-                if (request.CheckDac && IndexCacheReader.Probe(cachePath, fingerprint) is null
+                if (request.CheckDac && IndexCacheReader.Probe(cachePath, _signer, fingerprint) is null
                     && SnapshotFileSignature.Detect(path) is { } kind)
                 {
                     _kinds.For(kind).CheckBeforeCacheOpen(path);
@@ -321,7 +337,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         var recorded = info.Kind != SnapshotKind.FullDump || metadata.Dac is not null;
         string Recorded(long value) => recorded ? value.ToString(CultureInfo.InvariantCulture) : "not recorded";
         logger.LogInformation(
-            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); notes: {Notes}",
+            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); unavailable features {Unavailable}; notes: {Notes}",
             descriptor.SnapshotId,
             descriptor.OpenSeconds,
             descriptor.Path,
@@ -353,8 +369,13 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             Recorded(metadata.StaticFieldRoots),
             metadata.Dac?.Path ?? (metadata.Dac is not null ? "symbol server" : info.Kind == SnapshotKind.FullDump ? "not recorded (index cache from before 2.3.7)" : "none (a gcdump needs none)"),
             metadata.Dac?.Rule ?? "-",
+            Unavailable(descriptor),
             descriptor.Notes.Count == 0 ? "none" : string.Join(" | ", descriptor.Notes));
     }
+
+    // The ids only: each reason is the rule's fixed text, and a refusal logs its own.
+    private static string Unavailable(SnapshotDescriptor descriptor) =>
+        descriptor.Availability?.Where(a => a.Unavailable is not null).Select(a => a.Feature).ToList() is { Count: > 0 } ids ? string.Join(", ", ids) : "none";
 
     /// <summary>
     /// Field values and strings are read at the graph's addresses, so they must come from the dump the graph was built
@@ -380,7 +401,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
 
     private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, List<string> notes, CancellationToken cancellationToken)
     {
-        var required = IndexCacheReader.GetInMemoryBytes(cachePath, out var unusable);
+        var required = IndexCacheReader.GetInMemoryBytes(cachePath, _signer, out var unusable);
         if (required is null)
         {
             // An untrusted, foreign or damaged cache is rebuilt, and the log and the snapshot's notes say why (3.7 review H3).
@@ -394,7 +415,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         }
 
         var mode = MemoryModeSelector.Select(required.Value, MemoryBudget.Current(forced: forced));
-        var result = IndexCacheReader.Open(cachePath, fingerprint, mode, cancellationToken);
+        var result = IndexCacheReader.Open(cachePath, _signer, fingerprint, mode, cancellationToken);
         if (result.Success && result.Metadata!.LoaderVersion < _kinds.For(result.Metadata.Info.Kind).LoaderVersion)
         {
             // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
@@ -494,7 +515,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             graph = null;
             GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            var mapped = IndexCacheReader.Open(cachePath, fingerprint, MemoryMode.Mapped, cancellationToken);
+            var mapped = IndexCacheReader.Open(cachePath, _signer, fingerprint, MemoryMode.Mapped, cancellationToken);
             if (!mapped.Success)
             {
                 throw new SnapshotFormatException($"The index cache just written could not be reopened: {mapped.Detail}");
@@ -514,7 +535,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         try
         {
-            return IndexCacheWriter.Write(cachePath, graph, metadata, fingerprint, cancellationToken: cancellationToken);
+            return IndexCacheWriter.Write(cachePath, _signer, graph, metadata, fingerprint, cancellationToken: cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -569,7 +590,8 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             elapsed.TotalSeconds,
             [.. notes],
             identity,
-            info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile));
+            info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile),
+            Rpc.FeatureRules.List(snapshot));
     }
 
     private sealed record Entry(ISnapshot Snapshot, SnapshotDescriptor Descriptor, IndexState Index)

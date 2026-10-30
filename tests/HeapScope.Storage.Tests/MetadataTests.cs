@@ -52,8 +52,8 @@ public sealed class MetadataTests : IDisposable
         using var graph = SyntheticGraphs.Chain(10);
         var cache = snapshot + IndexCacheFormat.Extension;
 
-        IndexCacheWriter.Write(cache, graph, metadata, fingerprint, cancellationToken: TestContext.Current.CancellationToken);
-        var result = IndexCacheReader.Open(cache, fingerprint, mode, TestContext.Current.CancellationToken);
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, metadata, fingerprint, cancellationToken: TestContext.Current.CancellationToken);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, fingerprint, mode, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue(result.Detail);
         result.Graph!.Dispose();

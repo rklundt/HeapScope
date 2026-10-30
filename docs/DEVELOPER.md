@@ -30,6 +30,16 @@ dotnet test --solution HeapScope.sln
   Slow traits; a project left with no tests fails. `integration` runs the Integration project (Windows). Integration and
   Slow tests belong in that project only; the script fails when one is elsewhere. Results are TRX files.
 - Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Test fakes (sprint 3.8): `FakeWorkerService` (UI tests) is split into a partial per worker contract under
+  `tests/HeapScope.UI.ViewModels.Tests/Fakes/`; a test that needs one area only builds an `IWorkerService` from the
+  parts it implements with `AreaWorkerService.Create(...)` (Application tests), and any other call fails naming its
+  contract. `HeapScope.Cli.Tests` runs the CLI in process (`CliApp.RunAsync` with its own output and error writers):
+  usage errors need no host, and the tables are checked as text against fixed rows.
+- Data folders (sprint 3.8): every test process sets `HEAPSCOPE_DATA_FOLDER` to `HeapScopeTests/data` under the temporary
+  folder (`tests/Shared/TestDataFolder.cs`) before anything reads `HeapScopeFolders`, and the workers and front ends it
+  starts inherit it, so no test writes into the user's sessions, logs, index cache key, trusted DACs or bookmarks. Set it
+  by hand to run the app or the CLI against a scratch profile. The worker also takes `--data-folder` (from
+  `Worker:DataFolder` on the client), which wins over the variable.
 - Fuzzing (sprint 3.7): the mutation tests (`SignedCacheTests`, `CraftedGcDumpTests`) run a short pass in every run;
   `HEAPSCOPE_FUZZ_ITERATIONS` and `HEAPSCOPE_FUZZ_SEED` raise and vary it. The nightly `fuzz.yml` runs 2,000 iterations on
   the run number as the seed, on `develop`; a failure names its seed, iteration and exception type. The cache half replays
@@ -208,7 +218,12 @@ dotnet test --solution HeapScope.sln
   and by the Allocations page (sprint 2.5). Read any trace with PerfView,
   Visual Studio, or `dotnet run -c Release --project perf/HeapScope.Benchmarks -- trace-report --trace <file>`
   (`--timeline` for busy UI time per window, `--from HH:mm:ss.fff --to ...` for one stretch, `--focus <frame text>` for
-  the callers of a frame). Traced runs are slower: use them to find where time goes, not to check budgets.
+  the callers of a frame). It finds the UI thread by Avalonia's dispatcher (WPF's for old traces) and counts a sample
+  idle when the thread waits in its run loop (sprint 3.8). Traced runs are slower: use them to find where time goes,
+  not to check budgets.
+- Live sources (sprint 3.8, ADR-037): `dotnet run -c Release --project perf/HeapScope.Benchmarks -- live-tail --seconds
+  10` records an allocating copy of itself and reads the trace file while it grows, reporting events read and lost,
+  the delay to the reader and its memory.
 - Hybrid CPUs: when measuring UI responsiveness, remember Windows may put a background window's threads on efficiency
   cores. HeapScope's UI opts out (ADR-019); pinning a process (`ProcessorAffinity`) to performance or efficiency cores
   is how that was proven.
@@ -314,7 +329,17 @@ of debuggable code) and exit when the process given as parent exits.
 
 ## 4. Coding conventions
 - **Naming**: .NET conventions. `PascalCase` types and members, `_camelCase` private fields, `s_camelCase`
-  private static fields, `I` prefix for interfaces, `Async` suffix on async methods. One public type per file.
+  private static fields, `I` prefix for interfaces, `Async` suffix on async methods.
+- **Files** (sprint 3.8, peer review S9): one public type per file, except a Contracts file that holds one area's DTOs
+  and small records or enums that serve only the file's main type. `PublicTypesPerFileTests` lists the files that held
+  more in 3.8: none may be added, a listed file may not grow, and a file split below two leaves the list (update
+  `PublicTypesPerFile.txt`). Split a listed file when a change works in it anyway.
+- **Comments** (sprint 3.8, peer review S8): state the current reason, not the history. Cite a sprint, review or ADR
+  id only beside a guard someone might otherwise simplify away, so its reason can be found; the history lives in git,
+  the review files and the ADRs. Apply it to the code a change touches.
+- **Derived state** (sprint 3.8, peer review P20): Analysis returns values and keeps nothing, no static caches and no
+  mutable static state (`AnalysisStateTests`). What a snapshot derives gets a `DerivedData` slot in the worker:
+  computed once for concurrent callers and dropped when the snapshot closes.
 - **Nullable** is enabled everywhere; no `!` suppressions without a comment explaining why.
 - **Warnings are errors**; do not disable a warning without a comment and reviewer agreement.
 - **Async**: every async method takes a `CancellationToken` last (after `IProgress<T>` when present). Library
@@ -356,6 +381,12 @@ of debuggable code) and exit when the process given as parent exits.
   that only arrives as a dependency counts too: `Avalonia.Fonts.Inter` (the Inter typeface, SIL Open Font License) comes
   with `Avalonia.Headless` and is kept out of the app's output (`ExcludeAssets="all"`), so it reaches only the tests. Update
   `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
+- **Adding a worker area** (sprint 3.8): a contract in Contracts (`I...Service`, methods ending in `Async` with the
+  token last, names unique across contracts), listed in `WorkerContracts.All` and in `IWorkerService`'s bases; a handler
+  (`...Handler : RpcHandler, I...Service`) registered in `WorkerRpcTargets` with `RpcTarget.For`; a fake partial in
+  `tests/HeapScope.UI.ViewModels.Tests/Fakes/`; a feature id in `SnapshotFeatureIds` with its rule in `FeatureRules`
+  when snapshots may lack it; and a protocol bump only for a removed or renamed method or a changed DTO shape
+  (`docs/architecture/process-model.md` 4.4).
 
 ## 5. Testing strategy
 - **Unit tests** (`*.Tests`): fast, deterministic. Analysis is tested on synthetic graphs built with

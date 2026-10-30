@@ -84,6 +84,7 @@ public sealed class IndexCacheFile : IDisposable
     /// </summary>
     public static IndexFileOpenResult Open(
         string path,
+        IndexCacheSigner signer,
         IndexFileLayout layout,
         ulong baseIdentity,
         SnapshotFingerprint? expected,
@@ -102,7 +103,7 @@ public sealed class IndexCacheFile : IDisposable
         {
             // FileShare.Read: nobody can write, rename over or delete the file while it is being read or mapped.
             stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, FileOptions.SequentialScan);
-            var directory = IndexFileDirectory.Read(stream, layout, expected, baseIdentity, out var header, out var failure);
+            var directory = IndexFileDirectory.Read(stream, signer, layout, expected, baseIdentity, out var header, out var failure);
             if (directory is null)
             {
                 return Failed(failure!);

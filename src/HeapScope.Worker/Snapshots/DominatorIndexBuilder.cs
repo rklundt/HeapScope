@@ -77,8 +77,10 @@ internal sealed record DominatorTarget(string? Sidecar, ulong BaseIdentity, Snap
 /// managed arrays. Every computation reserves its memory first (decision 4, review M1), and every exit collects the
 /// working arrays (review M3).
 /// </summary>
-internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations reservations)
+internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations reservations, IndexCacheSigner signer)
 {
+    private readonly IndexCacheSigner _signer = signer;
+
     /// <summary>The dominators sidecar's layout under this build's rules (decision 2).</summary>
     public static IndexFileLayout Layout { get; } = IndexFileLayout.ForDominators(DominatorTree.SemanticsVersion);
 
@@ -195,7 +197,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
         try
         {
             using var writer = MappedIndexFileWriter.Create(
-                sidecar,
+                sidecar, _signer,
                 [
                     new(IndexSection.ImmediateDominators, sizeof(int), graph.ObjectCount),
                     new(IndexSection.RetainedSizes, sizeof(ulong), graph.ObjectCount),
@@ -224,7 +226,7 @@ internal sealed class DominatorIndexBuilder(ILogger logger, MemoryReservations r
     private Dominators? TryOpenFile(HeapGraph graph, DominatorTarget target, MemoryMode mode, CancellationToken cancellationToken)
     {
         var sidecar = target.Sidecar!;
-        var opened = IndexCacheFile.Open(sidecar, Layout, target.BaseIdentity, target.Fingerprint, mode, cancellationToken);
+        var opened = IndexCacheFile.Open(sidecar, _signer, Layout, target.BaseIdentity, target.Fingerprint, mode, cancellationToken);
         if (!opened.Success)
         {
             if (opened.Reason != IndexCacheInvalidReason.Missing)

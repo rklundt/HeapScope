@@ -12,6 +12,23 @@ each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 Everything else was built on `develop` and first shipped in the next release above it.
 
+## 3.8.0: Modularity (sprint 3.8)
+
+From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`): the same answers, in a structure Phase 4 can build on.
+- **Snapshots say what they can answer**: each open snapshot lists its optional features (the unreachable set,
+  interface grouping, field values, string values, generations, the finalizable scope) as available or not, with the
+  reason, and the app offers only what the list allows. A dump whose object graph is incomplete no longer offers
+  Unreachable objects. Worker protocol 21.
+- **Steadier monitoring**: an allocation trace stops at its size limit again (the limit had stopped working in 3.7),
+  and a listener that fails never changes a job, an open or a run.
+- **Past runs say why**: a past run's timeline or trace that HeapScope will not open says which check refused it.
+- **Texts shared by the app and the CLI**: retained sizes, object identity and scope read the same in both; a gcdump's
+  summary header no longer claims unreachable objects.
+- **One data folder**: every HeapScope data folder moves with `HEAPSCOPE_DATA_FOLDER`, and each log names the folder in
+  use.
+- Limited: the Live page's view model and an analysis workspace per snapshot stay as they were (Backlog); live
+  allocations are decided (ADR-037), not built.
+
 ## 3.7.0: Hardening (sprint 3.7)
 
 From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`).

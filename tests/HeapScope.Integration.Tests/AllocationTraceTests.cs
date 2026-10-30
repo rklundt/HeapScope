@@ -134,7 +134,16 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         var path = _scratch.File("exited.nettrace");
         var recording = TraceRecorder.RecordAsync(api.ProcessId, path, TraceProfile.Allocations, TimeSpan.FromMinutes(2), Ct);
         await Task.Delay(TimeSpan.FromSeconds(1), Ct);
+        var before = PartialBytes(path);
         await api.PostWorkAsync(200, Ct);
+
+        // The allocations reach the file only when the session flushes its buffers: wait until they did, so killing the
+        // process loses the rundown and nothing else (a burst killed before its first flush recorded no samples at all).
+        for (var waited = 0; PartialBytes(path) < before + 16_384 && waited < 150; waited++)
+        {
+            await Task.Delay(100, Ct);
+        }
+
         api.Dispose();
         (await recording).StoppedEarly.ShouldBeTrue();
 
@@ -143,6 +152,11 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         handle.Descriptor.HasRundown.ShouldBeFalse();
         AllocationTexts.NotesFor(handle.Descriptor).ShouldContain("before the runtime named its methods");
     }
+
+    /// <summary>The bytes a recording into <paramref name="path"/> has written so far (its partial file).</summary>
+    private static long PartialBytes(string path) =>
+        Directory.EnumerateFiles(Path.GetDirectoryName(path)!, HeapScope.Capture.TraceRecorder.PartialPattern(path))
+            .Select(f => new FileInfo(f).Length).DefaultIfEmpty(0).Max();
 
     [Fact]
     public async Task A_trace_with_no_allocation_samples_is_refused_with_the_profile_to_use()

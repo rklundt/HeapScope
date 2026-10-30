@@ -23,6 +23,7 @@
 
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;

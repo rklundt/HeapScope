@@ -23,9 +23,9 @@ Follow these steps exactly.
    confirmation in the review file. Repeat until confirmed.
 6. **Moderate.** Present them to the human as a numbered list, each with a one-line recommendation (fix now,
    defer to backlog, won't fix). Wait for decisions. Implement "fix now" items, add deferred items to the
-   Backlog in SPRINTS.md, record every decision in the review file.
+   Backlog (`docs/BACKLOG.md`), record every decision in the review file.
 7. **Low / Trivial.** List them in the review file only. Do not fix them and do not raise them.
-8. **Docs.** Update ARCHITECTURE.md, DEVELOPER.md, SPRINTS.md (including the sprint's Review summary: counts by
+8. **Docs.** Update ARCHITECTURE.md and its pages under `docs/architecture/` and `docs/adr/`, DEVELOPER.md, SPRINTS.md (including the sprint's Review summary: counts by
    severity, what was fixed, what was deferred, measured numbers) and CLAUDE.md so they match what was built.
    Add ADRs for significant decisions made during the sprint. Move anything durable from `CURRENT-CONTEXT.md`
    (decisions, measurements, findings) into these docs, and update `CURRENT-CONTEXT.md` to say the sprint is

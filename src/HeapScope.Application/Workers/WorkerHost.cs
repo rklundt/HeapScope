@@ -30,6 +30,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamJsonRpc;
+using HeapScope.Application.Events;
 
 namespace HeapScope.Application.Workers;
 
@@ -52,6 +53,8 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
     private readonly ILogger<WorkerHost> _logger;
     private readonly ILogger _workerLog;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentQueue<WorkerStateChangedEventArgs> _stateChanges = new();
+    private readonly object _raising = new();
     private WorkerSession? _session;
     private volatile int _state = (int)WorkerState.NotStarted;
     private int _generation;
@@ -135,6 +138,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         finally
         {
             _gate.Release();
+            RaiseStateChanges();
         }
 
         await GetSessionAsync(cancellationToken).ConfigureAwait(false);
@@ -151,6 +155,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         finally
         {
             _gate.Release();
+            RaiseStateChanges();
         }
     }
 
@@ -185,6 +190,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         finally
         {
             _gate.Release();
+            RaiseStateChanges();
         }
     }
 
@@ -247,6 +253,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         finally
         {
             _gate.Release();
+            RaiseStateChanges();
         }
     }
 
@@ -429,6 +436,11 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         info.ArgumentList.Add(pipeName);
         info.ArgumentList.Add("--parent-pid");
         info.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        // Always the absolute folder this process resolved (3.8 review): the worker starts in its own folder, so it must
+        // not resolve a relative path, or the variable, on its own.
+        info.ArgumentList.Add("--data-folder");
+        info.ArgumentList.Add(Path.GetFullPath(string.IsNullOrWhiteSpace(_options.DataFolder) ? HeapScope.Core.HeapScopeFolders.Default.Root : _options.DataFolder));
+
         if (!string.IsNullOrWhiteSpace(_options.DacFolder))
         {
             info.ArgumentList.Add("--dac-folder");
@@ -513,6 +525,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         if (ReferenceEquals(Volatile.Read(ref _session), session))
         {
             SetState(WorkerState.Crashed, message);
+            RaiseStateChanges();
         }
     }
 
@@ -571,10 +584,32 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         await session.DisposeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Records a state change and reports it at once on the thread pool, outside the gate: Starting reaches the status bar
+    /// while the worker starts, not after (3.8 review). The caller drains again after releasing the gate, so every change is
+    /// reported before its call returns.
+    /// </summary>
     private void SetState(WorkerState state, string? message)
     {
         _state = (int)state;
-        StateChanged?.Invoke(this, new WorkerStateChangedEventArgs(state, message));
+        _stateChanges.Enqueue(new WorkerStateChangedEventArgs(state, message));
+        ThreadPool.UnsafeQueueUserWorkItem(static host => host.RaiseStateChanges(), this, preferLocal: false);
+    }
+
+    /// <summary>
+    /// Raises the state changes recorded so far, in order, never under the gate (peer review P9): a listener that throws or
+    /// calls back into the host cannot fail or block the call that changed the state. One raise at a time keeps the order;
+    /// a listener that blocks holds up later changes only.
+    /// </summary>
+    private void RaiseStateChanges()
+    {
+        lock (_raising)
+        {
+            while (_stateChanges.TryDequeue(out var change))
+            {
+                SafeEvents.Raise(StateChanged, this, change, _logger, nameof(StateChanged));
+            }
+        }
     }
 
     private static bool IsTransportFailure(Exception ex, WorkerSession session) =>

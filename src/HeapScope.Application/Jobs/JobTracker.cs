@@ -26,6 +26,7 @@ using HeapScope.Application.Workers;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using HeapScope.Application.Events;
 
 namespace HeapScope.Application.Jobs;
 
@@ -200,7 +201,7 @@ public sealed class JobTracker(TimeProvider timeProvider, ILogger<JobTracker>? l
             _jobs.Add(job);
         }
 
-        JobAdded?.Invoke(this, job);
+        SafeEvents.Raise(JobAdded, this, job, _logger, nameof(JobAdded));
         var progress = new JobProgressSink(this, job);
         var result = RunAsync(job, work, progress);
         job.Attach(result, result.ContinueWith(static _ => { }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
@@ -224,19 +225,16 @@ public sealed class JobTracker(TimeProvider timeProvider, ILogger<JobTracker>? l
         using var activity = new Activity(ActivityName).SetTag("job.id", job.Id).SetTag("job.title", job.Title).Start();
         var started = Stopwatch.GetTimestamp();
         _logger.LogInformation("Job {JobId} started: {Title}", job.Id, job.Title);
+        T result;
         try
         {
-            var result = await work(progress, job.CancellationToken).ConfigureAwait(false);
-            job.Finish(JobStatus.Completed, null);
-            _logger.LogInformation("Job {JobId} completed in {Seconds:N2} s: {Title}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title);
-            JobChanged?.Invoke(this, job);
-            return result;
+            result = await work(progress, job.CancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             job.Finish(JobStatus.Canceled, null);
             _logger.LogInformation("Job {JobId} canceled after {Seconds:N2} s: {Title}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title);
-            JobChanged?.Invoke(this, job);
+            SafeEvents.Raise(JobChanged, this, job, _logger, nameof(JobChanged));
             throw;
         }
         catch (Exception ex)
@@ -252,16 +250,23 @@ public sealed class JobTracker(TimeProvider timeProvider, ILogger<JobTracker>? l
                 _logger.LogWarning(ex, "Job {JobId} failed after {Seconds:N2} s: {Title}: {Message}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title, ex.Message);
             }
 
-            JobChanged?.Invoke(this, job);
+            SafeEvents.Raise(JobChanged, this, job, _logger, nameof(JobChanged));
             throw;
         }
+
+        // The outcome is final before anyone hears of it: a listener that throws cannot turn a completed job into a
+        // failed one (peer review P9).
+        job.Finish(JobStatus.Completed, null);
+        _logger.LogInformation("Job {JobId} completed in {Seconds:N2} s: {Title}", job.Id, Stopwatch.GetElapsedTime(started).TotalSeconds, job.Title);
+        SafeEvents.Raise(JobChanged, this, job, _logger, nameof(JobChanged));
+        return result;
     }
 
     private void OnProgress(TrackedJob job, JobProgress value)
     {
         if (job.SetProgress(value))
         {
-            JobChanged?.Invoke(this, job);
+            SafeEvents.Raise(JobChanged, this, job, _logger, nameof(JobChanged));
         }
     }
 

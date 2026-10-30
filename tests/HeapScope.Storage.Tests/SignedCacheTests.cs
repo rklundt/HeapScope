@@ -49,21 +49,17 @@ public sealed class SignedCacheTests : IDisposable
     {
         var cache = Write("signed.hsidx", _key);
 
-        using (IndexCacheKey.UseScoped(_key))
-        {
-            var opened = IndexCacheReader.Open(cache, s_fingerprint, MemoryMode.InMemory, TestContext.Current.CancellationToken);
-            opened.Success.ShouldBeTrue(opened.Detail);
-            opened.Graph!.Dispose();
-            IndexCacheReader.Probe(cache, s_fingerprint).ShouldBeNull("a valid signed cache probes valid");
-        }
+        var signer0 = IndexCacheSigner.WithKey(_key);
+        var opened = IndexCacheReader.Open(cache, signer0, s_fingerprint, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        opened.Success.ShouldBeTrue(opened.Detail);
+        opened.Graph!.Dispose();
+        IndexCacheReader.Probe(cache, signer0, s_fingerprint).ShouldBeNull("a valid signed cache probes valid");
 
-        using (IndexCacheKey.UseScoped([.. _key.Select(b => (byte)(b ^ 0xFF))]))
-        {
-            // Another user's or machine's cache, or one shipped next to a dump: never used, so the dump is read again.
-            var other = IndexCacheReader.Open(cache, s_fingerprint, MemoryMode.InMemory, TestContext.Current.CancellationToken);
-            other.Reason.ShouldBe(IndexCacheInvalidReason.Untrusted);
-            IndexCacheReader.Probe(cache, s_fingerprint).ShouldNotBeNull().Reason.ShouldBe(IndexCacheInvalidReason.Untrusted);
-        }
+        var signer1 = IndexCacheSigner.WithKey([.. _key.Select(b => (byte)(b ^ 0xFF))]);
+        // Another user's or machine's cache, or one shipped next to a dump: never used, so the dump is read again.
+        var other = IndexCacheReader.Open(cache, signer1, s_fingerprint, MemoryMode.InMemory, TestContext.Current.CancellationToken);
+        other.Reason.ShouldBe(IndexCacheInvalidReason.Untrusted);
+        IndexCacheReader.Probe(cache, signer1, s_fingerprint).ShouldNotBeNull().Reason.ShouldBe(IndexCacheInvalidReason.Untrusted);
     }
 
     [Fact]
@@ -72,10 +68,8 @@ public sealed class SignedCacheTests : IDisposable
         // Caches from before 3.7, and any forged cache whose checksums were recomputed.
         var cache = Write("unsigned.hsidx", key: null);
 
-        using (IndexCacheKey.UseScoped(_key))
-        {
-            IndexCacheReader.Open(cache, s_fingerprint, MemoryMode.Mapped, TestContext.Current.CancellationToken).Reason.ShouldBe(IndexCacheInvalidReason.Untrusted);
-        }
+        var signer2 = IndexCacheSigner.WithKey(_key);
+        IndexCacheReader.Open(cache, signer2, s_fingerprint, MemoryMode.Mapped, TestContext.Current.CancellationToken).Reason.ShouldBe(IndexCacheInvalidReason.Untrusted);
     }
 
     [Fact]
@@ -85,13 +79,11 @@ public sealed class SignedCacheTests : IDisposable
         var unsigned = Write("unsigned-detail.hsidx", key: null);
         var foreign = Write("foreign-detail.hsidx", [.. _key.Select(b => (byte)(b ^ 0x5A))]);
 
-        using (IndexCacheKey.UseScoped(_key))
-        {
-            IndexCacheReader.Probe(unsigned, s_fingerprint).ShouldNotBeNull().Detail!.ShouldContain("unsigned");
-            IndexCacheReader.Probe(foreign, s_fingerprint).ShouldNotBeNull().Detail!.ShouldContain("another key");
-            IndexCacheReader.GetInMemoryBytes(foreign, out var failure).ShouldBeNull();
-            failure.ShouldNotBeNull().Reason.ShouldBe(IndexCacheInvalidReason.Untrusted, "the worker logs why the base cache was not used");
-        }
+        var signer3 = IndexCacheSigner.WithKey(_key);
+        IndexCacheReader.Probe(unsigned, signer3, s_fingerprint).ShouldNotBeNull().Detail!.ShouldContain("unsigned");
+        IndexCacheReader.Probe(foreign, signer3, s_fingerprint).ShouldNotBeNull().Detail!.ShouldContain("another key");
+        IndexCacheReader.GetInMemoryBytes(foreign, signer3, out var failure).ShouldBeNull();
+        failure.ShouldNotBeNull().Reason.ShouldBe(IndexCacheInvalidReason.Untrusted, "the worker logs why the base cache was not used");
     }
 
     [Fact]
@@ -148,7 +140,7 @@ public sealed class SignedCacheTests : IDisposable
             foreach (var mode in Enum.GetValues<MemoryMode>())
             {
                 var watch = Stopwatch.StartNew();
-                var open = Task.Run(() => IndexCacheReader.Open(mutated, s_fingerprint, mode, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+                var open = Task.Run(() => IndexCacheReader.Open(mutated, IndexCacheSigner.None, s_fingerprint, mode, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
                 var result = await open.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
                 result.Graph?.Dispose();
 
@@ -170,10 +162,8 @@ public sealed class SignedCacheTests : IDisposable
         var path = Path.Combine(_directory, name);
         using var graph = SyntheticGraphs.Random(new RandomGraphOptions(2_000, 2, TypeCount: 20, RootCount: 5, Seed: 3));
         var metadata = new IndexCacheMetadata(new SnapshotInfo(SnapshotKind.FullDump, "x.dmp"), SnapshotCapabilities.FullDump, "test");
-        using (key is null ? null : IndexCacheKey.UseScoped(key))
-        {
-            IndexCacheWriter.Write(path, graph, metadata, s_fingerprint, cancellationToken: TestContext.Current.CancellationToken);
-        }
+        var signer4 = (key is null ? IndexCacheSigner.None : IndexCacheSigner.WithKey(key));
+        IndexCacheWriter.Write(path, signer4, graph, metadata, s_fingerprint, cancellationToken: TestContext.Current.CancellationToken);
 
         return path;
     }

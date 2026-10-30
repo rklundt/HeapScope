@@ -148,49 +148,28 @@ public sealed partial class SimilarRetentionViewModel : ObservableObject
     private async Task LoadAsync(CancellationToken cancellationToken)
     {
         Status = "Grouping the objects by how they are retained (the first query of a snapshot finds every object's path and referrers)...";
-        var finished = false;
-        var progress = new Progress<JobProgress>(p =>
-        {
-            if (!finished && !cancellationToken.IsCancellationRequested)
-            {
-                Status = ReferrersText.Progress(p);
-            }
-        });
-        try
-        {
-            var result = await _session.QuerySimilarRetentionAsync(Snapshot, Set, SimilarRetentionLimits.DefaultGroups, progress, cancellationToken);
-            finished = true;
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
+        await QueryRunner.RunAsync(
+            "Similar retention",
+            (progress, ct) => _session.QuerySimilarRetentionAsync(Snapshot, Set, SimilarRetentionLimits.DefaultGroups, progress, ct),
+            ShowResult,
+            status => Status = status,
+            "The objects could not be grouped. Details are in the log.",
+            _logger,
+            cancellationToken);
+    }
 
-            _result = result;
-            ShowGroups();
-            Totals = string.Create(
-                CultureInfo.CurrentCulture,
-                $"{result.Set.Objects:N0} objects in {result.GroupCount:N0} groups by how they are retained; {result.Unreachable:N0} not reachable from any root ({Format.Bytes(result.UnreachableBytes)})")
-                + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
-                + (result.GroupCount > result.Groups.Count ? string.Create(CultureInfo.CurrentCulture, $"; {result.GroupCount - result.Groups.Count:N0} smaller groups not listed hold {result.OtherObjects:N0} objects") : string.Empty)
-                + (result.LimitedMembers > 0 ? string.Create(CultureInfo.CurrentCulture, $"; {result.LimitedMembers:N0} objects have more than {SimilarRetentionLimits.MaxReferrers} referrers and are grouped by the first {SimilarRetentionLimits.MaxReferrers}") : string.Empty)
-                + ReferrersText.Incomplete(result.CompleteGraph).Replace("referrers", "paths", StringComparison.Ordinal);
-            Status = result.Groups.Count == 0 ? "No object of the set is reachable from a root." : null;
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // Left the history while loading.
-        }
-        catch (Exception ex) when (ex is WorkerException or OperationCanceledException)
-        {
-            finished = true;
-            Status = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            finished = true;
-            _logger.LogError(ex, "Similar retention failed");
-            Status = "The objects could not be grouped. Details are in the log.";
-        }
+    private void ShowResult(SimilarRetentionResult result)
+    {
+        _result = result;
+        ShowGroups();
+        Totals = string.Create(
+            CultureInfo.CurrentCulture,
+            $"{result.Set.Objects:N0} objects in {result.GroupCount:N0} groups by how they are retained; {result.Unreachable:N0} not reachable from any root ({Format.Bytes(result.UnreachableBytes)})")
+            + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
+            + (result.GroupCount > result.Groups.Count ? string.Create(CultureInfo.CurrentCulture, $"; {result.GroupCount - result.Groups.Count:N0} smaller groups not listed hold {result.OtherObjects:N0} objects") : string.Empty)
+            + (result.LimitedMembers > 0 ? string.Create(CultureInfo.CurrentCulture, $"; {result.LimitedMembers:N0} objects have more than {SimilarRetentionLimits.MaxReferrers} referrers and are grouped by the first {SimilarRetentionLimits.MaxReferrers}") : string.Empty)
+            + ReferrersText.Incomplete(result.CompleteGraph).Replace("referrers", "paths", StringComparison.Ordinal);
+        Status = result.Groups.Count == 0 ? "No object of the set is reachable from a root." : null;
     }
 
     private void ShowGroups()
