@@ -171,6 +171,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
   `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
+  `Presentation/`, what the app and the CLI share [3.8, P18]: `ResultColumns`, `Cells` and `ColumnMap` (a result's
+  cells read by column name), `RetainedSizeTexts`, `ObjectIdentityTexts` and `SnapshotScopeTexts` (one wording, numbers
+  in the front end's culture), and `MonitorRulesParser` with a `MonitorRuleGrammar` per front end (the CLI's 90s, 5m,
+  1h in the invariant culture; the app's bare minutes in the current culture), each field refused with its own message.
   `Sessions/SessionDocumentFile`: the file protocol of `session.json` (`SessionRead`, `SessionUnreadableException`)
   [3.6]; `Session.FileInside` and `Session.IsLocal` for paths a received session names [3.7]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
   the session library or for one run (ADR-035) [3.6].
@@ -242,7 +246,12 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   Command+E targets), `ListBehaviors` (Enter and double-click on a list), `IndentConverter`; the window matches keys
   against `Shortcuts` and hands export requests to the shell; the Snapshots page's left column holds the analysis path
   and the bookmarks; the About page lists the shortcuts; filter boxes are named `FilterBox` (Command+F).
-- **Cli.** `Program` and `CliHost` (the host, the worker attach pipe, symbol options); `CliCommands` (`list`, `capture`, `open`, `summary`, `worker`, `synthetic`), `DiffCommand` [1.4],
+- **Cli.** `Program` calls `CliApp.RunAsync` (parse, then the host from `CliHost`: the worker attach pipe, symbol options;
+  a usage error exits 64 with no host), so `HeapScope.Cli.Tests` runs the CLI in process [3.8, P10]. `CliCommands.cs`
+  keeps the command table and exit codes; `CliRun.cs` the run boundary, which hands each command a `CliContext`
+  (services, output, error output, logger); `CliOptions.cs` the shared options; `CliProgress.cs` the progress lines and
+  the one open with progress; `CaptureCommands` (`list`, `capture`), `OpenCommand`, `SummaryCommand`, `WorkerCommands`
+  (`worker`, `synthetic`). Tables read cells by column name (`ColumnMap`). `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
   `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2], `--retained` on `summary`, `instances` and `object` with `StderrProgress` [2.3],
   `RetainersCommand` (`retainers`, `retained-by`) [2.4]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one

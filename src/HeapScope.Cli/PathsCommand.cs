@@ -75,15 +75,16 @@ internal static partial class CliCommands
                 result.AddError("--max must be 1 to 50 with --address, 1 to 100 with --type.");
             }
         });
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var json = parseResult.GetValue(format) == "json";
             var fold = !parseResult.GetValue(expand);

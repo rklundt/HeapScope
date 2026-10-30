@@ -23,6 +23,7 @@
 
 using System.CommandLine;
 using System.Globalization;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 using Microsoft.Extensions.DependencyInjection;
@@ -88,15 +89,16 @@ internal static partial class CliCommands
                 result.AddError("--module and --sort go with --type.");
             }
         });
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var wantAll = parseResult.GetValue(all);
             var wantTop = parseResult.GetValue(top);
@@ -147,15 +149,7 @@ internal static partial class CliCommands
                         }).ConfigureAwait(false);
                     break;
                 default:
-                    await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                        $"Referrers of {typeName} ({moduleName}): {result.TargetObjects:N0} objects, {result.ReferenceCount:N0} references from {result.Rows.TotalCount:N0} types, showing {rows.Count:N0}")).ConfigureAwait(false);
-                    await output.WriteLineAsync($"{"Objects",12} {"References",12} {"Targets",12} {"Bytes",14}  Type").ConfigureAwait(false);
-                    foreach (var row in rows)
-                    {
-                        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{Long(row[2]),12:N0} {Long(row[3]),12:N0} {Long(row[4]),12:N0} {Long(row[5]),14:N0}  {row[0]}{(string.IsNullOrEmpty(row[1]) ? string.Empty : $" ({row[1]})")}")).ConfigureAwait(false);
-                    }
-
+                    await WriteTypeReferrersTableAsync(output, typeName, moduleName, result, columns, rows).ConfigureAwait(false);
                     break;
             }
 
@@ -163,6 +157,36 @@ internal static partial class CliCommands
             return Success;
         }));
         return command;
+    }
+
+    /// <summary>The types whose objects reference a type's objects, as the table prints them.</summary>
+    internal static async Task WriteTypeReferrersTableAsync(TextWriter output, string typeName, string moduleName, TypeReferrersResult result, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
+    {
+        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+            $"Referrers of {typeName} ({moduleName}): {result.TargetObjects:N0} objects, {result.ReferenceCount:N0} references from {result.Rows.TotalCount:N0} types, showing {rows.Count:N0}")).ConfigureAwait(false);
+        await output.WriteLineAsync($"{"Objects",12} {"References",12} {"Targets",12} {"Bytes",14}  Type").ConfigureAwait(false);
+        var cells = new ColumnMap(columns);
+        foreach (var row in rows)
+        {
+            var module = cells.Text(row, TypeReferrerColumns.Module);
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"{cells.Long(row, TypeReferrerColumns.Objects),12:N0} {cells.Long(row, TypeReferrerColumns.References),12:N0} {cells.Long(row, TypeReferrerColumns.Targets),12:N0} {cells.Long(row, TypeReferrerColumns.Bytes),14:N0}  {cells.Text(row, TypeReferrerColumns.Type)}{(string.IsNullOrEmpty(module) ? string.Empty : $" ({module})")}")).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The objects referencing one object, as the table prints them.</summary>
+    internal static async Task WriteObjectReferrersTableAsync(TextWriter output, ulong at, ReferrersResult result, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
+    {
+        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+            $"Referrers of {Hex(at)}: {result.Rows.TotalCount:N0} objects, {result.ReferenceCount:N0} references, showing {rows.Count:N0}")).ConfigureAwait(false);
+        await output.WriteLineAsync($"{"Address",-18} {"Bytes",12} {"Refs",6}  Type").ConfigureAwait(false);
+        var cells = new ColumnMap(columns);
+        foreach (var row in rows)
+        {
+            var field = cells.Text(row, ReferrerColumns.Field);
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"{cells.Text(row, ReferrerColumns.Address),-18} {cells.Long(row, ReferrerColumns.Bytes),12:N0} {cells.Long(row, ReferrerColumns.References),6:N0}  {cells.Text(row, ReferrerColumns.Type)}{(string.IsNullOrEmpty(field) ? string.Empty : "  via " + field)}")).ConfigureAwait(false);
+        }
     }
 
     private static async Task<int> WriteObjectReferrersAsync(
@@ -204,15 +228,7 @@ internal static partial class CliCommands
                     }).ConfigureAwait(false);
                 break;
             default:
-                await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                    $"Referrers of {Hex(at)}: {result.Rows.TotalCount:N0} objects, {result.ReferenceCount:N0} references, showing {rows.Count:N0}")).ConfigureAwait(false);
-                await output.WriteLineAsync($"{"Address",-18} {"Bytes",12} {"Refs",6}  Type").ConfigureAwait(false);
-                foreach (var row in rows)
-                {
-                    await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                        $"{row[1],-18} {Long(row[3]),12:N0} {Long(row[4]),6:N0}  {row[2]}{(string.IsNullOrEmpty(row[0]) ? string.Empty : "  via " + row[0])}")).ConfigureAwait(false);
-                }
-
+                await WriteObjectReferrersTableAsync(output, at, result, columns, rows).ConfigureAwait(false);
                 break;
         }
 

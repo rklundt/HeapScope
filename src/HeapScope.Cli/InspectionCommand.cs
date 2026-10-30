@@ -56,20 +56,21 @@ internal static partial class CliCommands
         command.Options.Add(all);
         command.Options.Add(format);
         AddTopOrAllValidator(command, top, all);
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             SnapshotHandle? baseline = null;
             if (parseResult.GetValue(baselineDump) is { } earlier)
             {
-                baseline = await OpenForQueryAsync(earlier, error, ct).ConfigureAwait(false);
+                baseline = await OpenForQueryAsync(context, earlier, ct).ConfigureAwait(false);
                 if (baseline is null)
                 {
                     return Failure;

@@ -23,6 +23,7 @@
 
 using System.CommandLine;
 using System.Globalization;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -69,15 +70,16 @@ internal static partial class CliCommands
         command.Options.Add(all);
         command.Options.Add(format);
         AddTopOrAllValidator(command, top, all);
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             var typeName = parseResult.GetValue(type)!;
             var moduleName = parseResult.GetValue(module) ?? await FindModuleAsync(session, handle, typeName, error, ct).ConfigureAwait(false);
             if (moduleName is null)
@@ -138,24 +140,7 @@ internal static partial class CliCommands
                         }).ConfigureAwait(false);
                     break;
                 default:
-                    await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                        $"{typeName} ({moduleName}): {result.TotalObjects:N0} objects, {Mb(result.TotalBytes)}; {result.Rows.TotalCount:N0} match, showing {rows.Count:N0}")).ConfigureAwait(false);
-                    if (result.Dominators is { } dominators)
-                    {
-                        await output.WriteLineAsync(RetainedNote(dominators) + " An object no root reaches retains nothing (blank).").ConfigureAwait(false);
-                    }
-
-                    var withRetained = result.Dominators is not null;
-                    await output.WriteLineAsync($"{"Address",-18} {"Bytes",14} {"Generation",-12}{(withRetained ? $" {"Retained",16}" : string.Empty)}  Value").ConfigureAwait(false);
-                    foreach (var row in rows)
-                    {
-                        var retainedCell = !withRetained ? string.Empty
-                            : row[5] is { } bytes ? string.Create(CultureInfo.InvariantCulture, $" {long.Parse(bytes, CultureInfo.InvariantCulture),16:N0}")
-                            : $" {string.Empty,16}";
-                        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                            $"{row[0],-18} {long.Parse(row[2]!, CultureInfo.InvariantCulture),14:N0} {row[3],-12}{retainedCell}  {OneLine(row[4])}")).ConfigureAwait(false);
-                    }
-
+                    await WriteInstancesTableAsync(output, typeName, moduleName, result, columns, rows).ConfigureAwait(false);
                     break;
             }
 
@@ -163,6 +148,29 @@ internal static partial class CliCommands
             return Success;
         }));
         return command;
+    }
+
+    /// <summary>A type's objects as the table prints them; a blank retained cell is an object no root reaches.</summary>
+    internal static async Task WriteInstancesTableAsync(TextWriter output, string typeName, string moduleName, InstancesResult result, IReadOnlyList<ResultColumn> columns, List<IReadOnlyList<string?>> rows)
+    {
+        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+            $"{typeName} ({moduleName}): {result.TotalObjects:N0} objects, {Mb(result.TotalBytes)}; {result.Rows.TotalCount:N0} match, showing {rows.Count:N0}")).ConfigureAwait(false);
+        if (result.Dominators is { } dominators)
+        {
+            await output.WriteLineAsync(RetainedNote(dominators) + " An object no root reaches retains nothing (blank).").ConfigureAwait(false);
+        }
+
+        var withRetained = result.Dominators is not null;
+        await output.WriteLineAsync($"{"Address",-18} {"Bytes",14} {"Generation",-12}{(withRetained ? $" {"Retained",16}" : string.Empty)}  Value").ConfigureAwait(false);
+        var cells = new ColumnMap(columns);
+        foreach (var row in rows)
+        {
+            var retainedCell = !withRetained ? string.Empty
+                : cells.LongOrNull(row, InstanceColumns.Retained) is { } bytes ? string.Create(CultureInfo.InvariantCulture, $" {bytes,16:N0}")
+                : $" {string.Empty,16}";
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"{cells.Text(row, InstanceColumns.Address),-18} {cells.Long(row, InstanceColumns.Bytes),14:N0} {cells.Text(row, InstanceColumns.Generation),-12}{retainedCell}  {OneLine(cells.Text(row, InstanceColumns.Value))}")).ConfigureAwait(false);
+        }
     }
 
     private static Command BuildObjectCommand(Func<IServiceProvider> services)
@@ -194,15 +202,16 @@ internal static partial class CliCommands
         command.Options.Add(references);
         command.Options.Add(format);
         command.Options.Add(retained);
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             TryParseAddress(parseResult.GetValue(address), out var at);
             var details = await session.GetObjectAsync(handle, at, progress: null, ct).ConfigureAwait(false);
             var retainedResult = parseResult.GetValue(retained)
@@ -254,53 +263,60 @@ internal static partial class CliCommands
                 return Success;
             }
 
-            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"""
-                Object:      {Hex(details.Address)}
-                Type:        {details.TypeName}
-                Size:        {details.Bytes:N0} bytes
-                Generation:  {details.HeapKind}
-                Rooted:      {(details.IsRooted ? "yes, a root holds it directly" : "no direct root")}
-                """)).ConfigureAwait(false);
-            if (details.Text is { } text)
-            {
-                await output.WriteLineAsync("Text:        " + OneLine(text)).ConfigureAwait(false);
-            }
-
-            if (retainedResult is { } r)
-            {
-                await output.WriteLineAsync(r.Reachable
-                    ? string.Create(CultureInfo.InvariantCulture, $"Retained:    {r.RetainedBytes:N0} bytes (what it alone keeps alive)")
-                    : "Retained:    nothing. " + r.UnreachableNote).ConfigureAwait(false);
-                if (r.Index.Note is { } note)
-                {
-                    await output.WriteLineAsync("Note:        " + note).ConfigureAwait(false);
-                }
-
-                if (r.Reachable)
-                {
-                    await output.WriteLineAsync(r.DominatedByRoots
-                        ? "Dominator:   the roots (a root holds it, or several roots reach it on separate paths)"
-                        : $"Dominator:   {Hex(r.DominatorAddress)}  {r.DominatorType}").ConfigureAwait(false);
-                }
-            }
-
-            if (details.Fields is { } fields)
-            {
-                await output.WriteLineAsync($"Fields ({fields.Count}):").ConfigureAwait(false);
-                await WriteFieldsAsync(output, fields, depth: 1).ConfigureAwait(false);
-            }
-
-            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                $"References ({details.ReferenceCount:N0}, showing {referenceRows.Count:N0}):")).ConfigureAwait(false);
-            foreach (var row in referenceRows)
-            {
-                await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-                    $"  {row[1],-18} {long.Parse(row[3]!, CultureInfo.InvariantCulture),12:N0}  {row[2]}{(string.IsNullOrEmpty(row[0]) ? string.Empty : "  via " + row[0])}")).ConfigureAwait(false);
-            }
-
+            await WriteObjectTextAsync(output, details, retainedResult, referenceColumns, referenceRows).ConfigureAwait(false);
             return Success;
         }));
         return command;
+    }
+
+    /// <summary>One object as the text format prints it: its facts, retained size, fields and references.</summary>
+    internal static async Task WriteObjectTextAsync(TextWriter output, ObjectDetails details, RetainedResult? retainedResult, IReadOnlyList<ResultColumn> referenceColumns, List<IReadOnlyList<string?>> referenceRows)
+    {
+        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"""
+            Object:      {Hex(details.Address)}
+            Type:        {details.TypeName}
+            Size:        {details.Bytes:N0} bytes
+            Generation:  {details.HeapKind}
+            Rooted:      {(details.IsRooted ? "yes, a root holds it directly" : "no direct root")}
+            """)).ConfigureAwait(false);
+        if (details.Text is { } text)
+        {
+            await output.WriteLineAsync("Text:        " + OneLine(text)).ConfigureAwait(false);
+        }
+
+        if (retainedResult is { } r)
+        {
+            await output.WriteLineAsync(r.Reachable
+                ? string.Create(CultureInfo.InvariantCulture, $"Retained:    {r.RetainedBytes:N0} bytes (what it alone keeps alive)")
+                : "Retained:    nothing. " + r.UnreachableNote).ConfigureAwait(false);
+            if (r.Index.Note is { } note)
+            {
+                await output.WriteLineAsync("Note:        " + note).ConfigureAwait(false);
+            }
+
+            if (r.Reachable)
+            {
+                await output.WriteLineAsync(r.DominatedByRoots
+                    ? "Dominator:   the roots (a root holds it, or several roots reach it on separate paths)"
+                    : $"Dominator:   {Hex(r.DominatorAddress)}  {r.DominatorType}").ConfigureAwait(false);
+            }
+        }
+
+        if (details.Fields is { } fields)
+        {
+            await output.WriteLineAsync($"Fields ({fields.Count}):").ConfigureAwait(false);
+            await WriteFieldsAsync(output, fields, depth: 1).ConfigureAwait(false);
+        }
+
+        await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+            $"References ({details.ReferenceCount:N0}, showing {referenceRows.Count:N0}):")).ConfigureAwait(false);
+        var cells = new ColumnMap(referenceColumns);
+        foreach (var row in referenceRows)
+        {
+            var field = cells.Text(row, ReferenceColumns.Field);
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"  {cells.Text(row, ReferenceColumns.Address),-18} {cells.Long(row, ReferenceColumns.Bytes),12:N0}  {cells.Text(row, ReferenceColumns.Type)}{(string.IsNullOrEmpty(field) ? string.Empty : "  via " + field)}")).ConfigureAwait(false);
+        }
     }
 
     /// <summary>CLI sort names and the instance columns they sort by.</summary>

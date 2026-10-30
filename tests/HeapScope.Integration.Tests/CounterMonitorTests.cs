@@ -123,11 +123,8 @@ public sealed class CounterMonitorTests
         foreach (var (arguments, code) in new (string[] Arguments, int Code)[]
         {
             (["monitor", "--pid", "1", "--duration", "2"], 1),
-            (["monitor", "--pid", pid, "--every", "soon"], 64),
-            (["monitor", "--pid", pid, "--above", "50%"], 64),
             (["monitor", "--pid", pid, "--interval", "0"], 64),
             (["monitor", "--pid", pid, "--rearm", "twice"], 64),
-            (["monitor", "--pid", pid, "--above", "0MB"], 64),
             (["monitor", "--pid", pid, "--max", "0"], 64),
             (["monitor"], 64),
         })

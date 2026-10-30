@@ -23,6 +23,7 @@
 
 using System.Globalization;
 using HeapScope.Application.Exports;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Contracts;
 
@@ -73,6 +74,18 @@ internal static partial class CliCommands
 
         return rows;
     }
+
+    /// <summary>Prints a snapshot's notes (incomplete segments, dropped references) to stderr, labeled by its role.</summary>
+    private static async Task WriteNotesAsync(TextWriter error, string role, SnapshotHandle snapshot)
+    {
+        foreach (var note in snapshot.Descriptor.Notes)
+        {
+            await error.WriteLineAsync($"{role} ({Path.GetFileName(snapshot.Path)}): {note}").ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>One line on how the dominators were obtained and how much of the heap the roots reach (the app's wording too).</summary>
+    internal static string RetainedNote(DominatorIndexInfo dominators) => RetainedSizeTexts.Source(dominators, CultureInfo.InvariantCulture);
 
     private static readonly System.Text.Json.JsonSerializerOptions s_json = new() { WriteIndented = true };
 
