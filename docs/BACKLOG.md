@@ -61,6 +61,16 @@ Swept in sprint 3.8:
   the Snapshots page, with a design for the worker's result sets of hidden snapshots (P21, Phase 4); the Object view,
   the inspections page, the allocation trace page and the icicle loading through the query runner (P8's second wave);
   `OfTypeKeys` and `TypeGroups.MatchTypes` as one matcher (S5, both normalize the module since 3.8).
+- From the 3.8 review (decided autonomously): view models reading cells by column name and refusing a missing required
+  column, as the CLI does (M6); CLI refusals written through a `CliContext` helper that logs which check refused (M10);
+  `SnapshotHandle`'s descriptor and generation swapped as one record; the grid base's load through `QueryRunner`; the
+  inspections page and page reads logging their refusals, with the error code on "shown as" lines; the Unreachable
+  objects button disabled with its reason rather than hidden; the large object heap scope gated by generations; the
+  `ConcurrentDictionary` field names in `RuntimeLayouts`; the frozen scan's span hoisted and the type growth fill
+  without per-member hashing; `ObjectSetCache.Evicted` raised outside its lock; the derived slots' linked cancellation
+  sources disposed; the `recorded` and `attach` callbacks guarded; a per-user, per-run test data folder; the contract,
+  static state and doc link tests tightened; the type summaries and touched files brought to the S8 and S9 rules; a
+  separate-process live tail with stack folding measured (ADR-037's gate for Phase 4).
 - From the 3.4 review (decided autonomously): `session.json` runs read one by one, an unreadable run kept as its JSON
   so the session still opens and nothing is lost on save, with the rule that new run members are optional (M8); a seam
   in front of `DumpCapturer` so the real per-process capture gate is tested deterministically (one pid refused, two pids
