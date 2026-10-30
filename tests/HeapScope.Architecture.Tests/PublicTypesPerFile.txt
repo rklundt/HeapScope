@@ -19,7 +19,6 @@ src/HeapScope.Analysis/TypeTrend.cs 2
 src/HeapScope.Application/Allocations/AllocationSession.cs 6
 src/HeapScope.Application/Bookmarks/BookmarkStore.cs 5
 src/HeapScope.Application/Jobs/JobTracker.cs 4
-src/HeapScope.Application/Monitoring/MonitorService.cs 11
 src/HeapScope.Application/Monitoring/SnapshotRules.cs 8
 src/HeapScope.Application/Monitoring/TimelineFile.cs 3
 src/HeapScope.Application/Sessions/CaptureService.cs 2

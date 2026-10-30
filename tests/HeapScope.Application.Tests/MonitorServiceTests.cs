@@ -226,6 +226,48 @@ public sealed class MonitorServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_run_disposed_while_its_trace_watch_waits_on_a_capture_ends_cleanly()
+    {
+        // Peer review P11: the watch is awaited before its cancellation source is disposed, so stopping at the limit while
+        // a capture holds the trace's stop never touches a disposed source.
+        static async Task<TraceResult> Recorder(int pid, string path, CancellationToken ct)
+        {
+            await File.WriteAllBytesAsync(path + ".partial", new byte[4096], CancellationToken.None);
+            await Task.Delay(Timeout.Infinite, ct).ContinueWith(_ => { }, TaskScheduler.Default);
+            File.Move(path + ".partial", path);
+            return new TraceResult(path, 4096, TimeSpan.FromSeconds(1), StoppedEarly: true);
+        }
+
+        var unobserved = 0;
+        void OnUnobserved(object? sender, UnobservedTaskExceptionEventArgs e) => Interlocked.Increment(ref unobserved);
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        try
+        {
+            _capture.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var service = new MonitorService(_capture, _feed, allocations: Recorder);
+            var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, RecordAllocations: true, TraceLimitBytes: 1024), r => r.TraceStopped += (_, m) => stopped.TrySetResult(m));
+            var capture = run.CaptureNowAsync();
+            (await stopped.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct)).ShouldContain("limit");
+
+            var disposing = run.DisposeAsync().AsTask();
+            await Task.Delay(100, Ct);
+            _capture.Gate.SetResult();
+            await disposing.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+            await capture;
+
+            run.TracePath.ShouldNotBeNull("what it recorded is kept");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            unobserved.ShouldBe(0);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobserved;
+        }
+    }
+
+    [Fact]
     public async Task A_refused_trace_is_reported_at_once_and_an_unconfirmed_collection_is_not_marked()
     {
         // Reviews of 3.4: the refusal arrives as a faulted task; a collection whose end was not seen is no marker.
