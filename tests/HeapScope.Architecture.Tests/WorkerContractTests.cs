@@ -33,8 +33,17 @@ namespace HeapScope.Architecture.Tests;
 /// </summary>
 public class WorkerContractTests
 {
-    private static IEnumerable<MethodInfo> Methods() =>
-        new[] { typeof(IWorkerService) }.Concat(typeof(IWorkerService).GetInterfaces()).SelectMany(t => t.GetMethods());
+    private static IEnumerable<MethodInfo> Methods() => WorkerContracts.All.SelectMany(t => t.GetMethods());
+
+    [Fact]
+    public void Worker_contracts_are_interfaces_in_contracts_and_listed_once()
+    {
+        WorkerContracts.All.ShouldAllBe(t => t.IsInterface && t.Assembly == typeof(WorkerContracts).Assembly);
+        WorkerContracts.All.Distinct().Count().ShouldBe(WorkerContracts.All.Count);
+        typeof(WorkerContracts).Assembly.GetTypes()
+            .Where(t => t.IsInterface && t.Name.EndsWith("Service", StringComparison.Ordinal) && t != typeof(IWorkerService))
+            .ShouldAllBe(t => WorkerContracts.All.Contains(t));
+    }
 
     [Fact]
     public void Worker_contract_method_names_are_unique()
