@@ -326,14 +326,31 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
 
         File.Delete(_dump);
         File.Move(large, _dump);
-        var job = _session.StartOpen(_dump);
-        await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
-        job.Result.IsCompleted.ShouldBeFalse("the load finished before it could be canceled");
-        var canceledAt = System.Diagnostics.Stopwatch.StartNew();
-        job.Cancel();
 
-        await Should.ThrowAsync<OperationCanceledException>(() => job.Result);
-        canceledAt.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2), "acceptance criterion: a load stops within 2 s");
+        // A cancel that reaches the worker after the load's last cancellation point lets the load finish; on a fast
+        // machine that race is won now and then (CI, sprint 3.6). Each attempt loads afresh, and one must be canceled.
+        TimeSpan? stoppedIn = null;
+        for (var attempt = 0; attempt < 5 && stoppedIn is null; attempt++)
+        {
+            var job = _session.StartOpen(_dump, rebuild: true);
+            await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
+            var canceledAt = System.Diagnostics.Stopwatch.StartNew();
+            job.Cancel();
+            try
+            {
+                await _session.CloseAsync(await job.Result, Ct);
+
+                // Finished: its cache is not what this test is about, and the next attempt must leave none.
+                File.Delete(CachePath);
+            }
+            catch (OperationCanceledException)
+            {
+                stoppedIn = canceledAt.Elapsed;
+            }
+        }
+
+        stoppedIn.ShouldNotBeNull("five loads in a row finished before their cancel arrived");
+        stoppedIn.Value.ShouldBeLessThan(TimeSpan.FromSeconds(2), "acceptance criterion: a load stops within 2 s");
         File.Exists(CachePath).ShouldBeFalse();
         Directory.EnumerateFiles(_folder.Path, "*.tmp").ShouldBeEmpty();
         (await _session.StartOpen(_dump).Result).Descriptor.FromCache.ShouldBeFalse("the worker stays usable");
