@@ -129,11 +129,20 @@ internal sealed class FakeWorkerService : IWorkerService
     /// <summary>When set, the next opens fail with it.</summary>
     public Exception? OpenFailure { get; set; }
 
+    /// <summary>When set, opens are refused until a request trusts this DAC (sprint 3.6).</summary>
+    public DacTrustDetails? RequiredDac { get; set; }
+
     public Task<SnapshotDescriptor> OpenSnapshotAsync(OpenSnapshotRequest request, IProgress<JobProgress>? progress, CancellationToken cancellationToken)
     {
         if (OpenFailure is { } failure)
         {
             return Task.FromException<SnapshotDescriptor>(failure);
+        }
+
+        if (RequiredDac is { } dac && !(request.TrustedDacs ?? []).Contains(dac.Sha256))
+        {
+            return Task.FromException<SnapshotDescriptor>(new HeapScope.Application.Workers.WorkerOperationException(
+                HeapScopeErrorCode.DacNotTrusted, $"The DAC next to the dump is not trusted (SHA-256 {dac.Sha256}).", null) { DacTrust = dac });
         }
 
         Opened.Add(request);

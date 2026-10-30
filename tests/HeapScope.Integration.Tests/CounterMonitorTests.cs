@@ -47,6 +47,9 @@ public sealed class CounterMonitorTests
         await WaitUntilAsync(() => samples.Count >= 2);
         var before = samples.Last().GcHeapBytes;
         await api.PostWorkAsync(20, Ct);
+
+        // The heap size counter follows collections; a server GC may not run on its own within the wait (peer review P11).
+        await api.CollectGarbageAsync(Ct);
         var arrived = samples.Count;
         await WaitUntilAsync(() => samples.Count >= arrived + 3);
         await stop.CancelAsync();
@@ -71,6 +74,9 @@ public sealed class CounterMonitorTests
 
         await WaitUntilAsync(() => Volatile.Read(ref samples) >= 2);
         await api.PostWorkAsync(20, Ct);
+
+        // The rule compares the heap after a GC; a server GC may not run on its own within the wait (peer review P11).
+        await api.CollectGarbageAsync(Ct);
         await WaitUntilAsync(() => run.Captures.Count == 1);
         await api.PostWorkAsync(20, Ct);
         var seen = Volatile.Read(ref samples);
@@ -97,6 +103,9 @@ public sealed class CounterMonitorTests
         // Leak only after two samples: the baseline is the first after-GC size, measured once the session is up.
         await WaitUntilAsync(() => System.Text.RegularExpressions.Regex.Matches(cli.Output, @"^\d\d:\d\d:\d\d ", System.Text.RegularExpressions.RegexOptions.Multiline).Count >= 2);
         await api.PostWorkAsync(20, Ct);
+
+        // The rule compares the heap after a GC; a server GC may not run on its own within the 12 s (peer review P11).
+        await api.CollectGarbageAsync(Ct);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(cli.Output);
 
         cli.Process.ExitCode.ShouldBe(0, cli.Output);

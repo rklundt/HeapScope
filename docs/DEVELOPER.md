@@ -4,8 +4,8 @@ Status: living document, updated by every sprint.
 
 ## 1. Prerequisites
 - Windows 11 x64 (Windows 10 x64 also supported) for everything. Since sprint 2.3.6 the engine, the worker, the CLI and
-  the Avalonia app also build and run on Linux (x64) and macOS (Apple silicon or Intel); capture, the integration tests
-  and `build/gate.ps1` stay Windows only.
+  the Avalonia app also build and run on Linux (x64) and macOS (Apple silicon or Intel); capture and the integration tests
+  stay Windows only. The build scripts are bash (Git Bash on Windows).
 - .NET 10 SDK (10.0.100 or later). `global.json` pins the feature band and rolls forward to the latest patch.
 - An IDE supporting .NET 10: Visual Studio 2026, JetBrains Rider 2025.3+, or VS Code with C# Dev Kit.
 - RAM: 16 GB is the baseline (Medium snapshots open in mapped mode when memory is tight); 32 GB lets Medium
@@ -19,11 +19,16 @@ cd heapScope
 dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
-- Full gate (sprint 1.9; CI since 2.3.5 runs a subset, section 7): `./build/gate.ps1` builds Debug
-  and Release (zero warnings), runs the full suite and appends a line to `artifacts/gate/history.csv` (git-ignored):
-  time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run is named
-  again. Run it before closing a sprint.
-- Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Full gate (sprint 1.9; bash since 3.6, the same steps as CI, section 7): `bash build/gate.sh` builds Debug and Release
+  (zero warnings), runs the fast and the integration tiers and appends a line to `artifacts/gate/history.csv`
+  (git-ignored): time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run
+  is named again. Its log and TRX results are kept under `artifacts/test-results/<time>`. Run it before closing a sprint.
+- One tier (sprint 3.6): `bash build/test.sh fast|integration [Release|Debug] [results folder]`. `fast` runs every test
+  project that runs on this system, found rather than listed, without the Integration and Slow traits (exit code 8, "no
+  tests left", is accepted per project); `integration` runs the Integration project (Windows). Results are TRX files.
+- Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- A LeakyConsole dump for checks by hand: `bash build/fixture-dump.sh <dump> cli=<heapscope-cli>` (or `dotnet-dump`), then
+  `bash build/check-known-answers.sh <heapscope-cli> <dump>`.
 - A test run that never finishes: run the test executable directly with hung test detection, for example
   `tests/HeapScope.UI.Tests/bin/Debug/net10.0/HeapScope.UI.Tests.exe -longRunning 30 -noAutoReporters`;
   it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
@@ -41,7 +46,10 @@ dotnet test --solution HeapScope.sln
   `linux-x64`, `osx-arm64` or `osx-x64`, self-contained and ReadyToRun, each with the self-contained worker in
   `worker/`. CI uploads the four on pushes to `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`,
   kept 14 days): the download is a zip holding `HeapScope-<rid>.tar.gz`; unpack that with `tar -xzf`, which keeps the
-  executables' modes. macOS builds are not signed or notarized yet (Backlog).
+  executables' modes. macOS builds are not signed or notarized yet (Backlog). Since 3.6 every build carries `LICENSE`,
+  `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and each shipped package's own license and notice
+  files under `licenses/` (`build/collect-licenses.cs`), and leaves out the TraceEvent natives no code uses
+  (`HeapScopePublish`, `Directory.Build.targets`); `bash build/check-package.sh <folder>` checks both (publish.sh runs it).
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
@@ -145,9 +153,11 @@ dotnet test --solution HeapScope.sln
   the rule, recorded as timed; `below` re-arms under 90 percent of the threshold); it prints a line per sample, a line per snapshot and,
   at the end, the timeline file (`counters-<pid>-<time>.csv` in the session folder). Ctrl+C stops; a process that
   cannot be monitored exits 1.
-- DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
-  to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
-  `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
+- DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` in a DAC
+  folder (CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the `Symbols:DacFolder` setting) or next to
+  the dump, where it is loaded only once trusted (ADR-035, sprint 3.6): the app asks, naming the file and its SHA-256,
+  and remembers a yes in `trusted-dacs.json` beside the session library; the CLI refuses and names the hash, which
+  `--trust-dac <sha256>` (repeatable) trusts for that run. A DAC HeapScope's capture copied is trusted already. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
   downloads and logs a warning. Both reach the worker on its command line only.
 - Worker GC heaps: half the logical processors by default, so the worker cannot starve the UI; override with
   `--Worker:GcHeapCount <n>` (UI), the `Worker__GcHeapCount` environment variable, or `DOTNET_GCHeapCount` (hexadecimal).
@@ -395,20 +405,24 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   sprint 2.3.5, work-in-progress commits may be pushed to `sprint/X.Y` to run CI on its draft PR; the squash merge still
   leaves one commit per sprint on `develop`. Work outside a sprint that the owner asks for (a fix, docs, a chore) uses
   its own short branch (`fix/...`, `chore/...`) off `develop` and the same PR flow.
-- CI (`.github/workflows/ci.yml`, sprints 2.3.5 and 2.3.6) runs on every PR into `develop` or `main`, every push to
-  them and on demand, on GitHub's hosted runners:
-  - Windows builds the solution, runs the fast tests, captures the LeakyConsole fixture with the CLI and checks the
-    known answers (`build/check-known-answers.sh`).
+- CI (`.github/workflows/ci.yml`, sprints 2.3.5, 2.3.6 and 3.6) runs on every PR into `develop` or `main`, every push to
+  them and on demand, on GitHub's hosted runners. Tests run through `build/test.sh` and the fixture dump through
+  `build/fixture-dump.sh`, the scripts the local gate uses; every job keeps its TRX results 14 days
+  (`test-results-<system>`), which is where a test that fails now and then shows up:
+  - Windows builds the solution, runs the fast and the integration tiers (about three minutes; since 3.6), captures the
+    LeakyConsole fixture with the CLI and checks the known answers (`build/check-known-answers.sh`).
   - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests (the view model and headless UI
     tests included), dumps the fixture with `dotnet-dump` (pinned), checks the CLI's JSON against the known answers with
     `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named runtime version) and opens the dump in
     the app without a display (`--headless --smoke-open`). macOS does the same, informational (an arm64 runner;
     ADR-025).
-  - After both pass, a package job publishes the self-contained builds per runtime identifier (`build/publish.sh`),
-    packs each as a tarball (which keeps the executables' modes), unpacks it and runs it as a user would (the CLI's
-    version, a worker ping, the worker's Server GC setting, a headless synthetic smoke; `osx-x64` is built but cannot
-    run on the arm64 runner) and, on pushes and manual runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
-  It does not replace the local gate, which also runs the integration tests. Fixture dumps are never uploaded.
+  - After both pass, a package job publishes the self-contained builds per runtime identifier (`build/publish.sh`, with
+    the license files checked by `build/check-package.sh`), packs each as a tarball (which keeps the executables' modes),
+    unpacks it, checks it again and runs it as a user would (the CLI's version, a worker ping, the worker's Server GC
+    setting, a headless synthetic smoke; `osx-x64` is built but cannot run on the arm64 runner) and, on pushes and manual
+    runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
+  The local gate runs the same tiers; run it before closing a sprint. Fixture dumps are never uploaded. Making the CI jobs
+  required checks on `develop` and `main` is a repository setting the owner applies.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.

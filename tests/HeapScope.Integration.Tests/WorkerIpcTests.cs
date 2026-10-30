@@ -32,8 +32,12 @@ using Microsoft.Extensions.Options;
 
 namespace HeapScope.Integration.Tests;
 
-/// <summary>Sprint 0.3 acceptance criteria against a real worker process.</summary>
+/// <summary>
+/// Sprint 0.3 acceptance criteria against a real worker process. Alone (peer review P11): the cancellation tests measure
+/// wall-clock time, and dump-loading classes running beside them made them miss their second.
+/// </summary>
 [Trait("Category", "Integration")]
+[Collection(nameof(HeavyTestsCollection))]
 public sealed class WorkerIpcTests : IAsyncDisposable
 {
     private readonly ListLoggerProvider _logs = new();

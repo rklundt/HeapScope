@@ -77,6 +77,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
     {
         ArgumentNullException.ThrowIfNull(request);
         var path = ExistingFullPath(request.Path);
+        _kinds.Trust(request.TrustedDacs);
         await _loadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

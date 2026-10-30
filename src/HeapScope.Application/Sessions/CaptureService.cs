@@ -62,6 +62,7 @@ public sealed class CaptureService : ICaptureService
     private readonly IElevationProbe _elevation;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+    private readonly Snapshots.TrustedDacs? _trustedDacs;
 
     // One capture or forced collection per process at a time, across every page and rule (sprint 3.4, decision 3).
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _busy = new();
@@ -74,8 +75,10 @@ public sealed class CaptureService : ICaptureService
         IElevationProbe? elevation = null,
         TimeProvider? timeProvider = null,
         ILogger<CaptureService>? logger = null,
-        GcDumpCapturer? gcDumpCapturer = null)
+        GcDumpCapturer? gcDumpCapturer = null,
+        Snapshots.TrustedDacs? trustedDacs = null)
     {
+        _trustedDacs = trustedDacs;
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _capturer = capturer ?? throw new ArgumentNullException(nameof(capturer));
         _gcDumpCapturer = gcDumpCapturer ?? new GcDumpCapturer(elevation);
@@ -363,8 +366,12 @@ public sealed class CaptureService : ICaptureService
         {
             if (File.Exists(source) && !File.Exists(target))
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                PrivateFiles.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(source, target);
+
+                // Copied by HeapScope from the target's own runtime, so opening this dump later loads it without asking
+                // (sprint 3.6): only a DAC that came with a dump from elsewhere needs the user's trust.
+                _trustedDacs?.TrustFile(target, $"copied by HeapScope's capture from {source}");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -404,6 +411,7 @@ public sealed class CaptureService : ICaptureService
         DumpFileExistsException => Failure(CaptureFailure.FileExists, ex.Message, ex),
         DumpWriteFailedException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         PlatformNotSupportedException => Failure(CaptureFailure.NotSupportedOnThisSystem, ex.Message, ex),
+        SessionUnreadableException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         IOException or UnauthorizedAccessException => Failure(CaptureFailure.WriteFailed, $"The dump could not be written: {ex.Message}", ex),
         ArgumentException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         OperationCanceledException => null,

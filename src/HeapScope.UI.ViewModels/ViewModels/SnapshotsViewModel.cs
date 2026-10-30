@@ -243,7 +243,24 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
                 return;
             }
 
-            var handle = await _session.StartOpen(path).Result;
+            SnapshotHandle handle;
+            try
+            {
+                handle = await _session.StartOpen(path).Result;
+            }
+            catch (WorkerOperationException ex) when (ex is { ErrorCode: HeapScopeErrorCode.DacNotTrusted, DacTrust: { } dac } && _session.TrustedDacs is { } trusted)
+            {
+                // The only matching DAC came with the dump (sprint 3.6, peer review P2): load it only if the user says so.
+                if (!await _interaction.ConfirmAsync("Trust the DAC next to this dump?", TrustQuestion(dac)))
+                {
+                    Status = ex.Message;
+                    return;
+                }
+
+                await Task.Run(() => trusted.Trust(dac.Sha256, dac.Path, $"trusted by the user when opening {path}"));
+                handle = await _session.StartOpen(path).Result;
+            }
+
             Refresh();
             Selected = Snapshots.FirstOrDefault(s => s.Handle == handle);
             Status = null;
@@ -261,6 +278,13 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
             IsOpening = false;
         }
     }
+
+    /// <summary>The question asked before a DAC that came with a dump is loaded (sprint 3.6).</summary>
+    internal static string TrustQuestion(DacTrustDetails dac) =>
+        $"The .NET {dac.RuntimeVersion} runtime's data access component (DAC) was found only next to the dump:\n\n{dac.Path}\nSHA-256 {dac.Sha256}\n\n" +
+        "A DAC is native code HeapScope runs to read the dump. One that came with a dump runs code from whoever made it, " +
+        "so trust it only if you know where it came from (for example, you copied it from that runtime yourself). " +
+        "HeapScope remembers this file by its hash.\n\nTrust it and open the dump?";
 
     [RelayCommand]
     private async Task OpenDumpAsync()

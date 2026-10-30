@@ -97,12 +97,21 @@ Capture and sessions (sprint 1.1):
   front end refuses open snapshots, shows the files (`PlanSnapshotDeletion`, `PlanSessionDeletion`) and confirms every
   deletion, and a file that cannot be deleted is reported with `session.json` kept so the session stays listed. Every change is a
   read-modify-write under a cross-process lock file (`session.lock`) with a unique temporary file flushed to disk.
+  Since 3.6 (peer review P1) one type, `SessionDocumentFile`, owns the document's file protocol: readers take no lock
+  and open it sharing read, write and delete (a reader never makes a writer's replace fail; before, a reader made the
+  replace fail on Windows and the capture or run went unrecorded) and retry briefly when another program holds it; the
+  replace retries for up to 5 seconds; `Read` says whether a folder's document is read, missing or unreadable and why.
+  The current session is replaced by a new one only when its folder or document is gone: an unreadable one (damaged,
+  held, another format version) fails with `SessionUnreadableException` and a next step instead of moving the next
+  captures into a new session. The current folder has its own gate, never held across file work, so `CurrentFolder`
+  answers while an update waits for `session.lock`.
   The current session is created when the first capture passes its checks (a refused capture leaves no folder), or
   chosen with `Open` (Home's Open, CLI `--session`). `CaptureService` (behind `ICaptureService`) lists processes off
   the calling thread, runs captures as tracked jobs with collision-free file names into the session that was current
   when the capture started, copies the target's `mscordaccore.dll` to `dac\<file version>\` next to the dump (the
   loader searches it; the dump stays readable after the runtime on this machine is updated, for self-contained apps,
-  and with several runtimes in one session), records the snapshot, and logs start, end and failures. Every capture states that the dump
+  and with several runtimes in one session) and, since 3.6, trusts that copy by its SHA-256 (`TrustedDacs`, ADR-035),
+  records the snapshot, and logs start, end and failures. Every capture states that the dump
   contains secrets and where it was written. Front ends see only Application types: `ICaptureService`, `ProcessEntry`
   (with `ProcessElevation` and `NeedsAdministrator`) and `CaptureFailedException` with a `CaptureFailure` reason (the
   architecture test caught the first draft using Capture types in UI and CLI).
@@ -111,7 +120,8 @@ Capture and sessions (sprint 1.1):
 
 ```
 HeapScope.sln
-build/                         Shared MSBuild targets (worker deployment next to UI and CLI); gate.ps1, the local full gate
+build/                         Shared MSBuild targets (worker deployment next to UI and CLI); the gate, test, fixture dump,
+                               publish, license and package scripts shared by CI and the local gate (sprint 3.6)
 src/
   HeapScope.Core               Domain model: snapshot abstraction, capability model, compact graph,
                                type table, root model, string table. No dependencies at all.
@@ -239,6 +249,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   from the file's write time marked `SnapshotFacts.CaptureTimeFromFile` with a note, loader version 3 [2.3.5];
   `UnixLocalPath` (the local path rule on Linux and macOS: the mount holding the path, links resolved) [2.3.5];
   `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2];
+  a DAC next to the dump only once trusted by its SHA-256 and loaded from a private copy (`BesideDumpDirectories`,
+  `UntrustedDacException`, ADR-035) [3.6];
   the DAC of the system HeapScope runs on, matched on Linux and macOS by `ImageIdentity` (ELF GNU build id, Mach-O
   UUID) against the DAC itself or, when the dump archives it under the runtime's identity, against `libcoreclr` in the
   same folder; ClrMD reads a core file's runtime version as 0.0 at times, and the runtime's folder name names it then
@@ -248,7 +260,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
 - **ThirdParty.GcDump.** The vendored dotnet-gcdump code (PerfView's `MemoryGraph`, `GCHeapDump` and the EventPipe heap
   dumper), MIT, with its four changes listed in its `CHANGES.md` [1.8, 1.9].
 - **Contracts.** `IWorkerService`, `WorkerProtocol`, `HeapScopeErrorCode`, the wire enums and `CapabilityDescriptions`
-  [0.3]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
+  [0.3]; `DacTrustDetails`, the error data of `DacNotTrusted` [3.6]; the DTOs, one file per area (`WorkerDtos`, `SnapshotDtos`, `SummaryDtos`, `ObjectDtos`, `InspectionDtos`)
   [1.9], and `SetDtos` (`ObjectSetSpec`, with its shape, address hash and cache key as extension members in
   `ObjectSetSpecs`, so they are never serialized) [3.1]; the Similar Retention DTOs in `RetentionDtos` [3.2]; `NameFilter`, the one filter rule set shared by the worker (matching) and the UI (highlighting): an all lower-case
   filter is a case-insensitive substring; a filter with capitals matches as typed, then as CamelHumps within one
@@ -326,6 +338,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
   `Bookmarks/BookmarkStore`: object bookmarks (`Bookmark`: snapshot key, address, type, `BookmarkColor`) in
   `bookmarks.json` beside the session library, keyed by `SnapshotKey` (full path, size, write time) [2.7].
+  `Sessions/SessionDocumentFile`: the file protocol of `session.json` (`SessionRead`, `SessionUnreadableException`)
+  [3.6]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
+  the session library or for one run (ADR-035) [3.6].
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
   and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2]; a diff's `matchObjects` and `includeRetained`,
@@ -434,7 +449,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   interval). Cli: `trace --profile allocations` and `AllocationsCommand` (`allocations`). Benchmarks: `allocations`.
 - **Fixtures.** The leak fixtures and known answers (ADR-013), `WasteFixtures` (LeakyConsole `--waste`) and `Waste.json`
   [1.6].
-- **build/.** The worker deployment targets and `gate.ps1`, the local full gate (DEVELOPER.md 2) [1.9].
+- **build/.** The worker deployment targets [0.1]; since 3.6 the scripts CI and the local gate share: `gate.sh` (the
+  full gate, bash, replacing 1.9's `gate.ps1`), `test.sh` (a test tier: `fast` or `integration`, projects found rather
+  than listed, TRX results), `fixture-dump.sh` (start LeakyConsole, dump it), `publish.sh` (self-contained builds, 2.3.6),
+  `collect-licenses.cs` (the license files of HeapScope and of every shipped package into the build) and
+  `check-package.sh` (a build holds them, and not the unreviewed TraceEvent natives) (DEVELOPER.md 2 and 7).
 
 ### 3.1 Dependency rules
 
@@ -668,6 +687,8 @@ Rules:
   `TypeTrendColumns`, `TypeTrendResult`).
   Version 19 (sprint 3.5, ADR-034): the set kind `Unreachable` (`ObjectSetSpec.OfUnreachable`), and the detectors
   `pending-async-methods`, `finalizer-backlog` and `type-growth` in the catalog.
+  Version 20 (sprint 3.6, ADR-035): `OpenSnapshotRequest.TrustedDacs`, the error code `DacNotTrusted` (1014) with
+  `DacTrustDetails` as its error data.
 - `HeapScopeErrorCode` values start at 1000: JSON-RPC and StreamJsonRpc reserve -32768 to -32000 (an early
   version used that range and StreamJsonRpc reinterpreted -32003 as a serialization failure).
 
@@ -1628,10 +1649,18 @@ maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0
 - Nothing is ever uploaded. There is no telemetry. Symbol and DAC downloads are off by default (ADR-017).
 - A dump is untrusted input. Paths recorded in it (the runtime's folder, module paths) never lead the worker to a
   network share: the DAC lookup and ClrMD's file locator accept local fixed-drive paths only, and the dumped runtime's
-  folder only when it is an installed shared runtime folder. A DAC placed next to the dump or in `Symbols:DacFolder`
-  is native code the user chooses to trust, loaded only when its PE image matches the dump's index (or, when the dump
-  records none, its file version equals the runtime's). This local-only guarantee holds while the symbol server
-  opt-in is off; with it on, ClrMD's own locator is used.
+  folder only when it is an installed shared runtime folder. A DAC in `Symbols:DacFolder` is native code the user chose
+  to trust by putting it there. A DAC next to the dump came with the dump, so it is native code from whoever made the
+  dump: since 3.6 (ADR-035) it is searched last and loaded only when trusted by its SHA-256 (the app asks, naming the file
+  and its hash, and keeps a yes in `trusted-dacs.json`; the CLI takes `--trust-dac <sha256>` for one run; HeapScope's own
+  capture trusts the DAC it copies from the target's runtime), and then from a private copy checked against the hash.
+  Any DAC is loaded only when its PE image matches the dump's index (or, when the dump records none, its file version
+  equals the runtime's). This local-only guarantee holds while the symbol server opt-in is off; with it on, ClrMD's own
+  locator is used.
+- Published builds (sprint 3.6, peer review P3; CI uploads them as artifacts) carry `LICENSE`, `ADDITIONAL-TERMS.md`,
+  `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and every shipped package's own license and notice files under `licenses/`;
+  the TraceEvent native binaries (`KernelTraceControl.dll`, `msdia140.dll`), which nothing calls and whose redistribution
+  terms are not reviewed, are left out of them. `build/check-package.sh` checks both on every package job.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
   contents. Its sidecars (sprint 2.1: `<snapshot>.rev.hsidx`, the reverse references; sprint 2.3: `<snapshot>.dom.hsidx`,
@@ -1764,6 +1793,10 @@ sprint 0.1.
 - Amended in sprint 2.3.5: CI runs on GitHub's hosted runners (`.github/workflows/ci.yml`; DEVELOPER.md 7) for every PR
   into `develop` or `main`; it is not yet a required check. The local gate stays the full check before closing a
   sprint.
+- Amended in sprint 3.6 (peer review P4): CI also runs the integration tier on Windows (about three minutes) and keeps
+  every job's test results (TRX) for 14 days; CI and the local gate (`build/gate.sh`, bash, which replaces `gate.ps1`)
+  share `build/test.sh` and `build/fixture-dump.sh`. Making the CI jobs required checks is a repository setting the
+  product owner applies.
 
 ### ADR-013 Leaky fixtures as source of truth
 - Context: analysis correctness can only be proven against known leaks.
@@ -1830,6 +1863,8 @@ sprint 0.1.
   the target's DAC, sprint 1.1); every installed runtime folder is a candidate (the dump records the file
   version, folders use the product version) and the PE match picks the right one; when the dump records no index the
   file version must equal the runtime version.
+- Amended in sprint 3.6 (ADR-035): the dump's folder and `dac\<runtime file version>` beside it are searched last, and
+  a DAC there is loaded only once trusted by its SHA-256.
 - Amended in sprint 2.3.5 (review H1, M1): on Linux and macOS a path is local when the mount that holds it, after
   symbolic links are resolved, is a local disk (fixed, container overlays included, or tmpfs); network mounts (NFS,
   SMB, autofs, FUSE), `/proc`, `/sys` and `/dev` are refused, and a mount is checked before anything on it is looked at
@@ -2272,6 +2307,27 @@ sprint 0.1.
   Backlog). Pooled `ValueTask` boxes have no task state and are not counted; methods compiled with .NET 10's opt-in
   runtime async have no box. Objects finalized between two snapshots are not reported: it needs the address match
   (ADR-032) of the baseline's finalizable objects not yet run, and is in the Backlog.
+
+### ADR-035 A DAC next to a dump is loaded only once trusted (added in sprint 3.6, amends ADR-017)
+- Context: the peer review of 3.5.0 (P2) found that a DAC in the dump's folder was loaded as native code into the
+  worker, matched only on values the dump supplies (PE time stamp and size, or build id and version). A zip holding a
+  dump and a planted DAC ran its code; Linux and macOS have no signature check at all. ADR-017 listed the dump's folder
+  with the installed runtimes as if it were as trustworthy.
+- Decision: the DAC search has two parts. Installed runtimes, the dumped runtime's folder (when installed),
+  `Symbols:DacFolder` and HeapScope's own runtime are trusted as before (`DacLocator.CandidateDirectories`). The dump's
+  folder and `dac/<version>` beside it (`BesideDumpDirectories`) are searched only when those find nothing, and a match
+  there is loaded only when its SHA-256 is trusted (`ClrMdLoaderOptions.IsTrustedDac`); otherwise the load fails with
+  `UntrustedDacException`, which the worker answers as `DacNotTrusted` (1014) with the file and its hash
+  (`DacTrustDetails`). A trusted DAC is copied into a private folder under its hash (`%LOCALAPPDATA%/HeapScope/dac`) and
+  loaded from the copy after checking it, so the file loaded is the file hashed. Trust lives in Application
+  (`TrustedDacs`): the app asks before opening and keeps a yes in `trusted-dacs.json` beside the session library; the
+  CLI's `--trust-dac <sha256>` trusts for one run; HeapScope's capture trusts the DAC it copies from the target's own
+  runtime. Every open request carries the trusted hashes (protocol 20); the worker keeps them for its lifetime, so the
+  field reader, which opens the dump again later, has the same trust.
+- Consequences: a dump received with its DAC asks once per DAC. A dump whose index cache was built before 3.6 with a DAC
+  beside it opens from the cache without asking, and its field values then fail with the refusal until the dump is
+  reopened with Rebuild (where the question is asked) or the DAC is put in `Symbols:DacFolder`. Trust is by content, not
+  by path, so a different file at the same path is asked about again.
 
 ## 14. Package versions
 Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the

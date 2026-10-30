@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using HeapScope.Core;
 using HeapScope.Core.Loading;
 using Microsoft.Diagnostics.Runtime;
@@ -109,8 +110,27 @@ internal static class ClrMdDump
                 : dac is { IndexBuildId.IsDefaultOrEmpty: false } && dac.ArchivedUnder != SymbolProperties.Coreclr ? null
                 : RecordedPath.FileName(clr.ModuleInfo.FileName),
         };
+        var installedRoots = options.InstalledRuntimeRoots ?? DacLocator.DefaultRuntimeRoots();
         var directories = DacLocator.CandidateDirectories(request, dumpPath, options);
-        var path = DacLocator.Find(request, directories, out var candidates, out var rule, options.InstalledRuntimeRoots ?? DacLocator.DefaultRuntimeRoots());
+        var path = DacLocator.Find(request, directories, out var candidates, out var rule, installedRoots);
+        if (path is null)
+        {
+            // Next to the dump last, and only once trusted (peer review P2): that DAC came with the dump.
+            var beside = DacLocator.Find(request, DacLocator.BesideDumpDirectories(request, dumpPath), out var besideCandidates, out var besideRule, installedRoots);
+            candidates = [.. candidates, .. besideCandidates];
+            if (beside is not null)
+            {
+                var sha256 = Sha256Of(beside);
+                if (options.IsTrustedDac?.Invoke(sha256) != true)
+                {
+                    throw new UntrustedDacException(beside, sha256, request.RuntimeVersion);
+                }
+
+                path = CopyTrusted(beside, sha256, options.TrustedDacCopyFolder);
+                rule = $"{besideRule}; next to the dump at {beside}, trusted by SHA-256 {sha256} and loaded from a private copy";
+            }
+        }
+
         var looked = candidates.Select(c => c.ToString()).ToArray();
         if (path is null && !options.AllowMicrosoftSymbolServer)
         {
@@ -148,6 +168,41 @@ internal static class ClrMdDump
             ? $"Copy {request.FileName} together with {runtime} from the same runtime folder: the dump identifies the DAC by its runtime library."
             : null;
 
+
+    /// <summary>The SHA-256 of a file, lower-case hex.</summary>
+    internal static string Sha256Of(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
+
+    /// <summary>
+    /// Copies a trusted DAC into a private folder under its hash and returns the copy, checked against the hash: the file
+    /// next to the dump could change between hashing and loading, its copy cannot (peer review P2).
+    /// </summary>
+    internal static string CopyTrusted(string path, string sha256, string? copyFolder)
+    {
+        var folder = Path.Combine(
+            copyFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HeapScope", "dac"),
+            sha256);
+        PrivateFiles.CreateDirectory(folder);
+        var copy = Path.Combine(folder, Path.GetFileName(path));
+        if (!File.Exists(copy) || Sha256Of(copy) != sha256)
+        {
+            var temp = $"{copy}.{Guid.NewGuid():N}.tmp";
+            using (var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var target = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                source.CopyTo(target);
+            }
+
+            File.Move(temp, copy, overwrite: true);
+        }
+
+        return Sha256Of(copy) == sha256
+            ? copy
+            : throw new IOException($"The copy of the trusted DAC {path} in {folder} does not match its SHA-256 {sha256}; the file changed while it was copied. Open the dump again.");
+    }
 
     /// <summary>The platform HeapScope runs on, in ClrMD's terms.</summary>
     internal static OSPlatform CurrentPlatform() =>

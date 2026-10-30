@@ -46,6 +46,7 @@ internal static class WorkerErrors
     {
         CapabilityNotSupportedException => HeapScopeErrorCode.CapabilityNotSupported,
         RuntimeComponentMissingException => HeapScopeErrorCode.RuntimeComponentMissing,
+        UntrustedDacException => HeapScopeErrorCode.DacNotTrusted,
         SnapshotFormatException => HeapScopeErrorCode.SnapshotFormat,
         SnapshotChangedException => HeapScopeErrorCode.SnapshotChanged,
         IndexCacheInUseException or IOException or UnauthorizedAccessException => HeapScopeErrorCode.SnapshotUnavailable,
@@ -69,7 +70,14 @@ internal static class WorkerErrors
     public static bool IsRefusal(HeapScopeErrorCode code) => code is HeapScopeErrorCode.CapabilityNotSupported
         or HeapScopeErrorCode.InvalidArgument or HeapScopeErrorCode.SnapshotChanged or HeapScopeErrorCode.SnapshotNotLoaded
         or HeapScopeErrorCode.ResultSetNotFound or HeapScopeErrorCode.RuntimeComponentMissing or HeapScopeErrorCode.InsufficientMemory
-        or HeapScopeErrorCode.TraceNotLoaded or HeapScopeErrorCode.SnapshotFormat;
+        or HeapScopeErrorCode.TraceNotLoaded or HeapScopeErrorCode.SnapshotFormat or HeapScopeErrorCode.DacNotTrusted;
+
+    /// <summary>The error data a front end needs to act on a refusal (sprint 3.6: the DAC to trust), or null.</summary>
+    public static object? DataOf(Exception exception) => exception switch
+    {
+        UntrustedDacException { Path: { } path, Sha256: { } sha256 } untrusted => new DacTrustDetails(path, sha256, untrusted.RuntimeVersion ?? ""),
+        _ => null,
+    };
 
     /// <summary>
     /// Runs an RPC method body, translating domain exceptions into coded errors. Every outcome except cancellation is
@@ -120,7 +128,7 @@ internal static class WorkerErrors
                 logger?.LogWarning(ex, "{Operation} failed with {Code}; request {Request}", operation, code, Provenance.Describe(request));
             }
 
-            throw new LocalRpcException(MessageOf(ex, code), ex) { ErrorCode = (int)code };
+            throw new LocalRpcException(MessageOf(ex, code), ex) { ErrorCode = (int)code, ErrorData = DataOf(ex) };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

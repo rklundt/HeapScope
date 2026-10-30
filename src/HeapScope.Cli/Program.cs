@@ -24,6 +24,7 @@
 using System.CommandLine.Help;
 using HeapScope.Cli;
 using HeapScope.Contracts;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 IHost? host = null;
@@ -54,6 +55,12 @@ host = CliHost.Build(
     parseResult.GetValue(CliCommands.AllowSymbolServerOption));
 using (host)
 {
+    var trustedDacs = host.Services.GetRequiredService<HeapScope.Application.Snapshots.TrustedDacs>();
+    foreach (var sha256 in parseResult.GetValue(CliCommands.TrustDacOption) ?? [])
+    {
+        trustedDacs.TrustForThisRun(sha256);
+    }
+
     await host.StartAsync().ConfigureAwait(false);
     try
     {

@@ -74,8 +74,11 @@ public sealed class SnapshotHandle
 /// <see cref="UseAsync{T}"/>, which reopens it after a worker restart (stale ids fail with
 /// <see cref="HeapScopeErrorCode.SnapshotNotLoaded"/> in the worker).
 /// </summary>
-public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<PhysicalMemory>? memory = null, ILogger<SnapshotSession>? logger = null)
+public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<PhysicalMemory>? memory = null, ILogger<SnapshotSession>? logger = null, TrustedDacs? trustedDacs = null)
 {
+    /// <summary>The DACs trusted to load from next to a dump, sent with every open (sprint 3.6); null trusts none.</summary>
+    public TrustedDacs? TrustedDacs { get; } = trustedDacs;
+
     private readonly Func<PhysicalMemory> _memory = memory ?? PhysicalMemory.Current;
     private readonly ILogger _logger = logger ?? (ILogger)NullLogger.Instance;
 
@@ -104,7 +107,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
         var title = string.Create(CultureInfo.InvariantCulture, $"Open {System.IO.Path.GetFileName(fullPath)}");
         return jobs.Start(title, async (progress, ct) =>
         {
-            var request = new OpenSnapshotRequest(fullPath, rebuild, mode);
+            var request = new OpenSnapshotRequest(fullPath, rebuild, mode, TrustedDacs: TrustedDacs?.All());
             var (descriptor, generation) = await OpenInWorkerAsync(request, progress, ct).ConfigureAwait(false);
             SnapshotHandle handle;
             lock (_gate)
@@ -662,7 +665,7 @@ public sealed class SnapshotSession(IWorkerClient worker, JobTracker jobs, Func<
     /// </summary>
     private async Task ReopenAsync(SnapshotHandle handle, CancellationToken cancellationToken)
     {
-        var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true);
+        var request = new OpenSnapshotRequest(handle.Path, Mode: handle.RequestedMode, RequireCache: true, TrustedDacs: TrustedDacs?.All());
         var previous = (handle.WorkerSnapshotId, handle.Generation);
         _logger.LogInformation("Reopening {Path} after a worker restart (was worker snapshot {WorkerSnapshotId}, generation {Generation})", handle.Path, previous.WorkerSnapshotId, previous.Generation);
         (SnapshotDescriptor Descriptor, int Generation) reopened;

@@ -38,7 +38,7 @@ match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves
 | 3.3 | Comparison depth | Closed | 2026-10-29 | sprint-3.3 |
 | 3.4 | Live workflow and housekeeping | Closed | 2026-10-29 | sprint-3.4 |
 | 3.5 | Leak detection depth | Closed | 2026-10-29 | sprint-3.5 |
-| 3.6 | Urgent fixes | Planned | | |
+| 3.6 | Urgent fixes | In Progress | | |
 | 3.7 | Hardening | Planned | | |
 | 3.8 | Modularity | Planned | | |
 
@@ -2864,11 +2864,67 @@ trusted and required.
 - Flaky tests (P11): the worker cancellation tests in a non-parallel collection, the CLI monitor test made
   deterministic, no delay-based "nothing happened" assertions.
 
-**Acceptance criteria**: to be set at /start-sprint.
+**Acceptance criteria** (set at /start-sprint, 2026-10-29):
+- Readers of `session.json` never make a save fail: 200 saves while three threads read and list in a loop all land, and
+  a save waits for a reader that does not share delete. An unreadable current session (damaged, another format version)
+  fails with a next step and creates no new session; a missing one is replaced. `CurrentFolder` answers while an update
+  waits for `session.lock`.
+- A DAC found only next to a dump is refused with its path and SHA-256 until trusted; once trusted it is loaded from a
+  private copy checked against the hash (an integration test on a real dump with a planted DAC). The app asks and
+  remembers a yes; the CLI's `--trust-dac` trusts for one run and rejects anything but a SHA-256 (exit 64); a DAC
+  HeapScope's capture copied loads without asking.
+- Every published build holds `LICENSE`, `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md`, the .NET
+  runtime's and SkiaSharp's notices under `licenses/`, and no `msdia140.dll` or `KernelTraceControl.dll`; the package job
+  checks it.
+- CI runs the integration tier on Windows and keeps every job's TRX results; the test projects are found, not listed;
+  CI and the local gate share the test and fixture scripts.
+- The flaky tests named by the review pass ten runs in a row of their classes.
+
+**Decisions** (all decided autonomously, 2026-10-29, peer review sprint autonomy):
+1. Session reads share read, write and delete and retry for 1 s; the replace retries for 5 s. The update stays
+   synchronous (its callers already run it off the UI thread); only the gates are split. A document of another format
+   version counts as unreadable: this build never rewrites it.
+2. DAC trust is by SHA-256, not by path. Trusted folders (installed runtimes, `Symbols:DacFolder`, HeapScope's own
+   runtime) come first; the dump's folders last. A trusted DAC is loaded from a private copy under its hash. Trust lives
+   in Application (`trusted-dacs.json` beside the session library, like the bookmarks); every open request carries it
+   (protocol 20). HeapScope's capture trusts the DAC it copies from the target's own runtime, so its dumps open as before.
+   ADR-035 (amends ADR-017). The live session design the review asked for in 3.8 becomes ADR-036.
+3. The TraceEvent natives stay in development builds (product owner, 2026-10-24) and leave published builds; their
+   review moves with 3.7's supply chain work. SkiaSharp's bundled components are listed in THIRD-PARTY-NOTICES with the
+   Adobe DNG SDK attribution; the product owner is told about the DNG SDK License, the one license on the list that is
+   not an open source license.
+4. Package license files come from each package's own files (52 of 84 packages carry some); the others declare their
+   license in their metadata only and are covered by THIRD-PARTY-NOTICES.md. A build tool in C# (`dotnet run` on a file)
+   reads the restore's assets, so no other language is needed.
+5. CI runs the integration tier on every PR on Windows (measured: 294 tests in 163 s locally), not nightly. `gate.ps1`
+   is replaced by `gate.sh`, so one gate runs on every system and shares CI's scripts. Required checks are a repository
+   setting: the product owner applies it (the command is in the sprint's report).
+6. Flaky tests: `WorkerIpcTests` joins the non-parallel heavy collection; LeakyApi gets `POST /gc` and the monitor tests
+   force a collection after the leak grows (growth rules and the heap counter follow collections, and a server GC may not
+   run on its own within the wait). The delay in `MonitorServiceTests` asserts that a run is still waiting on a held
+   gate, which no timing can make pass wrongly; it stays.
 
 **Dependencies**: none.
 
-**Task breakdown**: to be filled by /start-sprint.
+**Task breakdown**:
+1. [x] Session documents (P1): `SessionDocumentFile` (read, create, save with retries), `SessionReadStatus`,
+   `SessionUnreadableException`; `SessionLibrary` uses it, `Current` refuses an unreadable session, separate gates;
+   capture's failure text. Tests: `SessionLibraryTests` (readers never make a save fail, a save waits for a reader
+   without delete sharing, an unreadable current session fails, the current folder answers during an update), five
+   repeated runs.
+2. [x] DAC trust (P2): `BesideDumpDirectories`, `UntrustedDacException`, `IsTrustedDac` and the private copy in the
+   loader; `DacNotTrusted` with `DacTrustDetails` (protocol 20); the worker's trusted set; `TrustedDacs` in
+   Application, capture trusting its copy, the open requests; the app's question; the CLI's `--trust-dac`. Tests:
+   `DacLocatorTests`, `LoaderKnownAnswerTests` (a planted DAC refused, then loaded from the copy), `TrustedDacsTests`,
+   `SnapshotsViewModelTests` (asked, refused, trusted and remembered), `CaptureTests` (a captured dump's DAC trusted).
+3. [x] Licenses in builds (P3): `collect-licenses.cs`, `check-package.sh`, `HeapScopePublish` leaving out the TraceEvent
+   natives, THIRD-PARTY-NOTICES. Tests: a win-x64 publish passes the check; the published CLI runs, pings its worker and
+   refuses a bad `--trust-dac` with 64.
+4. [x] CI (P4, S1, S2): `test.sh`, `fixture-dump.sh`, `gate.sh` (replacing `gate.ps1`), the workflow with the integration
+   tier and TRX artifacts. Tests: the fast tier through the script; CI on the PR.
+5. [x] Flaky tests (P11): heavy collection, `POST /gc`, the monitor tests. Tests: the classes ten times in a row.
+6. [ ] Docs: ARCHITECTURE (session protocol, ADR-035, ADR-012 amendment, section 12, code map, protocol 20), DEVELOPER,
+   THIRD-PARTY-NOTICES, this section.
 
 **Review summary**: to be filled by /wrap-sprint.
 
@@ -2908,7 +2964,7 @@ are verifiable.
 classes.
 
 **Scope** (peer review P5 to P12, P18 to P21, S5 to S9):
-- Live sources (P6): a spike and ADR-035 deciding where live allocation data runs; ADR-023 amended.
+- Live sources (P6): a spike and ADR-036 deciding where live allocation data runs; ADR-023 amended.
 - Worker contracts by area (P5, S6) with a feature availability list on the snapshot descriptor (P7), in one protocol
   bump; worker handlers per contract; one query helper and one reopen protocol in Application; per-area test fakes.
 - Front ends: one query runner for every view model load (P8); safe event raising (P9); the CLI's context, test project,

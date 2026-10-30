@@ -34,6 +34,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 //   Leaks:Detected         all | none | comma separated: the 2.6 and 3.5 detector leaks (Timer, DisposedReferenced, PendingAsync, FinalizerBacklog; default: none)
 //   Clean:Enabled          true to also run the clean workload on POST /work (sprint 2.6; default: false)
 //   ParentPid              exit when this process exits
+// POST /gc runs a full blocking GC (sprint 3.6).
 // Prints "READY pid=<pid> url=<first bound url>" when listening, so callers can use port 0.
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -73,6 +74,16 @@ app.MapPost("/work", () =>
         CleanWorkload.Run(itemsPerRequest, payloadBytes);
     }
 
+    return Results.Ok();
+});
+
+// A full blocking GC on request (sprint 3.6, peer review P11): growth rules compare the heap after a GC, and a server GC
+// may not collect for a while after the leak grows, so tests ask for one instead of waiting on the runtime.
+app.MapPost("/gc", () =>
+{
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
     return Results.Ok();
 });
 

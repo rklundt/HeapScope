@@ -299,6 +299,53 @@ public sealed class LoaderKnownAnswerTests(LoadedAllLeaksDump shared) : IClassFi
     }
 
     [Fact]
+    public void A_DAC_found_only_next_to_the_dump_is_loaded_only_once_trusted()
+    {
+        // Peer review P2: a DAC next to a dump came with the dump, so it is native code from whoever made the dump.
+        // The installed runtime's DAC, as a normal load picks it (the dump records the file version, not the folder name).
+        DacChoice? installed = null;
+        new ClrMdDumpLoader(new ClrMdLoaderOptions { DacChosen = c => installed = c }).Load(shared.Source.DumpPath, cancellationToken: TestContext.Current.CancellationToken).Graph.Dispose();
+        var runtime = Path.GetDirectoryName(installed?.Path);
+        Assert.SkipWhen(runtime is null, "The dumped runtime's DAC was not found on this machine.");
+        string[] names = OperatingSystem.IsWindows() ? ["mscordaccore.dll"]
+            : OperatingSystem.IsMacOS() ? ["libmscordaccore.dylib", "libcoreclr.dylib"]
+            : ["libmscordaccore.so", "libcoreclr.so"];
+        var dumpFolder = Path.GetDirectoryName(shared.Source.DumpPath)!;
+        var planted = names.Select(n => Path.Combine(dumpFolder, n)).ToArray();
+        using var noRuntimes = new TempFolder();
+        using var copies = new TempFolder();
+        Directory.CreateDirectory(noRuntimes.Path);
+        try
+        {
+            foreach (var name in names)
+            {
+                File.Copy(Path.Combine(runtime!, name), Path.Combine(dumpFolder, name), overwrite: true);
+            }
+
+            var untrusted = new ClrMdLoaderOptions { InstalledRuntimeRoots = [noRuntimes.Path], SearchDumpedRuntimeDirectory = false, OwnRuntimeDirectory = null };
+            var refused = Should.Throw<UntrustedDacException>(() => new ClrMdDumpLoader(untrusted).Load(shared.Source.DumpPath));
+            refused.Path.ShouldBe(planted[0]);
+            refused.Sha256.ShouldBe(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(planted[0]))));
+            refused.Message.ShouldContain($"--trust-dac {refused.Sha256}");
+
+            DacChoice? chosen = null;
+            var trusted = untrusted with { IsTrustedDac = s => s == refused.Sha256, TrustedDacCopyFolder = copies.Path, DacChosen = c => chosen = c };
+            var result = new ClrMdDumpLoader(trusted).Load(shared.Source.DumpPath, cancellationToken: TestContext.Current.CancellationToken);
+            result.Graph.ObjectCount.ShouldBe(Graph.ObjectCount);
+            result.Graph.Dispose();
+            chosen.ShouldNotBeNull().Path.ShouldBe(Path.Combine(copies.Path, refused.Sha256 ?? "", names[0]), "the private copy is loaded, not the file next to the dump");
+            chosen.Rule.ShouldContain($"trusted by SHA-256 {refused.Sha256}");
+        }
+        finally
+        {
+            foreach (var file in planted)
+            {
+                File.Delete(file);
+            }
+        }
+    }
+
+    [Fact]
     public void A_dump_from_another_machine_finds_the_installed_runtime_by_its_image()
     {
         // The runtime folder recorded in the dump is ignored; the installed runtime folders are searched by PE match.

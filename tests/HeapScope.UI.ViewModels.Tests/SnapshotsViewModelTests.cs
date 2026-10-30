@@ -25,6 +25,7 @@ using System.IO;
 using HeapScope.Application;
 using HeapScope.Application.Jobs;
 using HeapScope.Application.Snapshots;
+using HeapScope.Contracts;
 using HeapScope.UI.Services;
 using HeapScope.UI.ViewModels;
 
@@ -144,6 +145,37 @@ public sealed class SnapshotsViewModelTests : IDisposable
 
         _snapshots.Status.ShouldBe("Not a dump.");
         _snapshots.Snapshots.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_DAC_found_next_to_the_dump_is_loaded_only_after_the_user_trusts_it()
+    {
+        // Sprint 3.6, peer review P2: the app asks, naming the file and its hash, and remembers a yes by the hash.
+        var trusted = new TrustedDacs(_folder);
+        var snapshots = new SnapshotsViewModel(new SnapshotSession(_worker, _operations.Jobs, () => _memory, trustedDacs: trusted), _operations, new ImmediateUiDispatcher(), _interaction);
+        var dac = new DacTrustDetails(Path.Combine(_folder, "mscordaccore.dll"), new string('a', 64), "10.0.13");
+        _worker.Service.RequiredDac = dac;
+        var dump = Dump("received.dmp", 10);
+
+        _interaction.Answer = false;
+        await snapshots.OpenPathAsync(dump);
+        _interaction.Questions.ShouldHaveSingleItem().ShouldContain(dac.Sha256);
+        _interaction.Questions[0].ShouldContain(dac.Path);
+        snapshots.Snapshots.ShouldBeEmpty();
+        snapshots.Status!.ShouldContain(dac.Sha256);
+        trusted.All().ShouldBeEmpty("a no is not remembered");
+
+        _interaction.Answer = true;
+        await snapshots.OpenPathAsync(dump);
+        snapshots.Snapshots.ShouldHaveSingleItem();
+        trusted.Kept().ShouldHaveSingleItem().ShouldSatisfyAllConditions(
+            d => d.Sha256.ShouldBe(dac.Sha256),
+            d => d.Path.ShouldBe(dac.Path),
+            d => d.Reason.ShouldContain(dump));
+        _worker.Service.Opened.ShouldHaveSingleItem().TrustedDacs.ShouldBe([dac.Sha256]);
+
+        // Kept across runs: a new session sends it with every open without asking.
+        new TrustedDacs(_folder).All().ShouldBe([dac.Sha256]);
     }
 
     [Fact]

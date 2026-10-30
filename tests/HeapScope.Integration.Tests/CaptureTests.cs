@@ -124,11 +124,21 @@ public sealed class CaptureTests(RunningApi shared) : IClassFixture<RunningApi>,
     [Fact]
     public async Task A_captured_dump_opens_with_the_loader_from_its_session_folder_alone()
     {
-        var result = await Service().StartCapture(shared.Api.ProcessId).Result;
+        var trusted = new HeapScope.Application.Snapshots.TrustedDacs(_root.Path);
+        var service = new CaptureService(new ProcessDiscovery(), new DumpCapturer(), new SessionLibrary(_root.Path), new JobTracker(TimeProvider.System), trustedDacs: trusted);
+        var result = await service.StartCapture(shared.Api.ProcessId).Result;
 
         // Only the dump's own folder (where the DAC was copied) may be searched: the dump stays readable after the
-        // runtime on this machine changes.
-        var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [], SearchDumpedRuntimeDirectory = false };
+        // runtime on this machine changes. The capture trusted the DAC it copied (sprint 3.6), so it loads without asking.
+        var copied = trusted.Kept().ShouldHaveSingleItem();
+        copied.Path.ShouldStartWith(Path.GetDirectoryName(result.Path)!);
+        var options = new ClrMdLoaderOptions
+        {
+            InstalledRuntimeRoots = [],
+            SearchDumpedRuntimeDirectory = false,
+            IsTrustedDac = trusted.All().Contains,
+            TrustedDacCopyFolder = Path.Combine(_root.Path, "dac-copies"),
+        };
         var loaded = new ClrMdDumpLoader(options).Load(result.Path, cancellationToken: Ct);
 
         loaded.Graph.ObjectCount.ShouldBeGreaterThan(1000);

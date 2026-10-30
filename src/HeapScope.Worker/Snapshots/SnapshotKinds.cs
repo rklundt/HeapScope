@@ -21,6 +21,7 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Collections.Concurrent;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
 using HeapScope.Core.Loading;
@@ -64,12 +65,33 @@ internal abstract class SnapshotKindHandler
 
 /// <summary>The handlers of every kind, chosen by kind or by a file's first bytes.</summary>
 /// <param name="dacChosen">Told which DAC each full dump's runtime was created with (sprint 2.3.7).</param>
-internal sealed class SnapshotKinds(WorkerOptions options, Action<DacChoice>? dacChosen = null)
+internal sealed class SnapshotKinds
 {
     // For what does not depend on the worker's options (texts, name forms, versions): explanations and diffs.
     private static readonly SnapshotKinds s_descriptions = new(new WorkerOptions(string.Empty, null));
 
-    private readonly SnapshotKindHandler[] _handlers = [new FullDumpKind(options, dacChosen), new GcDumpKind()];
+    // DACs the user trusts to load from next to a dump, by SHA-256, as open requests named them (sprint 3.6, peer review
+    // P2). Kept for the worker's lifetime: the field reader opens the dump again later with the same trust.
+    private readonly ConcurrentDictionary<string, byte> _trustedDacs = new(StringComparer.Ordinal);
+
+    private readonly SnapshotKindHandler[] _handlers;
+
+    public SnapshotKinds(WorkerOptions options, Action<DacChoice>? dacChosen = null)
+    {
+        _handlers = [new FullDumpKind(options, dacChosen, _trustedDacs), new GcDumpKind()];
+    }
+
+    /// <summary>Adds the DACs an open request trusts.</summary>
+    public void Trust(IReadOnlyList<string>? sha256s)
+    {
+        foreach (var sha256 in sha256s ?? [])
+        {
+            if (sha256 is { Length: 64 } && sha256.All(char.IsAsciiHexDigitLower))
+            {
+                _trustedDacs.TryAdd(sha256, 0);
+            }
+        }
+    }
 
     /// <summary>The handler of <paramref name="kind"/> for texts, name forms and versions (not for loading).</summary>
     public static SnapshotKindHandler Describe(SnapshotKind kind) => s_descriptions.For(kind);
@@ -82,7 +104,7 @@ internal sealed class SnapshotKinds(WorkerOptions options, Action<DacChoice>? da
     public SnapshotKindHandler ForFile(string path) =>
         SnapshotFileSignature.Detect(path) is { } kind ? For(kind) : throw new SnapshotFormatException(SnapshotFileSignature.DescribeUnknown(path));
 
-    private sealed class FullDumpKind(WorkerOptions options, Action<DacChoice>? dacChosen) : SnapshotKindHandler
+    private sealed class FullDumpKind(WorkerOptions options, Action<DacChoice>? dacChosen, ConcurrentDictionary<string, byte> trustedDacs) : SnapshotKindHandler
     {
         public override SnapshotKind Kind => SnapshotKind.FullDump;
 
@@ -120,6 +142,7 @@ internal sealed class SnapshotKinds(WorkerOptions options, Action<DacChoice>? da
             DacFolder = options.DacFolder,
             AllowMicrosoftSymbolServer = options.AllowMicrosoftSymbolServer,
             DacChosen = dacChosen,
+            IsTrustedDac = trustedDacs.ContainsKey,
         };
     }
 

@@ -154,17 +154,17 @@ public sealed record SessionSummary(string Folder, string Name, DateTimeOffset C
 /// </summary>
 public sealed class SessionLibrary
 {
-    public const string DocumentName = "session.json";
+    public const string DocumentName = SessionDocumentFile.DocumentName;
     public const string LockName = "session.lock";
 
-    private static readonly JsonSerializerOptions s_json = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-    };
-
     private readonly TimeProvider _time;
+
+    // _gate guards _currentFolder only and is never held across file work, so CurrentFolder and HasCurrent stay cheap on
+    // the UI thread (peer review P1). _currentWork serializes reading or creating the current session; _writeGate
+    // serializes this library's updates before they take the cross-process lock.
     private readonly object _gate = new();
+    private readonly object _currentWork = new();
+    private readonly object _writeGate = new();
     private string? _currentFolder;
 
     // Sessions something writes into (a capture, a monitoring run) and sessions being deleted (sprint 3.4 review H1):
@@ -188,20 +188,37 @@ public sealed class SessionLibrary
 
     public string Root { get; }
 
-    /// <summary>The session of this run, created on first use.</summary>
+    /// <summary>
+    /// The session of this run, created on first use or when its folder or document is gone. A current session whose
+    /// document exists but cannot be read fails with <see cref="SessionUnreadableException"/> instead of moving the next
+    /// captures into a new session (peer review P1).
+    /// </summary>
     public Session Current
     {
         get
         {
-            lock (_gate)
+            lock (_currentWork)
             {
-                if (_currentFolder is not null && TryRead(_currentFolder) is { } current)
+                if (CurrentFolder is { } folder)
                 {
-                    return current;
+                    var read = SessionDocumentFile.Read(folder);
+                    if (read.Status == SessionReadStatus.Read)
+                    {
+                        return read.Session!;
+                    }
+
+                    if (read.Status == SessionReadStatus.Unreadable)
+                    {
+                        throw new SessionUnreadableException($"The current session {folder} cannot be used: {read.Reason}. Close other programs that hold it, or open or create another session.");
+                    }
                 }
 
                 var created = CreateSession(null);
-                _currentFolder = created.Folder;
+                lock (_gate)
+                {
+                    _currentFolder = created.Folder;
+                }
+
                 return created;
             }
         }
@@ -236,12 +253,7 @@ public sealed class SessionLibrary
             PrivateFiles.CreateDirectory(folder);
             try
             {
-                using (var stream = PrivateFiles.Open(Path.Combine(folder, DocumentName), FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                {
-                    JsonSerializer.Serialize(stream, document, s_json);
-                    stream.Flush(flushToDisk: true);
-                }
-
+                SessionDocumentFile.CreateNew(folder, document);
                 return new Session(folder, document);
             }
             catch (IOException) when (File.Exists(Path.Combine(folder, DocumentName)) && n < 1000)
@@ -696,27 +708,10 @@ public sealed class SessionLibrary
     }
 
     /// <summary>Reads a session folder; null when it has no readable, well-formed <c>session.json</c>.</summary>
-    public static Session? TryRead(string folder)
-    {
-        try
-        {
-            var path = Path.Combine(folder, DocumentName);
-            if (!File.Exists(path))
-            {
-                return null;
-            }
+    public static Session? TryRead(string folder) => SessionDocumentFile.Read(folder).Session;
 
-            var document = JsonSerializer.Deserialize<SessionDocument>(File.ReadAllBytes(path), s_json);
-            return document is { FormatVersion: SessionDocument.CurrentFormatVersion, Name: not null, Snapshots: not null }
-                && document.Snapshots.All(s => s is { File.Length: > 0 })
-                ? new Session(folder, document)
-                : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
-        {
-            return null;
-        }
-    }
+    /// <summary>Reads a session folder and says why it could not be read.</summary>
+    public static SessionRead Read(string folder) => SessionDocumentFile.Read(folder);
 
     /// <summary>Sessions, most recently opened first, with their size on disk.</summary>
     public IReadOnlyList<SessionSummary> ListRecent(int max = 20)
@@ -742,12 +737,17 @@ public sealed class SessionLibrary
     /// <summary>Read-modify-write of a session's document under the in-process gate and the cross-process lock file.</summary>
     private Session Update(string folder, Func<SessionDocument, SessionDocument> change)
     {
-        lock (_gate)
+        lock (_writeGate)
         {
             using var fileLock = AcquireLock(folder);
-            var current = TryRead(folder) ?? throw new IOException($"{folder} is not a readable HeapScope session.");
-            var updated = new Session(folder, change(current.Document));
-            Save(updated);
+            var read = SessionDocumentFile.Read(folder);
+            if (read.Status != SessionReadStatus.Read)
+            {
+                throw new SessionUnreadableException($"{folder} is not a readable HeapScope session: {read.Reason ?? "it has no session.json"}.");
+            }
+
+            var updated = new Session(folder, change(read.Session!.Document));
+            SessionDocumentFile.Save(updated);
             return updated;
         }
     }
@@ -772,19 +772,6 @@ public sealed class SessionLibrary
                 Thread.Sleep(25);
             }
         }
-    }
-
-    private static void Save(Session session)
-    {
-        var path = Path.Combine(session.Folder, DocumentName);
-        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
-        using (var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-        {
-            JsonSerializer.Serialize(stream, session.Document, s_json);
-            stream.Flush(flushToDisk: true);
-        }
-
-        File.Move(temp, path, overwrite: true);
     }
 
     private static long FolderSize(string folder)
