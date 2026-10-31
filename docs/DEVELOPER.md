@@ -475,19 +475,24 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   them and on demand, on GitHub's hosted runners. Tests run through `build/test.sh` and the fixture dump through
   `build/fixture-dump.sh`, the scripts the local gate uses; every job keeps its TRX results 14 days
   (`test-results-<system>`), which is where a test that fails now and then shows up:
-  - Windows builds the solution, runs the fast and the integration tiers (about three minutes; since 3.6), captures the
-    LeakyConsole fixture with the CLI and checks the known answers (`build/check-known-answers.sh`).
+  - Windows builds the solution, runs the fast and the integration tiers (since 3.6), captures the LeakyConsole fixture
+    with the CLI and checks the known answers (`build/check-known-answers.sh`). Since 2026-10-31 a second Windows job
+    runs the heavy collection (classes with the `Run=Heavy` trait: gigabyte heaps and dumps, the Ctrl+C capture, run one
+    at a time) beside it (`test.sh integration-heavy`; the first job runs `integration-light`), which halves the wait
+    for a PR. The local gate still runs the whole `integration` tier.
   - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests (the view model and headless UI
     tests included), dumps the fixture with `dotnet-dump` (pinned), checks the CLI's JSON against the known answers with
     `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named runtime version) and opens the dump in
     the app without a display (`--headless --smoke-open`).
   - No macOS runners since 2026-10-31 (owner: their minutes cost about ten times Linux's). Until then a macOS job did
     what Linux does, informational (an arm64 runner; ADR-025). Nothing in CI tests on macOS now.
-  - After both pass, a package job publishes the self-contained builds per runtime identifier (`build/publish.sh`, with
-    the license files checked by `build/check-package.sh`), packs each as a tarball (which keeps the executables' modes),
-    unpacks it, checks it again and runs it as a user would (the CLI's version, a worker ping, the worker's Server GC
-    setting, a headless synthetic smoke; `osx-arm64` and `osx-x64` are built on Linux and not run) and, on pushes and manual
-    runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
+  - Beside the tests (since 2026-10-31; before, after them), a package job publishes the self-contained builds per
+    runtime identifier (`build/publish.sh`, with the license files checked by `build/check-package.sh`), packs each as a
+    tarball (which keeps the executables' modes), unpacks it, checks it again and runs it as a user would (the CLI's
+    version, a worker ping, the worker's Server GC setting, a headless synthetic smoke; `osx-arm64` and `osx-x64` are
+    built on Linux and not run) and, on pushes and manual runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
+    Pushes to `develop` and `main` come from PRs whose required checks passed; a manual run uploads its builds whatever
+    its tests do.
   The local gate runs the same tiers. Fixture dumps are never uploaded. Making the CI jobs
   required checks on `develop` and `main` is a repository setting the owner applies.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on

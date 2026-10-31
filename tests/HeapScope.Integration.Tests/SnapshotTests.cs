@@ -61,6 +61,7 @@ public sealed class StaticCacheDump : IAsyncLifetime
 /// two-core runners.
 /// </summary>
 [Trait("Category", "Integration")]
+[Trait("Run", "Heavy")]
 [Collection(nameof(HeavyTestsCollection))]
 public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDisposable
 {

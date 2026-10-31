@@ -1,10 +1,10 @@
 # HeapScope CI (sprints 2.3.5, 2.3.6 and 3.6):
 # - Windows builds everything, runs the fast and the integration tests, captures the LeakyConsole fixture with the CLI and
-#   checks the known answers.
+#   checks the known answers. The heavy integration tests run in a second Windows job beside it.
 # - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests, takes a core dump of the fixture
 #   with dotnet-dump, checks the CLI's known answers and opens the dump in the app without a display.
-# - Packages: self-contained builds per runtime identifier with their license files (checked), uploaded as artifacts on
-#   pushes and manual runs.
+# - Packages: self-contained builds per runtime identifier with their license files (checked), built beside the tests and
+#   uploaded as artifacts on pushes and manual runs.
 # - No macOS runners (owner, 2026-10-31: their minutes cost about ten times Linux's). The macOS packages are built on
 #   Linux and not run; nothing here tests on macOS.
 # Tests run through build/test.sh and the fixture dump through build/fixture-dump.sh, as in the local gate (build/gate.sh).
@@ -57,11 +57,12 @@ jobs:
         shell: bash
         run: bash build/test.sh fast Release "$RUNNER_TEMP/test-results"
       - name: Integration tests
-        # Sprint 3.6 (peer review P4): real captures, dumps, workers and the CLI, about three minutes.
+        # Sprint 3.6 (peer review P4): real captures, dumps, workers and the CLI. The heavy collection runs in its own
+        # job beside this one (2026-10-31, so a PR waits about half as long).
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 20
         shell: bash
-        run: bash build/test.sh integration Release "$RUNNER_TEMP/test-results"
+        run: bash build/test.sh integration-light Release "$RUNNER_TEMP/test-results"
       - name: Capture the fixture with the CLI and check the known answers
         # Sprint 2.3.6 (2.3.5 review M3): the Windows DAC path and capture, checked by CI too.
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -77,6 +78,36 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-results-windows
+          path: |
+            ${{ runner.temp }}/test-results
+            ${{ github.workspace }}/artifacts/heapscope-logs
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows-heavy:
+    # The integration tests that load the machine heavily (gigabyte heaps and dumps, the Ctrl+C capture), which run one
+    # at a time: about three minutes on their own, so they run beside the Windows job instead of after its tests.
+    name: Windows heavy integration tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build HeapScope.sln -c Release
+      - name: Heavy integration tests
+        timeout-minutes: 20
+        shell: bash
+        run: bash build/test.sh integration-heavy Release "$RUNNER_TEMP/test-results"
+      - name: Keep the test results and HeapScope's logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-windows-heavy
           path: |
             ${{ runner.temp }}/test-results
             ${{ github.workspace }}/artifacts/heapscope-logs
@@ -141,8 +172,8 @@ jobs:
 
   package:
     name: Package ${{ matrix.rid }}
-    # Builds of a red commit are never uploaded.
-    needs: [windows, unix]
+    # Runs beside the tests rather than after them (2026-10-31: three minutes off every run). Pushes to develop and main
+    # come from PRs whose required checks passed; a manual run uploads its builds whatever its tests do.
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:

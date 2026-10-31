@@ -283,13 +283,16 @@ public sealed class CaptureTests(RunningApi shared) : IClassFixture<RunningApi>,
     }
 }
 
-/// <summary>Tests that load the machine heavily (gigabyte heaps and dumps) run alone, so they cannot slow others into timeouts.</summary>
+/// <summary>Tests that load the machine heavily (gigabyte heaps and dumps) run alone, so they cannot slow others into timeouts.
+/// Each class in it also carries the Run=Heavy trait, which CI uses to run them in a job of their own
+/// (build/test.sh checks that every class has it).</summary>
 [CollectionDefinition(nameof(HeavyTestsCollection), DisableParallelization = true)]
 public sealed class HeavyTestsCollection;
 
 /// <summary>Ctrl+C during a real, multi-second capture (sprint 1.1 review H1).</summary>
 [Trait("Category", "Integration")]
 [Trait("Category", "Slow")]
+[Trait("Run", "Heavy")]
 [Collection(nameof(HeavyTestsCollection))]
 public sealed class CliCancelTests : IDisposable
 {

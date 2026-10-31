@@ -26,11 +26,14 @@
 #   fast         every test project that runs on this system but the Integration project, without the Integration and
 #                Slow traits; a project left with no tests fails (peer review S1: nothing may stop running silently)
 #   integration  the Integration project (Windows: it targets net10.0-windows; it captures and loads real dumps)
+#   integration-light, integration-heavy
+#                the Integration project split in two for CI's parallel Windows jobs (2026-10-31): the heavy
+#                collection (classes with the Run=Heavy trait, run one at a time) and everything else
 # Test projects are found, not listed, so a new one is never left out; the Integration and Slow traits belong in the
 # Integration project only, which this script checks. Results go to <results>/<tier> as TRX files.
-# Usage: test.sh <fast|integration> [Release|Debug] [results folder]
+# Usage: test.sh <fast|integration|integration-light|integration-heavy> [Release|Debug] [results folder]
 set -uo pipefail
-[ $# -ge 1 ] || { echo "Usage: test.sh <fast|integration> [Release|Debug] [results folder]" >&2; exit 64; }
+[ $# -ge 1 ] || { echo "Usage: test.sh <fast|integration|integration-light|integration-heavy> [Release|Debug] [results folder]" >&2; exit 64; }
 tier="$1"
 configuration="${2:-Release}"
 results="${3:-artifacts/test-results}/$tier"
@@ -47,6 +50,14 @@ misplaced=$(grep -rlE 'Trait\("Category", "(Integration|Slow)"\)' tests --includ
 if [ -n "$misplaced" ]; then
   echo "Integration and Slow tests belong in tests/HeapScope.Integration.Tests; found in:"
   echo "$misplaced"
+  exit 1
+fi
+
+# Every class in the heavy collection carries the Run=Heavy trait, or the split would run it beside the others.
+heavy_classes=$(grep -rh 'Collection(nameof(HeavyTestsCollection))' tests/HeapScope.Integration.Tests --include='*.cs' | wc -l)
+heavy_traits=$(grep -rh 'Trait("Run", "Heavy")' tests/HeapScope.Integration.Tests --include='*.cs' | wc -l)
+if [ "$heavy_classes" -ne "$heavy_traits" ]; then
+  echo "HeavyTestsCollection has $heavy_classes classes but $heavy_traits Run=Heavy traits; give each class both."
   exit 1
 fi
 
@@ -74,6 +85,12 @@ case "$tier" in
   integration)
     [ "$windows" = true ] || { echo "The integration tier runs on Windows (its project targets net10.0-windows)."; exit 0; }
     dotnet test --project "$integration" -c "$configuration" "${report[@]}" \
+      || failed="$failed HeapScope.Integration.Tests"
+    ;;
+  integration-light|integration-heavy)
+    [ "$windows" = true ] || { echo "The integration tier runs on Windows (its project targets net10.0-windows)."; exit 0; }
+    filter=--filter-not-trait; [ "$tier" = integration-heavy ] && filter=--filter-trait
+    dotnet test --project "$integration" -c "$configuration" "${report[@]}" "$filter" "Run=Heavy" \
       || failed="$failed HeapScope.Integration.Tests"
     ;;
   *)
