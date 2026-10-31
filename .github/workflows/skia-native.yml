@@ -31,8 +31,10 @@ jobs:
       run:
         shell: bash
     steps:
+      # HeapScope beside SkiaSharp, not around it: HeapScope's nuget.config would apply to SkiaSharp's tool restore.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          path: heapscope
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -68,7 +70,7 @@ jobs:
           mkdir dist
           cp skiasharp/output/native/windows/x64/libSkiaSharp.dll dist/libSkiaSharp.win-x64.dll
           cp skiasharp/output/native/windows/x64/libSkiaSharp.pdb dist/libSkiaSharp.win-x64.pdb
-          bash build/check-no-dng.sh dist/*
+          bash heapscope/build/check-no-dng.sh dist/*
           ls -l dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -82,8 +84,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
+      # HeapScope beside SkiaSharp, not around it: HeapScope's nuget.config would apply to SkiaSharp's tool restore.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          path: heapscope
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -116,7 +120,7 @@ jobs:
         run: |
           mkdir dist
           cp skiasharp/output/native/linux/x64/libSkiaSharp.so dist/libSkiaSharp.linux-x64.so
-          bash build/check-no-dng.sh dist/*
+          bash heapscope/build/check-no-dng.sh dist/*
           ls -l dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -130,8 +134,10 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 150
     steps:
+      # HeapScope beside SkiaSharp, not around it: HeapScope's nuget.config would apply to SkiaSharp's tool restore.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          path: heapscope
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -165,7 +171,7 @@ jobs:
           mkdir dist
           cp skiasharp/output/native/osx/libSkiaSharp.dylib dist/libSkiaSharp.osx.dylib
           lipo -info dist/libSkiaSharp.osx.dylib
-          bash build/check-no-dng.sh dist/*
+          bash heapscope/build/check-no-dng.sh dist/*
           ls -l dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
