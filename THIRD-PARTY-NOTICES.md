@@ -26,14 +26,14 @@ under the MIT License, whose text is below.
 
 | Package | Version | Copyright |
 |---|---|---|
-| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol, Avalonia.Fonts.Inter) | 12.1.4 | The AvaloniaUI Project (Avalonia.Fonts.Inter, a dependency of Avalonia.Headless, embeds the Inter typeface under the SIL Open Font License 1.1; it is used by the tests only and kept out of the app's build output) |
+| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol) | 12.1.4 | The AvaloniaUI Project |
 | Avalonia.Controls.DataGrid | 12.1.2 | The AvaloniaUI Project |
 | Azure.Core (via ClrMD) | 1.53.0 | Microsoft Corporation |
 | Azure.Identity (via ClrMD) | 1.21.0 | Microsoft Corporation |
 | CommunityToolkit.Mvvm | 8.4.2 | .NET Foundation and Contributors |
 | MessagePack, MessagePack.Annotations (via StreamJsonRpc) | 2.5.307 | Yoshifumi Kawai and contributors |
 | Microsoft.Bcl.AsyncInterfaces | 10.0.3 | Microsoft Corporation |
-| Microsoft.Diagnostics.NETCore.Client | 0.2.750501 (0.2.661903 via TraceEvent) | Microsoft Corporation |
+| Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | Microsoft Corporation |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | Microsoft Corporation |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | Microsoft Corporation (see the note on native binaries below) |
 | Microsoft.Extensions.* (Hosting, Configuration, DependencyInjection, Logging, Options, Primitives, FileProviders, FileSystemGlobbing, Diagnostics) | 10.0.14 | Microsoft Corporation |
@@ -93,8 +93,8 @@ turned off, and `build/check-package.sh` refuses a build that contains their cod
 unchanged, still names them.
 
 Three of the components named there carry a GNU license or a GNU option. None of them puts HeapScope or its builds
-under the GPL or the LGPL (checked in the SkiaSharp 3.119.4 and HarfBuzzSharp 8.3.1.3 native libraries for Windows,
-Linux and macOS, 2026-10-30):
+under the GPL or the LGPL (checked in the SkiaSharp 3.119.4 and HarfBuzzSharp 8.3.1.3 native libraries for
+Windows, Linux and macOS, 2026-10-30; HeapScope's own libSkiaSharp differs only in the two raw decoder switches):
 - libmicrohttpd (LGPL-2.1, or the eCos License): an HTTP server that Skia uses in its developer tools only. It is not
   in the shipped native libraries.
 - gif (Mozilla's GIF decoder, under MPL 1.1, GPL 2.0 or LGPL 2.1 at the recipient's choice): Skia's former GIF decoder.
@@ -121,6 +121,7 @@ tracing and symbol lookup. Nothing in HeapScope calls them, and since sprint 3.6
 | Shouldly | 4.3.0 | BSD-3-Clause | Jake Ginnivan, Joseph Woodward, Simon Cropp and contributors |
 | Microsoft.CodeAnalysis.CSharp (DenseHeap fixture) | 5.0.0 | MIT | Microsoft Corporation |
 | Avalonia.BuildServices (build time, via Avalonia; its telemetry task is disabled by `Directory.Build.targets`) | 11.3.2 | MIT | The AvaloniaUI Project |
+| Avalonia.Fonts.Inter (via Avalonia.Headless; excluded from the app's output, the tests only) | 12.1.4 | SIL OFL 1.1 (the Inter typeface) | The AvaloniaUI Project |
 
 ## MIT License
 

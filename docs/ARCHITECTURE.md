@@ -1,18 +1,15 @@
 # HeapScope Architecture
 
-Status: living document. Every sprint updates it to match what was actually built. Sections marked
-"(planned)" describe designs whose code does not exist yet.
+Status: living document. Every sprint updates it to match what was actually built.
 
 ## 1. Purpose, scope, non-goals
 
-**Purpose.** HeapScope is a desktop memory profiler for modern .NET applications, on Windows today and on Linux and
-macOS
-after the Avalonia port (ADR-025; the engine, worker and CLI already run there). It replaces the
-core of JetBrains dotMemory for one primary workflow: a memory leak is suspected in an ASP.NET Core API, the
-developer runs the API locally, replays representative traffic, takes snapshots over time, and uses HeapScope
-to find what is growing and why it is retained.
+**Purpose.** HeapScope is a desktop memory profiler for .NET applications (.NET 5 and later, ADR-002) on Windows,
+Linux and macOS (ADR-025; capture is Windows only). It replaces the core of JetBrains dotMemory for one primary
+workflow: a memory leak is suspected in an ASP.NET Core API, the developer runs the API locally, replays representative
+traffic, takes snapshots over time, and uses HeapScope to find what is growing and why it is retained.
 
-**In scope (1.x and 2.x).**
+**In scope.**
 - Discovering local .NET processes and capturing full dumps and gcdumps.
 - Loading snapshots into a compact in-memory object graph, cached on disk for fast reopen.
 - Type summaries, snapshot diffs, object inspection, simple inspections (duplicate strings, LOH, collections).
@@ -122,8 +119,8 @@ Capture and sessions (sprint 1.1):
 ```
 HeapScope.sln
 build/                         Shared MSBuild targets (worker deployment next to UI and CLI); the gate, test, fixture
-dump,
-                               publish, license and package scripts shared by CI and the local gate (sprint 3.6)
+                               dump, publish, license, package and SkiaSharp native scripts shared by CI and the local
+                               gate (sprint 3.6, ADR-038)
 src/
   HeapScope.Core               Domain model: snapshot abstraction, capability model, compact graph,
                                type table, root model, string table. No dependencies at all.
@@ -143,7 +140,8 @@ src/
                                views, controls, smoke runs. Executable HeapScope.
   HeapScope.Cli                Command line front end.
 tests/
-  Shared/                      Helpers compiled into every test project (the repository root finder, sprint 1.9)
+  Shared/                      Helpers compiled into every test project (the repository root finder, sprint 1.9; the
+                               per-test data folder, sprint 3.8)
   HeapScope.Core.Tests
   HeapScope.Analysis.Tests     Synthetic graphs with known answers.
   HeapScope.Storage.Tests
@@ -156,12 +154,15 @@ tests/
   HeapScope.UI.Tests           The app's views on Avalonia's headless platform: every page, the grids over 1.5 million
                                rows, the attribution markup and the themes (sprint 2.3.6).
   HeapScope.Architecture.Tests Enforces the dependency rules below.
-  HeapScope.Integration.Tests  Real worker processes, fixtures, real dumps, known answers (ClrMD and the loader).
-                               References Loaders.ClrMd and Storage to test them in process.
+  HeapScope.Integration.Tests  Real worker processes, fixtures, real dumps, known answers. References Storage,
+                               Analysis and the three loaders to test them in process, and runs the built CLI and app.
 perf/
   HeapScope.Benchmarks         Console benchmarks against the budgets (synthetic 50M-object graph etc.).
 .github/workflows/ci.yml       CI on GitHub's runners: Windows and Linux, and the builds per system (sprints 2.3.5,
 2.3.6; no macOS runners since 2026-10-31).
+.github/workflows/fuzz.yml     Nightly mutation tests with more iterations (sprint 3.7).
+.github/workflows/release.yml  Release builds per runtime identifier, SBOM, checksums and attestations (sprint 3.7).
+.github/workflows/skia-native.yml SkiaSharp's native library built without the DNG SDK and piex (ADR-038).
 fixtures/
   Leaks                        Shared leak implementations and semantic fixtures (namespace Fixtures.Leaks).
   LeakyApi                     ASP.NET Core API with switchable, scalable leaks.
@@ -225,15 +226,16 @@ flowchart TD
 | Loaders.GcDump | Core, ThirdParty.GcDump | Microsoft.Diagnostics.Tracing.TraceEvent |
 | Loaders.Trace | Core | Microsoft.Diagnostics.Tracing.TraceEvent (sprint 2.5) |
 | ThirdParty.GcDump | nothing | Microsoft.Diagnostics.NETCore.Client, TraceEvent (vendored code, sprint 1.8) |
-| Contracts | nothing (ADR-016) | StreamJsonRpc attributes only (no transport code) |
+| Contracts | nothing (ADR-016) | StreamJsonRpc allowed for attributes; none referenced today |
 | Worker | Core, Contracts, Analysis, Storage, Loaders.* | StreamJsonRpc |
 | Application | Core, Contracts, Capture | StreamJsonRpc |
 | Cli | Application, Contracts | System.CommandLine |
 | UI.ViewModels | Application, Contracts | CommunityToolkit.Mvvm |
-| UI | Application, Contracts, UI.ViewModels | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Controls.DataGrid, Avalonia.Headless, CommunityToolkit.Mvvm (MIT only, ADR-025) |
+| UI | Application, Contracts, UI.ViewModels | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Controls.DataGrid, Avalonia.Headless, Avalonia.Fonts.Inter (assets excluded), CommunityToolkit.Mvvm (MIT only, ADR-025) |
 
 Rules:
 - Core references nothing, not even Microsoft.Extensions.*. It is pure domain types and data structures.
+  ThirdParty.GcDump references no Microsoft.Extensions.* either.
 - UI and UI.ViewModels never reference Loaders, Analysis, Storage, Capture, Worker or any diagnostics library directly
   (diagnostics libraries do load into the UI process, through Capture via Application). UI.ViewModels references no
   UI toolkit, so its tests run on every system.
@@ -315,58 +317,19 @@ files, session paths, the supply chain and releases. Full text:
 
 ## 13. Architecture Decision Records
 
-One file per ADR in [adr/](adr/README.md):
-
-- [ADR-001](adr/ADR-001-platform-net-10-wpf-windows-x64.md) Platform: .NET 10, WPF, Windows x64
-- [ADR-002](adr/ADR-002-target-processes-modern-net-only.md) Target processes: modern .NET only
-- [ADR-003](adr/ADR-003-snapshot-types-full-dumps-and-gcdumps-behind-one-abstraction.md) Snapshot types: full dumps and gcdumps behind one abstraction
-- [ADR-004](adr/ADR-004-scale-target-medium.md) Scale target: Medium (amended 2026-10-22)
-- [ADR-005](adr/ADR-005-compact-struct-of-arrays-object-graph.md) Compact, struct-of-arrays object graph
-- [ADR-006](adr/ADR-006-on-disk-index-cache.md) On-disk index cache
-- [ADR-007](adr/ADR-007-out-of-process-worker.md) Out-of-process worker
-- [ADR-008](adr/ADR-008-headless-core-and-cli.md) Headless core and CLI
-- [ADR-009](adr/ADR-009-application-stack.md) Application stack
-- [ADR-010](adr/ADR-010-diagnostics-libraries.md) Diagnostics libraries
-- [ADR-011](adr/ADR-011-build-hygiene.md) Build hygiene
-- [ADR-012](adr/ADR-012-git.md) Git
-- [ADR-013](adr/ADR-013-leaky-fixtures-as-source-of-truth.md) Leaky fixtures as source of truth
-- [ADR-014](adr/ADR-014-elevation.md) Elevation
-- [ADR-015](adr/ADR-015-adaptive-memory-modes.md) Adaptive memory modes (added 2026-10-22, follows from the ADR-004 amendment)
-- [ADR-016](adr/ADR-016-contracts-owns-the-wire-vocabulary.md) Contracts owns the wire vocabulary (added in sprint 0.1)
-- [ADR-017](adr/ADR-017-no-network-access-for-symbols-or-dac-by-default.md) No network access for symbols or DAC by default (added in sprint 0.1)
-- [ADR-018](adr/ADR-018-diffs-compare-per-type-totals-no-object-identity-across-dump.md) Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4; amended by ADR-032)
-- [ADR-019](adr/ADR-019-the-ui-process-is-never-power-throttled.md) The UI process is never power-throttled (added in sprint 1.5)
-- [ADR-020](adr/ADR-020-inspections-are-analysis-plugins-with-declared-capabilities.md) Inspections are Analysis plugins with declared capabilities (added in sprint 1.6)
-- [ADR-021](adr/ADR-021-live-monitoring-reads-eventcounters-in-the-front-end-s-proce.md) Live monitoring reads EventCounters in the front end's process (added in sprint 1.7)
-- [ADR-022](adr/ADR-022-license-agplv3-only-with-additional-terms-attribution-on-the.md) License: AGPLv3 only with additional terms, attribution on the main screen (added before sprint 1.8)
-- [ADR-023](adr/ADR-023-gcdump-capture-moves-to-the-worker.md) gcdump capture moves to the worker (added in sprint 1.9, amended by ADR-037:
-  it stays in the front end)
-- [ADR-024](adr/ADR-024-retention-semantics-shared-by-paths-and-dominators.md) Retention semantics shared by paths and dominators (added in sprint 2.3)
-- [ADR-025](adr/ADR-025-ui-platform-avalonia-on-windows-linux-and-macos.md) UI platform: Avalonia on Windows, Linux and macOS (added in sprint 2.3.5, amends ADR-001)
-- [ADR-026](adr/ADR-026-sharing-results-an-exported-analysis-analysis-only-by-defaul.md) Sharing results: an exported analysis, analysis only by default (added in sprint 2.3.5)
-- [ADR-027](adr/ADR-027-dominator-children-kept-the-tree-served-flattened.md) Dominator children kept; the tree served flattened (added in sprint 2.4)
-- [ADR-028](adr/ADR-028-allocation-traces-read-in-the-worker-from-eventpipe-allocati.md) Allocation traces read in the worker from EventPipe allocation ticks (added in sprint 2.5)
-- [ADR-029](adr/ADR-029-analysis-path-per-snapshot-bookmarks-by-snapshot-file.md) Analysis path per snapshot; bookmarks by snapshot file (added in sprint 2.7)
-- [ADR-030](adr/ADR-030-object-sets-as-the-analysis-subject.md) Object sets as the analysis subject (added in sprint 3.1)
-- [ADR-031](adr/ADR-031-similar-retention-and-the-key-paths-diagram.md) Similar Retention and the key paths diagram (added in sprint 3.2)
-- [ADR-032](adr/ADR-032-objects-of-two-snapshots-matched-by-address.md) Objects of two snapshots matched by address (added in sprint 3.3, amends ADR-018)
-- [ADR-033](adr/ADR-033-one-capture-per-process-at-a-time-runs-recorded-in-their-ses.md) One capture per process at a time; runs recorded in their session (added in sprint 3.4)
-- [ADR-034](adr/ADR-034-runtime-leak-detectors-and-the-unreachable-set.md) Runtime leak detectors and the unreachable set (added in sprint 3.5)
-- [ADR-035](adr/ADR-035-a-dac-next-to-a-dump-is-loaded-only-once-trusted.md) A DAC next to a dump is loaded only once trusted (added in sprint 3.6, amends ADR-017)
-- [ADR-036](adr/ADR-036-index-caches-signed-with-a-per-user-key.md) Index caches signed with a per-user key (added in sprint 3.7)
-- [ADR-037](adr/ADR-037-live-sources.md) Live sources (added in sprint 3.8, amends ADR-023)
+One file per ADR; the index with titles and amendments is [adr/README.md](adr/README.md).
 
 ## 14. Package versions
-Latest stable versions verified on nuget.org at sprint 0.1 (2026-10-22). `Directory.Packages.props` is the
-authoritative list.
+The table matches `Directory.Packages.props`, the authoritative list.
 
 | Package | Version | License | Used by |
 |---|---|---|---|
-| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.14 | MIT | Worker, Application, Cli, UI |
+| Microsoft.Extensions.Hosting (+ Abstractions, Logging.Abstractions, Options) | 10.0.14 | MIT | Worker, Application, Capture, Cli, UI |
 | System.IO.Hashing | 10.0.14 | MIT | Storage, Analysis |
 | StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.ViewModels, UI |
-| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.4 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT) | UI, UI tests (2.3.6) |
+| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.4 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT; SkiaSharp's native library in published builds is HeapScope's own build without the DNG SDK and piex, ADR-038) | UI, UI tests (2.3.6) |
+| Avalonia.Fonts.Inter | 12.1.4 | MIT (the font is OFL-1.1, so its assets are excluded) | UI (comes with Avalonia.Headless) |
 | Avalonia.Controls.DataGrid | 12.1.2 | MIT | UI (2.3.6) |
 | System.CommandLine | 2.0.14 | MIT | Cli |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |

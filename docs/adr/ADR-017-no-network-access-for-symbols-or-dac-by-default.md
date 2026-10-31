@@ -1,4 +1,4 @@
-# ADR-017 No network access for symbols or DAC by default (added in sprint 0.1)
+# ADR-017 No network access for symbols or DAC by default (added in sprint 0.1; amended by ADR-035)
 
 - Context: ClrMD can download the data access component (DAC) and symbols from Microsoft's symbol server, and it
   ships Azure.Identity and MSAL for that purpose. A download sends module identifiers off the machine, which

@@ -1,4 +1,4 @@
-# ADR-023 gcdump capture moves to the worker (added in sprint 1.9)
+# ADR-023 gcdump capture moves to the worker (added in sprint 1.9, amended by ADR-037: it stays in the front end)
 
 - Context: gcdump capture (sprint 1.8) runs the vendored dotnet-gcdump code in the process that asks for it, the UI or
   the CLI, and builds PerfView's in-memory graph there before writing the file. The UI process is meant to stay small

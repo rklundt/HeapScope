@@ -4,11 +4,11 @@ Part of [ARCHITECTURE.md](../ARCHITECTURE.md); the section numbers are the same 
 references such as "ARCHITECTURE.md 9" still name the right section.
 
 ## 9. Worker memory and GC settings
-- Server GC, non-concurrent (`ServerGarbageCollector=true`, `ConcurrentGarbageCollection=false`):
+- Server GC, non-concurrent (`ServerGarbageCollection=true`, `ConcurrentGarbageCollection=false`):
   throughput matters more than pause times in the worker, and background GC adds memory overhead. DATAS
   (dynamic adaptation, on by default for Server GC since .NET 9) is off in the worker: the GC turns it off when a heap
-  count is set, which the client always does (next item). Sprint 2.3.6 review: this section said DATAS stayed on; the
-  worker now logs the GC's own settings at start (`GC heaps 12, GC dynamic adaptation 0` on a 24-core machine). The
+  count is set, which the client always does (next item). The worker logs the GC's own settings at start
+  (`GC heaps 12, GC dynamic adaptation 0` on a 24-core machine). The
   fixed count is kept, since it is what keeps the UI responsive during blocking collections (measured in sprint 1.3);
   an idle worker still returns its memory through the compacting collection after each large job (below).
 - GC heaps capped at half the logical processors (sprint 1.3): the client starts the worker with

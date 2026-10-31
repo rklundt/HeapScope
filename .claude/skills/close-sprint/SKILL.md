@@ -8,8 +8,8 @@ description: Close the HeapScope sprint that is Wrapping. Verifies the Definitio
 Follow these steps exactly.
 
 1. **Verify the Definition of Done** (DEVELOPER.md section 9), item by item, and show the result:
-   - `dotnet build HeapScope.sln -c Debug` and `-c Release`: zero warnings, zero errors.
-   - `dotnet test --solution HeapScope.sln`: all pass, including the sprint's integration tests.
+   - `bash build/gate.sh` passes: Debug and Release builds with zero warnings, the fast and integration tiers, and
+     the fixture check against the known answers.
    - Every acceptance criterion in the sprint's section is met (cite the test or measurement) or explicitly
      deferred by the human (or, in autonomous mode, deferred and recorded as "decided autonomously").
    - `docs/reviews/sprint-X.Y.md` exists; every High finding is Fixed and confirmed; every Moderate finding
@@ -21,7 +21,7 @@ Follow these steps exactly.
      (commands, rules), and any README the sprint touched (for example `fixtures/KnownAnswers/README.md`). The review
      file records `/wrap-sprint`'s Markdown sweep of every tracked .md file.
    - Anything in `CURRENT-CONTEXT.md` worth keeping (decisions, measurements, findings, backlog items) is in the
-     committed docs, since step 6 resets it.
+     committed docs, since step 7 resets it.
    - The architecture test passed in the run above.
    - No em dashes or en dashes in changed files (search for U+2014 and U+2013).
    If anything is unmet, list exactly what is missing and stop. Do not close.
@@ -48,5 +48,5 @@ Follow these steps exactly.
    for it.
 
 ## Autonomous mode
-When the product owner has granted autonomy for the current phase, step 7 does not ask: start the next
+When the product owner has granted autonomy for the current phase, step 8 does not ask: start the next
 Planned sprint of the phase directly. At the end of the phase, stop and report.

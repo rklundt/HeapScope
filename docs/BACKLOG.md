@@ -19,7 +19,18 @@ Swept in sprint 3.8:
 - Retained bytes in snapshot diffs: built in 3.3 (`diff --retained`).
 - A type growth detector across two snapshots: built in 3.5.
 
+Swept 2026-10-31:
+- Object set queries, set retention of a namespace or an assembly, sets narrower than a type (2.4 M14) and detector
+  rows opening the objects they counted (2.6 M24): built in 3.1.
+- A type's objects in the dominator tree (2.4 M1): answered in 3.1 by a set's Dominators view.
+- A set's other snapshot (3.1 M6): built in 3.3 (`ObjectSetSpec.Baseline`).
+- Record allocations while monitoring: built in 3.4.
+- Pinned objects per heap: built in 1.6 (the `fragmentation` inspection).
+- A generic `VirtualRowList` and sorting by column name (`TypeSummarySort` retired): built in 1.4.
+
 ## Open
+
+Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
 
 **High**
 - A contribution policy before any outside contribution is accepted (from ADR-022; 2026-10-30, the repository is
@@ -34,8 +45,8 @@ Swept in sprint 3.8:
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
-- CI leak checks using the CLI (the remote, `develop` and the CI pipeline exist since 2.3 and 2.3.5; CI already runs the
-  CLI on a fixture dump on Linux). Making CI a required check is the product owner's call (2.3.5 decision 8).
+- A documented CI leak check for users' pipelines: a sample workflow running `heapscope-cli diff --fail-on-growth` on
+  two fixture dumps.
 - Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
   macOS packages are built on Linux and never run, and the macOS core dump checks (known answers, DAC trust) no longer
   run. Before macOS ships, the product owner picks a way: a Mac of their own, or macOS runners for a release only.
@@ -99,7 +110,7 @@ Swept in sprint 3.8:
   spec node, so an inspection row inside a compared set keeps its own baseline (M9); a type's retained bound per key,
   not summed per method table (M10, L20); a Frozen delta column (L1); `ObjectChange` in the contract mirror tests (L11);
   the New and Dead switch disabled from the descriptors with the reason (L13); the Trend view's interface grouping and
-  group note (L14); CLI validator refusals logged (L15); ADR-029 reworded (L12); a `TypeTrendRequest` round trip (L19);
+  group note (L14); CLI validator refusals logged (L15); a `TypeTrendRequest` round trip (L19);
   process start time compared when a dump records it.
 - From the 3.2 review (decided autonomously): which grouping needs which snapshot feature declared in Contracts, so
   every front end disables it the same way (M6); the reverse index info on `SimilarRetentionResult` (M12); a test that a
@@ -112,8 +123,7 @@ Swept in sprint 3.8:
   released after the interface table is built (L20); the (group, type) set in the reservation (L22); a cheap check
   before fingerprinting every pattern (L23); Compare's matching total hidden for interface rows (L24).
 - From the 3.1 review (decided autonomously): the memory reservations evicting the object set cache before they
-  refuse (M2); the baseline of a set generalized into "the other snapshot" for 3.3's dead objects and 3.5's growth
-  (M6, do with 3.3); a view model test of a set replayed after a worker restart, a ClrMD check of a set's Generations
+  refuse (M2); a view model test of a set replayed after a worker restart, a ClrMD check of a set's Generations
   and Dominators views, and a test that a set's worker lines carry the UI's trace id (M15); the set dominators of a few
   objects by climbing their dominators instead of walking the tree, and one retention pass shared by the Retained view
   and "open as set" (L2); a set's frozen members said apart in its Retained view (L3); the CLI logging `--address` like
@@ -126,7 +136,7 @@ Swept in sprint 3.8:
   2.3.6):
   - Unix file semantics stated by tests: replacing or deleting a mapped index cache on Linux and macOS succeeds and
     the open graph keeps reading the old file; the Windows-only tests skip there today. Capture.Tests join the Linux CI
-    job with the Linux capture item.
+    job with Linux capture (a Phase 4 candidate).
 - gcdump survivors without a recorded root as path and dominator sources (from the 2.3 review M6; agreed with the
   product owner on 2026-10-25 to defer the fix). Today they retain nothing, and the note beside retained sizes gives their
   count and bytes. The fix marks them "root not recorded" sources in `PathRoots.Sources` (so paths and dominators keep
@@ -162,10 +172,6 @@ Swept in sprint 3.8:
   on summary rows and an optional index on `InstancesRequest`; diff rows keep the name and module key.
 - Slow the dispatcher watchdog's 25 ms probe while the window is idle or in the background outside smoke runs (from
   the 1.5 review M7, ADR-019).
-- Before or in 1.4 (from the 1.3 review): a generic `VirtualRowList` over a row factory for the diff's rows; a sort key
-  that covers delta columns (per-view enum or a column name validated by the worker); a hidden row key mapping a
-  summary row to its type indices, for opening a row's objects.
-- The type summary's sort as a column name like the diff's (1.4), retiring `TypeSummarySort`.
 - Capture with an induced full GC first (for CI gates), where the target allows it (from 1.4).
 - A diff on the 16 GB profile with neither index cache present: the second first load next to the first snapshot,
   peak and chosen modes recorded (from 1.4).
@@ -189,33 +195,21 @@ Swept in sprint 3.8:
 - Storage-owned metadata DTO instead of serializing Core's `SnapshotInfo` directly, so Core can evolve without
   silently changing the cache format (from 0.5).
 - Large scale tier (8 GB+, 100M+ objects): 64-bit edge offsets, chunked disk-backed building.
-- Fragmentation and pinned object analysis.
-- String content search and object set queries.
+- String content search across every type's fields.
 - Shared analysis export (ADR-026, from 2.3.5; replaces "HTML report export"): one export model, analysis only by
   default, written as HTML, JSON or CSV where the user asks; opening a JSON export in HeapScope without the dump. Sprint
   2.7 wrote the first form, a grid as CSV; the export of a whole analysis (several views, the snapshot's metadata) and
   JSON and HTML remain.
-- Analysis tabs (from 2.7, decided autonomously): several analyses of a snapshot side by side, each with its own path;
-  the branching analysis path covers coming back to an earlier analysis for now.
 - From the 2.7 review (decided autonomously): a column projection on page requests, so an export without values never
   reads or sends them (M2, a protocol change); releasing the worker result sets of snapshots not shown, and measuring
   front end and worker memory with three Medium snapshots open, each with a full analysis path, and trimming the row
   lists of subjects not shown (M3); export marks for a gcdump's sampled counts (L17).
-- Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
-  dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
-  elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.
 - Linux and macOS packaging (from 2.3.5; the self-contained builds per runtime identifier, arm64 for Apple silicon, came in
   2.3.6): a macOS app bundle with signing and notarization (needs an Apple developer account, a paid one), Linux
   packages (a zipped folder from CI today; .deb, .rpm or Flatpak to decide), smaller builds (the app and the worker each carry the
   runtime: about 356 MB for win-x64 with ReadyToRun).
 - .NET Framework target support.
 
-- Set retention of a namespace or an assembly (from 2.4): "objects retained by this set" takes one type; a scope
-  of several types is the same pass with more types marked.
-- Sets narrower than a type (from the 2.4 review M14): "objects retained by this set" for an inspection's scoped row
-  (the empty collections, one duplicate string's copies); it is off for those rows until then.
-- Place a type's objects in the dominator tree (from the 2.4 review M1): "Show in dominator tree" from a type row opens
-  its top-level group, which a leak's item type rarely has; group its objects by their top-level dominator instead.
 - `ValueBound.Approximate` and caveat codes (from the 2.4 review M3, an ADR-024 amendment): a result on an incomplete
   graph or a gcdump says its retained values may be overstated through the column, not only in free text.
 - One type entry among several with one name and module (from the 2.4 review M12): the set and the tree's Type grouping
@@ -228,13 +222,10 @@ Swept in sprint 3.8:
 - Typed fake rows for the older fakes (2.3.7 M15 rest, from 2.4): the type, instance and reference fakes still take
   positional rows; the 2.4 fakes are typed.
 
-- From 2.5 (decided autonomously at /start-sprint and while building): Compare's "allocated between the two
-  snapshots" from a trace recorded between them, which needs traces in `session.json` on the snapshots' clock (with the
-  1.7 timeline item), and Record allocations on the Live page while monitoring; .NET 10's randomized allocation sampling
-  as a second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces (TraceEvent's
-  conversion cannot be canceled and holds about 2 bytes per file byte while it runs; 72 MB read in 1.9 s);
-  choosing a timeline interval from the keyboard (2.7's keyboard work). Compare's link also needs each tick's type id
-  and module (types are joined to diff rows by name and module; a trace keeps names only, ADR-028).
+- From 2.5 (decided autonomously at /start-sprint and while building): .NET 10's randomized allocation sampling as a
+  second source (better statistics on runtimes that have it); a streaming trace reader for long, busy traces
+  (TraceEvent's conversion cannot be canceled and holds about 2 bytes per file byte while it runs; 72 MB read in 1.9 s);
+  choosing a timeline interval from the keyboard (2.7's keyboard work).
 - From the 2.5 review (decided autonomously): extract one flattened-tree builder (children order, batches, "more"
   rows, the row limit) and one set of tree keys and limits in Contracts from the dominator and allocation trees when a
   third tree arrives (2.6 or Compare's link), with their view models' shared parts (M5); progress on the timeline,
@@ -242,10 +233,9 @@ Swept in sprint 3.8:
   for two types of one name (M6); the smoke step's interval and type checks (L17); the client logging which answers it
   applied (L27).
 
-- From 2.6 (decided autonomously): WPF leak detectors (binding to a non-INotifyPropertyChanged source, collection
-  bindings, dependency property descriptors, x:Name) with a WPF fixture app; leak detectors on gcdumps where the graph
-  alone suffices (timers and events need field values); measuring the detectors on a Medium-sized dump of the current runtime
-  (the sample dumps need a runtime no longer installed).
+- From 2.6 (decided autonomously): leak detectors on gcdumps where the graph alone suffices (timers and events need
+  field values); measuring the detectors on a Medium-sized dump of the current runtime (the sample dumps need a runtime
+  no longer installed).
 - From the 2.6 review (decided autonomously): the growth detector counting `ConcurrentQueue` (its segments),
   `ConcurrentBag`, `ConcurrentStack`, `LinkedList`, sorted collections and `Collection<T>`, with one collection layout
   table shared with the oversized collections inspection and `InspectionRows.ByType` reused (M5, M17); leaky HttpClient
@@ -253,12 +243,12 @@ Swept in sprint 3.8:
   row for the root scope's tracked disposables (M7); unit tests for growth exactly at the thresholds and a field missing
   from the baseline (M10); an `InspectionNeeds` description with a cached derived-data accessor instead of one flag per
   input (M16); the rule version and parameters on `InspectionInfo` and Kind, elapsed time and baseline in the CLI
-  summary output (L6, L7); detector rows opening exactly the objects they counted, with the object set queries (M24).
+  summary output (L6, L7).
 
 **Low**
-- UI cold start: first window render about 0.6 s after ReadyToRun (1.2), dominated by runtime and WPF start; first
-  job row 130 to 190 ms once per run; first showing of the Compare tab with rows 97 to 238 ms (1.4). Template preloading and deferring startup work remain options (from 0.3).
-- WPF and WinForms specific leak inspections.
+- UI cold start: measure the Avalonia app's first window and first Compare tab again (the 1.2 and 1.4 numbers were
+  WPF's); template preloading and deferring startup work remain options (from 0.3).
+- WinForms specific leak inspections.
 - Unmanaged/native memory overview.
 - Reading a dump on another system or architecture than the one that took it (cross-system DACs), and a Linux arm64
   worker (from the 2.3.5 review; ADR-025: a dump is read by a worker of its own system and architecture).

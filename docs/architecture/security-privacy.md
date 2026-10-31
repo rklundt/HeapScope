@@ -32,8 +32,9 @@ references such as "ARCHITECTURE.md 12" still name the right section.
 - Private files (sprint 3.7, peer review P15): on Windows a file HeapScope creates is created with an owner-only access
   list in one step (the profile's list does not cover a dump's cache in a folder the user picked), and a finished dump is
   made owner-only (`PrivateFiles.Protect`; the runtime writes a dump with the folder's permissions, so until the capture
-  ends the folder's list applies; a dump that cannot be protected is logged and the capture says so); HeapScope's own data folders (the cache key, trusted DACs and their copies, trace conversion)
-  are made owner-only when they exist with a wider mode, and refused when they belong to another user
+  ends the folder's list applies; a dump that cannot be protected is logged and the capture says so); off Windows,
+  HeapScope's own data folders (the cache key, trusted DACs and their copies, trace conversion) are made owner-only
+  (0700) when they exist with a wider mode, and refused when they belong to another user
   (`CreatePrivateDirectory`); trace conversion (`.etlx`) uses HeapScope's data folder instead of the shared `/tmp` off
   Windows; partial traces and CSV exports are created new and private, never written into a file someone made first.
   The partial-file sweep skips links and never sweeps a folder the user picked.
@@ -59,12 +60,14 @@ references such as "ARCHITECTURE.md 12" still name the right section.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
   contents. Its sidecars (sprint 2.1: `<snapshot>.rev.hsidx`, the reverse references; sprint 2.3: `<snapshot>.dom.hsidx`,
-  immediate dominators and retained sizes, and since 2.4 the tree's children) store object indices and sizes only and sit next to it, beside the dump or under the fallback cache root; deleting a snapshot by hand means deleting its
-  `.hsidx` files too (the backlog's delete feature covers them).
+  immediate dominators and retained sizes, and since 2.4 the tree's children) store object indices and sizes only and
+  sit next to it, beside the dump or under the fallback cache root; deleting a snapshot in the app deletes them with it
+  (sprint 3.4).
 - The UI and the CLI say once per capture that the dump contains secrets and where it was written.
-- Dumps live in the session folders under `%LOCALAPPDATA%\HeapScope\sessions` (inheriting the user-only ACL of the
-  user's profile) unless `--out` puts them elsewhere; HeapScope never moves them. Deleting snapshots and sessions from
-  the UI and CLI, and a retention rule, are backlog items; until then, the folders can be deleted by hand.
+- Dumps live in the session folders under `%LOCALAPPDATA%\HeapScope\sessions` (each dump made owner-only when it is
+  finished, above) unless `--out` puts them elsewhere; HeapScope never moves them. The app deletes a snapshot with its
+  caches, a session, or the sessions not opened for a chosen number of days, after showing the files (sprint 3.4); the
+  CLI deletes nothing.
 - Elevated targets require HeapScope to run elevated (ADR-014). HeapScope never tries to elevate silently.
 - Traces (`trace`, `--smoke-trace`, sprint 1.5) hold method and type names and event data such as exception messages,
   not heap contents; the CLI says so after each one, and they are written where the user asks (never uploaded).
@@ -78,7 +81,7 @@ references such as "ARCHITECTURE.md 12" still name the right section.
   string text and field values only when the person exporting opts in for that export, which the export then states on
   its first line. Exports are written where the user asks and never uploaded. Sprint 2.7's CSV export of a grid is the
   first form: value columns (`ResultColumn.HasValues`) are left out unless the person answers yes for that export.
-- Bookmarks (sprint 2.7) are kept in `bookmarks.json` beside the session library (owner-only off Windows): the snapshot
+- Bookmarks (sprint 2.7) are kept in `bookmarks.json` in HeapScope's data folder (owner-only): the snapshot
   file's full path, size and write time, the object's address and type name, a color and a time; no field values or
   string text.
 - CI (sprint 2.3.5) dumps only the LeakyConsole fixture on GitHub's runners and never uploads the dump. The builds it
@@ -86,7 +89,7 @@ references such as "ARCHITECTURE.md 12" still name the right section.
 - Off Windows, HeapScope's own folders and files are the user's alone (sprint 2.3.6, `PrivateFiles`): sessions, logs,
   index caches and their sidecars, monitoring timelines and traces are created 0700 (folders) and 0600 (files) instead
   of the process umask, which often lets other users read them. A folder the user picked keeps its permissions; on
-  Windows the user profile's ACL applies as before.
+  Windows the files get an owner-only access list (sprint 3.7, above).
 
 - Allocation traces (sprint 2.5) hold type and method names, times and sizes, not heap contents. Record allocations writes
   them into the session folder (user-only, like dumps); the CLI writes them where `--out` says. Reading one writes

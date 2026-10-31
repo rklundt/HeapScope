@@ -1,4 +1,4 @@
-# ADR-007 Out-of-process worker
+# ADR-007 Out-of-process worker (amended by ADR-025)
 
 - Context: huge dumps can exhaust memory or crash a parser; the UI must never freeze or die with them.
 - Decision: a separate x64 worker; named pipes with StreamJsonRpc; progress and cancellation on every long
