@@ -53,7 +53,9 @@ references such as "ARCHITECTURE.md 12" still name the right section.
 - Published builds (sprint 3.6, peer review P3; CI uploads them as artifacts) carry `LICENSE`, `ADDITIONAL-TERMS.md`,
   `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and every shipped package's own license and notice files under `licenses/`;
   the TraceEvent native binaries (`KernelTraceControl.dll`, `msdia140.dll`), which nothing calls and whose redistribution
-  terms are not reviewed, are left out of them. `build/check-package.sh` checks both on every package job.
+  terms are not reviewed, are left out of them. Since 2026-10-30 SkiaSharp's native library in them is HeapScope's own
+  build without the DNG SDK and piex (ADR-038), downloaded by pinned checksum and built, checked and attested by
+  `skia-native.yml`. `build/check-package.sh` checks all three on every package job.
 - The pipe is restricted to the current user. The worker accepts no other connection.
 - The index cache stores type names, static field names, addresses and sizes, not field values or string
   contents. Its sidecars (sprint 2.1: `<snapshot>.rev.hsidx`, the reverse references; sprint 2.3: `<snapshot>.dom.hsidx`,
