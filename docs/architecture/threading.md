@@ -64,7 +64,7 @@ references such as "ARCHITECTURE.md 8" still name the right section.
   are for finding where time goes, never for checking the budget. Measured after these changes (Release, 24 logical
   cores): Medium and DenseHeap smoke with drill-down and comparison, longest operation 36 to 63 ms, lag 49 to 128 ms,
   every run within the gates.
-- **Leases**: `GraphSnapshot.Dispose` never blocks; the last lease released disposes the graph (section 7).
+- **Leases**: disposing a snapshot (`GraphSnapshot` or `DumpSnapshot`) never blocks; the last lease released disposes the graph (section 7).
 - **Libraries** (everything below UI): `ConfigureAwait(false)` on every await; every async method takes a
   `CancellationToken`.
 - **Worker**: StreamJsonRpc dispatches requests concurrently. Loading a snapshot is serialized per snapshot

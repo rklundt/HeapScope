@@ -17,7 +17,7 @@ Follow these steps exactly.
    If any check fails, stop and explain exactly which one and how to fix it.
    Then branch: `git checkout develop`, `git pull --ff-only`, `git checkout -b sprint/X.Y`.
 3. **Read context.** `CURRENT-CONTEXT.md` (if present), `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPER.md`, the sprint's section in
-   `docs/SPRINTS.md`, the Backlog (`docs/BACKLOG.md`), and every `docs/reviews/sprint-*.md` with deferred items.
+   `docs/SPRINTS.md`, the Backlog (`docs/BACKLOG.md`), and every `docs/reviews/*.md` with deferred items.
 4. **Analyze.** Restate the goal in one sentence. List ambiguities, risks, dependencies, impacts on the
    architecture (does any ADR need adding or changing?), and backlog or deferred items to pull in or exclude
    explicitly.

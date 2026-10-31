@@ -33,8 +33,8 @@ references such as "ARCHITECTURE.md 4" still name the right section.
 
 ### 4.3 Crash handling
 - The client watches both `Process.Exited` and `JsonRpc.Disconnected`. Either one moves the worker to
-  `Crashed`, faults every in-flight call with `WorkerCrashedException` (exit code included), and raises a
-  `WorkerStateChanged` event the UI shows as a banner.
+  `Crashed`, faults every in-flight call with `WorkerCrashedException` (exit code included), and raises
+  `StateChanged` (`WorkerStateChangedEventArgs`), which the UI shows as a banner.
 - The next request restarts the worker transparently. Every worker has an `InstanceId` (in `WorkerInfo`) and
   `IWorkerClient.Generation` increases with each connected worker, so callers can tell that worker-owned ids
   (result sets, snapshots) belong to a dead worker. Application's `SnapshotSession` owns a stable `SnapshotHandle` per

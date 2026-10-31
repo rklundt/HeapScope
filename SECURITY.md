@@ -22,6 +22,7 @@ HeapScope is in pre-release. Only the latest release receives fixes.
 
 ## Verifying a release
 
-Each GitHub release carries its builds (one tarball per platform), an SBOM (CycloneDX) for the app, the command line tool
-and the worker, and `SHA256SUMS` for them all. Each file has a build provenance attestation in GitHub's attestation
-store, which `gh attestation verify <file> --repo rklundt/HeapScope` checks.
+Releases after 3.5.0 carry their builds (one tarball per runtime: win-x64, linux-x64, osx-arm64, osx-x64), an SBOM
+(CycloneDX) for the app, the command line tool and the worker, and `SHA256SUMS` for them all. Releases 2.2.0 and 3.5.0
+are source only. Each file has a build provenance attestation in GitHub's attestation store, which
+`gh attestation verify <file> --repo rklundt/HeapScope` checks.

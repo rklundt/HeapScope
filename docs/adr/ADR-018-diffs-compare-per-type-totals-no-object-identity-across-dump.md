@@ -14,3 +14,5 @@
   captured after a full GC in the target. Drilling into a row opens that type's objects in either snapshot (1.5), not
   "the new ones". An allocation-tracking live session (2.x at the earliest) could add identity later as a separate
   source.
+- Amended by ADR-032 (sprint 3.3): two complete full dumps of one run of a process match objects by address, so Compare
+  can show and open New, Dead and Survived objects per row; per-type totals stay the default.

@@ -1,16 +1,17 @@
 # Architecture Decision Records
 
 Each ADR: context, decision, consequences. ADR-001 to ADR-014 were decided with the product owner before sprint 0.1.
-One file per ADR since sprint 3.8; amendments stay inside the ADR they amend. A new ADR takes the next number and a
-line in this index and in [ARCHITECTURE.md](../ARCHITECTURE.md) section 13.
+One file per ADR since sprint 3.8; amendments stay inside the ADR they amend, and its title and line here say "amended
+by" the later ADR. A new ADR takes the next number and a line in this index ([ARCHITECTURE.md](../ARCHITECTURE.md)
+section 13 links here).
 
-- [ADR-001](ADR-001-platform-net-10-wpf-windows-x64.md) Platform: .NET 10, WPF, Windows x64
+- [ADR-001](ADR-001-platform-net-10-wpf-windows-x64.md) Platform: .NET 10, WPF, Windows x64 (amended by ADR-025: Avalonia on Windows, Linux and macOS)
 - [ADR-002](ADR-002-target-processes-modern-net-only.md) Target processes: modern .NET only
 - [ADR-003](ADR-003-snapshot-types-full-dumps-and-gcdumps-behind-one-abstraction.md) Snapshot types: full dumps and gcdumps behind one abstraction
 - [ADR-004](ADR-004-scale-target-medium.md) Scale target: Medium (amended 2026-10-22)
 - [ADR-005](ADR-005-compact-struct-of-arrays-object-graph.md) Compact, struct-of-arrays object graph
 - [ADR-006](ADR-006-on-disk-index-cache.md) On-disk index cache
-- [ADR-007](ADR-007-out-of-process-worker.md) Out-of-process worker
+- [ADR-007](ADR-007-out-of-process-worker.md) Out-of-process worker (amended by ADR-025)
 - [ADR-008](ADR-008-headless-core-and-cli.md) Headless core and CLI
 - [ADR-009](ADR-009-application-stack.md) Application stack
 - [ADR-010](ADR-010-diagnostics-libraries.md) Diagnostics libraries
@@ -20,7 +21,7 @@ line in this index and in [ARCHITECTURE.md](../ARCHITECTURE.md) section 13.
 - [ADR-014](ADR-014-elevation.md) Elevation
 - [ADR-015](ADR-015-adaptive-memory-modes.md) Adaptive memory modes (added 2026-10-22, follows from the ADR-004 amendment)
 - [ADR-016](ADR-016-contracts-owns-the-wire-vocabulary.md) Contracts owns the wire vocabulary (added in sprint 0.1)
-- [ADR-017](ADR-017-no-network-access-for-symbols-or-dac-by-default.md) No network access for symbols or DAC by default (added in sprint 0.1)
+- [ADR-017](ADR-017-no-network-access-for-symbols-or-dac-by-default.md) No network access for symbols or DAC by default (added in sprint 0.1; amended by ADR-035)
 - [ADR-018](ADR-018-diffs-compare-per-type-totals-no-object-identity-across-dump.md) Diffs compare per-type totals; no object identity across dumps (added in sprint 1.4; amended by ADR-032)
 - [ADR-019](ADR-019-the-ui-process-is-never-power-throttled.md) The UI process is never power-throttled (added in sprint 1.5)
 - [ADR-020](ADR-020-inspections-are-analysis-plugins-with-declared-capabilities.md) Inspections are Analysis plugins with declared capabilities (added in sprint 1.6)

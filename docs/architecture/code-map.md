@@ -3,7 +3,7 @@
 Part of [ARCHITECTURE.md](../ARCHITECTURE.md), section 3: what each project holds, with the sprint that added it in
 brackets.
 
-Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sprint that added a piece is in brackets):
+Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
 
 - **Core.** `HeapScopeFolders` (every HeapScope data folder in one place, moved by `HEAPSCOPE_DATA_FOLDER` or the worker's
   `--data-folder`) [3.8]. `ISnapshot`, `GraphSnapshot` and `DumpSnapshot` (a full dump: the graph plus a reader, section 5.1) [1.5];
@@ -19,7 +19,10 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   whatever system reads it) [2.3.5]. `Synthetic/`: `SyntheticGraphs` and `SyntheticGraphBuilder`, which also makes arrays and strings
   [1.6]. `Graph/ReverseReferences` (the incoming references CSR, built by counting and filling, or from an index file's
   columns) and `HeapGraph.Attach` (an optional index is disposed with the graph, after the snapshot's last lease) [2.1];
-  `DependentHandle` and `HeapGraph.DependentHandles` / `IsDependentHandleEdge` [2.2].
+  `DependentHandle` and `HeapGraph.DependentHandles` / `IsDependentHandleEdge` [2.2]. `LeaseTracker` (the leases of
+  section 6.5) [0.5]; `PrivateFiles` (owner-only folders and files: 0700 and 0600 off Windows, an owner-only access list
+  on Windows) [2.3.6, 3.7]; `Loading/DacChoice` (the DAC a dump was read with and why) [2.3.7]; `IndexCachePaths` (a
+  snapshot's index cache, its sidecar kinds and the writer's temporary files, for Storage and for deletion) [3.4].
 - **Analysis.** `FrameworkTypes` (one rule for framework types, P19) and no static caches: reachability and dominator
   group tables are returned as values the worker keeps per snapshot (P20) [3.8]. `TypeAggregation`: one parallel pass over the objects, counting objects, shallow bytes and bytes per
   heap kind for every type, computed once per snapshot and kept on the snapshot's entry in the worker [1.3].
@@ -51,7 +54,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   detector row counted) [3.1]. `Retention/SimilarRetention` (a set's members grouped by retention pattern, each group
   with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
   signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
-  grouping in `TypeGroups` (`GroupKey.Interface`, `InterfaceKeys`, `MatchInterface`) and `TypeDiff` [3.2].
+  grouping in `TypeGroups` (`GroupKey.Interface`, `TypeInterfaces`, `MatchInterface`) and `TypeDiff` [3.2].
   `ObjectIdentity` (two snapshots' objects matched by address and type in one merge, a bit per object of each side),
   `TypeDiff`'s `DiffExtras` (New and Dead per row, retained bytes per group of each side, bytes per heap kind) and
   `TypeTrend` (rows across several snapshots) [3.3].
@@ -111,54 +114,56 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   summaries and instances [2.3]. `DominatorDtos.cs`: the tree request and result, `DominatorTreeColumns`,
   `DominatorTreeKeys` (the row keys clients link with), the icicle request and segments, the set retention request,
   result and `RetainedBySetColumns`; `ResultColumn.Bound` with `ValueBound` and `ValueBoundTexts` [2.4].
-- **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`: `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]. Since 3.8
-  (peer review P5) one handler per contract, registered by `WorkerRpcTargets` (`RpcTarget.For<TContract, THandler>`):
-  `ControlHandler`, `TestHooksHandler`, `SnapshotHandler`, `ResultSetHandler`, `HeapQueryHandler`, `RetentionHandler`,
-  `InspectionHandler`, `AllocationTraceHandler`, each an `RpcHandler` (the logged guard), over shared services:
-  `SnapshotAccess` (leases), `DerivedQueries` (reverse references, dominators, interfaces, retention inputs, reachability
-  and dominator group tables from the snapshot's derived slots), `IdentityMatcher`, `InspectionRunner`,
-  `ObjectSetResolver` (every set kind) and `FeatureRules` (what a snapshot can answer, listed on its descriptor and
-  refused with the same reason, P7); `SnapshotStore` owns the object set cache and the derived slots (P20) [3.8]. Before
-  3.8, `WorkerService` in partial files by area [1.9]; `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources:
-  `TypeSummarySource` (groups, filters and sorts the cached aggregation per query, so a re-query costs microseconds per
-  type) [1.3], `TypeDiffSource` (leases both snapshots and reuses their aggregations) [1.4], `InstancesSource` (object
-  indices of the types with a key, filtered by address prefix, regular expression or text, sorted by any column, holding
-  a snapshot lease, scoped by `InstanceScope`) [1.5, 1.6], `ReferencesSource` (graph order, named by field path or array
-  index when a reader exists) [1.5], `InspectionSource` [1.6], `ReferrersSource` (an object's referrers, each once, their
-  fields named for up to 1,000 referrers) and `TypeReferrersSource` (a type's referrers by type, sortable) with
-  `HeapQueryHandler` with `DerivedQueries` (formerly `WorkerService.Referrers.cs`) [2.1]; `ColumnSort` (sort by column name, ties by name, unknown
-  columns refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6]; `FeatureRules`, one rule per optional
-  feature, filling the descriptor's availability list and refusing with the listed reason [3.8].
+- **Worker.** `Program` and `ParentProcessWatcher` (the worker exits with its front end) [0.3]; `Rpc/`:
+  `WorkerRpcServer`, `ResultSetStore`, `ThrottledProgress` [0.3]. Since 3.8 (peer review P5) one handler per contract,
+  registered by `WorkerRpcTargets` (`RpcTarget.For<TContract, THandler>`): `ControlHandler`, `TestHooksHandler`,
+  `SnapshotHandler`, `ResultSetHandler`, `HeapQueryHandler`, `RetentionHandler`, `InspectionHandler`,
+  `AllocationTraceHandler`, each an `RpcHandler` (the logged guard), over shared services: `SnapshotAccess` (leases), `DerivedQueries` (reverse
+  references, dominators, interfaces, retention inputs, reachability and dominator group tables from the snapshot's
+  derived slots), `IdentityMatcher`, `InspectionRunner`, `ObjectSetResolver` (every set kind) and `FeatureRules` (one
+  rule per optional feature: what a snapshot can answer, listed on its descriptor and refused with the same reason, P7);
+  `SnapshotStore` owns the object set cache and the derived slots (P20) [3.8]. Before 3.8 the handlers' work lived in
+  partial files of `WorkerService` by area [1.9]; the sprints below name the piece that holds it now.
+  `ContractMapping` (Core's enums on the wire, one place) [1.9]; the result sources: `TypeSummarySource` (groups,
+  filters and sorts the cached aggregation per query, so a re-query costs microseconds per type) [1.3],
+  `TypeDiffSource` (leases both snapshots and reuses their aggregations) [1.4], `InstancesSource` (object indices of
+  the types with a key, filtered by address prefix, regular expression or text, sorted by any column, holding a
+  snapshot lease, scoped by `InstanceScope`) [1.5, 1.6], `ReferencesSource` (graph order, named by field path or array
+  index when a reader exists) [1.5], `InspectionSource` [1.6], `ReferrersSource` (an object's referrers, each once,
+  their fields named for up to 1,000 referrers) and `TypeReferrersSource` (a type's referrers by type, sortable), served
+  by `HeapQueryHandler` with `DerivedQueries` [2.1]; `ColumnSort` (sort by column name, ties by name, unknown columns
+  refused) shared by the row sources [1.9]; `ObjectFormatter` [1.6]; `InspectionAvailability` [1.6].
   `Snapshots/`: `SnapshotStore` (open, cache, memory mode); `SnapshotKinds` (per kind: the loader and its version, the
   snapshot over a graph, the kind's notes) [1.9], and whether the kind holds garbage, what an unreached object means
-  and why its objects cannot be matched by address [3.8]; `DerivedData`, per-snapshot derived data on the snapshot's entry,
-  dropped in one step when it closes: each slot is one shared computation with its own lease; a caller that cancels
-  only stops waiting, and the computation is canceled when the last waiter leaves before it finishes and nobody joins
-  within a 2 s grace period (so a grid's re-query joins it), or when the snapshot closes (`DerivedWaiter`, after the
-  2.3 review M13) [1.3]; the reverse references slot [2.1] and the
-  dominators slot with the retained lower bounds per grouping [2.3], with `SharedProgress` sending the computation's
-  progress to every caller waiting for it (review M7); the two reachable sets and the dominator tree's group tables
-  per grouping (`SnapshotStore.Reachability.cs`), which Analysis computes and no longer caches [3.8]. `ReverseIndexBuilder`: the reverse index opened from its sidecar,
-  or built straight into it [2.3] (in managed arrays when there is none), and `ChooseMode` (review M3); `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path,
-  identity, fingerprint, memory mode and forced mode, and attaches the result to the graph [2.1].
-  `SnapshotStore.RootPaths.cs` (the root path tree slot), `RetentionHandler` (formerly `WorkerService.Retention.cs`) and `RetentionMapping` (roots,
-  fields, dependent-handle and framework marks on the wire) [2.2]. `SnapshotStore.Dominators.cs` (the dominators slot and
-  the group retention per grouping), `DominatorIndexBuilder` (the dominators opened from their sidecar or computed into
-  it, with the fallbacks) and `MemoryReservations` (the worker-wide memory check of the large derived computations,
-  with `Refusal`'s next steps) and `RetentionHandler` and `DerivedQueries` (formerly `WorkerService.Retained.cs`); `TypeSummarySource` and `InstancesSource` add a retained column when
-  asked [2.3]. `RetentionHandler` (formerly `WorkerService.Dominators.cs`) (the tree and the icicle) with `DominatorTreeSource`, and
-  `RetentionHandler` (formerly `WorkerService.SetRetention.cs`) with `RetainedBySetSource` [2.4]. `ObjectSetResolver` (formerly `WorkerService.Sets.cs`) (resolving an
-  `ObjectSetSpec` into its members, logged with its size; a set's dominators with `SetDominatorsSource`), `ObjectSetCache`
-  (resolved sets and the inspection tables their rows come from, least recently used out, dropped with their snapshot;
-  owned by `SnapshotStore` since 3.8, which forgets a closed snapshot's entries and refuses entries for one no longer open),
-  `InstancesSource.Select` (a type's objects in a scope) and the set on instances, type summaries and set retention [3.1].
-  `RetentionHandler` and `DerivedQueries` (formerly `WorkerService.RetentionViews.cs`) (Similar Retention, a retention group resolved as a set, and each snapshot's
-  interfaces per type, read once from the dump through one object per type and dropped with the snapshot), the two new
-  set kinds in `ObjectSetResolver` (formerly `WorkerService.Sets.cs`), a set's key paths in `QueryTypePathsAsync`, and interface grouping in summaries
-  and diffs [3.2]. `HeapQueryHandler` with `IdentityMatcher` (formerly `WorkerService.Comparison.cs`) (a diff's extras: objects matched when both snapshots are of one process,
-  both snapshots' group retention, kinds; the `Compared` set kind resolved under both leases; trends) and
-  `TypeTrendSource` [3.3]. The `Unreachable` set kind (`ObjectSet.Unreachable`, the complement of
-  `Reachability.ComputeFromPathRoots`; refused for gcdumps and incomplete dumps) [3.5].
+  and why its objects cannot be matched by address [3.8]; `DerivedData`, per-snapshot derived data on the snapshot's
+  entry, dropped in one step when it closes: each slot is one shared computation with its own lease; a caller that
+  cancels only stops waiting, and the computation is canceled when the last waiter leaves before it finishes and nobody
+  joins within a 2 s grace period (so a grid's re-query joins it), or when the snapshot closes (`DerivedWaiter`, after
+  the 2.3 review M13) [1.3]; the reverse references slot [2.1] and the dominators slot with the retained lower bounds
+  per grouping [2.3], with `SharedProgress` sending the computation's progress to every caller waiting for it (review
+  M7); the two reachable sets and the dominator tree's group tables per grouping (`SnapshotStore.Reachability.cs`),
+  which Analysis computes and no longer caches [3.8]. `ReverseIndexBuilder`: the reverse index opened from its
+  sidecar, or built straight into it [2.3] (in managed arrays when there is none), and `ChooseMode` (review M3);
+  `SnapshotStore.ReverseReferences.cs` gives it the snapshot's cache path, identity, fingerprint, memory mode and forced
+  mode, and attaches the result to the graph [2.1].
+  `SnapshotStore.RootPaths.cs` (the root path tree slot), `RetentionHandler` and `RetentionMapping` (roots, fields,
+  dependent-handle and framework marks on the wire) [2.2]. `SnapshotStore.Dominators.cs` (the dominators slot and the
+  group retention per grouping), `DominatorIndexBuilder` (the dominators opened from their sidecar or computed into it,
+  with the fallbacks), `MemoryReservations` (the worker-wide memory check of the large derived computations, with
+  `Refusal`'s next steps), and retained sizes in `RetentionHandler` and `DerivedQueries`; `TypeSummarySource` and
+  `InstancesSource` add a retained column when asked [2.3]. In `RetentionHandler`: the tree and the icicle with
+  `DominatorTreeSource`, and set retention with `RetainedBySetSource` [2.4]. `ObjectSetResolver` (resolving an
+  `ObjectSetSpec` into its members, logged with its size; a set's dominators with `SetDominatorsSource`),
+  `ObjectSetCache` (resolved sets and the inspection tables their rows come from, least recently used out, dropped with
+  their snapshot; owned by `SnapshotStore` since 3.8, which forgets a closed snapshot's entries and refuses entries for
+  one no longer open), `InstancesSource.Select` (a type's objects in a scope) and the set on instances, type summaries
+  and set retention [3.1]. In `RetentionHandler` and `DerivedQueries`: Similar Retention, a retention group resolved as
+  a set, and each snapshot's interfaces per type, read once from the dump through one object per type and dropped with
+  the snapshot; the two new set kinds in `ObjectSetResolver`, a set's key paths in `QueryTypePathsAsync`, and interface
+  grouping in summaries and diffs [3.2]. `HeapQueryHandler` with `IdentityMatcher` (a diff's extras: objects matched
+  when both snapshots are of one process, both snapshots' group retention, kinds; the `Compared` set kind resolved
+  under both leases; trends) and `TypeTrendSource` [3.3]. The `Unreachable` set kind (`ObjectSet.Unreachable`, the
+  complement of `Reachability.ComputeFromPathRoots`; refused for gcdumps and incomplete dumps) [3.5].
 - **Application.** Since 3.8: `Workers/WorkerResources<T>` (the one reopen protocol for snapshots and traces, one reopen
   per handle for all its waiters) and `ResultQuery` (a query whose rows come back as a result set) [P5];
   `Events/SafeEvents` (events raised after state is final, outside locks, a throwing listener logged) [P9];
@@ -181,8 +186,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   (`CaptureFailure.Busy`) and forces collections through Capture's `GcTrigger` [3.4]. A run awaits every capture and
   forced collection at its end, refuses new ones once stopping, marks its session in use, logs a rule deferred by a busy
   process and re-arms one that lost the race, and stops its allocation trace at `MonitorOptions.TraceLimitBytes` (1 GB)
-  or under 1 GB of free disk (`TraceStopped`) [3.4 review]. Core's `IndexCachePaths` names a snapshot's index cache, its
-  sidecar kinds and the writer's temporary files, for Storage and for deletion [3.4]. `ICaptureService.StartCapture`
+  or under 1 GB of free disk (`TraceStopped`) [3.4 review]. `ICaptureService.StartCapture`
   records a source (`SnapshotSource.Timed` for rules) and takes a `SnapshotKindDto` [1.7, 1.8]. `Exports/CsvExport`:
   a result set or in-memory rows as CSV, page by page, without hidden columns and, unless opted in, without value
   columns (then a first line says so), a formula guard on text cells, UTF-8 with a BOM; the CLI shares its quoting [2.7].
@@ -193,8 +197,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   in the front end's culture), and `MonitorRulesParser` with a `MonitorRuleGrammar` per front end (the CLI's 90s, 5m,
   1h in the invariant culture; the app's bare minutes in the current culture), each field refused with its own message.
   `Sessions/SessionDocumentFile`: the file protocol of `session.json` (`SessionRead`, `SessionUnreadableException`)
-  [3.6]; `Session.FileInside` and `Session.IsLocal` for paths a received session names [3.7]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` beside
-  the session library or for one run (ADR-035) [3.6].
+  [3.6]; `Session.FileInside` and `Session.IsLocal` for paths a received session names [3.7]. `Snapshots/TrustedDacs`: the DACs trusted to load from next to a dump, by SHA-256, in `trusted-dacs.json` in
+  HeapScope's data folder (never beside a configured session root) or for one run (ADR-035) [3.6].
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
   and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2]; a diff's `matchObjects` and `includeRetained`,
@@ -243,6 +247,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `NavigationTarget.SetView` (the view a set opens on), and `TypeGridViewModel.GroupNote` for the interface grouping.
   Sprint 3.3: Compare's New and Dead, retained and per-generation columns (`ColumnGroups.Identity`), a row's new, dead
   or survived objects as sets, and `TrendViewModel` (the ticked open snapshots, oldest first, as a dynamic-column grid).
+  Sprint 3.4 to 3.6: deleting snapshots and sessions and the cleanup of old sessions (`SnapshotsViewModel`,
+  `PageViewModels`), past runs and forced collections on `LiveViewModel` (`PastRunItem`), and the DAC trust question in
+  `SnapshotsViewModel`.
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -272,14 +279,15 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   (`worker`, `synthetic`). Tables read cells by column name (`ColumnMap`). `DiffCommand` [1.4],
   `InspectCommands` (`instances`, `object`) [1.5], `InspectionCommand` (`inspect`) [1.6], `TraceCommand` [1.5],
   `MonitorCommand` [1.7], `ReferrersCommand` (`referrers --address | --type`) [2.1], `PathsCommand` (`paths --address | --type`) [2.2], `--retained` on `summary`, `instances` and `object` with `StderrProgress` [2.3],
-  `RetainersCommand` (`retainers`, `retained-by`) [2.4]; `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
+  `RetainersCommand` (`retainers`, `retained-by`) [2.4], `SetCommand` (`set`) [3.1], `TrendCommand` (`trend`) [3.3];
+  `CliCommands.Output.cs` holds the output every command shares: fetching rows, CSV, JSON (one
   writer, rows keyed by column name with typed numbers) [1.9].
 - **perf/HeapScope.Benchmarks.** The budget benchmarks, the developer tool `trace-report` [1.5; Avalonia's UI thread
   since 3.8] and `phase2-indices`,
   the Phase 2 index prototype (section 6.4) [1.9]; `reverse-index`, the reverse references index of a real index cache
   (build, sidecar write, reopen in both modes) [2.1]; `retention`, the root path tree, key paths and object searches of
-  a real index cache [2.2]; `live-tail`, the live sources spike of ADR-037 [3.8]; `dominators`, the reverse index and dominators as the worker computes them, in either mode
-  [2.3].
+  a real index cache [2.2]; `live-tail`, the live sources spike of ADR-037 [3.8]; `dominators`, the reverse index and
+  dominators as the worker computes them, in either mode [2.3]; `stack-roots` (diagnostic: stack roots per thread).
 - **Leak detectors [2.6, ADR-020 amended].** Analysis: `Inspections/Detectors/`, a file per detector since 3.8 (peer review P19), with `DetectorGraph`, `Fields`, `Readers`, `TypeTally` and `RuntimeLayouts` (the runtime field names): `GrowingStaticCollectionsDetector`
   (a static field's collection counted by its own fields; growth since a baseline, or large without one),
   `EventHandlerLeaksDetector` (subscribers of a publisher type's event field, through the incoming references and
@@ -290,19 +298,20 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   `UsesReferrers`, `UsesReachable` [3.8]; `InspectionBaseline` and `InspectionContext.Referrers` and `.Reachable`;
   `Retention/Reachability` (a bit per object from the retaining roots other than the finalizer queue,
   `Reachability.Compute`; the worker walks it once per snapshot and supplies it [3.8]) and the
-  shared `ChunkedStack`; `InspectionScopes.Reachable`, the scope a detector row opens (Worker: `InstancesSource`). Worker: `InspectionHandler` with `InspectionRunner` (formerly `WorkerService.Inspections`) leases the baseline and passes the
+  shared `ChunkedStack`; `InspectionScopes.Reachable`, the scope a detector row opens (Worker: `InstancesSource`). Worker: `InspectionHandler` with `InspectionRunner` leases the baseline and passes the
   reverse index. Application: `RunInspectionAsync(..., baseline)`. UI.ViewModels: the Inspections tab's detector group
   and `BaselineChoice`. Cli: `inspect --baseline`. Fixtures: `DetectorLeaks.cs` (`TimerLeak`, `DisposedReferencedLeak`,
   `CleanWorkload`), LeakyApi's `Leaks:Detected` and `Clean:Enabled`, LeakyConsole's `--detected`.
 - **Allocation traces [2.5, ADR-028].** Capture: `TraceProfile.Allocations` (GC events at verbose with loader and JIT
   events; the rundown on stop). Core: `Allocations/AllocationTrace` (frames, a deduplicated stack tree, types, and per
-  sample its time, innermost stack node, type and bytes; `NativeFrame`, `NoStackFrame`). Loaders.Trace:
-  `AllocationTraceReader` (the `Nettrace` signature checked first, TraceEvent's `.etlx` written to a private folder
-  (section 12) and deleted, runs of native frames merged, cancellation). Analysis: `Allocations/AllocationProfile` (sample
+  sample its time, innermost stack node, type and bytes; `NoStackFrame`, unnamed frames labeled
+  `[unresolved frame in <module>]`). Loaders.Trace: `AllocationTraceReader` (the `Nettrace` signature checked first,
+  TraceEvent's `.etlx` written to a private folder (section 12) and deleted, every frame kept, unnamed ones labeled and
+  counted, cancellation). Analysis: `Allocations/AllocationProfile` (sample
   ranges by binary search, the timeline, types, totals, top stacks, a stack's frames) and `AllocationTreeRows` (the call
   tree and back traces flattened from open keys like ADR-027, with `AllocationRow`, `AllocationTreeView`,
   `AllocationFilter`). Worker: `Traces/TraceStore` (open traces, a memory reservation while reading,
-  `ReadReservation`) and `AllocationTraceHandler` (formerly `WorkerService.Allocations`) with `AllocationTypesSource` and `AllocationTreeSource`. Application:
+  `ReadReservation`) and `AllocationTraceHandler` with `AllocationTypesSource` and `AllocationTreeSource`. Application:
   `Allocations/AllocationSession` (`TraceHandle`, reading again after a worker restart, `AllocationScope`, and
   `StartRecord`, which records into the current session's folder and opens the trace). UI.ViewModels:
   `AllocationsViewModel` (the page), `AllocationTraceViewModel` (a trace: interval, type, stacks), `AllocationTypesViewModel`,
@@ -315,7 +324,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   full gate, bash, replacing 1.9's `gate.ps1`), `test.sh` (a test tier: `fast` or `integration`, projects found rather
   than listed, TRX results), `fixture-dump.sh` (start LeakyConsole, dump it), `publish.sh` (self-contained builds, 2.3.6),
   `collect-licenses.cs` (the license files of HeapScope and of every shipped package into the build) and
-  `check-package.sh` (a build holds them, and not the unreviewed TraceEvent natives) (DEVELOPER.md 2 and 7). Since
+  `check-package.sh` (a build holds them, and not the unreviewed TraceEvent natives) (DEVELOPER.md 2 and 7);
+  `check-known-answers.sh` (the CLI's answers on a LeakyConsole dump against the known answers, on every CI system)
+  [2.3.5]. Since
   2026-10-30 (ADR-038): `skia-native.sh` (publish.sh swaps in HeapScope's SkiaSharp native library without the DNG SDK
   and piex, by pinned checksum) and `check-no-dng.sh` (no DNG SDK or piex code in a library; check-package.sh and
   `.github/workflows/skia-native.yml`, which builds the libraries, run it).
