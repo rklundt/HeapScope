@@ -47,9 +47,10 @@ jobs:
             rid: win-x64
           - os: ubuntu-latest
             rid: linux-x64
-          - os: macos-latest
+          # The macOS builds on Linux: no macOS runners (owner, 2026-10-31: about ten times the cost of Linux minutes).
+          - os: ubuntu-latest
             rid: osx-arm64
-          - os: macos-latest
+          - os: ubuntu-latest
             rid: osx-x64
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

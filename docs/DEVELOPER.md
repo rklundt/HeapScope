@@ -47,7 +47,7 @@ dotnet test --solution HeapScope.sln
   `HEAPSCOPE_FUZZ_KEEP=<folder>` (set by the nightly, kept with its results) the test keeps the base (`base.gcdump`), the
   iteration in progress and any failing input there, and `HEAPSCOPE_FUZZ_BASE=<base.gcdump>` replays from it.
 - The DAC trust check on a real dump of any system: `HEAPSCOPE_FIXTURE_DUMP=<dump> dotnet test --project
-  tests/HeapScope.Loaders.ClrMd.Tests --filter-class "*PlantedDacTests"` (CI's Linux and macOS jobs run it, with
+  tests/HeapScope.Loaders.ClrMd.Tests --filter-class "*PlantedDacTests"` (CI's Linux job runs it, with
   `HEAPSCOPE_REQUIRE_FIXTURE=1` so a skip fails). It plants the DAC next to the dump and removes it after; a folder that
   already holds a DAC or runtime library is skipped, never overwritten.
 - Packages (sprint 3.7): nuget.org only (`nuget.config`); every project has a `packages.lock.json` and CI restores in
@@ -471,18 +471,24 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests (the view model and headless UI
     tests included), dumps the fixture with `dotnet-dump` (pinned), checks the CLI's JSON against the known answers with
     `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named runtime version) and opens the dump in
-    the app without a display (`--headless --smoke-open`). macOS does the same, informational (an arm64 runner;
-    ADR-025).
+    the app without a display (`--headless --smoke-open`).
+  - No macOS runners since 2026-10-31 (owner: their minutes cost about ten times Linux's). Until then a macOS job did
+    what Linux does, informational (an arm64 runner; ADR-025). Nothing in CI tests on macOS now.
   - After both pass, a package job publishes the self-contained builds per runtime identifier (`build/publish.sh`, with
     the license files checked by `build/check-package.sh`), packs each as a tarball (which keeps the executables' modes),
     unpacks it, checks it again and runs it as a user would (the CLI's version, a worker ping, the worker's Server GC
-    setting, a headless synthetic smoke; `osx-x64` is built but cannot run on the arm64 runner) and, on pushes and manual
+    setting, a headless synthetic smoke; `osx-arm64` and `osx-x64` are built on Linux and not run) and, on pushes and manual
     runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
   The local gate runs the same tiers; run it before closing a sprint. Fixture dumps are never uploaded. Making the CI jobs
   required checks on `develop` and `main` is a repository setting the owner applies.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.
+- GitHub auto-merge is allowed on the repository (owner, 2026-10-31): a PR with auto-merge on is squash merged when the
+  required checks of the ruleset "Protect main and develop" pass, and its branch is deleted. Both work on any plan only
+  while the repository is public. If it is ever made private on a free plan, GitHub turns off auto-merge and the
+  ruleset (rulesets and auto-merge on private repositories need a paid plan): merge by hand after CI is green, and
+  nothing then stops a merge with failing checks.
 - Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`
   (`X.Y.Z` for an in-between sprint such as 2.3.5).
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
@@ -499,12 +505,15 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - SkiaSharp native libraries (ADR-038, 2026-10-30): `.github/workflows/skia-native.yml` builds `libSkiaSharp` for win-x64,
   linux-x64 and macOS (one universal library for both macOS runtimes) from SkiaSharp's sources at a pinned commit, with
   only `skia_use_dng_sdk` and `skia_use_piex` off; it checks each library (`build/check-no-dng.sh`) and attests the set.
-  It runs on a push that changes it (any branch but `main` and `develop`) or by hand once it is on `main`. The owner
+  It runs on a push that changes it (any branch but `main` and `develop`) or by hand once it is on `main`. The macOS
+  library needs a paid macOS runner, so it is built only on a manual run with `macos` checked (owner, 2026-10-31:
+  macOS minutes cost about ten times Linux's); a push builds the Windows and Linux ones. The owner
   attaches its files (`libSkiaSharp.win-x64.dll` and `.pdb`, `libSkiaSharp.linux-x64.so`, `libSkiaSharp.osx.dylib`,
   `SHA256SUMS`) to a pre-release tagged `skia-native-<SkiaSharp version>-<n>`, which `release.yml` does not build
   (it builds `v*` tags only), and `build/skia-native.sh` pins that release, the SkiaSharp version and each checksum.
   When an Avalonia update brings a new SkiaSharp, publish.sh fails until this is redone for the new version: change
-  `SKIASHARP_COMMIT` in the workflow (the commit of SkiaSharp's release tag), push, attach, and update the pins.
+  `SKIASHARP_COMMIT` in the workflow (the commit of SkiaSharp's release tag), push, run it by hand with `macos` checked
+  (with the owner's OK for the macOS minutes), attach, and update the pins.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
   adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no
