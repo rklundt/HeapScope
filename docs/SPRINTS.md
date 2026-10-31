@@ -56,7 +56,6 @@ follows 3.8.0.
 **In scope already** (product owner, 2026-10-30):
 - A README in the shipped `licenses/` folder: the files there are the licenses of third-party components, and
   HeapScope's own license is `LICENSE` beside it (so no one reads HeapScope as MIT).
-- The DNG SDK decision (Backlog, High).
 
 **Scope**: otherwise decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
 your proposal for a packaging sprint once you pick audiences and channels"). Options discussed after 2.4:
@@ -70,12 +69,12 @@ your proposal for a packaging sprint once you pick audiences and channels"). Opt
 Constraints: every bundled component keeps an allowed license (MIT or allowed), with its notices shipped; the
 attribution strip and the license files ship unchanged (ADR-022); before any Avalonia update, check whether anything
 used has moved to a paid model. Signing certificates, store accounts and paid services need the product owner's OK.
-Before the first commercial release, settle Adobe's DNG SDK inside SkiaSharp's native library (Backlog, High).
+Builds ship HeapScope's own SkiaSharp native library, without Adobe's DNG SDK (ADR-038, 2026-10-30); a channel that
+repackages the build keeps it, and a SkiaSharp update rebuilds it (DEVELOPER.md 7).
 
 **Open questions for /start-sprint**: audiences (who installs it, on which systems); channels (GitHub Releases only,
 or also winget, a dotnet tool, package feeds); self-contained or shared runtime; signing on which systems; how updates
-reach users; whether CI becomes the release builder; whether HeapScope ships its own SkiaSharp native build without the
-DNG SDK (Backlog).
+reach users; whether CI becomes the release builder.
 
 **Acceptance criteria**: to be set at /start-sprint with the channels; at least a clean machine of each chosen
 system installs the package, runs the app, opens a fixture dump and runs the CLI, with no SDK installed.

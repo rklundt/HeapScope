@@ -23,7 +23,9 @@
 # Commercial licenses are available. See COMMERCIAL.md.
 
 # Checks a published HeapScope build (sprint 3.6, peer review P3): the license texts travel with it, the .NET runtime's
-# and the native graphics libraries' notices are there, and binaries not reviewed for redistribution are not.
+# and the native graphics libraries' notices are there, and binaries not reviewed for redistribution are not. SkiaSharp's
+# native library holds no code of Skia's raw camera image decoder, Adobe's DNG SDK and Google's piex (2026-10-30):
+# build/skia-native.sh replaced the stock one.
 # Usage: check-package.sh <publish folder>
 set -euo pipefail
 [ $# -eq 1 ] || { echo "Usage: check-package.sh <publish folder>" >&2; exit 64; }
@@ -36,5 +38,12 @@ ls "$dir"/licenses/Microsoft.NETCore.App.Runtime.*/* > /dev/null 2>&1 || { echo 
 ls "$dir"/licenses/SkiaSharp.NativeAssets.*/THIRD-PARTY-NOTICES.txt > /dev/null 2>&1 || { echo "Missing SkiaSharp's native notices under licenses/"; failed=1; }
 unreviewed=$(find "$dir" -iname 'msdia140.dll' -o -iname 'KernelTraceControl.dll')
 [ -z "$unreviewed" ] || { echo "Binaries not reviewed for redistribution are in the build:"; echo "$unreviewed"; failed=1; }
-[ "$failed" -eq 0 ] && echo "Package $dir: license files present, no unreviewed binaries."
+skia=$(find "$dir" -maxdepth 1 -name 'libSkiaSharp.*')
+if [ -z "$skia" ]; then
+  echo "Missing SkiaSharp's native library"; failed=1
+else
+  # shellcheck disable=SC2086 # one name per line, none with spaces
+  bash "$(dirname "$0")/check-no-dng.sh" $skia || failed=1
+fi
+[ "$failed" -eq 0 ] && echo "Package $dir: license files present, no unreviewed binaries, no DNG SDK or piex code."
 exit "$failed"

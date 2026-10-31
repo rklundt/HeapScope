@@ -76,6 +76,10 @@ dotnet test --solution HeapScope.sln
   `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and each shipped package's own license and notice
   files under `licenses/` (`build/collect-licenses.cs`), and leaves out the TraceEvent natives no code uses
   (`HeapScopePublish`, `Directory.Build.targets`); `bash build/check-package.sh <folder>` checks both (publish.sh runs it).
+  Since 2026-10-30 publish.sh swaps SkiaSharp's native library for HeapScope's build without the DNG SDK and piex
+  (`build/skia-native.sh`, ADR-038), downloaded from this repository's release by its pinned checksum (needs network
+  access, or `HEAPSCOPE_SKIA_NATIVE_DIR` naming a folder that holds the files); check-package.sh refuses a build whose
+  `libSkiaSharp` holds DNG SDK or piex code (`build/check-no-dng.sh`). Debug builds and tests use the stock NuGet one.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
@@ -492,6 +496,15 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   manual runs need the workflow on the default branch. If a build fails after publishing, rerun the failed jobs: one
   runtime failing does not cancel the others, and attaching replaces files of the same name. Security reports:
   `SECURITY.md`.
+- SkiaSharp native libraries (ADR-038, 2026-10-30): `.github/workflows/skia-native.yml` builds `libSkiaSharp` for win-x64,
+  linux-x64 and macOS (one universal library for both macOS runtimes) from SkiaSharp's sources at a pinned commit, with
+  only `skia_use_dng_sdk` and `skia_use_piex` off; it checks each library (`build/check-no-dng.sh`) and attests the set.
+  It runs on a push that changes it (any branch but `main` and `develop`) or by hand once it is on `main`. The owner
+  attaches its files (`libSkiaSharp.win-x64.dll` and `.pdb`, `libSkiaSharp.linux-x64.so`, `libSkiaSharp.osx.dylib`,
+  `SHA256SUMS`) to a pre-release tagged `skia-native-<SkiaSharp version>-<n>`, which `release.yml` does not build
+  (it builds `v*` tags only), and `build/skia-native.sh` pins that release, the SkiaSharp version and each checksum.
+  When an Avalonia update brings a new SkiaSharp, publish.sh fails until this is redone for the new version: change
+  `SKIASHARP_COMMIT` in the workflow (the commit of SkiaSharp's release tag), push, attach, and update the pins.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
   adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no

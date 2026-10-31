@@ -39,6 +39,9 @@ for project in src/HeapScope.UI src/HeapScope.Cli; do
   dotnet publish "$project" -c Release -r "$rid" --self-contained -p:PublishReadyToRun=true -p:HeapScopePublish=true -o "$out"
 done
 
+# SkiaSharp's native library without Skia's raw camera image decoder (Adobe's DNG SDK and Google's piex, 2026-10-30).
+bash build/skia-native.sh "$rid" "$out"
+
 # The license texts travel with every build (sprint 3.6, peer review P3): HeapScope's own and every shipped package's.
 dotnet run build/collect-licenses.cs -- "$out" "$rid" src/HeapScope.UI src/HeapScope.Cli src/HeapScope.Worker
 bash build/check-package.sh "$out"

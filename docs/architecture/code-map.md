@@ -315,4 +315,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes; the sp
   full gate, bash, replacing 1.9's `gate.ps1`), `test.sh` (a test tier: `fast` or `integration`, projects found rather
   than listed, TRX results), `fixture-dump.sh` (start LeakyConsole, dump it), `publish.sh` (self-contained builds, 2.3.6),
   `collect-licenses.cs` (the license files of HeapScope and of every shipped package into the build) and
-  `check-package.sh` (a build holds them, and not the unreviewed TraceEvent natives) (DEVELOPER.md 2 and 7).
+  `check-package.sh` (a build holds them, and not the unreviewed TraceEvent natives) (DEVELOPER.md 2 and 7). Since
+  2026-10-30 (ADR-038): `skia-native.sh` (publish.sh swaps in HeapScope's SkiaSharp native library without the DNG SDK
+  and piex, by pinned checksum) and `check-no-dng.sh` (no DNG SDK or piex code in a library; check-package.sh and
+  `.github/workflows/skia-native.yml`, which builds the libraries, run it).

@@ -6,6 +6,10 @@ listed" with its sprint.
 
 ## Built since listed
 
+Outside a sprint:
+- SkiaSharp's native library without Adobe's DNG SDK and Google's piex (High, from the 3.8 owner actions): built
+  2026-10-30 (ADR-038; `skia-native.yml`, `build/skia-native.sh`, `build/check-no-dng.sh`).
+
 Swept in sprint 3.8:
 - Trend analysis across more than two snapshots: built in 3.3 (`trend`, the Trend view).
 - One capture per target at a time: built in 3.4.
@@ -18,15 +22,6 @@ Swept in sprint 3.8:
 ## Open
 
 **High**
-- SkiaSharp's native library without Adobe's DNG SDK (from the 3.8 owner actions, 2026-10-30; for sprint 3.9
-  Packaging, before the first commercial release). The native SkiaSharp 3.119.4 library on Windows, Linux and macOS
-  carries Skia's raw camera image decoder: Adobe's DNG SDK and Google's piex, which HeapScope never uses. The DNG SDK
-  License (in SkiaSharp's `THIRD-PARTY-NOTICES.txt`, shipped under `licenses/`) asks, in section 5, anyone who
-  distributes it in a commercial product to defend and indemnify Adobe. Either a legal review accepts that clause, or
-  HeapScope builds libSkiaSharp itself from SkiaSharp's public build scripts with Skia's `skia_use_dng_sdk` and
-  `skia_use_piex` off, per runtime identifier, ships it in place of the NuGet native assets, has
-  `build/check-package.sh` refuse a build with DNG code in it, and rebuilds it on every SkiaSharp update Avalonia takes.
-  Replacing Skia is not an option: Avalonia draws only through it.
 - A contribution policy before any outside contribution is accepted (from ADR-022; 2026-10-30, the repository is
   public). A contribution stays its author's, licensed to HeapScope under the AGPL only, which would end commercial
   licensing of any file it touches. Until a contributor agreement exists (a CLA that grants the owner the right to

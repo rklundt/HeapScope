@@ -81,12 +81,16 @@ Avalonia renders through ANGLE on Windows. Its native binaries are under the BSD
 ### Native components inside SkiaSharp and HarfBuzzSharp
 
 The native assets of SkiaSharp and HarfBuzzSharp (via Avalonia) bundle third-party components under their own licenses,
-which the packages list in their `THIRD-PARTY-NOTICES.txt`: ANGLE, DNG SDK, etc1, expat, FreeType (used under the
-FreeType License), gif, HarfBuzz, ICU, imgui, jsoncpp, libjpeg-turbo, libmicrohttpd, libpng, libwebp, piex, SDL, sfntly,
-Skia, SPIR-V Headers and Tools, and zlib, under the BSD, MIT, Apache-2.0, zlib, ICU, FreeType, IJG and LGPL-2.1
-licenses and the Adobe DNG SDK License. This product includes DNG technology under license by Adobe Systems
-Incorporated. Every published build carries those files, with each shipped package's own license and notice files,
-under `licenses/<package>.<version>/` (sprint 3.6).
+which the packages list in their `THIRD-PARTY-NOTICES.txt`: ANGLE, etc1, expat, FreeType (used under the FreeType
+License), gif, HarfBuzz, ICU, imgui, jsoncpp, libjpeg-turbo, libmicrohttpd, libpng, libwebp, SDL, sfntly, Skia, SPIR-V
+Headers and Tools, and zlib, under the BSD, MIT, Apache-2.0, zlib, ICU, FreeType, IJG and LGPL-2.1 licenses. Every
+published build carries those files, with each shipped package's own license and notice files, under
+`licenses/<package>.<version>/` (sprint 3.6).
+
+Adobe's DNG SDK and Google's piex are not in HeapScope's builds (since 2026-10-30). HeapScope ships its own build of
+SkiaSharp's native library, made from SkiaSharp's sources at the same version with Skia's raw camera image decoder
+turned off, and `build/check-package.sh` refuses a build that contains their code. SkiaSharp's notices file, shipped
+unchanged, still names them.
 
 Three of the components named there carry a GNU license or a GNU option. None of them puts HeapScope or its builds
 under the GPL or the LGPL (checked in the SkiaSharp 3.119.4 and HarfBuzzSharp 8.3.1.3 native libraries for Windows,
