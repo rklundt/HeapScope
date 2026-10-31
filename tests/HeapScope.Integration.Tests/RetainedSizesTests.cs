@@ -234,12 +234,12 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
         var entry = First("Fixtures.Leaks.StaticCacheEntry").Address;
         var address = string.Create(CultureInfo.InvariantCulture, $"0x{entry:x}");
 
-        var (summaryCode, summary) = await RunCliAsync("summary", _dump, "--filter", "Fixtures.Leaks", "--sort", "retained", "--format", "json");
-        var (instancesCode, instances) = await RunCliAsync("instances", _dump, "--type", "Fixtures.Leaks.StaticCacheEntry", "--retained", "--top", "3");
-        var (objectCode, text) = await RunCliAsync("object", _dump, address, "--retained", "--references", "0");
+        var (summaryCode, summary, summaryJson) = await RunCliAsync("summary", _dump, "--filter", "Fixtures.Leaks", "--sort", "retained", "--format", "json");
+        var (instancesCode, instances, _) = await RunCliAsync("instances", _dump, "--type", "Fixtures.Leaks.StaticCacheEntry", "--retained", "--top", "3");
+        var (objectCode, text, _) = await RunCliAsync("object", _dump, address, "--retained", "--references", "0");
 
         summaryCode.ShouldBe(0, summary);
-        using (var json = JsonDocument.Parse(summary[summary.IndexOf('{', StringComparison.Ordinal)..(summary.LastIndexOf('}') + 1)]))
+        using (var json = JsonDocument.Parse(summaryJson[summaryJson.IndexOf('{', StringComparison.Ordinal)..(summaryJson.LastIndexOf('}') + 1)]))
         {
             json.RootElement.GetProperty("RetainedIsLowerBound").GetBoolean().ShouldBeTrue();
             json.RootElement.GetProperty("Rows")[0].GetProperty("Retained").GetInt64().ShouldBeGreaterThan(0);
@@ -250,9 +250,9 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
 
         // Review H2: an object no root reaches has a null retained cell, written as JSON null.
         var garbageType = KnownAnswer.Load("LateGarbage").PresentButUnreachable![0];
-        var (garbageCode, garbage) = await RunCliAsync("instances", _dump, "--type", garbageType, "--module", Module, "--retained", "--top", "3", "--format", "json");
+        var (garbageCode, garbage, garbageJson) = await RunCliAsync("instances", _dump, "--type", garbageType, "--module", Module, "--retained", "--top", "3", "--format", "json");
         garbageCode.ShouldBe(0, garbage);
-        using (var json = JsonDocument.Parse(garbage[garbage.IndexOf('{', StringComparison.Ordinal)..(garbage.LastIndexOf('}') + 1)]))
+        using (var json = JsonDocument.Parse(garbageJson[garbageJson.IndexOf('{', StringComparison.Ordinal)..(garbageJson.LastIndexOf('}') + 1)]))
         {
             json.RootElement.GetProperty("Rows")[0].GetProperty("Retained").ValueKind.ShouldBe(JsonValueKind.Null);
         }
@@ -294,10 +294,10 @@ public sealed class RetainedSizesTests : IClassFixture<AllLeaksDump>, IAsyncDisp
 
     private Microsoft.Diagnostics.Runtime.ClrObject First(string type) => _shared.Dump.Instances(type).First();
 
-    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    private static async Task<(int Code, string Output, string StandardOutput)> RunCliAsync(params string[] arguments)
     {
         using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
-        return (cli.Process.ExitCode, cli.Output);
+        return (cli.Process.ExitCode, cli.Output, cli.StandardOutput);
     }
 }

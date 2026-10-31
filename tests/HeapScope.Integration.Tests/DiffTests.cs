@@ -187,7 +187,7 @@ public sealed class DiffTests(LeakyApiPair pair) : IClassFixture<LeakyApiPair>, 
 
         var json = await RunCliAsync("diff", pair.Baseline, pair.Current, "--format", "json", "--filter", "StaticCacheEntry", "--sort", "count-delta");
         json.Code.ShouldBe(0, json.Output);
-        using (var document = System.Text.Json.JsonDocument.Parse(json.Output[json.Output.IndexOf('{', StringComparison.Ordinal)..(json.Output.LastIndexOf('}') + 1)]))
+        using (var document = System.Text.Json.JsonDocument.Parse(json.StandardOutput[json.StandardOutput.IndexOf('{', StringComparison.Ordinal)..(json.StandardOutput.LastIndexOf('}') + 1)]))
         {
             var row = document.RootElement.GetProperty("Rows")[0];
             row.GetProperty("Name").GetString().ShouldBe("Fixtures.Leaks.StaticCacheEntry");
@@ -227,11 +227,11 @@ public sealed class DiffTests(LeakyApiPair pair) : IClassFixture<LeakyApiPair>, 
     private async Task<(SnapshotHandle Baseline, SnapshotHandle Current)> OpenBothAsync() =>
         (await Session.StartOpen(pair.Baseline).Result, await Session.StartOpen(pair.Current).Result);
 
-    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    private static async Task<(int Code, string Output, string StandardOutput)> RunCliAsync(params string[] arguments)
     {
         using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
-        return (cli.Process.ExitCode, cli.Output);
+        return (cli.Process.ExitCode, cli.Output, cli.StandardOutput);
     }
 
     private static async Task<List<IReadOnlyList<string?>>> AllRowsAsync(ResultSetHandle rows)

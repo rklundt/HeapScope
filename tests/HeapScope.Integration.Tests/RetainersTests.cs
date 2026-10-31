@@ -155,15 +155,15 @@ public sealed class RetainersTests : IClassFixture<AllLeaksDump>, IAsyncDisposab
     [Fact]
     public async Task The_cli_prints_the_biggest_retainers_expanded_and_what_a_type_retains()
     {
-        var (treeCode, tree) = await RunCliAsync("retainers", _dump, "--depth", "2", "--top", "5", "--format", "json");
-        var (tableCode, table) = await RunCliAsync("retainers", _dump, "--group", "type", "--top", "5");
-        var (setCode, set) = await RunCliAsync("retained-by", _dump, "Fixtures.Leaks.StaticCacheEntry", "--format", "json");
-        var (setTableCode, setTable) = await RunCliAsync("retained-by", _dump, "Fixtures.Leaks.StaticCacheEntry", "--top", "3");
-        var (badCode, bad) = await RunCliAsync("retainers", _dump, "--depth", "9");
-        var (missingCode, missing) = await RunCliAsync("retained-by", _dump, "Fixtures.Leaks.NoSuchType", "--module", Module);
+        var (treeCode, tree, treeJson) = await RunCliAsync("retainers", _dump, "--depth", "2", "--top", "5", "--format", "json");
+        var (tableCode, table, _) = await RunCliAsync("retainers", _dump, "--group", "type", "--top", "5");
+        var (setCode, set, setJson) = await RunCliAsync("retained-by", _dump, "Fixtures.Leaks.StaticCacheEntry", "--format", "json");
+        var (setTableCode, setTable, _) = await RunCliAsync("retained-by", _dump, "Fixtures.Leaks.StaticCacheEntry", "--top", "3");
+        var (badCode, bad, _) = await RunCliAsync("retainers", _dump, "--depth", "9");
+        var (missingCode, missing, _) = await RunCliAsync("retained-by", _dump, "Fixtures.Leaks.NoSuchType", "--module", Module);
 
         treeCode.ShouldBe(0, tree);
-        using (var json = Json(tree))
+        using (var json = Json(treeJson))
         {
             json.RootElement.GetProperty("TotalRetained").GetInt64().ShouldBeGreaterThan(0);
             var depths = json.RootElement.GetProperty("Rows").EnumerateArray().Select(r => r.GetProperty("Depth").GetInt64()).ToList();
@@ -176,7 +176,7 @@ public sealed class RetainersTests : IClassFixture<AllLeaksDump>, IAsyncDisposab
         table.ShouldContain("Retained per row: exact");
 
         setCode.ShouldBe(0, set);
-        using (var json = Json(set))
+        using (var json = Json(setJson))
         {
             var root = json.RootElement;
             root.GetProperty("SetObjects").GetInt64().ShouldBe(AllLeaksDump.Items);
@@ -206,10 +206,10 @@ public sealed class RetainersTests : IClassFixture<AllLeaksDump>, IAsyncDisposab
     private static JsonDocument Json(string output) =>
         JsonDocument.Parse(output[output.IndexOf('{', StringComparison.Ordinal)..(output.LastIndexOf('}') + 1)]);
 
-    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    private static async Task<(int Code, string Output, string StandardOutput)> RunCliAsync(params string[] arguments)
     {
         using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
-        return (cli.Process.ExitCode, cli.Output);
+        return (cli.Process.ExitCode, cli.Output, cli.StandardOutput);
     }
 }

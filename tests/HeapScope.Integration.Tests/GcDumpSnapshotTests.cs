@@ -311,7 +311,7 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
         using var summary = ChildProcess.Start(TestPaths.CliExe, "summary", gcdump, "--format", "json", "--top", "1");
         (await summary.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(summary.Output);
         summary.Process.ExitCode.ShouldBe(0, summary.Output);
-        using (var document = Json(summary.Output))
+        using (var document = Json(summary.StandardOutput))
         {
             document.RootElement.GetProperty("Kind").GetString().ShouldBe("GcDump");
             document.RootElement.GetProperty("IncludesUnreachable").GetBoolean().ShouldBeFalse();
@@ -320,7 +320,7 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
         using var diff = ChildProcess.Start(TestPaths.CliExe, "diff", full, gcdump, "--format", "json", "--top", "1");
         (await diff.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(diff.Output);
         diff.Process.ExitCode.ShouldBe(0, diff.Output);
-        using (var document = Json(diff.Output))
+        using (var document = Json(diff.StandardOutput))
         {
             var root = document.RootElement;
             (root.GetProperty("BaselineKind").GetString(), root.GetProperty("CurrentKind").GetString()).ShouldBe(("FullDump", "GcDump"));
