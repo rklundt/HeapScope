@@ -1,6 +1,4 @@
-# ADR-001 Platform: .NET 10, WPF, Windows x64
-
-Status: amended by [ADR-025](ADR-025-ui-platform-avalonia-on-windows-linux-and-macos.md) (the UI is Avalonia on Windows, Linux and macOS, not WPF).
+# ADR-001 Platform: .NET 10, WPF, Windows x64 (amended by ADR-025: Avalonia on Windows, Linux and macOS)
 
 - Context: the users are Windows .NET developers; a desktop app gives rich, fast grids and charts.
 - Decision: .NET 10, WPF, Windows 10/11 x64 only.

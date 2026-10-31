@@ -67,7 +67,7 @@ public interface ISnapshot : IDisposable
 | `FieldValues` | Read primitive and nested struct field values | yes | no |
 | `StringContents` | Read string text (needed for duplicate strings) | yes | no |
 | `RootDetails` | Static field names, thread ids for stack roots | yes | partial (root kind only) |
-| `ThreadStacks` | Managed thread stacks | yes | no |
+| `ThreadStacks` | Managed thread stacks | not yet (no reader) | no |
 
 Rules:
 - Features are never faked or approximated silently: a capability a snapshot lacks is explained in the words of the
@@ -125,7 +125,7 @@ Rules:
   deserializer"); a crafted file naming another type is refused before that type is created (test
   `A_crafted_gcdump_naming_an_unknown_type_is_refused_without_creating_it`, sprint 1.9).
 - Index caches record the version of the loader that built them (`IndexCacheMetadata.LoaderVersion`,
-  `ISnapshotLoader.Version`: full dumps 2 since 1.8, gcdumps 1); the worker rebuilds a cache from an older version with
+  `ISnapshotLoader.Version`: full dumps 3 since 2.3.5, gcdumps 1); the worker rebuilds a cache from an older version with
   a note, so a fix in what a loader records reaches snapshots cached before it (review M7).
 - Type names: the writer joins generic arguments without a space, writes compiler names' `<>` as `[]`, splits arrays
   above 1 KB and 10 KB into nodes named `T[] (Bytes > 10K)`, and drops the declaring types of nested types. The loader

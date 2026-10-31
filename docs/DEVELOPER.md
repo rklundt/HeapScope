@@ -5,8 +5,10 @@ Status: living document, updated by every sprint.
 ## 1. Prerequisites
 - Windows 11 x64 (Windows 10 x64 also supported) for everything. Since sprint 2.3.6 the engine, the worker, the CLI and
   the Avalonia app also build and run on Linux (x64) and macOS (Apple silicon or Intel); capture and the integration tests
-  stay Windows only. The build scripts are bash (Git Bash on Windows).
-- .NET 10 SDK (10.0.100 or later). `global.json` pins the feature band and rolls forward to the latest patch.
+  stay Windows only. The build scripts are bash (Git Bash on Windows); the sample dump scripts in `fixtures/scripts` are
+  PowerShell.
+- .NET 10 SDK (10.0.100 or later). `global.json` sets the minimum SDK (10.0.100) and rolls forward to the latest
+  installed feature band.
 - An IDE supporting .NET 10: Visual Studio 2026, JetBrains Rider 2025.3+, or VS Code with C# Dev Kit.
 - RAM: 16 GB is the baseline (Medium snapshots open in mapped mode when memory is tight); 32 GB lets Medium
   snapshots open fully in memory. Generating the Medium sample dump needs about 6 GB free RAM and 5 GB disk.
@@ -80,7 +82,8 @@ dotnet test --solution HeapScope.sln
   (`build/skia-native.sh`, ADR-038), downloaded from this repository's release by its pinned checksum (needs network
   access, or `HEAPSCOPE_SKIA_NATIVE_DIR` naming a folder that holds the files); check-package.sh refuses a build whose
   `libSkiaSharp` holds DNG SDK or piex code (`build/check-no-dng.sh`). Debug builds and tests use the stock NuGet one.
-- Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
+- Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli`,
+  `heapscope-cli.exe` on Windows). Ctrl+C cancels; exit codes 0 ok, 1 failure, 64 usage, 130 canceled (`diff` also 2).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
   dump into this run's session folder, an existing session, or `--out`; the target is paused while it is written; with
@@ -92,9 +95,7 @@ dotnet test --solution HeapScope.sln
   types summary with bytes per heap kind; the filter follows the UI's rules; its JSON says the snapshot's `Kind` and
   whether its counts include unreachable objects, `IncludesUnreachable`, true for a full dump only, sprint 1.9; with
   `--retained` or `--sort retained`, sprint 2.3, a retained bytes column per row, a lower bound, and `Dominators` and
-  `RetainedIsLowerBound` in the JSON). Ctrl+C cancels; exit codes
-  0 ok, 1 failure,
-  64 usage, 130 canceled.
+  `RetainedIsLowerBound` in the JSON).
   `diff <baseline> <current> [--group] [--filter] [--sort bytes-delta|count-delta|bytes|count|baseline-bytes|baseline-count|name]
   [--top N | --all] [--format table|csv|json] [--fail-on-growth <size|percent>]` compares two dumps by type (ADR-018);
   with `--fail-on-growth 50MB` or `10%` it exits 2 when the matching rows grew by more (CI), 0 otherwise (growth
@@ -114,8 +115,7 @@ dotnet test --solution HeapScope.sln
   matching row; the gate's log line names each row over its limit with its baseline and limit. `--sort new|dead` needs
   `--match-objects` and `--sort retained-delta` needs `--retained` (exit 64). `trend <dump> <dump> [<dump>...] [--group] [--filter] [--sort bytes-delta|count-delta|growth-steps|name]
   [--top N | --all] [--format table|csv|json]` puts 2 to 20 dumps side by side, oldest first: bytes in each, the change
-  first to last, and the steps a row grew in (dumps of one kind only; a dump given twice exits 64). `set ... --compared-with <dump> --change new|dead|survived` opens a set's
-  objects matched against another dump of the process (dead objects live in the earlier dump: give it as the snapshot).
+  first to last, and the steps a row grew in (dumps of one kind only; a dump given twice exits 64).
   `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value|retained]
   [--retained] [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size,
   generation and a string's text (first 100 characters) or an array's length; with `--retained` (sprint 2.3) each
@@ -151,22 +151,25 @@ dotnet test --solution HeapScope.sln
   the tree below that object and its dominators from the top. `retained-by <snapshot> <type> [--module <file>] [--top N
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
   with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
+  Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
+  `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
+  that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.
   `set <snapshot> (--type <name> [--type ...] [--module <file>] | --namespace <name> | --assembly <file> | --interface
-  <name> | --unreachable | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--similar-group N] [--retained]
+  <name> | --unreachable | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>])
+  [--compared-with <dump> --change new|dead|survived] [--similar-group N] [--retained]
   [--view types|instances|generations|dominators|retained|paths|similar] [--top N | --all] [--format table|csv|json]`
   (sprint 3.1) shows an object set in one of the app's set views; `--retained` takes what the set keeps alive instead
   of its members; a set that selects nothing exits 1, two ways of choosing it 64. Since 3.2: `--interface` (full dumps),
   `--view paths` (the set's key retention paths), `--view similar` (Similar Retention groups, numbered from 1, with
-  their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers it; opened by its pattern, so it is the same group in another snapshot or refused). `diff --group interface` refuses `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
-  `summary` and `diff` take `--group interface` (full dumps; a type counts under each interface it implements).
+  their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers
+  it; opened by its pattern, so it is the same group in another snapshot or refused). `summary` and `diff` take `--group
+  interface` (full dumps; a type counts under each interface it implements); `diff --group interface` refuses
+  `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
+  Since 3.3: `--compared-with <dump> --change new|dead|survived` takes the set's objects matched against another dump of
+  the process (dead objects live in the earlier dump: give it as the snapshot).
   Since 3.5: `--unreachable` (full dumps with a complete graph) is the objects no root reaches, with the retention views'
   roots (the finalizer queue counts: objects waiting for their finalizer are not in it); a gcdump or an incomplete dump
   is refused (exit 1).
-  The logs name an objects set (bookmarks) by its count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of
-  its distinct addresses sorted ascending, each as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
-  Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
-  `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
-  that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.
   `inspect <dump> [<name>] [--baseline <dump>] [--top N | --all] [--format table|csv|json]` runs the simple inspections
   (sprint 1.6) and the leak detectors (sprint 2.6): without a name, every inspection with its time, finding and note
   (one line each); with a name (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`,
@@ -201,8 +204,8 @@ dotnet test --solution HeapScope.sln
 - Live smoke run: `HeapScope --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
   (no process, no timeline file) and exits with the same codes as the other smoke runs.
 - UI smoke run: `HeapScope --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
-  (0 ok, 3 lag over the gate, 4 job failed, 5 the first window took over 30 s); details in ARCHITECTURE.md 8.
-  `HeapScope --smoke-open <dump>`
+  (0 ok, 3 lag over the gate, 4 job failed, 5 the first window took over 30 s, 6 a grid walked its whole row list);
+  details in ARCHITECTURE.md 8. `HeapScope --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
   second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
   also drills down (types, instances, object, the object's incoming references and retention paths, the type's
@@ -282,10 +285,13 @@ dotnet test --solution HeapScope.sln
   action across the UI or CLI and the worker, search for its `TraceId`. To find why a result was shown: the worker's
   "Snapshot ... opened" identity line, then the "... answered in" line of the query (and "Inspection ... basis" for an
   inspection). Kept 14 days, 50 MB per file. New log lines carry names and numbers only (ARCHITECTURE 11's policy); a
-  request or result goes through `Provenance`, never formatted by hand.
+  request or result goes through `Provenance`, never formatted by hand. The logs name an object set (bookmarks) by its
+  count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of its distinct addresses sorted ascending, each
+  as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
 - Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
-- Tests that need gigabyte heaps or dumps (DenseHeap, the CLI Ctrl+C capture) run alone in `HeavyTestsCollection`, so
-  they cannot slow other tests into timeouts; they also carry `Category=Slow`.
+- Tests that need gigabyte heaps or dumps (DenseHeap, the CLI Ctrl+C capture, `SnapshotTests`) run alone in
+  `HeavyTestsCollection`, so they cannot slow other tests into timeouts. The CLI Ctrl+C capture also carries
+  `Category=Slow`.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <benchmark> [options]`. See
   section 6.
 
@@ -309,13 +315,16 @@ of debuggable code) and exit when the process given as parent exits.
   `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`;
   `POST /gc` runs one blocking full collection (sprint 3.6: tests of after-GC sizes ask for it rather than wait).
 - `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2
-  [--detected all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+  [--detected all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] --count N --payload BYTES [--publishers N]
+  [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste] [--retention-patterns N]
   [--parent-pid P]`;
   prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
   embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and
   parked thread fixtures, `--late-garbage` dead table entries and weak-only objects created after the last full GC,
   `--inspection` one object with fields of every kind (1.5), `--waste` duplicated strings, empty and oversized
-  collections, large and sparse arrays, finalizable objects and pinned buffers with known amounts (1.6, `Waste.json`).
+  collections, large and sparse arrays, finalizable objects and pinned buffers with known amounts (1.6, `Waste.json`),
+  `--retention-patterns` objects held by known distinct retention patterns and a type with inherited and generic
+  interfaces (3.2, Similar Retention and interface grouping, `RetentionPatterns.json`).
 - `fixtures/LoadGen`: `LoadGen --url <url> --requests N --concurrency C [--dump <path> --pid <pid>
   [--dump-type Full|WithHeap]]` drives `POST /work`, then optionally writes a dump of the target.
 - `fixtures/scripts/New-SampleDump.ps1 -Tier Small|Medium [-Port N]` builds the fixtures, checks the port, runs
@@ -323,13 +332,14 @@ of debuggable code) and exit when the process given as parent exits.
   dump into `artifacts/dumps/` (git-ignored); a failed run deletes its partial dump and a size outside the tier's
   range is warned about. Measured: Small about 560 MB (5.6M objects) in about 10 s; Medium 4.0 GB (57.5M objects)
   in about 12 s, needing about 4 GB of RAM while running.
+- `fixtures/scripts/New-DenseDump.ps1 -TargetMB 3000` (sprint 1.2) starts the DenseHeap fixture (real Roslyn objects,
+  about 3 references per object), captures a full dump into `artifacts/dumps` and always stops the fixture (a `finally`
+  kill, and the fixture exits by itself when the script's process exits). About 2 minutes and a 4.4 GB dump for
+  3,000 MB. Load it with the `load-dump` benchmark (section 6).
 - `fixtures/KnownAnswers/*.json`: what the analysis must find for each leak and semantic fixture (format version 1
   and path shape grammar in its README). Integration tests verify every field with ClrMD (`KnownAnswerTests`,
   `DisabledLeakTests`, `LeakyApiGrowthTests`). Test harness: `FixtureProcess` (start LeakyConsole or LeakyApi,
   drive, capture any number of dumps, always killed), `DumpAnalysis` (ClrMD checks), `TempFolder`.
-- Benchmarks `dump-stats --dump <path> [--by-address 1] [--cache-mb N]` (ClrMD walk: objects, heap, references,
-  timings, peak private bytes and working set) and `stack-roots --dump <path>` (diagnostic: stack roots per thread
-  and frame). Both are measurement only, without a budget check.
 
 ## 4. Coding conventions
 - **Naming**: .NET conventions. `PascalCase` types and members, `_camelCase` private fields, `s_camelCase`
@@ -355,11 +365,11 @@ of debuggable code) and exit when the process given as parent exits.
   get services by constructor injection and never reference controls. Long work uses async relay commands with
   cancellation. Views use compiled bindings (`x:DataType`).
 - **Grids, keys and links** (sprint 2.7): every `DataGrid` sets `ctl:GridExports.ExportName` to a fixed name (a test
-  fails on one without), which gives it "Export to CSV..." and Command+E; a result column that names what a row opens
-  is `IsHidden`, and one that carries the target's data (string text, field values) is `HasValues`, so exports leave it
-  out unless the person opts in. Keyboard shortcuts live only in `Shortcuts` (the window and the About page read it).
-  A filter box is named `FilterBox` (Command+F). A row that opens an object implements `IObjectLink` (with
-  `LinkTypeName` when it knows the type), which also makes it bookmarkable with Command+D.
+  fails on one without), which gives it "Export to CSV..." and Ctrl+E (Cmd on macOS, for every shortcut here); a result
+  column that names what a row opens is `IsHidden`, and one that carries the target's data (string text, field values)
+  is `HasValues`, so exports leave it out unless the person opts in. Keyboard shortcuts live only in `Shortcuts` (the
+  window and the About page read it). A filter box is named `FilterBox` (Ctrl+F). A row that opens an object implements
+  `IObjectLink` (with `LinkTypeName` when it knows the type), which also makes it bookmarkable with Ctrl+D.
 - **Logging**: `ILogger<T>` via DI. Use structured templates, not string interpolation. Never log snapshot
   field values or string contents.
 - **Exceptions**: throw specific exception types; catch only at boundaries (RPC methods, commands, CLI
@@ -371,9 +381,10 @@ of debuggable code) and exit when the process given as parent exits.
   - Allocate final arrays once at exact size; grow with chunked buffers, not `List<T>` doubling.
   - Check the `CancellationToken` at least every 64K iterations.
 - **Text**: no em dashes or en dashes in code, comments, docs or UI text. Use a hyphen or a comma.
-- **License header**: every `.cs`, `.xaml` and `.ps1` file we own starts with the header in
+- **License header**: every `.cs`, `.axaml`, `.ps1` and `.sh` file we own starts with the header in
   `docs/licensing/SOURCE-HEADER.txt`, in the file's comment syntax (copy it from any existing file). Vendored code lives
-  in a `ThirdParty` project or folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test enforces it.
+  in a `ThirdParty` project or folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test checks
+  every such file but `.sh`.
 - **Vendored code** (`src/HeapScope.ThirdParty.GcDump`, sprint 1.8): built without analyzers or a nullable context.
   Change it only when unavoidable, mark each change with a `HeapScope change` comment and list it in the project's
   `CHANGES.md`. Wrap it in our own types (`GcDumpCapturer`, `GcDumpLoader`); nothing else uses it directly.
@@ -398,18 +409,14 @@ of debuggable code) and exit when the process given as parent exits.
 - **Architecture test**: `HeapScope.Architecture.Tests` enforces the dependency table in ARCHITECTURE.md.
 - **Integration tests** (`[Trait("Category", "Integration")]`): start real worker processes and fixture apps,
   capture real dumps, and assert the known answers.
-- **Slow tests** (`[Trait("Category", "Slow")]`): large synthetic graphs; part of the full run.
+- **Slow tests** (`[Trait("Category", "Slow")]`): long real captures, in the Integration project only (build/test.sh
+  checks this).
 - **Performance checks**: `perf/HeapScope.Benchmarks` measures against the budgets in ARCHITECTURE.md
   section 10; sprints that touch hot paths record results in their review file.
 - Runner: xUnit v3 on Microsoft.Testing.Platform (opted in through `global.json`); test projects are executables
   and can also be run directly from their output folder.
 - Assertions: Shouldly or plain xUnit asserts. FluentAssertions is not allowed (commercial license).
 - Tests that call methods taking a `CancellationToken` pass `TestContext.Current.CancellationToken` (xUnit1051).
-
-Dense sample dump (sprint 1.2): `./fixtures/scripts/New-DenseDump.ps1 -TargetMB 3000` starts the DenseHeap fixture
-(real Roslyn objects, about 3 references per object), captures a full dump into `artifacts/dumps` and always stops
-the fixture (a `finally` kill, and the fixture exits by itself when the script's process exits). About 2 minutes and
-a 4.4 GB dump for 3,000 MB. Load it with `load-dump --dump <path>`.
 
 ## 6. Benchmarks
 `perf/HeapScope.Benchmarks` is a plain console app (no BenchmarkDotNet, because the interesting cases use
@@ -424,7 +431,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   to an index cache and reopens it in memory and mapped (all checksums verified), against the reopen and mapped
   private memory budgets. `--phase write` then `--phase reopen` in a fresh process (optionally after a standby list
   purge as administrator) measures a cold reopen.
-- `dump-stats --dump <path> [--by-address 1] [--cache-mb N]`: a raw ClrMD walk (the 0.4 baseline).
+- `dump-stats --dump <path> [--by-address 1] [--cache-mb N]`: a raw ClrMD walk (the 0.4 baseline): objects, heap,
+  references, timings, peak private bytes and working set; no budget check.
+- `stack-roots --dump <path>`: stack roots per thread and frame (diagnostic; no budget check).
 - `load-dump --dump <path> [--cache-mb 512] [--keep-cache 1]`: HeapScope's loader on a real dump: counts, density,
   dropped data and segment completeness, private bytes when each phase starts and at peak, the cache write, the switch
   to mapped mode and both reopens, checked against the ARCHITECTURE.md 10 budgets (exit code 1 on a miss).
@@ -479,7 +488,7 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
     unpacks it, checks it again and runs it as a user would (the CLI's version, a worker ping, the worker's Server GC
     setting, a headless synthetic smoke; `osx-arm64` and `osx-x64` are built on Linux and not run) and, on pushes and manual
     runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
-  The local gate runs the same tiers; run it before closing a sprint. Fixture dumps are never uploaded. Making the CI jobs
+  The local gate runs the same tiers. Fixture dumps are never uploaded. Making the CI jobs
   required checks on `develop` and `main` is a repository setting the owner applies.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner

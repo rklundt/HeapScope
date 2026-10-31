@@ -27,7 +27,7 @@ section (ADR-015). Algorithms only ever see `ReadOnlySpan<T>`, so they do not ca
 Supporting tables:
 - **Type table**: struct-of-arrays per type: name (string table id), method table address, base size,
   component size, module (string table id), `TypeKind` flags (Array, String, ValueTypeBox, Delegate,
-  Exception). Types are interned: one entry per method table.
+  Exception, and since 1.6 ReferenceArray). Types are interned: one entry per method table.
 - **Root table**: array of `GcRoot { int ObjectIndex; RootKind Kind; RootFlags Flags; int DetailId }`,
   sorted by object index. `RootKind`: StaticField, ThreadStack, StrongHandle, PinnedHandle, AsyncPinnedHandle,
   RefCountedHandle, FinalizerQueue, WeakHandle, Other. `DetailId` points into the string table (e.g.
@@ -361,8 +361,8 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
   runs only after dump loads (and failed or canceled ones), never after a cache hit, because it pauses queries on
   other snapshots. When the cache cannot be written the graph stays in memory, with a note. A request can force
   either mode.
-- The Application layer may start the worker with `DOTNET_GCHeapHardLimit` derived from the budget, so an
-  oversize load fails with a clear out-of-memory error instead of paging the laptop to a standstill.
+- No GC hard limit is set on the worker; when one is set in its environment, `MemoryBudget.Current` caps the budget
+  by it.
 
 #### Lifetime of mapped data
 A span over an unmapped view is an access violation that kills the worker, so mapped data has an explicit

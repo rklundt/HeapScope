@@ -46,7 +46,7 @@ references such as "ARCHITECTURE.md 11" still name the right section.
     baseline and the rearm mode (`RuleDecision`); the CLI logs its growth gate's decision.
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
   sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
-  and never the user's filter text (logged by its length): `Provenance` writes any other text by its length only, and
+  and never the user's filter text (logged by its shape: length and term counts): `Provenance` writes any other text by its length only, and
   error messages that would echo a filter leave it out. Logs are local evidence for support; they are not meant to be
   published, since paths name the user and the machine. A result meant to be shared goes through the shared analysis
   export (ADR-026), which strips names by default.
@@ -56,7 +56,6 @@ references such as "ARCHITECTURE.md 11" still name the right section.
 - Worker errors cross the pipe as JSON-RPC errors with a `HeapScopeErrorCode` as the JSON-RPC error code so clients
   can show a precise message.
 - Users always see a plain-language message and a next step. Stack traces go to the log only.
-- Logs never contain field values or string contents from a snapshot.
 - Navigation and polish (sprint 2.7): the analysis path logs each step opened, shown or closed by kind (Types,
   Instances, Object, TypeReferrers, TypePaths, Retainers, RetainedBySet, and Set and SetInstances since 3.1), its id on the path, its parent's id, its depth,
   the worker snapshot id and the step count, and each switch of snapshot, never a type name or an address; a CSV export

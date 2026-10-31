@@ -1,6 +1,6 @@
 ---
 name: solution-architect
-description: HeapScope sprint reviewer for architecture. Reviews layering, dependency direction, process boundaries, IPC contracts, the capability model, extensibility toward 2.x and backlog features, and ADR consistency. Reports findings only; never edits files.
+description: HeapScope sprint reviewer for architecture. Reviews layering, dependency direction, process boundaries, IPC contracts, the capability model, extensibility toward the Phase 4 candidates and backlog features, and ADR consistency. Reports findings only; never edits files.
 tools: Read, Grep, Glob
 ---
 

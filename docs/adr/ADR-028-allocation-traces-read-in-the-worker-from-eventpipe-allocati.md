@@ -16,7 +16,7 @@
 - Consequences: sampled bytes favor large and frequent allocations; small, rare ones may not appear. A trace is read
   again after a worker restart (seconds for typical traces), once for all the queries that find it gone, and only when
   the file's size and write time are unchanged. Linking a trace to the snapshots it lies between (Compare's "allocated
-  between") needs both on one clock in the session record: Backlog.
+  between") needs both on one clock in the session record: a Phase 4 candidate.
 - Amended in the 2.5 review: EventPipe walks managed frames only, so a frame without a name is a managed method the
   trace does not name (usually the recording ended before the rundown); it is labeled `[unresolved frame in <module>]`,
   never merged with its neighbors, and counted; whether the rundown arrived and the problems TraceEvent reported while

@@ -73,7 +73,7 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   per-object columns, edges and roots become views of a read-only mapping (`MappedMemoryManager<T>` behind
   `Column<T>`); the small tables (types, large sizes, strings) are copied. A mapped file stays open, and cannot be
   replaced, until the graph is disposed.
-- Lifetime: `GraphSnapshot.Dispose` never blocks or throws. It refuses new leases and the last released lease
+- Lifetime: disposing a snapshot (`GraphSnapshot` or `DumpSnapshot`) never blocks or throws. It refuses new leases and the last released lease
   disposes the graph (and unmaps the file), so queries and result sets that page over a snapshot can hold leases
   safely (6.5).
 - Versioning: any layout change of the base file bumps the format version. Optional JSON fields in the metadata

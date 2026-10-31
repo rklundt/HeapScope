@@ -32,7 +32,7 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 2.3.7 | Port peer review | Closed | 2026-10-26 | sprint-2.3.7 |
 | 2.4 | Retention explorer UI | Closed | 2026-10-26 | sprint-2.4 |
 | 2.5 | Allocation tracking | Closed | 2026-10-26 | sprint-2.5 |
-| 2.6 | Smart leak detectors | Closed | 2026-10-26 | sprint-2.6 |
+| 2.6 | Smart leak detectors | Closed | 2026-10-27 | sprint-2.6 |
 | 2.7 | Navigation and polish | Closed | 2026-10-27 | sprint-2.7 |
 | 3.1 | Object sets | Closed | 2026-10-28 | sprint-3.1 |
 | 3.2 | Retention views | Closed | 2026-10-28 | sprint-3.2 |
@@ -65,9 +65,10 @@ your proposal for a packaging sprint once you pick audiences and channels"). Opt
 - Linux: a self-contained tar.gz with a `.sh` launcher; AppImage, deb or rpm.
 - macOS: an app bundle in a DMG, signed and notarized (needs an Apple developer account).
 - The CLI as a `dotnet tool`.
-- Release builds from CI on a tag, with checksums; releases to `main` stay the product owner's call (DEVELOPER.md 7).
+- Release builds: `release.yml` (3.7) already builds every runtime identifier on a published release, with checksums
+  and attestations; releases to `main` stay the product owner's call (DEVELOPER.md 7).
 
-Constraints: every bundled component keeps an allowed license (MIT or allowed), with its notices shipped; the
+Constraints: every bundled component keeps an allowed license (DEVELOPER.md 4), with its notices shipped; the
 attribution strip and the license files ship unchanged (ADR-022); before any Avalonia update, check whether anything
 used has moved to a paid model. Signing certificates, store accounts and paid services need the product owner's OK.
 Builds ship HeapScope's own SkiaSharp native library, without Adobe's DNG SDK (ADR-038, 2026-10-30); a channel that
@@ -75,12 +76,12 @@ repackages the build keeps it, and a SkiaSharp update rebuilds it (DEVELOPER.md 
 
 **Open questions for /start-sprint**: audiences (who installs it, on which systems); channels (GitHub Releases only,
 or also winget, a dotnet tool, package feeds); self-contained or shared runtime; signing on which systems; how updates
-reach users; whether CI becomes the release builder.
+reach users.
 
 **Acceptance criteria**: to be set at /start-sprint with the channels; at least a clean machine of each chosen
 system installs the package, runs the app, opens a fixture dump and runs the CLI, with no SDK installed.
 
-**Dependencies**: 2.3.6 (the Avalonia app, ADR-025). Can run before 2.5 if the product owner wants packages earlier.
+**Dependencies**: 2.3.6 (the Avalonia app, ADR-025).
 
 **Task breakdown**: to be filled by /start-sprint.
 
@@ -90,11 +91,7 @@ system installs the package, runs the app, opens a fixture dump and runs the CLI
 
 ## Peer review sprints
 
-Planned 2026-10-29. After the v3.5.0 release the product owner asked for an outside peer review of the whole codebase
-from a tech trio (solution architect, senior developer, DevSecOps): "what do we need to change, refactor, modularize".
-The findings are in `docs/reviews/peer-review-3.5.md` (P1 to P21, S1 to S9). The product owner split the work into
-three sprints, run before Phase 4 ("write the three sprints and save the review - then execute on the sprints"); they
-run autonomously like Phase 3, one sprint at a time.
+3.6, 3.7 and 3.8 worked through `docs/reviews/peer-review-3.5.md`; all closed ([sprints/phase-3.md](sprints/phase-3.md)).
 
 ---
 
@@ -103,8 +100,12 @@ run autonomously like Phase 3, one sprint at a time.
 Not planned; picked from when Phase 3 closes (product owner, 2026-10-28: what Phase 3 does not address).
 - A profiler-style live session: allocation data streamed beside the timeline, and snapshots faster than a full dump.
 - What was allocated between two snapshots in Compare, from a trace recorded between them (from 2.5; needs traces in
-  `session.json` on the snapshots' clock).
+  `session.json` on the snapshots' clock, and each tick's type id and module to join a diff's rows, ADR-028).
 - A sunburst view beside the icicle chart for dominators and call trees.
-- Analysis tabs: several analyses of a snapshot side by side (from 2.7).
-- Capture on Linux and macOS (from 2.3.5, ADR-025).
-- WPF leak detectors with a WPF fixture app (from 2.6).
+- Analysis tabs: several analyses of a snapshot side by side, each with its own path (from 2.7; the branching analysis
+  path covers coming back to an earlier analysis for now).
+- Capture on Linux and macOS (from 2.3.5, ADR-025): process discovery through `/proc` and the diagnostics client, full
+  dumps through the runtime's createdump (the diagnostics client's `WriteDump`), gcdumps through the vendored code;
+  elevation and ptrace rules per system. Until then capture refuses there and points to `dotnet-dump`.
+- WPF leak detectors with a WPF fixture app (from 2.6): binding to a non-INotifyPropertyChanged source, collection
+  bindings, dependency property descriptors, x:Name.
