@@ -160,8 +160,8 @@ tests/
                                References Loaders.ClrMd and Storage to test them in process.
 perf/
   HeapScope.Benchmarks         Console benchmarks against the budgets (synthetic 50M-object graph etc.).
-.github/workflows/ci.yml       CI on GitHub's runners: Windows, Linux, macOS, and the builds per system (sprints 2.3.5,
-2.3.6).
+.github/workflows/ci.yml       CI on GitHub's runners: Windows and Linux, and the builds per system (sprints 2.3.5,
+2.3.6; no macOS runners since 2026-10-31).
 fixtures/
   Leaks                        Shared leak implementations and semantic fixtures (namespace Fixtures.Leaks).
   LeakyApi                     ASP.NET Core API with switchable, scalable leaks.
