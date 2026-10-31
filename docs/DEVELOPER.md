@@ -484,6 +484,11 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.
+- GitHub auto-merge is allowed on the repository (owner, 2026-10-31): a PR with auto-merge on is squash merged when the
+  required checks of the ruleset "Protect main and develop" pass, and its branch is deleted. Both work on any plan only
+  while the repository is public. If it is ever made private on a free plan, GitHub turns off auto-merge and the
+  ruleset (rulesets and auto-merge on private repositories need a paid plan): merge by hand after CI is green, and
+  nothing then stops a merge with failing checks.
 - Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`
   (`X.Y.Z` for an in-between sprint such as 2.3.5).
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
