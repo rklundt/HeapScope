@@ -1,10 +1,12 @@
 # HeapScope CI (sprints 2.3.5, 2.3.6 and 3.6):
 # - Windows builds everything, runs the fast and the integration tests, captures the LeakyConsole fixture with the CLI and
 #   checks the known answers.
-# - Linux and macOS build the engine, the worker, the CLI and the Avalonia app, run their tests, take a core dump of the
-#   fixture with dotnet-dump, check the CLI's known answers and (Linux) open the dump in the app without a display.
+# - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests, takes a core dump of the fixture
+#   with dotnet-dump, checks the CLI's known answers and opens the dump in the app without a display.
 # - Packages: self-contained builds per runtime identifier with their license files (checked), uploaded as artifacts on
 #   pushes and manual runs.
+# - No macOS runners (owner, 2026-10-31: their minutes cost about ten times Linux's). The macOS packages are built on
+#   Linux and not run; nothing here tests on macOS.
 # Tests run through build/test.sh and the fixture dump through build/fixture-dump.sh, as in the local gate (build/gate.sh).
 # Test results (TRX: test names, outcomes and messages) are kept 14 days to track tests that fail now and then.
 # Fixture dumps hold fixture data only and are never uploaded (ARCHITECTURE.md 12). Nothing here sends telemetry.
@@ -85,18 +87,12 @@ jobs:
     name: ${{ matrix.name }} (engine, CLI, app, fixture dump)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    # macOS runs on an arm64 runner: informational until macOS ships (ADR-025).
-    continue-on-error: ${{ matrix.informational }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             name: Linux
-            informational: false
-          - os: macos-latest
-            name: macOS
-            informational: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
@@ -159,11 +155,11 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
             runs: true
-          - os: macos-latest
+          # Built on Linux, which cannot run them (no macOS runners).
+          - os: ubuntu-latest
             rid: osx-arm64
-            runs: true
-          # Built on the arm64 runner, which cannot run it.
-          - os: macos-latest
+            runs: false
+          - os: ubuntu-latest
             rid: osx-x64
             runs: false
     steps:

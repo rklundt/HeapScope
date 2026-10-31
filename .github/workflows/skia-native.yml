@@ -4,7 +4,8 @@
 # scripts, at the commit of the release HeapScope uses, with only the decoder's switches turned off. Each library is
 # checked for DNG SDK and piex code (build/check-no-dng.sh), and the set gets checksums and a build provenance attestation.
 # The owner attaches the set to a release of this repository; build/publish.sh downloads it from there by its pinned
-# checksums (DEVELOPER.md 7, "SkiaSharp native libraries"). Rerun on every SkiaSharp update Avalonia takes.
+# checksums (DEVELOPER.md 7, "SkiaSharp native libraries"). Rerun on every SkiaSharp update Avalonia takes. The macOS
+# library needs a macOS runner, so it is built only on a manual run with "macos" checked (since 2026-10-31).
 # Nothing here signs, publishes or sends telemetry.
 name: SkiaSharp native without DNG
 
@@ -13,6 +14,12 @@ on:
     branches-ignore: [main, develop]
     paths: [.github/workflows/skia-native.yml]
   workflow_dispatch:
+    inputs:
+      macos:
+        # macOS minutes cost about ten times Linux's (owner, 2026-10-31): the macOS library is built only when asked for.
+        description: Also build the macOS library (a paid macOS runner)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -131,6 +138,7 @@ jobs:
 
   macos:
     name: libSkiaSharp macOS (arm64 and x64)
+    if: ${{ inputs.macos }}
     runs-on: macos-15
     timeout-minutes: 150
     steps:
@@ -183,6 +191,8 @@ jobs:
   attest:
     name: Checksums and provenance
     needs: [windows, linux, macos]
+    # The macOS job is skipped unless asked for; its library is then left out of the set.
+    if: ${{ !cancelled() && needs.windows.result == 'success' && needs.linux.result == 'success' && needs.macos.result != 'failure' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

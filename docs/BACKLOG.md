@@ -35,7 +35,10 @@ Swept in sprint 3.8:
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
 - CI leak checks using the CLI (the remote, `develop` and the CI pipeline exist since 2.3 and 2.3.5; CI already runs the
-  CLI on a fixture dump on Linux and macOS). Making CI a required check is the product owner's call (2.3.5 decision 8).
+  CLI on a fixture dump on Linux). Making CI a required check is the product owner's call (2.3.5 decision 8).
+- Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
+  macOS packages are built on Linux and never run, and the macOS core dump checks (known answers, DAC trust) no longer
+  run. Before macOS ships, the product owner picks a way: a Mac of their own, or macOS runners for a release only.
 - Objects finalized between two snapshots: the baseline's finalizable objects whose finalizer has not run, matched by
   address (ADR-032) against the later dump (from 3.5's scope). By address it is an upper bound outside gen2, LOH and POH
   (moved objects count as dead), and it needs a bit per object of each snapshot: add a memory reservation callback to
