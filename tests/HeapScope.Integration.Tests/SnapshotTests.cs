@@ -485,8 +485,8 @@ public sealed class CliOpenTests(StaticCacheDump shared) : IClassFixture<StaticC
         using var json = ChildProcess.Start(TestPaths.CliExe, "summary", dump, "--format", "json", "--group", "namespace", "--top", "2");
         (await json.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(json.Output);
         json.Process.ExitCode.ShouldBe(0, json.Output);
-        var start = json.Output.IndexOf('{', StringComparison.Ordinal);
-        using var document = System.Text.Json.JsonDocument.Parse(json.Output[start..(json.Output.LastIndexOf('}') + 1)]);
+        var stdout = json.StandardOutput;
+        using var document = System.Text.Json.JsonDocument.Parse(stdout[stdout.IndexOf('{', StringComparison.Ordinal)..(stdout.LastIndexOf('}') + 1)]);
         document.RootElement.GetProperty("Rows").GetArrayLength().ShouldBe(2);
         document.RootElement.GetProperty("TotalObjects").GetInt64().ShouldBeGreaterThan(0);
     }

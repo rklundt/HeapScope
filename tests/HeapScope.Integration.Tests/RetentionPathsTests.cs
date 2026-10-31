@@ -167,9 +167,9 @@ public sealed class RetentionPathsTests : IClassFixture<AllLeaksDump>, IAsyncDis
     [Fact]
     public async Task The_cli_explains_an_object_and_a_type()
     {
-        var (code, output) = await RunCliAsync("paths", _dump, "--type", "Fixtures.Leaks.StaticCacheEntry", "--format", "json");
+        var (code, output, stdout) = await RunCliAsync("paths", _dump, "--type", "Fixtures.Leaks.StaticCacheEntry", "--format", "json");
         code.ShouldBe(0, output);
-        using (var json = JsonDocument.Parse(output[output.IndexOf('{', StringComparison.Ordinal)..(output.LastIndexOf('}') + 1)]))
+        using (var json = JsonDocument.Parse(stdout[stdout.IndexOf('{', StringComparison.Ordinal)..(stdout.LastIndexOf('}') + 1)]))
         {
             json.RootElement.GetProperty("Objects").GetInt64().ShouldBe(AllLeaksDump.Items);
             json.RootElement.GetProperty("Paths")[0].GetProperty("Root").GetProperty("Description").GetString().ShouldBe("Static field Fixtures.Leaks.StaticCacheLeak.s_cache");
@@ -179,7 +179,7 @@ public sealed class RetentionPathsTests : IClassFixture<AllLeaksDump>, IAsyncDis
         var entry = await FirstAddressAsync(handle, "Fixtures.Leaks.StaticCacheEntry");
         var address = string.Create(CultureInfo.InvariantCulture, $"0x{entry:x}");
         await _session.CloseAsync(handle, Ct);
-        var (objectCode, text) = await RunCliAsync("paths", _dump, "--address", address);
+        var (objectCode, text, _) = await RunCliAsync("paths", _dump, "--address", address);
 
         objectCode.ShouldBe(0, text);
         text.ShouldContain("ROOT: Static field Fixtures.Leaks.StaticCacheLeak.s_cache");
@@ -221,10 +221,10 @@ public sealed class RetentionPathsTests : IClassFixture<AllLeaksDump>, IAsyncDis
         return ulong.Parse(cell[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
     }
 
-    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    private static async Task<(int Code, string Output, string StandardOutput)> RunCliAsync(params string[] arguments)
     {
         using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
-        return (cli.Process.ExitCode, cli.Output);
+        return (cli.Process.ExitCode, cli.Output, cli.StandardOutput);
     }
 }
