@@ -37,6 +37,7 @@ namespace HeapScope.Integration.Tests;
 /// wall-clock time, and dump-loading classes running beside them made them miss their second.
 /// </summary>
 [Trait("Category", "Integration")]
+[Trait("Run", "Heavy")]
 [Collection(nameof(HeavyTestsCollection))]
 public sealed class WorkerIpcTests : IAsyncDisposable
 {
@@ -384,6 +385,7 @@ public sealed class WorkerIpcTests : IAsyncDisposable
 /// median crossed 200 ms on contention, not on cost (sprint 1.5).
 /// </summary>
 [Trait("Category", "Integration")]
+[Trait("Run", "Heavy")]
 [Collection(nameof(HeavyTestsCollection))]
 public sealed class PageCostTests : IAsyncDisposable
 {
