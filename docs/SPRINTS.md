@@ -118,19 +118,19 @@ reach users.
 3. [x] The worker found inside a tool: when `worker/` holds `HeapScope.Worker.dll` and no worker executable, the front
    end starts it through the `dotnet` host that runs the front end; with neither, the error names the folder. Proof:
    unit tests of the worker path choice (executable, dll through the host, neither).
-4. [ ] The tool package: `HeapScope.Cli` packs as a tool with the worker (no executable), HeapScope's license files and
+4. [x] The tool package: `HeapScope.Cli` packs as a tool with the worker (no executable), HeapScope's license files and
    the third-party licenses, built by `build/pack-tool.sh`. Proof: CI packs it, installs it from the file into a tool
    folder on Windows and Linux, and runs `--version`, `worker ping` and a summary of a fixture dump.
-5. [ ] Release archives: `release.yml` builds win-x64 and linux-x64 only, zips the Windows build, and attaches the tool
+5. [x] Release archives: `release.yml` builds win-x64 and linux-x64 only, zips the Windows build, and attaches the tool
    package with the others (checksummed and attested). Proof: a dry run of `release.yml` and the CI package job's
    unpack-and-run of the same archive.
-6. [ ] Clean-machine runs: the Linux build in a plain Ubuntu container (no .NET; the system libraries it needs found and
+6. [x] Clean-machine runs: the Linux build in a plain Ubuntu container (no .NET; the system libraries it needs found and
    listed) and the Windows build with .NET off the path, each opening a fixture dump with the CLI and running the app's
    headless smoke. Proof: the CI jobs.
-7. [ ] `INSTALL.md`: download, checksum and attestation checks, Windows (unblocking, SmartScreen), Linux (libraries,
+7. [x] `INSTALL.md`: download, checksum and attestation checks, Windows (unblocking, SmartScreen), Linux (libraries,
    `~/.local/bin` links), the tool, the data folder, uninstalling. Linked from the README and the release notes. Proof:
    the Markdown sweep and the clean-machine steps match it.
-8. [ ] Backlog and docs: decision 4 and 7's items in the Backlog; DEVELOPER.md (release section), ARCHITECTURE.md (code
+8. [x] Backlog and docs: decision 4 and 7's items in the Backlog; DEVELOPER.md (release section), ARCHITECTURE.md (code
    map) and README describe what was built.
 
 **Review summary**: to be filled by /wrap-sprint.
