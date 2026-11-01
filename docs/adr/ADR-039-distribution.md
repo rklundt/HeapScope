@@ -9,7 +9,9 @@
   - Each release attaches a self-contained build of the app and the CLI (each with its worker) for win-x64 as a `.zip`
     (Explorer opens it) and for linux-x64 as a `.tar.gz` (it keeps the executables' modes). No .NET install is needed.
   - The CLI is also a `dotnet tool`: one framework-dependent package for every system (`HeapScope.Cli`, command
-    `heapscope-cli`, the .NET 10 runtime), attached to the release and installed from the downloaded file. Capture
+    `heapscope-cli`, the .NET 10 runtime; installing it needs a .NET SDK), attached to the release and installed from the
+    downloaded file only, through a `nuget.config` that clears every other source (3.9 review H1: the ID is not held on
+    nuget.org yet, so a package of that name there could be installed instead). Capture
     stays Windows only; the tool is untested on macOS. A tool carries no worker executable, so the front end starts
     the worker's assembly through the `dotnet` host that runs it.
   - Every file attached is listed in `SHA256SUMS` and attested; the shipped license files and the attribution strip

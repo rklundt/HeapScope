@@ -31,9 +31,20 @@ set -euo pipefail
 version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$(dirname "$0")/../Directory.Build.props")
 tools=$(mktemp -d)
 export HEAPSCOPE_DATA_FOLDER="${HEAPSCOPE_DATA_FOLDER:-$(mktemp -d)}"
-# From the tool folder, as a user would: the repository's nuget.config maps every package to nuget.org.
-source=$(cd "$1" && pwd)
-(cd "$tools" && dotnet tool install HeapScope.Cli --version "$version" --add-source "$source" --tool-path "$tools")
+# From the downloaded file only, as INSTALL.md says: a nuget.config beside it clears every other source, so a package of
+# the same ID on nuget.org (which HeapScope does not hold yet) can never be installed instead (3.9 review H1).
+feed=$(mktemp -d)
+cp "$1"/HeapScope.Cli."$version".nupkg "$feed/"
+cat > "$feed/nuget.config" <<'CONFIG'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="heapscope" value="." />
+  </packageSources>
+</configuration>
+CONFIG
+(cd "$tools" && dotnet tool install HeapScope.Cli --version "$version" --configfile "$feed/nuget.config" --tool-path "$tools")
 cli="$tools/heapscope-cli"
 [ -x "$cli" ] || cli="$tools/heapscope-cli.exe"
 "$cli" --version
