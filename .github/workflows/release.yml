@@ -82,11 +82,11 @@ jobs:
         with:
           global-json-file: global.json
       - name: Pack
-        # One package for every system (ADR-039); its version is the tag's, or the release is wrong.
+        # One package for every system (ADR-039); a release's version is its tag's (a manual run may build any commit).
         shell: bash
         run: |
           version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
-          [ "v$version" = "$TAG" ] || { echo "The tag $TAG does not match the version $version"; exit 1; }
+          [ "${{ github.event_name }}" != "release" ] || [ "v$version" = "$TAG" ] || { echo "The tag $TAG does not match the version $version"; exit 1; }
           bash build/pack-tool.sh "$RUNNER_TEMP/out"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
