@@ -31,7 +31,9 @@ set -euo pipefail
 version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$(dirname "$0")/../Directory.Build.props")
 tools=$(mktemp -d)
 export HEAPSCOPE_DATA_FOLDER="${HEAPSCOPE_DATA_FOLDER:-$(mktemp -d)}"
-dotnet tool install HeapScope.Cli --version "$version" --add-source "$1" --tool-path "$tools"
+# From the tool folder, as a user would: the repository's nuget.config maps every package to nuget.org.
+source=$(cd "$1" && pwd)
+(cd "$tools" && dotnet tool install HeapScope.Cli --version "$version" --add-source "$source" --tool-path "$tools")
 cli="$tools/heapscope-cli"
 [ -x "$cli" ] || cli="$tools/heapscope-cli.exe"
 "$cli" --version
