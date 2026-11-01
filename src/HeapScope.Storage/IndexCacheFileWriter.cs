@@ -41,6 +41,7 @@ public sealed class IndexCacheFileWriter : IDisposable
 
     private readonly string _path;
     private readonly string _temp;
+    private readonly IndexCacheSigner _signer;
     private readonly IProgress<long>? _progress;
     private readonly CancellationToken _cancellationToken;
     private readonly List<SectionEntry> _entries = [];
@@ -48,8 +49,9 @@ public sealed class IndexCacheFileWriter : IDisposable
     private long _position = IndexCacheFormat.PageSize;
     private bool _committed;
 
-    private IndexCacheFileWriter(string path, string temp, FileStream stream, IProgress<long>? progress, CancellationToken cancellationToken)
+    private IndexCacheFileWriter(string path, string temp, IndexCacheSigner signer, FileStream stream, IProgress<long>? progress, CancellationToken cancellationToken)
     {
+        _signer = signer;
         _path = path;
         _temp = temp;
         _stream = stream;
@@ -62,12 +64,12 @@ public sealed class IndexCacheFileWriter : IDisposable
     /// <see cref="IndexCacheWriter.StaleTemporaryAge"/> (left by a writer that died) are removed first. Progress reports
     /// bytes written.
     /// </summary>
-    public static IndexCacheFileWriter Create(string path, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
+    public static IndexCacheFileWriter Create(string path, IndexCacheSigner signer, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         var (fullPath, temp) = PrepareTemporary(path);
         var stream = PrivateFiles.Open(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 1 << 20);
-        return new IndexCacheFileWriter(fullPath, temp, stream, progress, cancellationToken);
+        return new IndexCacheFileWriter(fullPath, temp, signer, stream, progress, cancellationToken);
     }
 
     /// <summary>Appends a section; each section id may be written once.</summary>
@@ -129,7 +131,7 @@ public sealed class IndexCacheFileWriter : IDisposable
 
             stream.Flush();
             IndexCacheWriter.BeforeHeaderForTesting?.Invoke(_temp);
-            identity = WriteHeader(stream, _entries, fingerprint, baseIdentity, semanticsVersion);
+            identity = WriteHeader(stream, _signer, _entries, fingerprint, baseIdentity, semanticsVersion);
             stream.Flush(flushToDisk: true);
         }
         finally
@@ -181,7 +183,7 @@ public sealed class IndexCacheFileWriter : IDisposable
     }
 
     /// <summary>Writes the header region (header and section directory) at offset 0; returns the header checksum.</summary>
-    internal static ulong WriteHeader(FileStream stream, List<SectionEntry> entries, SnapshotFingerprint fingerprint, ulong baseIdentity, int semanticsVersion)
+    internal static ulong WriteHeader(FileStream stream, IndexCacheSigner signer, List<SectionEntry> entries, SnapshotFingerprint fingerprint, ulong baseIdentity, int semanticsVersion)
     {
         var region = new byte[IndexCacheFormat.PageSize];
         var header = new FileHeader
@@ -202,6 +204,9 @@ public sealed class IndexCacheFileWriter : IDisposable
         directory.CopyTo(region.AsSpan(headerSize));
         header.HeaderChecksum = XxHash3.HashToUInt64(region.AsSpan(0, headerSize + directory.Length));
         MemoryMarshal.Write(region, in header);
+
+        // Signed with this user's key (sprint 3.7, peer review P14): the region's last bytes, past the largest directory.
+        signer.Sign(region);
 
         stream.Position = 0;
         stream.Write(region);

@@ -205,9 +205,11 @@ public sealed class MonitorServiceTests : IDisposable
         // Review H7 of 3.4.
         static async Task<TraceResult> Recorder(int pid, string path, CancellationToken ct)
         {
-            await File.WriteAllBytesAsync(path + ".partial", new byte[4096], CancellationToken.None);
+            // The real recorder's naming (3.8 review H1): the watch must find what TraceRecorder writes.
+            var partial = HeapScope.Capture.TraceRecorder.PartialName(path);
+            await File.WriteAllBytesAsync(partial, new byte[4096], CancellationToken.None);
             await Task.Delay(Timeout.Infinite, ct).ContinueWith(_ => { }, TaskScheduler.Default);
-            File.Move(path + ".partial", path);
+            File.Move(partial, path);
             return new TraceResult(path, 4096, TimeSpan.FromSeconds(1), StoppedEarly: true);
         }
 

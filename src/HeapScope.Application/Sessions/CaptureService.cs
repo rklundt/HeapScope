@@ -24,6 +24,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using HeapScope.Application.Jobs;
+using HeapScope.Application.Snapshots;
 using HeapScope.Capture;
 using HeapScope.Contracts;
 using Microsoft.Extensions.Logging;
@@ -62,6 +63,7 @@ public sealed class CaptureService : ICaptureService
     private readonly IElevationProbe _elevation;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+    private readonly TrustedDacs? _trustedDacs;
 
     // One capture or forced collection per process at a time, across every page and rule (sprint 3.4, decision 3).
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _busy = new();
@@ -74,8 +76,10 @@ public sealed class CaptureService : ICaptureService
         IElevationProbe? elevation = null,
         TimeProvider? timeProvider = null,
         ILogger<CaptureService>? logger = null,
-        GcDumpCapturer? gcDumpCapturer = null)
+        GcDumpCapturer? gcDumpCapturer = null,
+        TrustedDacs? trustedDacs = null)
     {
+        _trustedDacs = trustedDacs;
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _capturer = capturer ?? throw new ArgumentNullException(nameof(capturer));
         _gcDumpCapturer = gcDumpCapturer ?? new GcDumpCapturer(elevation);
@@ -169,8 +173,8 @@ public sealed class CaptureService : ICaptureService
                 }
                 else
                 {
+                    // The user's folder is not swept (sprint 3.7, peer review S4): its partial files may be someone else's.
                     path = Path.GetFullPath(Directory.Exists(outputPath) ? UniquePath(outputPath, process, profile.Extension) : outputPath);
-                    SweepPartialDumps(Path.GetDirectoryName(path));
                 }
 
                 _logger.LogInformation("Capturing a {Kind} of {Name} (pid {Pid}) to {Path}", profile.Noun, process.Name, process.ProcessId, path);
@@ -181,7 +185,7 @@ public sealed class CaptureService : ICaptureService
                 _logger.LogWarning(ex, "Capture of pid {Pid} failed: {Reason}", processId, failure.Reason);
                 if (createdSession && sessionFolder is not null)
                 {
-                    Library.DeleteIfEmpty(sessionFolder);
+                    RemoveIfEmpty(sessionFolder);
                 }
 
                 throw failure;
@@ -201,7 +205,7 @@ public sealed class CaptureService : ICaptureService
 
                 if (createdSession && sessionFolder is not null)
                 {
-                    Library.DeleteIfEmpty(sessionFolder);
+                    RemoveIfEmpty(sessionFolder);
                 }
 
                 throw;
@@ -215,6 +219,7 @@ public sealed class CaptureService : ICaptureService
                 CopyDac(process, Path.GetDirectoryName(path!)!);
             }
 
+            var notPrivate = MakePrivate(path!);
             try
             {
                 var snapshotId = Guid.NewGuid();
@@ -222,18 +227,52 @@ public sealed class CaptureService : ICaptureService
                     snapshotId, path, process.Name, process.ProcessId, process.RuntimeVersion, _time.GetUtcNow(), size,
                     Kind: kind, Source: source, Label: label, RuntimeDirectory: process.RuntimeDirectory));
                 _logger.LogInformation("Recorded {Path} as snapshot {SnapshotId} ({Source}, {Label}) in session {Folder}", path, snapshotId, source, label ?? "no label", session.Folder);
-                return new CaptureResult(path, size, ToEntry(process), session, Kind: kind, SnapshotId: snapshotId);
+                return new CaptureResult(path, size, ToEntry(process), session, notPrivate, Kind: kind, SnapshotId: snapshotId);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // The snapshot is valid; only the record failed.
                 _logger.LogWarning(ex, "The capture {Path} could not be recorded in its session", path);
-                return new CaptureResult(path, size, ToEntry(process), null, $"The snapshot was written, but the session could not be updated: {ex.Message}", kind);
+                var warning = $"The snapshot was written, but the session could not be updated: {ex.Message}";
+                return new CaptureResult(path, size, ToEntry(process), null, notPrivate is null ? warning : warning + " " + notPrivate, kind);
             }
         });
     }
 
     public bool IsBusy(int processId) => _busy.ContainsKey(processId);
+
+    /// <summary>
+    /// Makes a finished snapshot readable by this user only: the runtime wrote it with the folder's permissions, a folder the
+    /// user picked may let others read it, and a dump holds every secret of the process (sprint 3.7, peer review P15). When
+    /// that fails (an elevated capture of another user's process, whose account owns the file), the file keeps its
+    /// permissions and the log and the result say so (3.7 review H6). Returns that warning, or null.
+    /// </summary>
+    private string? MakePrivate(string path)
+    {
+        try
+        {
+            PrivateFiles.Protect(path);
+            return null;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or NotSupportedException or InvalidOperationException)
+        {
+            _logger.LogWarning("The snapshot {Path} could not be made readable by this user only ({Error}: {Message}); it keeps its folder's permissions", path, ex.GetType().Name, ex.Message);
+            return "HeapScope could not make the snapshot readable by you only, so it keeps its folder's permissions. A dump holds the process's secrets: if others can read this folder, move the file to a private one.";
+        }
+    }
+
+    /// <summary>Removes the session a failed capture created, never hiding the capture's own failure (re-review).</summary>
+    private void RemoveIfEmpty(string folder)
+    {
+        try
+        {
+            Library.DeleteIfEmpty(folder, "a capture");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogInformation(ex, "The session {Folder} the failed capture created was not removed", folder);
+        }
+    }
 
     public async Task<ForcedGcResult> ForceGcAsync(int processId, CancellationToken cancellationToken)
     {
@@ -361,16 +400,46 @@ public sealed class CaptureService : ICaptureService
         var target = Path.Combine(folder, "dac", process.RuntimeVersion ?? "unknown", DacFileName);
         try
         {
-            if (File.Exists(source) && !File.Exists(target))
+            if (!File.Exists(source))
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                _logger.LogInformation("The target's runtime folder {Runtime} has no {Dac}; none is copied next to the dump", runtime, DacFileName);
+                return;
+            }
+
+            if (!File.Exists(target))
+            {
+                PrivateFiles.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(source, target);
             }
+
+            TrustCopiedDac(source, target);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogInformation(ex, "The DAC {Source} was not copied next to the dump", source);
         }
+    }
+
+    /// <summary>
+    /// Trusts the DAC a capture copied from the target's runtime, so opening the dump later does not ask (sprint 3.6,
+    /// ADR-035), when the copy's content equals the runtime's file (a copy made by an earlier capture too). Not when
+    /// HeapScope runs elevated (sprint 3.6 review): the target may belong to another, less privileged user who can write
+    /// its runtime folder, and the worker would run that user's file elevated. The open asks then.
+    /// </summary>
+    private void TrustCopiedDac(string source, string target)
+    {
+        if (_trustedDacs is null)
+        {
+            return;
+        }
+
+        if (_elevation.IsCurrentProcessElevated)
+        {
+            _logger.LogInformation("The DAC {Target} is not trusted automatically: HeapScope runs elevated, so opening the dump asks first", target);
+            return;
+        }
+
+        _trustedDacs.TrustFile(target, TrustedDacs.Sha256Of(source), $"copied by HeapScope's capture from {source}");
     }
 
     private void SweepPartialDumps(string? folder)
@@ -404,6 +473,7 @@ public sealed class CaptureService : ICaptureService
         DumpFileExistsException => Failure(CaptureFailure.FileExists, ex.Message, ex),
         DumpWriteFailedException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         PlatformNotSupportedException => Failure(CaptureFailure.NotSupportedOnThisSystem, ex.Message, ex),
+        SessionUnreadableException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         IOException or UnauthorizedAccessException => Failure(CaptureFailure.WriteFailed, $"The dump could not be written: {ex.Message}", ex),
         ArgumentException => Failure(CaptureFailure.WriteFailed, ex.Message, ex),
         OperationCanceledException => null,

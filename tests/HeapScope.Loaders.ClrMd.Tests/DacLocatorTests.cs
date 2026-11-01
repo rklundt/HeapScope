@@ -45,7 +45,7 @@ public sealed class DacLocatorTests : IDisposable
     }
 
     [Fact]
-    public void Candidates_are_runtime_folder_installed_runtimes_dump_folder_and_user_folder_in_order()
+    public void Candidates_are_runtime_folder_installed_runtimes_user_folder_and_own_runtime_in_order()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "The locator's rules are checked with Windows paths (drive letters, UNC shares).");
         var request = Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13-custom");
@@ -56,10 +56,12 @@ public sealed class DacLocatorTests : IDisposable
         candidates.ShouldBe([
             @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13-custom",
             @"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13",
-            @"C:\dumps",
-            @"C:\dumps\dac\10.0.13",
             @"C:\dacs",
             @"C:\HeapScope\worker"]);
+
+        // The dump's own folders come last and apart (peer review P2): a DAC there is loaded only once trusted.
+        DacLocator.BesideDumpDirectories(request, @"C:\dumps\app.dmp").ShouldBe([@"C:\dumps", @"C:\dumps\dac\10.0.13"]);
+        DacLocator.BesideDumpDirectories(request, @"\\server\share\app.dmp").ShouldBeEmpty("never a network share");
     }
 
     [Fact]
@@ -69,7 +71,7 @@ public sealed class DacLocatorTests : IDisposable
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], SearchDumpedRuntimeDirectory = false, OwnRuntimeDirectory = null };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: @"C:\dotnet\shared\Microsoft.NETCore.App\x"), @"C:\dumps\app.dmp", options)
-            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps", @"C:\dumps\dac\10.0.13"]);
+            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13"]);
     }
 
     [Theory]
@@ -84,7 +86,7 @@ public sealed class DacLocatorTests : IDisposable
         var options = new ClrMdLoaderOptions { InstalledRuntimeRoots = [@"C:\dotnet\shared\Microsoft.NETCore.App"], OwnRuntimeDirectory = null };
 
         DacLocator.CandidateDirectories(Request(runtimeDirectory: recorded), @"C:\dumps\app.dmp", options)
-            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13", @"C:\dumps", @"C:\dumps\dac\10.0.13"]);
+            .ShouldBe([@"C:\dotnet\shared\Microsoft.NETCore.App\10.0.13"]);
     }
 
     [Theory]

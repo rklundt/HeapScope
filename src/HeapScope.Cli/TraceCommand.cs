@@ -56,8 +56,9 @@ internal static partial class CliCommands
         command.Options.Add(duration);
         command.Options.Add(profile);
         command.Options.Add(output);
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (stdout, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
+            var (stdout, error) = (context.Output, context.Error);
             var processId = parseResult.GetValue(pid);
             var path = parseResult.GetValue(output)?.FullName ?? DefaultTracePath(processId);
             var kind = parseResult.GetValue(profile) switch
@@ -70,7 +71,7 @@ internal static partial class CliCommands
             TraceResult result;
             try
             {
-                result = await services().GetRequiredService<TraceService>()
+                result = await context.Get<TraceService>()
                     .RecordAsync(processId, path, kind, TimeSpan.FromSeconds(parseResult.GetValue(duration)), ct)
                     .ConfigureAwait(false);
             }

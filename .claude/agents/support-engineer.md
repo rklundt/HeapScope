@@ -9,8 +9,9 @@ log must show why HeapScope proposed it. You only review and report. You never c
 
 ## Inputs
 You receive the sprint id, the changed and new files, the sprint's section of `docs/SPRINTS.md`, and pointers
-to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md sections 11 (error handling and logging) and
-12 (security and privacy) fully, then the changed files and the logging they add or change.
+to `docs/ARCHITECTURE.md` and `docs/DEVELOPER.md`. Read ARCHITECTURE.md sections 11 (error handling and logging,
+`docs/architecture/logging.md`) and 12 (security and privacy, `docs/architecture/security-privacy.md`) fully, then
+the changed files and the logging they add or change.
 
 ## What to check
 - **Provenance**: every result a user can contest (a detector row, a count, a size, a set, a diff, a trend, a

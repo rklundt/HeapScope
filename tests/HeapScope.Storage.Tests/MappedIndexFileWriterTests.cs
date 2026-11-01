@@ -71,7 +71,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     {
         var path = Write(semanticsVersion: 7, dominators: [-2, 0, 1, -1], retained: [100, 60, 20, 0]);
 
-        var result = IndexCacheFile.Open(path, s_dominators, 0x42, Fingerprint(), mode, Ct);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, s_dominators, 0x42, Fingerprint(), mode, Ct);
 
         result.Success.ShouldBeTrue(result.Detail);
         using var file = result.File!;
@@ -87,7 +87,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     {
         var mapped = Write(semanticsVersion: 7, dominators: [-2, 0, 0], retained: [3, 1, 1]);
         var streamed = Path.Combine(_directory, "streamed.dom.hsidx");
-        using (var writer = IndexCacheFileWriter.Create(streamed, cancellationToken: Ct))
+        using (var writer = IndexCacheFileWriter.Create(streamed, IndexCacheSigner.None, cancellationToken: Ct))
         {
             writer.WriteSection<int>(IndexSection.ImmediateDominators, [-2, 0, 0]);
             writer.WriteSection<ulong>(IndexSection.RetainedSizes, [3, 1, 1]);
@@ -102,7 +102,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     {
         var path = Write(semanticsVersion: 6, dominators: [-2], retained: [8]);
 
-        var result = IndexCacheFile.Open(path, s_dominators, 0x42, Fingerprint(), MemoryMode.InMemory, Ct);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, s_dominators, 0x42, Fingerprint(), MemoryMode.InMemory, Ct);
 
         result.Success.ShouldBeFalse();
         result.Reason.ShouldBe(IndexCacheInvalidReason.VersionMismatch);
@@ -114,7 +114,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     {
         var path = Write(semanticsVersion: 7, dominators: [], retained: []);
 
-        var result = IndexCacheFile.Open(path, s_dominators, 0x42, Fingerprint(), MemoryMode.Mapped, Ct);
+        var result = IndexCacheFile.Open(path, IndexCacheSigner.None, s_dominators, 0x42, Fingerprint(), MemoryMode.Mapped, Ct);
 
         result.Success.ShouldBeTrue(result.Detail);
         using var file = result.File!;
@@ -127,7 +127,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     {
         var path = Write(semanticsVersion: 7, dominators: [-2], retained: [8]);
         var before = File.ReadAllBytes(path);
-        using (var writer = MappedIndexFileWriter.Create(path, Plan(1), Ct))
+        using (var writer = MappedIndexFileWriter.Create(path, IndexCacheSigner.None, Plan(1), Ct))
         {
             writer.GetSection<int>(IndexSection.ImmediateDominators)[0] = 5;
         }
@@ -140,13 +140,13 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     public void Unplanned_or_mistyped_sections_and_use_after_commit_are_refused()
     {
         var path = Path.Combine(_directory, "misuse.dom.hsidx");
-        using var writer = MappedIndexFileWriter.Create(path, Plan(2), Ct);
+        using var writer = MappedIndexFileWriter.Create(path, IndexCacheSigner.None, Plan(2), Ct);
 
         Should.Throw<ArgumentException>(() => writer.GetSection<int>(IndexSection.InEdges));
         Should.Throw<ArgumentException>(() => writer.GetSection<long>(IndexSection.ImmediateDominators));
         writer.Commit(Fingerprint(), 1, 7);
         Should.Throw<InvalidOperationException>(() => writer.GetSection<int>(IndexSection.ImmediateDominators));
-        Should.Throw<ArgumentException>(() => MappedIndexFileWriter.Create(path, [.. Plan(1), .. Plan(1)], Ct));
+        Should.Throw<ArgumentException>(() => MappedIndexFileWriter.Create(path, IndexCacheSigner.None, [.. Plan(1), .. Plan(1)], Ct));
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
         };
         try
         {
-            using var writer = MappedIndexFileWriter.Create(path, Plan(2), Ct);
+            using var writer = MappedIndexFileWriter.Create(path, IndexCacheSigner.None, Plan(2), Ct);
             Should.Throw<IOException>(() => writer.Commit(Fingerprint(), 0x42, 7));
         }
         finally
@@ -187,15 +187,15 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows refuses to replace an open file; Linux and macOS allow it, and a mapping keeps the old file.");
         var path = Write(semanticsVersion: 7, dominators: [-2], retained: [8]);
-        var opened = IndexCacheFile.Open(path, s_dominators, 0x42, Fingerprint(), MemoryMode.Mapped, Ct);
+        var opened = IndexCacheFile.Open(path, IndexCacheSigner.None, s_dominators, 0x42, Fingerprint(), MemoryMode.Mapped, Ct);
         using (opened.File)
         {
-            using var writer = MappedIndexFileWriter.Create(path, Plan(1), Ct);
+            using var writer = MappedIndexFileWriter.Create(path, IndexCacheSigner.None, Plan(1), Ct);
 
             Should.Throw<IndexCacheInUseException>(() => writer.Commit(Fingerprint(), 0x42, 7));
         }
 
-        IndexCacheFile.Open(path, s_dominators, 0x42, Fingerprint(), MemoryMode.InMemory, Ct).Success.ShouldBeTrue();
+        IndexCacheFile.Open(path, IndexCacheSigner.None, s_dominators, 0x42, Fingerprint(), MemoryMode.InMemory, Ct).Success.ShouldBeTrue();
         Directory.GetFiles(_directory, "*.tmp").ShouldBeEmpty();
     }
 
@@ -212,7 +212,7 @@ public sealed class MappedIndexFileWriterTests : IDisposable
     private string Write(int semanticsVersion, int[] dominators, ulong[] retained)
     {
         var path = Path.Combine(_directory, "app.dmp.dom.hsidx");
-        using var writer = MappedIndexFileWriter.Create(path, Plan(dominators.Length), Ct);
+        using var writer = MappedIndexFileWriter.Create(path, IndexCacheSigner.None, Plan(dominators.Length), Ct);
         dominators.CopyTo(writer.GetSection<int>(IndexSection.ImmediateDominators));
         retained.CopyTo(writer.GetSection<ulong>(IndexSection.RetainedSizes));
         writer.Commit(Fingerprint(), 0x42, semanticsVersion);

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The CLI in process (sprint 3.8, peer review P10): usage errors, the version, and its tables from given rows. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeapScope.Cli\HeapScope.Cli.csproj" />
+  </ItemGroup>
+</Project>

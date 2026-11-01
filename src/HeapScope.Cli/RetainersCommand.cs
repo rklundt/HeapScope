@@ -81,15 +81,16 @@ internal static partial class CliCommands
                 result.AddError($"'{result.GetValue(address)}' is not an address: use hex, such as 0x1f2a3b40.");
             }
         });
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             TryParseAddress(parseResult.GetValue(address), out var focus);
             var grouping = s_groupings[parseResult.GetValue(group)!];
@@ -211,15 +212,16 @@ internal static partial class CliCommands
         command.Options.Add(all);
         command.Options.Add(format);
         AddTopOrAllValidator(command, top, all);
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             var typeName = parseResult.GetValue(type)!;
             var moduleName = parseResult.GetValue(module) ?? await FindModuleAsync(session, handle, typeName, error, ct).ConfigureAwait(false);

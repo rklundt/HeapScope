@@ -55,8 +55,14 @@ public sealed class StaticCacheDump : IAsyncLifetime
     }
 }
 
-/// <summary>Sprint 1.2: snapshots in the worker, through the Application session, against a real worker process.</summary>
+/// <summary>
+/// Sprint 1.2: snapshots in the worker, through the Application session, against a real worker process. Alone (sprint
+/// 3.6): the cancel test measures a load stopping within 2 s, which other dump loads beside it pushed past 3 s on CI's
+/// two-core runners.
+/// </summary>
 [Trait("Category", "Integration")]
+[Trait("Run", "Heavy")]
+[Collection(nameof(HeavyTestsCollection))]
 public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDisposable
 {
     private readonly TempFolder _folder = new();
@@ -78,6 +84,10 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private string CachePath => _dump + ".hsidx";
+
+    /// <summary>The default type summary (by type, largest first), as the CLI's open lists it.</summary>
+    private static async Task<ResultSetInfo> SummaryAsync(SnapshotSession session, SnapshotHandle handle) =>
+        (await session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, null, Ct)).Rows.Info;
 
     [Fact]
     public async Task First_open_loads_the_dump_and_writes_the_cache_and_the_next_open_reuses_it()
@@ -107,6 +117,26 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     }
 
     [Fact]
+    public async Task A_cache_signed_by_another_users_key_is_rebuilt_and_noted()
+    {
+        // ADR-036 end to end (3.7 review M10): a worker with another key, as for another user or a cache shipped next to a
+        // dump, never uses the cache; it reads the dump again, says why, and signs the new cache with its own key.
+        await _session.StartOpen(_dump).Result;
+        using var otherData = new TempFolder();
+        await using var other = new WorkerHost(Options.Create(new WorkerHostOptions { WorkerPath = TestPaths.WorkerExe, DataFolder = otherData.Path }), new ListLoggerProvider());
+        var otherSession = new SnapshotSession(other, new JobTracker(TimeProvider.System));
+
+        var rebuilt = await otherSession.StartOpen(_dump).Result;
+
+        rebuilt.Descriptor.FromCache.ShouldBeFalse();
+        rebuilt.Descriptor.Notes.ShouldContain(n => n.Contains("signed with another key", StringComparison.Ordinal));
+
+        await other.RestartAsync(Ct);
+        var reopened = await new SnapshotSession(other, new JobTracker(TimeProvider.System)).StartOpen(_dump).Result;
+        reopened.Descriptor.FromCache.ShouldBeTrue("the rebuilt cache carries the other key's signature");
+    }
+
+    [Fact]
     public async Task A_dump_moved_with_its_cache_reports_and_reopens_the_new_path()
     {
         await _session.StartOpen(_dump).Result;
@@ -127,7 +157,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         again.Descriptor.SnapshotId.ShouldBe(handle.Descriptor.SnapshotId, "the worker recognizes the open file");
 
         await _host.RestartAsync(Ct);
-        (await session.GetTypeSummaryAsync(handle, Ct)).TotalCount.ShouldBe(handle.Descriptor.TypeCount);
+        (await SummaryAsync(session, handle)).TotalCount.ShouldBe(handle.Descriptor.TypeCount);
         handle.Descriptor.Path.ShouldBe(movedDump);
     }
 
@@ -136,7 +166,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     {
         var handle = await _session.StartOpen(_dump).Result;
 
-        var summary = await _session.GetTypeSummaryAsync(handle, Ct);
+        var summary = await SummaryAsync(_session, handle);
         var rows = new List<IReadOnlyList<string?>>();
         for (var offset = 0; offset < summary.TotalCount; offset += WorkerProtocol.MaxPageSize)
         {
@@ -147,6 +177,23 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         rows.Sum(r => long.Parse(r[1]!, CultureInfo.InvariantCulture)).ShouldBe(handle.Descriptor.ObjectCount);
         rows.Sum(r => decimal.Parse(r[2]!, CultureInfo.InvariantCulture)).ShouldBe((decimal)handle.Descriptor.TotalSize);
         rows.Single(r => r[0] == "Fixtures.Leaks.StaticCacheEntry")[1].ShouldBe(StaticCacheDump.Items.ToString(CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task A_complete_full_dump_lists_every_feature_as_available()
+    {
+        // Peer review P7: the list front ends offer from, first load and index cache alike.
+        var first = await _session.StartOpen(_dump).Result;
+        await _session.CloseAsync(first, Ct);
+        var cached = await _session.StartOpen(_dump).Result;
+
+        foreach (var d in new[] { first.Descriptor, cached.Descriptor })
+        {
+            d.Availability.ShouldNotBeNull().Select(f => f.Feature).ShouldBe(SnapshotFeatureIds.All, ignoreOrder: true);
+            d.Availability.ShouldAllBe(f => f.Unavailable == null);
+        }
+
+        cached.Descriptor.FromCache.ShouldBeTrue();
     }
 
     [Fact]
@@ -225,14 +272,14 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         var staleId = handle.Descriptor.SnapshotId;
 
         await _host.RestartAsync(Ct);
-        var summary = await _session.GetTypeSummaryAsync(handle, Ct);
+        var summary = await SummaryAsync(_session, handle);
 
         summary.TotalCount.ShouldBe(handle.Descriptor.TypeCount);
         handle.Descriptor.FromCache.ShouldBeTrue();
         handle.Descriptor.SnapshotId.ShouldNotBe(staleId);
 
         var ex = await Should.ThrowAsync<WorkerOperationException>(
-            () => _host.InvokeAsync((service, ct) => service.GetTypeSummaryAsync(staleId, ct), Ct));
+            () => _host.InvokeAsync((service, ct) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(staleId), null, ct), Ct));
         ex.ErrorCode.ShouldBe(HeapScopeErrorCode.SnapshotNotLoaded);
     }
 
@@ -243,7 +290,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         await _host.RestartAsync(Ct);
         File.Delete(CachePath);
 
-        var ex = await Should.ThrowAsync<WorkerOperationException>(() => _session.GetTypeSummaryAsync(handle, Ct));
+        var ex = await Should.ThrowAsync<WorkerOperationException>(() => SummaryAsync(_session, handle));
 
         ex.ErrorCode.ShouldBe(HeapScopeErrorCode.SnapshotChanged);
         ex.Message.ShouldContain("Open it again");
@@ -257,7 +304,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         await _session.CloseAsync(handle, Ct);
         await _host.RestartAsync(Ct);
 
-        var ex = await Should.ThrowAsync<WorkerOperationException>(() => _session.GetTypeSummaryAsync(handle, Ct));
+        var ex = await Should.ThrowAsync<WorkerOperationException>(() => SummaryAsync(_session, handle));
 
         ex.ErrorCode.ShouldBe(HeapScopeErrorCode.SnapshotNotLoaded);
         handle.IsClosed.ShouldBeTrue();
@@ -300,7 +347,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
 
         _session.Snapshots.ShouldBeEmpty();
         var ex = await Should.ThrowAsync<WorkerOperationException>(
-            () => _host.InvokeAsync((service, ct) => service.GetTypeSummaryAsync(id, ct), Ct));
+            () => _host.InvokeAsync((service, ct) => service.QueryTypeSummaryAsync(new TypeSummaryRequest(id), null, ct), Ct));
         ex.ErrorCode.ShouldBe(HeapScopeErrorCode.SnapshotNotLoaded);
     }
 
@@ -310,20 +357,47 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
         var handle = await _session.StartOpen(_dump, mode: SnapshotMemoryMode.Mapped).Result;
 
         handle.Descriptor.Mode.ShouldBe(SnapshotMemoryMode.Mapped);
-        (await _session.GetTypeSummaryAsync(handle, Ct)).TotalCount.ShouldBe(handle.Descriptor.TypeCount);
+        (await SummaryAsync(_session, handle)).TotalCount.ShouldBe(handle.Descriptor.TypeCount);
     }
 
     [Fact]
     public async Task Canceling_a_load_stops_it_and_leaves_no_cache_file()
     {
-        var job = _session.StartOpen(_dump);
-        await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
-        job.Result.IsCompleted.ShouldBeFalse("the load finished before it could be canceled");
-        var canceledAt = System.Diagnostics.Stopwatch.StartNew();
-        job.Cancel();
+        // A dump of its own, large enough that a fast machine (CI's, sprint 3.6) is still loading when the cancel arrives:
+        // the shared 3,000-item dump loaded completely between the progress report and the cancel.
+        var large = _folder.File("large.dmp");
+        using (var fixture = await FixtureProcess.StartConsoleAsync("--leak", "StaticCache", "--count", "300000", "--payload", "16"))
+        {
+            fixture.CaptureDump(large);
+        }
 
-        await Should.ThrowAsync<OperationCanceledException>(() => job.Result);
-        canceledAt.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2), "acceptance criterion: a load stops within 2 s");
+        File.Delete(_dump);
+        File.Move(large, _dump);
+
+        // A cancel that reaches the worker after the load's last cancellation point lets the load finish; on a fast
+        // machine that race is won now and then (CI, sprint 3.6). Each attempt loads afresh, and one must be canceled.
+        TimeSpan? stoppedIn = null;
+        for (var attempt = 0; attempt < 5 && stoppedIn is null; attempt++)
+        {
+            var job = _session.StartOpen(_dump, rebuild: true);
+            await WaitUntilAsync(() => job.Progress?.Phase is "Opening dump" or "Reading objects" or "Reading references" || job.Result.IsCompleted);
+            var canceledAt = System.Diagnostics.Stopwatch.StartNew();
+            job.Cancel();
+            try
+            {
+                await _session.CloseAsync(await job.Result, Ct);
+
+                // Finished: its cache is not what this test is about, and the next attempt must leave none.
+                File.Delete(CachePath);
+            }
+            catch (OperationCanceledException)
+            {
+                stoppedIn = canceledAt.Elapsed;
+            }
+        }
+
+        stoppedIn.ShouldNotBeNull("five loads in a row finished before their cancel arrived");
+        stoppedIn.Value.ShouldBeLessThan(TimeSpan.FromSeconds(2), "acceptance criterion: a load stops within 2 s");
         File.Exists(CachePath).ShouldBeFalse();
         Directory.EnumerateFiles(_folder.Path, "*.tmp").ShouldBeEmpty();
         (await _session.StartOpen(_dump).Result).Descriptor.FromCache.ShouldBeFalse("the worker stays usable");
@@ -412,8 +486,8 @@ public sealed class CliOpenTests(StaticCacheDump shared) : IClassFixture<StaticC
         using var json = ChildProcess.Start(TestPaths.CliExe, "summary", dump, "--format", "json", "--group", "namespace", "--top", "2");
         (await json.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(json.Output);
         json.Process.ExitCode.ShouldBe(0, json.Output);
-        var start = json.Output.IndexOf('{', StringComparison.Ordinal);
-        using var document = System.Text.Json.JsonDocument.Parse(json.Output[start..(json.Output.LastIndexOf('}') + 1)]);
+        var stdout = json.StandardOutput;
+        using var document = System.Text.Json.JsonDocument.Parse(stdout[stdout.IndexOf('{', StringComparison.Ordinal)..(stdout.LastIndexOf('}') + 1)]);
         document.RootElement.GetProperty("Rows").GetArrayLength().ShouldBe(2);
         document.RootElement.GetProperty("TotalObjects").GetInt64().ShouldBeGreaterThan(0);
     }

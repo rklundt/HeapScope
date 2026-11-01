@@ -37,6 +37,7 @@ var benchmarks = new Dictionary<string, Func<BenchmarkArgs, int>>(StringComparer
     ["retention"] = RetentionBenchmark.Run,
     ["dominators"] = DominatorsBenchmark.Run,
     ["allocations"] = AllocationsBenchmark.Run,
+    ["live-tail"] = LiveTailSpike.Run,
 };
 
 if (args.Length == 0 || !benchmarks.TryGetValue(args[0], out var run))

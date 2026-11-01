@@ -360,6 +360,21 @@ public sealed class CompareViewModelTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Interface_grouping_is_offered_only_when_both_snapshots_list_it()
+    {
+        await OpenBothAsync();
+        Compare.Groupings.ShouldContain(TypeGrouping.Interface);
+
+        await _snapshots.CloseCommand.ExecuteAsync(Compare.Current);
+        await _snapshots.OpenPathAsync(Dump("survivors.gcdump"));
+        await Compare.QueryTask;
+
+        Compare.Current!.Title.ShouldBe("survivors.gcdump");
+
+        Compare.Groupings.ShouldNotContain(TypeGrouping.Interface, "a gcdump lists interface grouping as unavailable");
+    }
+
     private async Task OpenBothAsync()
     {
         await _snapshots.OpenPathAsync(Dump("earlier-name.dmp"));

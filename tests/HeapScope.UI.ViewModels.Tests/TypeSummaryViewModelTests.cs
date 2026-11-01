@@ -131,6 +131,32 @@ public sealed class TypeSummaryViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task The_generations_reason_is_the_one_the_worker_listed()
+    {
+        _worker.Service.HasGenerations = false;
+        _worker.Service.Unavailable[SnapshotFeatureIds.Generations] = "The worker's own reason.";
+
+        await ShowAsync();
+
+        _types.GenerationsExplanation.ShouldBe("The worker's own reason.");
+    }
+
+    [Fact]
+    public async Task Interface_grouping_is_offered_as_the_snapshot_lists_it()
+    {
+        await ShowAsync();
+        _types.Groupings.ShouldContain(TypeGrouping.Interface, "a full dump with field values lists it");
+        _types.GroupBy = TypeGrouping.Interface;
+        await _types.QueryTask;
+
+        _worker.Service.Unavailable[SnapshotFeatureIds.InterfaceGrouping] = "The worker says no.";
+        await ShowAsync();
+
+        _types.Groupings.ShouldNotContain(TypeGrouping.Interface);
+        _types.GroupBy.ShouldBe(TypeGrouping.Type, "a grid grouped by interface goes back to types");
+    }
+
+    [Fact]
     public async Task A_new_query_releases_the_previous_result_set()
     {
         await ShowAsync();

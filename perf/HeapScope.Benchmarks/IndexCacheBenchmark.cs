@@ -87,7 +87,7 @@ internal static class IndexCacheBenchmark
         Measurement.Line("Build", $"{stopwatch.Elapsed.TotalSeconds:N1} s");
         stopwatch.Restart();
         var metadata = new IndexCacheMetadata(new SnapshotInfo(SnapshotKind.FullDump, source), SnapshotCapabilities.FullDump, IndexCacheMetadata.CurrentWriterVersion);
-        IndexCacheWriter.Write(cache, graph, metadata, SnapshotFingerprint.Compute(source));
+        IndexCacheWriter.Write(cache, IndexCacheSigner.None, graph, metadata, SnapshotFingerprint.Compute(source));
         Measurement.Line("Write", $"{stopwatch.Elapsed.TotalSeconds:N1} s ({Measurement.Mb(new FileInfo(cache).Length)})");
     }
 
@@ -95,7 +95,7 @@ internal static class IndexCacheBenchmark
     {
         var (privateBefore, workingBefore) = MemoryAfterCollect();
         var stopwatch = Stopwatch.StartNew();
-        var result = IndexCacheReader.Open(cache, fingerprint, mode);
+        var result = IndexCacheReader.Open(cache, IndexCacheSigner.None, fingerprint, mode);
         var time = stopwatch.Elapsed;
         var (privateAfter, workingAfter) = MemoryAfterCollect();
         Measurement.Line(

@@ -26,17 +26,17 @@ under the MIT License, whose text is below.
 
 | Package | Version | Copyright |
 |---|---|---|
-| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol, Avalonia.Fonts.Inter) | 12.1.4 | The AvaloniaUI Project (Avalonia.Fonts.Inter, a dependency of Avalonia.Headless, embeds the Inter typeface under the SIL Open Font License 1.1; it is used by the tests only and kept out of the app's build output) |
+| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol) | 12.1.4 | The AvaloniaUI Project |
 | Avalonia.Controls.DataGrid | 12.1.2 | The AvaloniaUI Project |
 | Azure.Core (via ClrMD) | 1.53.0 | Microsoft Corporation |
 | Azure.Identity (via ClrMD) | 1.21.0 | Microsoft Corporation |
 | CommunityToolkit.Mvvm | 8.4.2 | .NET Foundation and Contributors |
 | MessagePack, MessagePack.Annotations (via StreamJsonRpc) | 2.5.307 | Yoshifumi Kawai and contributors |
 | Microsoft.Bcl.AsyncInterfaces | 10.0.3 | Microsoft Corporation |
-| Microsoft.Diagnostics.NETCore.Client | 0.2.750501 (0.2.661903 via TraceEvent) | Microsoft Corporation |
+| Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | Microsoft Corporation |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | Microsoft Corporation |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | Microsoft Corporation (see the note on native binaries below) |
-| Microsoft.Extensions.* (Hosting, Configuration, DependencyInjection, Logging, Options, Primitives, FileProviders, FileSystemGlobbing, Diagnostics) | 10.0.13 | Microsoft Corporation |
+| Microsoft.Extensions.* (Hosting, Configuration, DependencyInjection, Logging, Options, Primitives, FileProviders, FileSystemGlobbing, Diagnostics) | 10.0.14 | Microsoft Corporation |
 | Microsoft.Identity.Client, Microsoft.Identity.Client.Extensions.Msal (via ClrMD) | 4.83.1 | Microsoft Corporation |
 | Microsoft.IdentityModel.Abstractions (via ClrMD) | 8.14.0 | Microsoft Corporation |
 | Microsoft.NET.StringTools | 17.6.3 | Microsoft Corporation |
@@ -49,9 +49,9 @@ under the MIT License, whose text is below.
 | SkiaSharp, HarfBuzzSharp and their native assets (via Avalonia) | 3.119.4, 8.3.1.3 | Microsoft Corporation |
 | StreamJsonRpc | 2.26.150 | Microsoft Corporation |
 | System.ClientModel, System.Memory.Data (via ClrMD) | 1.10.0, 10.0.3 | Microsoft Corporation |
-| System.CommandLine | 2.0.13 | Microsoft Corporation |
-| System.Diagnostics.EventLog | 10.0.13 | Microsoft Corporation |
-| System.IO.Hashing | 10.0.13 | Microsoft Corporation |
+| System.CommandLine | 2.0.14 | Microsoft Corporation |
+| System.Diagnostics.EventLog | 10.0.14 | Microsoft Corporation |
+| System.IO.Hashing | 10.0.14 | Microsoft Corporation |
 | System.Reflection.TypeExtensions | 4.7.0 | Microsoft Corporation |
 | System.Security.Cryptography.ProtectedData (via ClrMD) | 4.5.0 | Microsoft Corporation |
 | Tmds.DBus.Protocol (via Avalonia, Linux) | 0.94.1 | Tom Deseyn |
@@ -78,13 +78,40 @@ Avalonia renders through ANGLE on Windows. Its native binaries are under the BSD
 > WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+### Native components inside SkiaSharp and HarfBuzzSharp
+
+The native assets of SkiaSharp and HarfBuzzSharp (via Avalonia) bundle third-party components under their own licenses,
+which the packages list in their `THIRD-PARTY-NOTICES.txt`: ANGLE, etc1, expat, FreeType (used under the FreeType
+License), gif, HarfBuzz, ICU, imgui, jsoncpp, libjpeg-turbo, libmicrohttpd, libpng, libwebp, SDL, sfntly, Skia, SPIR-V
+Headers and Tools, and zlib, under the BSD, MIT, Apache-2.0, zlib, ICU, FreeType, IJG and LGPL-2.1 licenses. Every
+published build carries those files, with each shipped package's own license and notice files, under
+`licenses/<package>.<version>/` (sprint 3.6).
+
+Adobe's DNG SDK and Google's piex are not in HeapScope's builds (since 2026-10-30). HeapScope ships its own build of
+SkiaSharp's native library, made from SkiaSharp's sources at the same version with Skia's raw camera image decoder
+turned off, and `build/check-package.sh` refuses a build that contains their code. SkiaSharp's notices file, shipped
+unchanged, still names them.
+
+Three of the components named there carry a GNU license or a GNU option. None of them puts HeapScope or its builds
+under the GPL or the LGPL (checked in the SkiaSharp 3.119.4 and HarfBuzzSharp 8.3.1.3 native libraries for
+Windows, Linux and macOS, 2026-10-30; HeapScope's own libSkiaSharp differs only in the two raw decoder switches):
+- libmicrohttpd (LGPL-2.1, or the eCos License): an HTTP server that Skia uses in its developer tools only. It is not
+  in the shipped native libraries.
+- gif (Mozilla's GIF decoder, under MPL 1.1, GPL 2.0 or LGPL 2.1 at the recipient's choice): Skia's former GIF decoder.
+  It is not in the shipped native libraries; Skia decodes GIFs with Wuffs (Apache-2.0) instead.
+- FreeType (the FreeType License, or GPL-2.0, at the recipient's choice): in the Linux native library, and used under
+  the FreeType License.
+
+HeapScope ships no code under the GPL or the LGPL. This is checked again whenever SkiaSharp or HarfBuzzSharp is updated.
+
 ### Native binaries inside Microsoft.Diagnostics.Tracing.TraceEvent
 
-The TraceEvent package copies two native Microsoft binaries into the build output (`amd64/KernelTraceControl.dll` and
-`amd64/msdia140.dll`). They ship without source code. The package as a whole is declared MIT, but these binaries come
-from Microsoft's Windows Performance Toolkit and the Debug Interface Access SDK and may carry their own
-redistribution terms. They are kept on purpose (product owner, 2026-10-24) for future kernel tracing and symbol
-lookup; review their redistribution terms before HeapScope is distributed.
+The TraceEvent package copies native Microsoft binaries into the build output (`KernelTraceControl.dll` and
+`msdia140.dll`, per architecture). They ship without source code. The package as a whole is declared MIT, but these
+binaries come from Microsoft's Windows Performance Toolkit and the Debug Interface Access SDK and may carry their own
+redistribution terms. They are kept in development builds on purpose (product owner, 2026-10-24) for future kernel
+tracing and symbol lookup. Nothing in HeapScope calls them, and since sprint 3.6 published builds leave them out (and
+`build/check-package.sh` fails a build that has them) until their redistribution terms are reviewed.
 
 ## Development and test only (not shipped)
 
@@ -94,6 +121,7 @@ lookup; review their redistribution terms before HeapScope is distributed.
 | Shouldly | 4.3.0 | BSD-3-Clause | Jake Ginnivan, Joseph Woodward, Simon Cropp and contributors |
 | Microsoft.CodeAnalysis.CSharp (DenseHeap fixture) | 5.0.0 | MIT | Microsoft Corporation |
 | Avalonia.BuildServices (build time, via Avalonia; its telemetry task is disabled by `Directory.Build.targets`) | 11.3.2 | MIT | The AvaloniaUI Project |
+| Avalonia.Fonts.Inter (via Avalonia.Headless; excluded from the app's output, the tests only) | 12.1.4 | SIL OFL 1.1 (the Inter typeface) | The AvaloniaUI Project |
 
 ## MIT License
 

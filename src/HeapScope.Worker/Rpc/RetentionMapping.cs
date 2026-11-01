@@ -63,17 +63,11 @@ internal static class RetentionMapping
     }
 
     /// <summary>Whether a type is a framework type a front end may fold when it lies between other steps.</summary>
-    public static bool IsFrameworkType(string typeName) =>
-        typeName.StartsWith("System.", StringComparison.Ordinal) || typeName.StartsWith("Microsoft.", StringComparison.Ordinal);
+    public static bool IsFrameworkType(HeapGraph graph, int type) =>
+        HeapScope.Analysis.FrameworkTypes.IsFrameworkStep(graph.Types.GetName(type), graph.Types.GetModule(type));
 
-    /// <summary>
-    /// What "no root reaches it" means for a snapshot of <paramref name="kind"/> (review M3). A full dump holds every object,
-    /// garbage included; a gcdump holds only the survivors of the collection it ran, without weak handles, so an object no
-    /// recorded root reaches points to a root the gcdump did not record.
-    /// </summary>
-    public static string UnreachableNote(SnapshotKind kind) => kind == SnapshotKind.GcDump
-        ? "No recorded root reaches it. A gcdump holds only objects that survived its collection, so a root that holds it was not recorded (the gcdump may be sampled or incomplete)."
-        : "No root reaches it: it is garbage not yet collected, or held only weakly (weak handles, weak references).";
+    /// <summary>What "no root reaches it" means for a snapshot of <paramref name="kind"/>, as its kind handler words it.</summary>
+    public static string UnreachableNote(SnapshotKind kind) => Snapshots.SnapshotKinds.Describe(kind).UnreachableNote;
 
     public static PathRootDto Root(HeapGraph graph, PathRoot root) =>
         new(root.IsFrozen ? RootKindDto.Other : root.Root.Kind.ToDto(), root.IsFrozen, PathRoots.Describe(root, PathRoots.Detail(graph, root)));
@@ -85,7 +79,7 @@ internal static class RetentionMapping
         var steps = path.Steps.Select((type, i) =>
         {
             var name = graph.Types.GetName(type);
-            return new PathStepDto(name, i > 0 && IsFrameworkType(name));
+            return new PathStepDto(name, i > 0 && IsFrameworkType(graph, type));
         });
         return new KeyPathDto(
             Root(graph, path.Root),
@@ -149,10 +143,11 @@ internal static class RetentionMapping
             var path = tree.PathOf(node);
             for (var i = 0; i < path.Count - 1; i++)
             {
-                var name = graph.Types.GetName(graph.TypeIndices[tree.Nodes[path[i]].ObjectIndex]);
+                var type = graph.TypeIndices[tree.Nodes[path[i]].ObjectIndex];
+                var name = graph.Types.GetName(type);
                 if (steps.Count == 0 || steps[^1].TypeName != name)
                 {
-                    steps.Add(new PathStepDto(name, steps.Count > 0 && IsFrameworkType(name)));
+                    steps.Add(new PathStepDto(name, steps.Count > 0 && IsFrameworkType(graph, type)));
                 }
             }
 
@@ -279,7 +274,7 @@ internal static class RetentionMapping
                     typeName,
                     d.Field,
                     d.Dependent,
-                    id != 0 && d.Root is null && IsFrameworkType(typeName),
+                    id != 0 && d.Root is null && IsFrameworkType(graph, graph.TypeIndices[d.ObjectIndex]),
                     d.Depth,
                     d.Root is { } root ? Root(graph, root) : null,
                     d.RootsBelow,

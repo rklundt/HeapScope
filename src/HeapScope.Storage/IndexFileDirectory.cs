@@ -43,6 +43,7 @@ internal static class IndexFileDirectory
     /// <param name="expectedBaseIdentity">The base cache a sidecar must extend; 0 for a base cache (whose field must be 0).</param>
     public static Dictionary<IndexSection, SectionEntry>? Read(
         FileStream stream,
+        IndexCacheSigner signer,
         IndexFileLayout layout,
         SnapshotFingerprint? expected,
         ulong expectedBaseIdentity,
@@ -89,6 +90,20 @@ internal static class IndexFileDirectory
         if (XxHash3.HashToUInt64(region.AsSpan(0, headerSize + directoryBytes)) != header.HeaderChecksum)
         {
             failure = IndexCacheOpenResult.Invalid(IndexCacheInvalidReason.HeaderCorrupted, "The index cache header is damaged (checksum mismatch).");
+            return null;
+        }
+
+        // The checksums anyone can recompute; the signature only this user's HeapScope can (sprint 3.7, peer review P14).
+        MemoryMarshal.Write(region, in header);
+        if (!signer.Verify(region))
+        {
+            // Unsigned (all zero) is what every cache written before 3.7 is; a signature that does not match is another
+            // user's, another machine's, or a forgery (3.7 review, support).
+            failure = IndexCacheOpenResult.Invalid(
+                IndexCacheInvalidReason.Untrusted,
+                region[^IndexCacheSigner.SignatureLength..].IndexOfAnyExcept((byte)0) < 0
+                    ? "The index cache is unsigned (written by a HeapScope before 3.7, or not by HeapScope), so it is not used; the dump is read again."
+                    : "The index cache is signed with another key (another user, another machine, a deleted key file, or a HeapScope run that could not use its key file), so it is not used; the dump is read again.");
             return null;
         }
 

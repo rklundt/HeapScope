@@ -47,6 +47,9 @@ public sealed class CounterMonitorTests
         await WaitUntilAsync(() => samples.Count >= 2);
         var before = samples.Last().GcHeapBytes;
         await api.PostWorkAsync(20, Ct);
+
+        // The heap size counter follows collections; a server GC may not run on its own within the wait (peer review P11).
+        await api.CollectGarbageAsync(Ct);
         var arrived = samples.Count;
         await WaitUntilAsync(() => samples.Count >= arrived + 3);
         await stop.CancelAsync();
@@ -54,7 +57,7 @@ public sealed class CounterMonitorTests
 
         samples.ShouldAllBe(s => s.GcHeapBytes > 0 && s.WorkingSetBytes > 0);
         samples.ShouldContain(s => s.Gen2Bytes > 0 && s.LargeObjectHeapBytes > 0, "the per-generation sizes the chart stacks are published (after the first GC)");
-        samples.Max(s => s.GcHeapBytes).ShouldBeGreaterThan(before + (10L * 1024 * 1024), "20 requests of 2,000 items with 512-byte payloads leak about 20 MB");
+        samples.Max(s => s.GcHeapBytes).ShouldBeGreaterThan(before + (10L * 1024 * 1024), "20 requests of 2,000 items with 512-byte payloads, in each of the five leaks, leak well over 100 MB");
         samples.Sum(s => s.AllocatedBytes).ShouldBeGreaterThan(0);
     }
 
@@ -71,6 +74,9 @@ public sealed class CounterMonitorTests
 
         await WaitUntilAsync(() => Volatile.Read(ref samples) >= 2);
         await api.PostWorkAsync(20, Ct);
+
+        // The rule compares the heap after a GC; a server GC may not run on its own within the wait (peer review P11).
+        await api.CollectGarbageAsync(Ct);
         await WaitUntilAsync(() => run.Captures.Count == 1);
         await api.PostWorkAsync(20, Ct);
         var seen = Volatile.Read(ref samples);
@@ -94,9 +100,13 @@ public sealed class CounterMonitorTests
         using var api = await FixtureProcess.StartApiAsync("--Leaks:Enabled=all", "--Leaks:ItemsPerRequest=2000", "--Leaks:PayloadBytes=512");
         var pid = api.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var cli = ChildProcess.Start(TestPaths.CliExe, "monitor", "--pid", pid, "--duration", "12", "--growth", "5MB", "--rearm", "once");
-        // Leak only after two samples: the baseline is the first after-GC size, measured once the session is up.
+        // Leak only after two samples: the baseline is the first sample's rule size (the heap after a GC once one ran, the heap now
+        // before), measured once the session is up.
         await WaitUntilAsync(() => System.Text.RegularExpressions.Regex.Matches(cli.Output, @"^\d\d:\d\d:\d\d ", System.Text.RegularExpressions.RegexOptions.Multiline).Count >= 2);
         await api.PostWorkAsync(20, Ct);
+
+        // The rule compares the heap after a GC; a server GC may not run on its own within the 12 s (peer review P11).
+        await api.CollectGarbageAsync(Ct);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(cli.Output);
 
         cli.Process.ExitCode.ShouldBe(0, cli.Output);
@@ -113,11 +123,8 @@ public sealed class CounterMonitorTests
         foreach (var (arguments, code) in new (string[] Arguments, int Code)[]
         {
             (["monitor", "--pid", "1", "--duration", "2"], 1),
-            (["monitor", "--pid", pid, "--every", "soon"], 64),
-            (["monitor", "--pid", pid, "--above", "50%"], 64),
             (["monitor", "--pid", pid, "--interval", "0"], 64),
             (["monitor", "--pid", pid, "--rearm", "twice"], 64),
-            (["monitor", "--pid", pid, "--above", "0MB"], 64),
             (["monitor", "--pid", pid, "--max", "0"], 64),
             (["monitor"], 64),
         })

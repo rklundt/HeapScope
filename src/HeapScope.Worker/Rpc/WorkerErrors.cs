@@ -46,6 +46,7 @@ internal static class WorkerErrors
     {
         CapabilityNotSupportedException => HeapScopeErrorCode.CapabilityNotSupported,
         RuntimeComponentMissingException => HeapScopeErrorCode.RuntimeComponentMissing,
+        UntrustedDacException => HeapScopeErrorCode.DacNotTrusted,
         SnapshotFormatException => HeapScopeErrorCode.SnapshotFormat,
         SnapshotChangedException => HeapScopeErrorCode.SnapshotChanged,
         IndexCacheInUseException or IOException or UnauthorizedAccessException => HeapScopeErrorCode.SnapshotUnavailable,
@@ -69,7 +70,14 @@ internal static class WorkerErrors
     public static bool IsRefusal(HeapScopeErrorCode code) => code is HeapScopeErrorCode.CapabilityNotSupported
         or HeapScopeErrorCode.InvalidArgument or HeapScopeErrorCode.SnapshotChanged or HeapScopeErrorCode.SnapshotNotLoaded
         or HeapScopeErrorCode.ResultSetNotFound or HeapScopeErrorCode.RuntimeComponentMissing or HeapScopeErrorCode.InsufficientMemory
-        or HeapScopeErrorCode.TraceNotLoaded or HeapScopeErrorCode.SnapshotFormat;
+        or HeapScopeErrorCode.TraceNotLoaded or HeapScopeErrorCode.SnapshotFormat or HeapScopeErrorCode.DacNotTrusted;
+
+    /// <summary>The error data a front end needs to act on a refusal (sprint 3.6: the DAC to trust), or null.</summary>
+    public static object? DataOf(Exception exception) => exception switch
+    {
+        UntrustedDacException { Path: { } path, Sha256: { } sha256 } untrusted => new DacTrustDetails(path, sha256, untrusted.RuntimeVersion ?? ""),
+        _ => null,
+    };
 
     /// <summary>
     /// Runs an RPC method body, translating domain exceptions into coded errors. Every outcome except cancellation is
@@ -114,13 +122,19 @@ internal static class WorkerErrors
             if (IsRefusal(code))
             {
                 logger?.LogInformation("{Operation} refused ({Code}): {Message}; request {Request}", operation, code, MessageOf(ex, code), Provenance.Describe(request));
+                if (ex.InnerException is { } inner)
+                {
+                    // A refusal that wraps another exception (a gcdump the reader found inconsistent): where it was thrown, so
+                    // a contested refusal can be told from a HeapScope bug (3.7 review H5). Types and code only, no values.
+                    logger?.LogDebug(inner, "{Operation} refusal ({Code}) came from {Inner}", operation, code, inner.GetType().Name);
+                }
             }
             else
             {
                 logger?.LogWarning(ex, "{Operation} failed with {Code}; request {Request}", operation, code, Provenance.Describe(request));
             }
 
-            throw new LocalRpcException(MessageOf(ex, code), ex) { ErrorCode = (int)code };
+            throw new LocalRpcException(MessageOf(ex, code), ex) { ErrorCode = (int)code, ErrorData = DataOf(ex) };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

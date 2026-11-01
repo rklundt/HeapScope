@@ -5,6 +5,9 @@ Visual Studio integration), from public sources only (JetBrains help, product an
 Tools blog). Nothing was downloaded or installed. Where a point comes from general familiarity with public
 screenshots rather than a cited page, it is marked "(unverified)".
 
+Status at 3.8: since built: interface grouping and Similar Retention (3.2), the unreachable set (3.5), Force GC and
+session cleanup (3.4); the UI is Avalonia (ADR-025), not WPF, and no WPF detectors were built.
+
 Goal: a similar look and feel for HeapScope, not feature parity. Note one structural difference up front:
 dotMemory is a profiler that attaches an agent and records allocations; HeapScope is dump based (full dumps
 and gcdumps, plus EventPipe counters). Several dotMemory features exist only because of its agent.

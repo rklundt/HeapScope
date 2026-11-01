@@ -5,4 +5,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Diagnostics.Runtime" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeapScope.Loaders.ClrMd.Tests" />
+  </ItemGroup>
 </Project>

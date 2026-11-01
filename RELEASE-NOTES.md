@@ -7,10 +7,63 @@ each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 | Version | Released |
 |---|---|
+| 3.8.0 | 2026-10-31, `v3.8.0` |
 | 3.5.0 | 2026-10-29, `v3.5.0` |
 | 2.2.0 | 2026-10-25, `v2.2.0` |
 
 Everything else was built on `develop` and first shipped in the next release above it.
+
+## 3.8.0: Modularity (sprint 3.8)
+
+From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`): the same answers, in a structure Phase 4 can build on.
+- **Snapshots say what they can answer**: each open snapshot lists its optional features (the unreachable set,
+  interface grouping, field values, string values, generations, the finalizable scope) as available or not, with the
+  reason, and the app offers only what the list allows. A dump whose object graph is incomplete no longer offers
+  Unreachable objects. Worker protocol 21.
+- **Steadier monitoring**: an allocation trace stops at its size limit again (the limit had stopped working in 3.7),
+  and a listener that fails never changes a job, an open or a run.
+- **Past runs say why**: a past run's timeline or trace that HeapScope will not open says which check refused it.
+- **Texts shared by the app and the CLI**: retained sizes, object identity and scope read the same in both; a gcdump's
+  summary header no longer claims unreachable objects.
+- **One data folder**: every HeapScope data folder moves with `HEAPSCOPE_DATA_FOLDER`, and each log names the folder in
+  use.
+- Limited: the Live page's view model and an analysis workspace per snapshot stay as they were (Backlog); live
+  allocations are decided (ADR-037), not built.
+- Also in this release (after the sprint): builds no longer contain Adobe's DNG SDK or Google's piex. They ship
+  HeapScope's own SkiaSharp native library built without them (ADR-038); HeapScope never reads camera raw images.
+
+## 3.7.0: Hardening (sprint 3.7)
+
+From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`).
+- **Crafted files are refused, not obeyed**: a gcdump, minidump or index cache built to hang HeapScope or exhaust its
+  memory is refused with a reason in bounded time. Mutation tests run on every pull request and nightly.
+- **Index caches are signed with your key**: a cache that arrives next to a dump, or one written by another user or
+  machine, is never used; the dump is read again and the snapshot's notes say why. Every cache written before 3.7 is
+  rebuilt once.
+- **Your files stay yours**: files HeapScope creates are readable by you only (on Windows from the moment they are
+  created), a finished dump is made private, and the capture says so when it cannot be. Trace conversion no longer uses
+  the shared `/tmp` on Linux and macOS.
+- **A session from someone else cannot reach out**: snapshots on a network path are never looked at or opened, and a
+  run's timeline opens only when it is a CSV file inside the session folder, reached through no link.
+- **Supply chain**: packages from nuget.org only with lock files, Actions pinned to commits, Dependabot, `SECURITY.md`,
+  and release builds with SBOMs, checksums and build provenance attestations.
+- Limited: locked restores cover CI's builds, not yet publishes for a platform; a dump is private only once the capture
+  ends, since the runtime writes it.
+
+## 3.6.0: Urgent fixes (sprint 3.6)
+
+From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`).
+- **Session records are no longer lost**: reading `session.json` never makes another program's save fail, and a session
+  that cannot be read stops with the reason and what to do instead of moving your next captures into a new session.
+- **A DAC that came with a dump is not loaded without your say**: a data access component found only next to a dump is
+  native code from whoever made the dump. The app asks, naming the file and its SHA-256, and remembers a yes; the CLI
+  refuses and names `--trust-dac <sha256>`. A DAC HeapScope's own capture copied is trusted (unless HeapScope ran
+  elevated). After a "no", a dump with an index cache still opens, without field values.
+- **Builds carry their licenses**: every published build holds HeapScope's license files and each shipped package's own
+  license and notice files under `licenses/`, and leaves out two TraceEvent native binaries nothing uses.
+- **CI checks more**: the integration tests run on every pull request, test results and HeapScope's logs are kept for
+  14 days, and CI and the local gate (`build/gate.sh`, now bash) share their scripts.
+- Worker protocol 20.
 
 ## 3.5.0: Leak detection depth (sprint 3.5)
 
@@ -56,10 +109,6 @@ Everything else was built on `develop` and first shipped in the next release abo
   retains): several types, a namespace or assembly, a Compare count, an inspection or detector row (exactly the
   objects it counted), bookmarks, or the objects retained by another set.
 - Sets are steps in the analysis path; the CLI gets `set`.
-
-## 2.8.0: Packaging and distribution (sprint 2.8, planned)
-
-Not built yet: waits for the audiences and channels. CI already builds self-contained packages per platform.
 
 ## 2.7.0: Navigation and polish (sprint 2.7)
 

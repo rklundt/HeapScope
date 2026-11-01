@@ -48,7 +48,7 @@ internal static class RetentionBenchmark
         Console.WriteLine($"retention: {cache}, graph {mode}");
 
         using var sampler = new PrivateBytesSampler();
-        var opened = IndexCacheReader.Open(cache, expected: null, mode);
+        var opened = IndexCacheReader.Open(cache, IndexCacheSigner.None, expected: null, mode);
         if (!opened.Success)
         {
             Console.WriteLine($"The index cache could not be opened: {opened.Detail}");

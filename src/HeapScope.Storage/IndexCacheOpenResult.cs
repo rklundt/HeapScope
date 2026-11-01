@@ -51,6 +51,12 @@ public enum IndexCacheInvalidReason
 
     /// <summary>A sidecar extends another base cache than the one open (sprint 2.1), or a sidecar was opened as a base cache.</summary>
     BaseMismatch,
+
+    /// <summary>
+    /// The cache is not signed with this user's key (sprint 3.7, peer review P14): written by another user or machine,
+    /// shipped next to a dump, written before 3.7, or forged. It is never used; the dump is read again.
+    /// </summary>
+    Untrusted,
 }
 
 /// <summary>The outcome of opening an index cache. Invalid caches never throw; they report a reason.</summary>

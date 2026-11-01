@@ -73,6 +73,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeapScope.UI.Tests", "tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeapScope.Loaders.Trace", "src\HeapScope.Loaders.Trace\HeapScope.Loaders.Trace.csproj", "{E1FD806C-16CD-4C52-AE90-7A346CEFEF8B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeapScope.Cli.Tests", "tests\HeapScope.Cli.Tests\HeapScope.Cli.Tests.csproj", "{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -455,6 +457,18 @@ Global
 		{E1FD806C-16CD-4C52-AE90-7A346CEFEF8B}.Release|x64.Build.0 = Release|Any CPU
 		{E1FD806C-16CD-4C52-AE90-7A346CEFEF8B}.Release|x86.ActiveCfg = Release|Any CPU
 		{E1FD806C-16CD-4C52-AE90-7A346CEFEF8B}.Release|x86.Build.0 = Release|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Debug|x64.Build.0 = Debug|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Debug|x86.Build.0 = Debug|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Release|x64.ActiveCfg = Release|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Release|x64.Build.0 = Release|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Release|x86.ActiveCfg = Release|Any CPU
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -491,5 +505,6 @@ Global
 		{74E8A2D5-10CA-48D8-A62F-8043E5CA5770} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{9704A744-443F-4CF0-A9C9-68D5412E335D} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{E1FD806C-16CD-4C52-AE90-7A346CEFEF8B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{325B7461-CC91-4DEB-A9D3-D7D37C9EE89E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

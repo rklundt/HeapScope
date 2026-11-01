@@ -95,6 +95,8 @@ public sealed class IncomingReferencesTests
         var rows = IncomingReferences.ForTypes(graph, reverse, types, out var targetObjects, TestContext.Current.CancellationToken);
 
         matched.ShouldBe(2, "two load contexts, one module file name");
+        TypeGroups.MatchTypes(graph, "App.Item", Path.Combine("C:", "app", "bin", "App.dll"), out var byPath);
+        byPath.ShouldBe(2, "a module given as a path matches by its file name, as sets do (peer review S5)");
         targetObjects.ShouldBe(2);
         rows.ShouldHaveSingleItem().ShouldBe(new ReferrerTypeRow(graph.TypeIndices[holder.Id], 1, 2, 2, 24));
         IncomingReferences.ForTypes(graph, reverse, TypeGroups.MatchTypes(graph, "App.None", null, out _), out var none, TestContext.Current.CancellationToken).ShouldBeEmpty();

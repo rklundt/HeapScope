@@ -33,6 +33,7 @@ namespace HeapScope.Integration.Tests.Infrastructure;
 internal sealed class ChildProcess : IDisposable
 {
     private readonly StringBuilder _output = new();
+    private readonly StringBuilder _standardOutput = new();
     private readonly object _gate = new();
 
     private ChildProcess(Process process)
@@ -53,10 +54,29 @@ internal sealed class ChildProcess : IDisposable
         }
     }
 
+    /// <summary>
+    /// Standard output only, without the log lines stderr carries (sprint 3.6: a warning on stderr landed inside a
+    /// command's JSON in the merged <see cref="Output"/>). Parse results from this.
+    /// </summary>
+    public string StandardOutput
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _standardOutput.ToString();
+            }
+        }
+    }
+
     /// <summary>Session library root for every front end a test starts (sprint 1.1).</summary>
     public static string TestSessionsRoot { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HeapScopeTests", "sessions");
 
-    public static ChildProcess Start(string fileName, params string[] arguments)
+    public static ChildProcess Start(string fileName, params string[] arguments) =>
+        Start(fileName, new Dictionary<string, string>(), arguments);
+
+    /// <summary>Starts with extra environment variables, such as a setting (<c>Worker__ConnectTimeout</c>) for one test.</summary>
+    public static ChildProcess Start(string fileName, IReadOnlyDictionary<string, string> environment, params string[] arguments)
     {
         var info = new ProcessStartInfo(fileName)
         {
@@ -72,10 +92,14 @@ internal sealed class ChildProcess : IDisposable
 
         // HeapScope front ends started by tests keep their session folders out of the user's real library.
         info.Environment["Sessions__Root"] = TestSessionsRoot;
+        foreach (var (name, value) in environment)
+        {
+            info.Environment[name] = value;
+        }
 
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         var child = new ChildProcess(process);
-        process.OutputDataReceived += (_, e) => child.Append(e.Data);
+        process.OutputDataReceived += (_, e) => child.Append(e.Data, standardOutput: true);
         process.ErrorDataReceived += (_, e) => child.Append(e.Data);
         process.Start();
         process.BeginOutputReadLine();
@@ -140,7 +164,7 @@ internal sealed class ChildProcess : IDisposable
         Process.Dispose();
     }
 
-    private void Append(string? line)
+    private void Append(string? line, bool standardOutput = false)
     {
         if (line is null)
         {
@@ -150,6 +174,11 @@ internal sealed class ChildProcess : IDisposable
         lock (_gate)
         {
             _output.AppendLine(line);
+            if (standardOutput)
+            {
+                _standardOutput.AppendLine(line);
+            }
+
         }
     }
 }

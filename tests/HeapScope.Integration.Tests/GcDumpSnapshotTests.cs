@@ -170,6 +170,35 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
     }
 
     [Fact]
+    public async Task A_gcdump_lists_its_unavailable_features_and_the_worker_refuses_them_with_the_listed_reasons()
+    {
+        // Peer review P7: one rule fills the list and refuses, so a front end shows the reason the worker would give.
+        var handle = await Session.StartOpen(StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder)).Result;
+        var d = handle.Descriptor;
+        d.Availability.ShouldNotBeNull().Select(f => f.Feature).ShouldBe(SnapshotFeatureIds.All, ignoreOrder: true);
+        SnapshotFeatureIds.All.ShouldAllBe(id => !d.IsAvailable(id));
+
+        var unreachable = await Should.ThrowAsync<WorkerOperationException>(
+            () => Session.QueryInstancesAsync(handle, new InstancesQuery(string.Empty, null, Set: new ObjectSetQuery(ObjectSetSpec.OfUnreachable())), null, Ct));
+        var interfaces = await Should.ThrowAsync<WorkerOperationException>(() => Session.QueryTypeSummaryAsync(handle, TypeGrouping.Interface, null, null, true, null, Ct));
+        var finalizable = await Should.ThrowAsync<WorkerOperationException>(
+            () => Session.QueryInstancesAsync(handle, new InstancesQuery(EntryType, "Leaks.dll", Scope: InstanceScope.Finalizable), null, Ct));
+        var strings = await Should.ThrowAsync<WorkerOperationException>(
+            () => Session.QueryInstancesAsync(handle, "System.String", "System.Private.CoreLib.dll", "abc", null, true, null, Ct));
+        var details = await Session.GetObjectAsync(handle, FirstAddress(shared.CurrentGcDump, EntryType), null, Ct);
+        var summary = await Session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, null, Ct);
+
+        new[] { unreachable, interfaces, finalizable, strings }.ShouldAllBe(ex => ex.ErrorCode == HeapScopeErrorCode.CapabilityNotSupported);
+        unreachable.Message.ShouldBe(d.WhyUnavailable(SnapshotFeatureIds.UnreachableSet));
+        interfaces.Message.ShouldBe(d.WhyUnavailable(SnapshotFeatureIds.InterfaceGrouping));
+        finalizable.Message.ShouldBe(d.WhyUnavailable(SnapshotFeatureIds.FinalizableScope));
+        strings.Message.ShouldBe(d.WhyUnavailable(SnapshotFeatureIds.StringValues));
+        details.FieldsUnavailable.ShouldBe(d.WhyUnavailable(SnapshotFeatureIds.FieldValues));
+        summary.Result.HasGenerations.ShouldBeFalse();
+        await summary.Rows.ReleaseAsync(Ct);
+    }
+
+    [Fact]
     public async Task A_value_filter_on_a_gcdump_is_refused_but_an_address_filter_works()
     {
         var handle = await Session.StartOpen(StaticCacheGcDumps.CopyTo(shared.CurrentGcDump, _folder)).Result;
@@ -282,7 +311,7 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
         using var summary = ChildProcess.Start(TestPaths.CliExe, "summary", gcdump, "--format", "json", "--top", "1");
         (await summary.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(summary.Output);
         summary.Process.ExitCode.ShouldBe(0, summary.Output);
-        using (var document = Json(summary.Output))
+        using (var document = Json(summary.StandardOutput))
         {
             document.RootElement.GetProperty("Kind").GetString().ShouldBe("GcDump");
             document.RootElement.GetProperty("IncludesUnreachable").GetBoolean().ShouldBeFalse();
@@ -291,7 +320,7 @@ public sealed class GcDumpSnapshotTests(StaticCacheGcDumps shared) : IClassFixtu
         using var diff = ChildProcess.Start(TestPaths.CliExe, "diff", full, gcdump, "--format", "json", "--top", "1");
         (await diff.WaitForExitAsync(TimeSpan.FromSeconds(120))).ShouldBeTrue(diff.Output);
         diff.Process.ExitCode.ShouldBe(0, diff.Output);
-        using (var document = Json(diff.Output))
+        using (var document = Json(diff.StandardOutput))
         {
             var root = document.RootElement;
             (root.GetProperty("BaselineKind").GetString(), root.GetProperty("CurrentKind").GetString()).ShouldBe(("FullDump", "GcDump"));

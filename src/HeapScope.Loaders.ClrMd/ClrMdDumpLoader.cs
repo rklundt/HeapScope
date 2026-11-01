@@ -51,6 +51,13 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
     /// </summary>
     public const int CurrentVersion = 3;
 
+    /// <summary>
+    /// Checks, without loading it, that the DAC the dump needs may be loaded (sprint 3.6 review H1), for a dump opened from
+    /// its index cache: its field reader loads the DAC later, where nobody can be asked.
+    /// </summary>
+    /// <exception cref="UntrustedDacException">The only matching DAC lies next to the dump and is not trusted.</exception>
+    public static void CheckDacTrust(string dumpPath, ClrMdLoaderOptions options) => ClrMdDump.CheckDacTrust(dumpPath, options);
+
     /// <summary>The ClrMD library's version, for the worker's versions line (sprint 2.3.7).</summary>
     public static string LibraryVersion { get; } =
         System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Microsoft.Diagnostics.Runtime.ClrRuntime).Assembly)?.InformationalVersion
@@ -144,7 +151,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
                 | (header is null ? SnapshotFacts.CaptureTimeFromFile : SnapshotFacts.None));
 
         // A heap that could not be read completely must not claim complete, exact answers (ARCHITECTURE.md 5.2).
-        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump ? MinidumpHeader.IsTruncated(fullPath) : CoreFileHeader.IsTruncated(fullPath))
+        var capabilities = unreadable > 0 || incompleteSegments > 0 || (minidump ? MinidumpHeader.IsTruncated(fullPath, cancellationToken) : CoreFileHeader.IsTruncated(fullPath))
             ? SnapshotCapabilities.FullDump & ~(SnapshotCapabilities.CompleteGraph | SnapshotCapabilities.ExactCounts)
             : SnapshotCapabilities.FullDump;
         return new LoadResult(

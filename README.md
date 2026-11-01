@@ -2,10 +2,10 @@
 
 Powered by [HeapScope](https://github.com/rklundt/HeapScope) by Ray Klundt.
 
-HeapScope is a desktop memory profiler for modern .NET applications (.NET 10) on Windows, Linux and macOS. It opens
-memory snapshots (and captures them on Windows), shows what is on the heap and what grew between two snapshots, and
-explains why objects are retained, through a desktop app or an equivalent command line (`heapscope-cli`). Snapshots
-never leave the machine.
+HeapScope is a desktop memory profiler for .NET applications (.NET 5 and later) on Windows, Linux and macOS, built on
+.NET 10. It opens memory snapshots (and captures them on Windows), shows what is on the heap and what grew between two
+snapshots, and explains why objects are retained, through a desktop app or an equivalent command line
+(`heapscope-cli`). Snapshots never leave the machine.
 
 - Build: `dotnet build HeapScope.sln`
 - Test: `dotnet test --solution HeapScope.sln`
@@ -34,8 +34,9 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
   process (an object a compacting GC moved counts as dead and new), and open a row's new, dead or survived objects as a
   set; each type's retained bytes in both snapshots; and the change per generation. "Trend across snapshots" puts the
   objects and bytes of any number of ticked snapshots side by side, with how often each type grew. The CLI's `diff`
-  matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one generation (`--growth-of
-  gen2`) or each row on its own (`--fail-on-growth-per-row`); `trend` compares several dumps.
+  matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one heap kind's growth
+  (`--fail-on-growth 50MB --growth-of gen2`) or on each row (`--fail-on-growth-per-row`); `trend` compares several
+  dumps.
 - **Live workflow.** The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
   garbage collection (Force GC, a dotted line on the chart), records an allocation trace for the whole run when asked,
   and lists the session's past runs to reopen their timelines and snapshots. One capture per process runs at a time,
@@ -58,9 +59,10 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
 
 HeapScope writes a log file per run, which records the versions, the snapshots opened and why each result was produced
 (never values from a dump): `%LOCALAPPDATA%\HeapScope\logs` on Windows, `~/.local/share/HeapScope/logs` on Linux and
-`~/Library/Application Support/HeapScope/logs` on macOS. The About page shows the folder and copies the version details
-for a support request; `--Logging:File:MinimumLevel Debug` adds detail for one run. Logs are kept 14 days. They hold
-file paths and type names, so share them only with someone you trust.
+`~/Library/Application Support/HeapScope/logs` on macOS (under the folder `HEAPSCOPE_DATA_FOLDER` names, when set).
+The About page shows the folder and copies the version details for a support request;
+`--Logging:File:MinimumLevel Debug` adds detail for one run. Logs are kept 14 days. They hold file paths and type
+names, so share them only with someone you trust.
 
 ## License
 

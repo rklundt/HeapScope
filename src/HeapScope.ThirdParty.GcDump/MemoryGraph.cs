@@ -154,7 +154,13 @@ namespace Graphs
         {
             base.FromStream(deserializer);
             // Read in the Memory addresses of each object
-            long addressCount = m_isVeryLargeGraph ? deserializer.ReadInt64() : deserializer.ReadInt();
+            long addressCount = GCHeapDump.CheckedCount(m_isVeryLargeGraph ? deserializer.ReadInt64() : deserializer.ReadInt(), 8); // HeapScope change 5
+            if (addressCount < (long)NodeIndexLimit)
+            {
+                // HeapScope change 5 (3.7 review H8): every node is looked up by its index in this table.
+                throw new System.IO.InvalidDataException($"The file states {addressCount} node addresses for {(long)NodeIndexLimit} nodes.");
+            }
+
             m_nodeAddresses = new SegmentedList<ulong>(SegmentSize, addressCount);
 
             for (long i = 0; i < addressCount; i++)

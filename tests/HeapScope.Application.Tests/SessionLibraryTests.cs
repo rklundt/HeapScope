@@ -235,7 +235,8 @@ public sealed class SessionLibraryTests : IDisposable
         var library = new SessionLibrary(_root, _time);
         var folder = library.Current.Folder;
         var old = _time.GetUtcNow().UtcDateTime.AddHours(-1);
-        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial")];
+        // A recording's partial carries a random part since 3.7 (3.8 review: the sweep missed it).
+        string[] stale = [Path.Combine(folder, "a.dmp.partial"), Path.Combine(folder, "b.gcdump.partial"), HeapScope.Capture.TraceRecorder.PartialName(Path.Combine(folder, "t.nettrace"))];
         foreach (var file in stale)
         {
             File.WriteAllBytes(file, new byte[10]);
@@ -246,7 +247,7 @@ public sealed class SessionLibraryTests : IDisposable
         File.WriteAllBytes(fresh, new byte[10]);
         File.SetLastWriteTimeUtc(fresh, _time.GetUtcNow().UtcDateTime);
 
-        library.SweepPartialDumps().ShouldBe(2);
+        library.SweepPartialDumps().ShouldBe(3);
 
         stale.ShouldAllBe(f => !File.Exists(f));
         File.Exists(fresh).ShouldBeTrue();
@@ -326,6 +327,232 @@ public sealed class SessionLibraryTests : IDisposable
 
         SessionLibrary.TryRead(folder)!.Document.Snapshots.Count.ShouldBe(Enumerable.Range(0, 40).Count(i => i % 3 != 0));
         Directory.EnumerateFiles(folder, "*.tmp").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Readers_never_make_a_save_fail()
+    {
+        // Peer review P1: readers took no lock and opened without delete sharing, so a save's replace failed on Windows
+        // while any reader held the document, and the snapshot was lost from the session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        using var stop = new CancellationTokenSource();
+        using var reading = new CountdownEvent(3);
+        var readers = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+        {
+            var reads = 0;
+            while (!stop.IsCancellationRequested)
+            {
+                if (reads == 1)
+                {
+                    reading.Signal();
+                }
+
+                SessionLibrary.TryRead(folder).ShouldNotBeNull("a reader never sees a missing or half-written document");
+                library.ListRecent();
+                reads++;
+            }
+
+            return reads;
+        })).ToArray();
+
+        try
+        {
+            // Every reader is reading before the first save (review: on a busy machine they could start after the saves).
+            if (!reading.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))
+            {
+                await Task.WhenAll(readers.Where(r => r.IsFaulted));
+                Assert.Fail("The readers did not start within 30 s.");
+            }
+
+            for (var i = 0; i < 200; i++)
+            {
+                library.AddTo(folder, Snapshot(Path.Combine(folder, $"{i}.dmp")));
+            }
+        }
+        finally
+        {
+            await stop.CancelAsync();
+        }
+
+        (await Task.WhenAll(readers)).ShouldAllBe(n => n > 0);
+        SessionLibrary.TryRead(folder)!.Document.Snapshots.Count.ShouldBe(200);
+        Directory.EnumerateFiles(folder, "*.tmp").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_save_waits_for_a_reader_that_does_not_share_delete()
+    {
+        // An older build, a virus scanner or an indexer may hold the document without delete sharing for a moment.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        Task<Session> save;
+        using (new FileStream(Path.Combine(folder, SessionLibrary.DocumentName), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            save = Task.Run(() => library.AddTo(folder, Snapshot(Path.Combine(folder, "a.dmp"))));
+            await Task.Delay(300, TestContext.Current.CancellationToken);
+        }
+
+        (await save).Document.Snapshots.ShouldHaveSingleItem();
+        SessionLibrary.TryRead(folder)!.Document.Snapshots.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void An_unreadable_current_session_fails_instead_of_starting_a_new_one()
+    {
+        // Peer review P1: any failed read used to move the next captures into a brand-new session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), "{ not json");
+
+        var ex = Should.Throw<SessionUnreadableException>(() => library.Current);
+        ex.Message.ShouldContain(folder);
+        SessionLibrary.Read(folder).Status.ShouldBe(SessionReadStatus.Unreadable);
+        Directory.EnumerateDirectories(_root).ShouldHaveSingleItem("no new session was created");
+        Should.Throw<SessionUnreadableException>(() => library.AddToCurrent(Snapshot(Path.Combine(folder, "a.dmp"))));
+
+        // A document of another format version is not this build's to rewrite either.
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), """{ "FormatVersion": 2, "Name": "x", "Snapshots": [] }""");
+        Should.Throw<SessionUnreadableException>(() => library.Current).Message.ShouldContain("format version 2");
+
+        // A session folder that is gone is replaced by a new one, as before (same clock, so the same name).
+        Directory.Delete(folder, recursive: true);
+        var created = library.Current;
+        created.Document.Snapshots.ShouldBeEmpty();
+        File.Exists(Path.Combine(created.Folder, SessionLibrary.DocumentName)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void An_empty_new_session_is_kept_while_another_capture_or_run_writes_into_it()
+    {
+        // Sprint 3.6 review: a failed capture removed the session it created even when another capture had taken it.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        using var mine = library.MarkInUse(folder, "a capture");
+        using (library.MarkInUse(folder, "a monitoring run"))
+        {
+            library.DeleteIfEmpty(folder, "a capture");
+            Directory.Exists(folder).ShouldBeTrue("the run writes into it");
+            library.CurrentFolder.ShouldBe(folder);
+        }
+
+        library.DeleteIfEmpty(folder, "a capture");
+        Directory.Exists(folder).ShouldBeFalse("only the failed capture's own claim was left");
+        library.HasCurrent.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Opening_a_session_that_cannot_be_read_says_why()
+    {
+        // Sprint 3.6 review: unreadable is not missing, for the app's and the CLI's Open as for the current session.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.CreateSession("damaged").Folder;
+        File.WriteAllText(Path.Combine(folder, SessionLibrary.DocumentName), "{ not json");
+
+        var ex = Should.Throw<SessionUnreadableException>(() => library.Open(folder));
+        ex.Message.ShouldContain("damaged");
+        ex.Message.ShouldContain("Open another session");
+        library.HasCurrent.ShouldBeFalse("a failed open changes nothing");
+        library.Open(Path.Combine(_root, "no-such-session")).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_current_folder_answers_while_an_update_waits_for_the_session_lock()
+    {
+        // Peer review P1: the update held the same gate as CurrentFolder across its wait for session.lock (up to 30 s),
+        // so the Live page's refresh on the UI thread could block.
+        var library = new SessionLibrary(_root, _time);
+        var folder = library.Current.Folder;
+        Task<Session> update;
+        using (new FileStream(Path.Combine(folder, SessionLibrary.LockName), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            update = Task.Run(() => library.AddTo(folder, Snapshot(Path.Combine(folder, "a.dmp"))));
+            await Task.Delay(200, TestContext.Current.CancellationToken);
+            update.IsCompleted.ShouldBeFalse("the update waits for the lock another process holds");
+
+            var answered = Task.Run(() => (library.CurrentFolder, library.HasCurrent));
+            (await answered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).ShouldBe((folder, true));
+        }
+
+        (await update).Document.Snapshots.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void Only_a_regular_file_inside_the_session_folder_is_a_file_of_the_session()
+    {
+        // Sprint 3.7, peer review S3: a received session's run may name any path, and Open timeline hands it to the system.
+        var library = new SessionLibrary(_root, _time);
+        var session = library.Current;
+        File.WriteAllText(Path.Combine(session.Folder, "counters-1.csv"), "time");
+        File.WriteAllText(Path.Combine(_root, "outside.csv"), "time");
+
+        session.FileInside("counters-1.csv").ShouldBe(Path.Combine(session.Folder, "counters-1.csv"));
+        session.FileInside("missing.csv").ShouldBeNull();
+        session.FileInside(Path.Combine("..", "outside.csv")).ShouldBeNull("not above the session folder");
+        session.FileInside(Path.Combine(_root, "outside.csv")).ShouldBeNull("not an absolute path elsewhere");
+        session.FileInside(@"\\server\share\x.csv").ShouldBeNull("never a network share");
+        session.FileInside(null).ShouldBeNull();
+
+        Session.IsLocal(@"\\server\share\app.dmp").ShouldBeFalse();
+        Session.IsLocal("//server/share/app.dmp").ShouldBeFalse();
+        Session.IsLocal(Path.Combine(session.Folder, "app.dmp")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_refused_session_file_says_which_check_refused_it()
+    {
+        // Sprint 3.8 (3.7 review M2): the Live page shows and logs the cause, not "not there" for every refusal.
+        var session = new SessionLibrary(_root, _time).Current;
+        File.WriteAllText(Path.Combine(session.Folder, "counters-1.csv"), "time");
+        File.WriteAllText(Path.Combine(session.Folder, "run.bat"), "echo");
+        File.WriteAllText(Path.Combine(_root, "outside.csv"), "time");
+
+        session.CheckFile("counters-1.csv", ".csv").ShouldBe(new SessionFileCheck(Path.Combine(session.Folder, "counters-1.csv"), null));
+        session.CheckFile(null).Refusal.ShouldBe(SessionFileRefusal.NotRecorded);
+        session.CheckFile(@"\\server\share\x.csv").Refusal.ShouldBe(SessionFileRefusal.NotLocal);
+        session.CheckFile(Path.Combine("..", "outside.csv")).Refusal.ShouldBe(SessionFileRefusal.OutsideFolder);
+        session.CheckFile("gone.csv").Refusal.ShouldBe(SessionFileRefusal.Missing);
+        session.CheckFile("run.bat", ".csv").Refusal.ShouldBe(SessionFileRefusal.WrongKind);
+        session.CheckFile("run.bat").Path.ShouldNotBeNull("a trace may have any extension");
+
+        session.CheckFile("gone.csv").Describe("This run's timeline").ShouldBe("This run's timeline file is not there any more.");
+        session.CheckFile("run.bat", ".csv").Describe("This run's timeline").ShouldContain("not a CSV file");
+        var run = new SessionRun(Guid.NewGuid(), "app", 1, 1, "none", HeapScope.Contracts.SnapshotKindDto.FullDump, default, null, "counters-1.csv", "../outside.csv", []);
+        var (timeline, trace) = Session.RunFiles(session.Folder, run);
+        (timeline.Refusal, trace.Refusal).ShouldBe((null, SessionFileRefusal.OutsideFolder));
+    }
+
+    [Theory]
+    [InlineData(@"\/server/share/app.dmp")]
+    [InlineData(@"/\server\share\app.dmp")]
+    [InlineData(@"\\?\UNC\server\share\app.dmp")]
+    [InlineData(@"\\.\pipe\x")]
+    [InlineData(@"\??\UNC\server\share\app.dmp")]
+    public void Any_form_of_a_network_or_device_path_is_not_local(string path)
+    {
+        // 3.7 review H1: Windows takes any two leading separators as a share.
+        Session.IsLocal(path).ShouldBeFalse();
+        new SessionLibrary(_root, _time).Current.FileInside(path).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_file_reached_through_a_linked_folder_is_not_a_file_of_the_session()
+    {
+        // 3.7 review H2: a received session (a tar keeps links) may carry a folder link pointing out of it.
+        var session = new SessionLibrary(_root, _time).Current;
+        var outside = Directory.CreateDirectory(Path.Combine(_root, "elsewhere")).FullName;
+        File.WriteAllText(Path.Combine(outside, "report.csv"), "time");
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(session.Folder, "link"), outside);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            Assert.Skip("Creating a symbolic link needs Developer Mode or elevation here.");
+        }
+
+        session.FileInside(Path.Combine("link", "report.csv")).ShouldBeNull();
+        File.Exists(Path.Combine(outside, "report.csv")).ShouldBeTrue();
     }
 
     [Fact]

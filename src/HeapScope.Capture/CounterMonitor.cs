@@ -159,6 +159,7 @@ public static class CounterMonitor
         using (session)
         {
             var builder = new CounterSampleBuilder();
+            var stopping = 0;
             var reading = Task.Run(
                 () =>
                 {
@@ -170,7 +171,16 @@ public static class CounterMonitor
                             onSample(sample);
                         }
                     };
-                    source.Process();
+                    try
+                    {
+                        source.Process();
+                    }
+                    catch (Exception ex) when (ex is FormatException or EndOfStreamException or IOException && Volatile.Read(ref stopping) == 1)
+                    {
+                        // Stopping the session can cut the stream inside a block (CI, sprint 3.6: "Read past end of
+                        // stream"): the samples read so far are the run's; the stop was asked for.
+                    }
+
                     if (builder.Flush() is { } last)
                     {
                         onSample(last);
@@ -178,7 +188,11 @@ public static class CounterMonitor
                 },
                 CancellationToken.None);
 
-            using (cancellationToken.Register(() => _ = StopQuietlyAsync(session)))
+            using (cancellationToken.Register(() =>
+            {
+                Volatile.Write(ref stopping, 1);
+                _ = StopQuietlyAsync(session);
+            }))
             {
                 await reading.ConfigureAwait(false);
             }

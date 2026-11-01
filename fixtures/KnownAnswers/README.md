@@ -11,7 +11,7 @@ then tested against the same files.
 |---|---|---|
 | `formatVersion` | all | `1`. Bump on any incompatible change. |
 | `name` | all | Leak name (`ILeak.Name`) or semantic fixture name; equals the file name. |
-| `kind` | all | `leak`, `semantics`, `inspection`, `detected` (the 2.6 and 3.5 detector leaks, outside the five: types, roots and detections only) or `clean` (LeakyApi's clean workload: no detections). |
+| `kind` | all | `leak`, `semantics`, `inspection`, `detected` (the 2.6 and 3.5 detector leaks, outside the five `leak` fixtures: types, roots and detections only) or `clean` (LeakyApi's clean workload: no detections). |
 | `description` | all | What the fixture does. |
 | `types` | all | Fixture-owned types and instances per item (`perItem`). A dump of N items has exactly `N * perItem` instances. `types[0]` is the item type. |
 | `census` | leaks | Every type an item creates, including BCL types. `exact: false` means other code creates the type too (or it is recreated, like dictionary nodes on resize), so only a lower bound on growth holds. `shallowBytes` is the x64 instance size where fixed. |
@@ -22,8 +22,8 @@ then tested against the same files.
 | `minRetainedBytesPerItem` | leaks, rooted semantics | Lower bound of the retained size of one `types[0]` instance: `base + payloadMultiplier * payloadBytes`. Retained size is the dominator definition: bytes that become unreachable when that instance is removed. Since sprint 2.3 HeapScope's own retained size of the first instance must equal the independent ClrMD computation and meet this bound (`RetainedSizesTests`); a leak type's retained lower bound must cover its items. |
 | `presentButUnreachable` | late garbage | Types present in the dump that no retaining root reaches. |
 | `heapKinds` | runtime kinds | For each listed type, the object in `field` must be in the given GC segment kind. |
-| `fields` | inspection | Field values of the fixture's one object as an inspection shows them: `path` (property names for backing fields, dots into nested structs, `[i]` for array elements and `[i,j]` for multi-dimensional ones) and either `value` (the display text) or `type` (a reference's runtime type; addresses vary). Added in 1.5; optional, so the format version stays 1. A long value may be given as `valuePrefix` plus the display `length`. |
-| `findings` | inspection | What the simple inspections must report (sprint 1.6): `inspection` (its CLI name), `key` (the row's type name, or a string's value for `duplicate-strings`, or `pinned` for `fragmentation`), `count` and `exact` (default true; false means a lower bound). The count is copies of the value (`duplicate-strings`), objects of the type (`loh`, `finalizable`), rows naming objects of the type (`large-arrays`, `sparse-arrays`, `empty-collections`, `oversized-collections`) or pinned objects (`fragmentation`). Optional, so the format version stays 1. |
+| `fields` | the Inspection fixture | Field values of the fixture's one object as an inspection shows them: `path` (property names for backing fields, dots into nested structs, `[i]` for array elements and `[i,j]` for multi-dimensional ones) and either `value` (the display text) or `type` (a reference's runtime type; addresses vary). Added in 1.5; optional, so the format version stays 1. A long value may be given as `valuePrefix` plus the display `length`. |
+| `findings` | inspection (Waste) | What the simple inspections must report (sprint 1.6): `inspection` (its CLI name), `key` (the row's type name, or a string's value for `duplicate-strings`, or `pinned` for `fragmentation`), `count` and `exact` (default true; false means a lower bound). The count is copies of the value (`duplicate-strings`), objects of the type (`loh`, `finalizable`), rows naming objects of the type (`large-arrays`, `sparse-arrays`, `empty-collections`, `oversized-collections`) or pinned objects (`fragmentation`). Optional, so the format version stays 1. |
 | `detections` | leaks, detected, clean | What the leak detectors must report (sprint 2.6): `detector` (its CLI name), `key` (the row's first cell: a static field `Type.field`, an event `Publisher.Event`, a timer's callback target type, an async method `Namespace.Type.Method` (since 3.5), or a type) and `perItem` (default 1): the row counts at least that many per item leaked between the baseline and the current dump (growth, subscribers, timers or objects). A `clean` answer lists none. Optional, so the format version stays 1. |
 | `retentionGroups` | retention patterns | Similar Retention of `types[0]` (sprint 3.2): one entry per group, `perItem` members per item, and `paths` naming the static fields its members' paths start at. Optional, so the format version stays 1. |
 | `notes` | all | What the analysis must and must not conclude. |
@@ -43,5 +43,7 @@ may appear between steps):
 
 ## Test parameters
 
-The detector runs (sprint 2.6, `DetectorTests`) use LeakyApi with 100 items per request, a baseline dump after 10 requests and a current one after 50 more, for every leak and for the clean workload. The shared test dump uses 2,000 items per leak with a 32 byte payload and 64 event publishers (so invocation lists
-are multicast), 500 semantic items, 20 runtime kind items and 300 late garbage items.
+The detector runs (sprint 2.6, `DetectorTests`) use LeakyApi with 100 items per request, a baseline dump after 10
+requests and a current one after 50 more, for every leak and for the clean workload. The shared test dump uses 2,000
+items per leak with a 32 byte payload and 64 event publishers (so invocation lists are multicast), 500 semantic items,
+20 runtime kind items, 300 late garbage items, 200 retention pattern items, and the inspection and waste fixtures.

@@ -74,6 +74,7 @@ public sealed class GcDumpCapturerTests : IDisposable
     [Fact]
     public async Task A_failure_of_a_process_that_is_gone_says_it_exited()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Capture runs on Windows only (ADR-025): elsewhere it refuses before the writer is called.");
         _writer.Result = new GcDumpWriteResult(GcDumpFailure.Error, "pipe closed");
         var gone = new DotNetProcess(int.MaxValue - 7, "Gone", null, "10.0.13", ElevationState.NotElevated, null, null, null);
 

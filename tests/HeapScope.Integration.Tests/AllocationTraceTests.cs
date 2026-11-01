@@ -134,7 +134,16 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         var path = _scratch.File("exited.nettrace");
         var recording = TraceRecorder.RecordAsync(api.ProcessId, path, TraceProfile.Allocations, TimeSpan.FromMinutes(2), Ct);
         await Task.Delay(TimeSpan.FromSeconds(1), Ct);
+        var before = PartialBytes(path);
         await api.PostWorkAsync(200, Ct);
+
+        // The allocations reach the file only when the session flushes its buffers: wait until they did, so killing the
+        // process loses the rundown and nothing else (a burst killed before its first flush recorded no samples at all).
+        for (var waited = 0; PartialBytes(path) < before + 16_384 && waited < 150; waited++)
+        {
+            await Task.Delay(100, Ct);
+        }
+
         api.Dispose();
         (await recording).StoppedEarly.ShouldBeTrue();
 
@@ -143,6 +152,11 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
         handle.Descriptor.HasRundown.ShouldBeFalse();
         AllocationTexts.NotesFor(handle.Descriptor).ShouldContain("before the runtime named its methods");
     }
+
+    /// <summary>The bytes a recording into <paramref name="path"/> has written so far (its partial file).</summary>
+    private static long PartialBytes(string path) =>
+        Directory.EnumerateFiles(Path.GetDirectoryName(path)!, HeapScope.Capture.TraceRecorder.PartialPattern(path))
+            .Select(f => new FileInfo(f).Length).DefaultIfEmpty(0).Max();
 
     [Fact]
     public async Task A_trace_with_no_allocation_samples_is_refused_with_the_profile_to_use()
@@ -272,17 +286,16 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
     [Fact]
     public async Task Cli_allocations_prints_the_top_types_and_stacks_in_every_format()
     {
-        var (tableCode, table) = await RunCliAsync("allocations", _shared.TracePath, "--stacks", "5");
+        var (tableCode, table, _) = await RunCliAsync("allocations", _shared.TracePath, "--stacks", "5");
         tableCode.ShouldBe(0, table);
         table.ShouldContain("System.Byte[]");
         table.ShouldContain("Leak.Grow(");
         table.ShouldContain("Note: Estimated from samples");
 
-        var (jsonCode, json) = await RunCliAsync("allocations", _shared.TracePath, "--format", "json", "--stacks", "3", "--types", "2");
-        jsonCode.ShouldBe(0, json);
+        var (jsonCode, output, json) = await RunCliAsync("allocations", _shared.TracePath, "--format", "json", "--stacks", "3", "--types", "2");
+        jsonCode.ShouldBe(0, output);
 
-        // The notes go to stderr, which the test reads merged with stdout in arrival order.
-        json = string.Join('\n', json.Split('\n').Where(line => !line.StartsWith("Note:", StringComparison.Ordinal)));
+        // The notes go to stderr; the JSON is read from stdout alone.
         using (var document = System.Text.Json.JsonDocument.Parse(json[json.IndexOf('{', StringComparison.Ordinal)..(json.LastIndexOf('}') + 1)]))
         {
             var root = document.RootElement;
@@ -291,29 +304,29 @@ public sealed class AllocationTraceTests : IClassFixture<LeakyApiAllocations>, I
             root.GetProperty("Stacks").GetArrayLength().ShouldBe(3);
         }
 
-        var (csvCode, csv) = await RunCliAsync("allocations", _shared.TracePath, "--format", "csv", "--view", "stacks", "--stacks", "2");
+        var (csvCode, csv, _) = await RunCliAsync("allocations", _shared.TracePath, "--format", "csv", "--view", "stacks", "--stacks", "2");
         csvCode.ShouldBe(0, csv);
         csv.ShouldContain("Rank,Bytes,Samples,Percent,Frames");
 
-        var (typesCode, typesOnly) = await RunCliAsync("allocations", _shared.TracePath, "--view", "types");
+        var (typesCode, typesOnly, _) = await RunCliAsync("allocations", _shared.TracePath, "--view", "types");
         typesCode.ShouldBe(0, typesOnly);
         typesOnly.ShouldContain("All types from");
 
-        var (usageCode, usage) = await RunCliAsync("allocations", _shared.TracePath, "--format", "csv");
+        var (usageCode, usage, _) = await RunCliAsync("allocations", _shared.TracePath, "--format", "csv");
         usageCode.ShouldBe(64, usage);
 
         var notTrace = _scratch.File("notes.txt");
         await File.WriteAllTextAsync(notTrace, "These are notes, not a trace; long enough to read a header from.", Ct);
-        var (badCode, bad) = await RunCliAsync("allocations", notTrace);
+        var (badCode, bad, _) = await RunCliAsync("allocations", notTrace);
         badCode.ShouldBe(1, bad);
         bad.ShouldContain("is not an EventPipe trace");
     }
 
-    private static async Task<(int Code, string Output)> RunCliAsync(params string[] arguments)
+    private static async Task<(int Code, string Output, string StandardOutput)> RunCliAsync(params string[] arguments)
     {
         using var cli = ChildProcess.Start(TestPaths.CliExe, arguments);
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(180))).ShouldBeTrue(cli.Output);
-        return (cli.Process.ExitCode, cli.Output);
+        return (cli.Process.ExitCode, cli.Output, cli.StandardOutput);
     }
 
     public async ValueTask DisposeAsync()

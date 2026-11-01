@@ -257,7 +257,15 @@ public sealed partial class HomeViewModel(WorkerOperations operations, Snapshots
             return;
         }
 
-        await snapshots.OpenPathAsync(session.PathOf(latest));
+        // A received session may name a network path: it is never opened (3.7 review H1).
+        if (session.PathOf(latest) is var path && !Session.IsLocal(path))
+        {
+            logger?.LogInformation("Opening session {Folder} refused: its latest snapshot {Path} is not on this machine", session.Folder, path);
+            SessionStatus = $"The session {summary.Name} names a snapshot that is not on this machine; HeapScope opens only local files.";
+            return;
+        }
+
+        await snapshots.OpenPathAsync(path);
     }
 
     /// <summary>Opens a dump through the Snapshots page, which the shell then shows.</summary>

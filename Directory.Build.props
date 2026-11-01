@@ -14,11 +14,23 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <IsPackable>false</IsPackable>
-    <Version>3.5.0</Version>
+    <Version>3.8.0</Version>
     <Product>HeapScope</Product>
     <Company>HeapScope</Company>
     <Copyright>Copyright (C) 2026 Ray Klundt</Copyright>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <HeapScopeRoot>$(MSBuildThisFileDirectory)</HeapScopeRoot>
+    <!-- Paths in the binaries are made repository-relative in CI and release builds (sprint 3.7, peer review P17). -->
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <!--
+    Lock files (sprint 3.7, peer review P16): every project records the exact packages it restored, with their hashes, in
+    packages.lock.json, and CI restores in locked mode, so a changed or substituted package fails the build instead of
+    entering it. A publish for a runtime identifier restores runtime packs the lock files do not list, so it is not locked;
+    file-based tools (build/*.cs) have no project file of their own and no lock file.
+  -->
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/$(MSBuildProjectName).csproj')">
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true' and '$(RuntimeIdentifier)' == ''">true</RestoreLockedMode>
   </PropertyGroup>
 </Project>

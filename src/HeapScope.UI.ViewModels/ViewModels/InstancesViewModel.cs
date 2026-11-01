@@ -24,6 +24,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HeapScope.Application.Presentation;
 using HeapScope.Application.Snapshots;
 using HeapScope.Application.Workers;
 using HeapScope.Contracts;
@@ -253,7 +254,8 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
         }
         catch (WorkerOperationException ex) when (retained && !cancellationToken.IsCancellationRequested)
         {
-            // Review M8: retained sizes are optional, so the objects load without them and the note says why.
+            // Retained sizes are optional, so the objects load without them and the note says why.
+            QueryRunner.LogShown(Logger, "Instances' retained sizes", ex);
             retainedFailure = ex.Message;
             var bytes = SortColumn == InstanceColumns.Retained;
             list = await _session.QueryInstancesAsync(Snapshot, new InstancesQuery(TypeName, Module, Filter, bytes ? InstanceColumns.Bytes : SortColumn, bytes || Descending, Scope, SameValueAs, Set: Set), null, cancellationToken);
@@ -266,7 +268,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
             () =>
             {
                 RetainedColumnShown = result.Dominators is not null;
-                RetainedNote = result.Dominators is { } dominators ? RetainedText.Source(dominators) + " " + RetainedText.ObjectsRetain : null;
+                RetainedNote = result.Dominators is { } dominators ? RetainedSizeTexts.Source(dominators, CultureInfo.CurrentCulture) + " " + RetainedText.ObjectsRetain : null;
                 if (retainedFailure is not null)
                 {
                     _retainedOffQuietly = true;
@@ -283,7 +285,7 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
 
                 ValuesExplanation = result.ValuesAvailable
                     ? result.FilterNote
-                    : CapabilityDescriptions.ExplainMissing(SnapshotFeatures.StringContents, Snapshot.Descriptor.Kind);
+                    : Snapshot.Descriptor.WhyUnavailable(SnapshotFeatureIds.StringValues);
                 Totals = string.Create(
                     CultureInfo.CurrentCulture,
                     $"{result.Rows.TotalCount:N0} of {result.TotalObjects:N0} objects, {Format.Bytes(result.TotalBytes)}{(Set is not null && string.IsNullOrEmpty(TypeName) ? $" of {result.MatchedTypes:N0} types" : result.MatchedTypes > 1 ? $" ({result.MatchedTypes} loaded copies of the type)" : string.Empty)}");

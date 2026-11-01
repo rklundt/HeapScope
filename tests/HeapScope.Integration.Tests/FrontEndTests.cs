@@ -59,11 +59,13 @@ public sealed class FrontEndTests : IDisposable
     [Fact]
     public async Task Cli_attach_to_missing_pipe_fails_with_a_clear_message()
     {
-        using var cli = ChildProcess.Start(TestPaths.CliExe, "worker", "ping", "--pipe", "HeapScope.Missing." + Guid.NewGuid().ToString("N"));
+        // A short connect timeout: the default 30 s would only make the test wait (CI time, 2026-10-31).
+        var environment = new Dictionary<string, string> { ["Worker__ConnectTimeout"] = "00:00:03" };
+        using var cli = ChildProcess.Start(TestPaths.CliExe, environment, "worker", "ping", "--pipe", "HeapScope.Missing." + Guid.NewGuid().ToString("N"));
 
         (await cli.WaitForExitAsync(TimeSpan.FromSeconds(90))).ShouldBeTrue(cli.Output);
         cli.Process.ExitCode.ShouldBe(1, cli.Output);
-        cli.Output.ShouldContain("did not open its pipe");
+        cli.Output.ShouldContain("did not open its pipe within 3 s");
     }
 
     public void Dispose()

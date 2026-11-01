@@ -51,7 +51,8 @@ public sealed record TraceRecording(string Path, long Bytes, TimeSpan Duration, 
 /// <summary>
 /// Records an EventPipe trace of a .NET process through its diagnostics port (sprint 1.5): the same session dotnet-trace
 /// starts, so nobody installs dotnet-trace. The file is a <c>.nettrace</c> that PerfView, Visual Studio or TraceEvent
-/// read. It is written to <c>&lt;name&gt;.partial</c> and renamed when complete; an existing file is never overwritten.
+/// read. It is written to a partial file of its own (<see cref="PartialName"/>) and renamed when complete; an existing file
+/// is never overwritten.
 /// Canceling stops the recording early and keeps what was recorded; a failure deletes the partial file.
 /// </summary>
 public static class TraceRecorder
@@ -96,27 +97,29 @@ public static class TraceRecorder
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        var partial = fullPath + ".partial";
+        // Created new under a name of its own before the session starts (sprint 3.7, peer review P15; 3.7 review): a file made
+        // beforehand by someone else is never written into or deleted, and a recording into the same folder never meets it.
+        var partial = PartialName(fullPath);
         var stopwatch = Stopwatch.StartNew();
-        EventPipeSession session;
-        try
-        {
-            session = await new DiagnosticsClient(processId)
-                .StartEventPipeSessionAsync(Providers(profile), requestRundown: true, circularBufferMB: 256, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is ServerNotAvailableException or ServerErrorException or UnauthorizedAccessException)
-        {
-            throw Translate(processId, ex);
-        }
-
+        var file = PrivateFiles.Open(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
         var stoppedEarly = false;
         try
         {
-            using (session)
+            await using (file.ConfigureAwait(false))
             {
-                var file = PrivateFiles.Open(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
-                await using (file.ConfigureAwait(false))
+                EventPipeSession session;
+                try
+                {
+                    session = await new DiagnosticsClient(processId)
+                        .StartEventPipeSessionAsync(Providers(profile), requestRundown: true, circularBufferMB: 256, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is ServerNotAvailableException or ServerErrorException or UnauthorizedAccessException)
+                {
+                    throw Translate(processId, ex);
+                }
+
+                using (session)
                 {
                     // The stream ends when the session stops (with the rundown that names methods) or the process exits.
                     var copy = session.EventStream.CopyToAsync(file, CancellationToken.None);
@@ -167,6 +170,16 @@ public static class TraceRecorder
         File.Move(partial, fullPath, overwrite: false);
         return new TraceRecording(fullPath, new FileInfo(fullPath).Length, stopwatch.Elapsed, stoppedEarly);
     }
+
+    /// <summary>
+    /// The partial file a recording into <paramref name="fullPath"/> writes: the final name, a random part (so no file made
+    /// beforehand is ever written into) and <c>.partial</c>. Anything that looks for a recording in progress (the size
+    /// watch, the sweep, tests) finds it with <see cref="PartialPattern"/>.
+    /// </summary>
+    public static string PartialName(string fullPath) => $"{fullPath}.{Guid.NewGuid():N}.partial";
+
+    /// <summary>The search pattern, in <paramref name="fullPath"/>'s folder, of the partial files a recording into it writes.</summary>
+    public static string PartialPattern(string fullPath) => System.IO.Path.GetFileName(fullPath) + ".*.partial";
 
     /// <summary>How long a stopped session may take to end its stream (the rundown) before the recording stops waiting.</summary>
     private static readonly TimeSpan s_streamEndTimeout = TimeSpan.FromSeconds(60);

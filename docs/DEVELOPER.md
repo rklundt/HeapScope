@@ -4,9 +4,11 @@ Status: living document, updated by every sprint.
 
 ## 1. Prerequisites
 - Windows 11 x64 (Windows 10 x64 also supported) for everything. Since sprint 2.3.6 the engine, the worker, the CLI and
-  the Avalonia app also build and run on Linux (x64) and macOS (Apple silicon or Intel); capture, the integration tests
-  and `build/gate.ps1` stay Windows only.
-- .NET 10 SDK (10.0.100 or later). `global.json` pins the feature band and rolls forward to the latest patch.
+  the Avalonia app also build and run on Linux (x64) and macOS (Apple silicon or Intel); capture and the integration tests
+  stay Windows only. The build scripts are bash (Git Bash on Windows); the sample dump scripts in `fixtures/scripts` are
+  PowerShell.
+- .NET 10 SDK (10.0.100 or later). `global.json` sets the minimum SDK (10.0.100) and rolls forward to the latest
+  installed feature band.
 - An IDE supporting .NET 10: Visual Studio 2026, JetBrains Rider 2025.3+, or VS Code with C# Dev Kit.
 - RAM: 16 GB is the baseline (Medium snapshots open in mapped mode when memory is tight); 32 GB lets Medium
   snapshots open fully in memory. Generating the Medium sample dump needs about 6 GB free RAM and 5 GB disk.
@@ -19,11 +21,42 @@ cd heapScope
 dotnet build HeapScope.sln
 dotnet test --solution HeapScope.sln
 ```
-- Full gate (sprint 1.9; CI since 2.3.5 runs a subset, section 7): `./build/gate.ps1` builds Debug
-  and Release (zero warnings), runs the full suite and appends a line to `artifacts/gate/history.csv` (git-ignored):
-  time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run is named
-  again. Run it before closing a sprint.
-- Fast tests only (exit code 8 means "no tests in this assembly", e.g. Integration.Tests): `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Full gate (sprint 1.9; bash since 3.6, the same steps as CI, section 7): `bash build/gate.sh` builds Debug and Release
+  (zero warnings), runs the fast and the integration tiers, then CI's fixture check (a LeakyConsole dump, captured by
+  the CLI on Windows and by `dotnet-dump` elsewhere, checked against the known answers, which needs `jq`; without
+  `jq` or `dotnet-dump` the check is reported as skipped) and appends a line to `artifacts/gate/history.csv`
+  (git-ignored): time, commit, outcome, durations, test counts and failed test names; a test that failed in an earlier run
+  is named again. Its log and TRX results are kept under `artifacts/test-results/<time>`. Run it before closing a sprint.
+- One tier (sprint 3.6): `bash build/test.sh fast|integration [Release|Debug] [results folder]`. `fast` runs every test
+  project that runs on this system but the Integration project, found rather than listed, without the Integration and
+  Slow traits; a project left with no tests fails. `integration` runs the Integration project (Windows). Integration and
+  Slow tests belong in that project only; the script fails when one is elsewhere. Results are TRX files.
+- Fast tests by hand: `dotnet test --solution HeapScope.sln --filter-not-trait "Category=Integration" --filter-not-trait "Category=Slow" --ignore-exit-code 8`.
+- Test fakes (sprint 3.8): `FakeWorkerService` (UI tests) is split into a partial per worker contract under
+  `tests/HeapScope.UI.ViewModels.Tests/Fakes/`; a test that needs one area only builds an `IWorkerService` from the
+  parts it implements with `AreaWorkerService.Create(...)` (Application tests), and any other call fails naming its
+  contract. `HeapScope.Cli.Tests` runs the CLI in process (`CliApp.RunAsync` with its own output and error writers):
+  usage errors need no host, and the tables are checked as text against fixed rows.
+- Data folders (sprint 3.8): every test process sets `HEAPSCOPE_DATA_FOLDER` to `HeapScopeTests/data` under the temporary
+  folder (`tests/Shared/TestDataFolder.cs`) before anything reads `HeapScopeFolders`, and the workers and front ends it
+  starts inherit it, so no test writes into the user's sessions, logs, index cache key, trusted DACs or bookmarks. Set it
+  by hand to run the app or the CLI against a scratch profile. The worker also takes `--data-folder` (from
+  `Worker:DataFolder` on the client), which wins over the variable.
+- Fuzzing (sprint 3.7): the mutation tests (`SignedCacheTests`, `CraftedGcDumpTests`) run a short pass in every run;
+  `HEAPSCOPE_FUZZ_ITERATIONS` and `HEAPSCOPE_FUZZ_SEED` raise and vary it. The nightly `fuzz.yml` runs 2,000 iterations on
+  the run number as the seed, on `develop`; a failure names its seed, iteration and exception type. The cache half replays
+  from the seed alone. The gcdump half mutates a gcdump captured live, so it also needs that base: with
+  `HEAPSCOPE_FUZZ_KEEP=<folder>` (set by the nightly, kept with its results) the test keeps the base (`base.gcdump`), the
+  iteration in progress and any failing input there, and `HEAPSCOPE_FUZZ_BASE=<base.gcdump>` replays from it.
+- The DAC trust check on a real dump of any system: `HEAPSCOPE_FIXTURE_DUMP=<dump> dotnet test --project
+  tests/HeapScope.Loaders.ClrMd.Tests --filter-class "*PlantedDacTests"` (CI's Linux job runs it, with
+  `HEAPSCOPE_REQUIRE_FIXTURE=1` so a skip fails). It plants the DAC next to the dump and removes it after; a folder that
+  already holds a DAC or runtime library is skipped, never overwritten.
+- Packages (sprint 3.7): nuget.org only (`nuget.config`); every project has a `packages.lock.json` and CI restores in
+  locked mode, so after changing `Directory.Packages.props` or a project's references run `dotnet restore HeapScope.sln
+  --force-evaluate` and commit the changed lock files. Dependabot opens weekly PRs into `develop` for NuGet and Actions.
+- A LeakyConsole dump for checks by hand: `bash build/fixture-dump.sh <dump> cli=<heapscope-cli>` (or `dotnet-dump`), then
+  `bash build/check-known-answers.sh <heapscope-cli> <dump>`.
 - A test run that never finishes: run the test executable directly with hung test detection, for example
   `tests/HeapScope.UI.Tests/bin/Debug/net10.0/HeapScope.UI.Tests.exe -longRunning 30 -noAutoReporters`;
   it names the test still running every 30 seconds (sprint 1.5: a grid test waited forever on a page gate).
@@ -41,8 +74,16 @@ dotnet test --solution HeapScope.sln
   `linux-x64`, `osx-arm64` or `osx-x64`, self-contained and ReadyToRun, each with the self-contained worker in
   `worker/`. CI uploads the four on pushes to `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`,
   kept 14 days): the download is a zip holding `HeapScope-<rid>.tar.gz`; unpack that with `tar -xzf`, which keeps the
-  executables' modes. macOS builds are not signed or notarized yet (Backlog).
-- Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli.exe`).
+  executables' modes. macOS builds are not signed or notarized yet (Backlog). Since 3.6 every build carries `LICENSE`,
+  `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and each shipped package's own license and notice
+  files under `licenses/` (`build/collect-licenses.cs`), and leaves out the TraceEvent natives no code uses
+  (`HeapScopePublish`, `Directory.Build.targets`); `bash build/check-package.sh <folder>` checks both (publish.sh runs it).
+  Since 2026-10-30 publish.sh swaps SkiaSharp's native library for HeapScope's build without the DNG SDK and piex
+  (`build/skia-native.sh`, ADR-038), downloaded from this repository's release by its pinned checksum (needs network
+  access, or `HEAPSCOPE_SKIA_NATIVE_DIR` naming a folder that holds the files); check-package.sh refuses a build whose
+  `libSkiaSharp` holds DNG SDK or piex code (`build/check-no-dng.sh`). Debug builds and tests use the stock NuGet one.
+- Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli`,
+  `heapscope-cli.exe` on Windows). Ctrl+C cancels; exit codes 0 ok, 1 failure, 64 usage, 130 canceled (`diff` also 2).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
   `capture --pid <id> [--kind full|gcdump] [--out <file or folder>] [--session <name>] [--label <text>] [--open]` (full
   dump into this run's session folder, an existing session, or `--out`; the target is paused while it is written; with
@@ -54,9 +95,7 @@ dotnet test --solution HeapScope.sln
   types summary with bytes per heap kind; the filter follows the UI's rules; its JSON says the snapshot's `Kind` and
   whether its counts include unreachable objects, `IncludesUnreachable`, true for a full dump only, sprint 1.9; with
   `--retained` or `--sort retained`, sprint 2.3, a retained bytes column per row, a lower bound, and `Dominators` and
-  `RetainedIsLowerBound` in the JSON). Ctrl+C cancels; exit codes
-  0 ok, 1 failure,
-  64 usage, 130 canceled.
+  `RetainedIsLowerBound` in the JSON).
   `diff <baseline> <current> [--group] [--filter] [--sort bytes-delta|count-delta|bytes|count|baseline-bytes|baseline-count|name]
   [--top N | --all] [--format table|csv|json] [--fail-on-growth <size|percent>]` compares two dumps by type (ADR-018);
   with `--fail-on-growth 50MB` or `10%` it exits 2 when the matching rows grew by more (CI), 0 otherwise (growth
@@ -76,8 +115,7 @@ dotnet test --solution HeapScope.sln
   matching row; the gate's log line names each row over its limit with its baseline and limit. `--sort new|dead` needs
   `--match-objects` and `--sort retained-delta` needs `--retained` (exit 64). `trend <dump> <dump> [<dump>...] [--group] [--filter] [--sort bytes-delta|count-delta|growth-steps|name]
   [--top N | --all] [--format table|csv|json]` puts 2 to 20 dumps side by side, oldest first: bytes in each, the change
-  first to last, and the steps a row grew in (dumps of one kind only; a dump given twice exits 64). `set ... --compared-with <dump> --change new|dead|survived` opens a set's
-  objects matched against another dump of the process (dead objects live in the earlier dump: give it as the snapshot).
+  first to last, and the steps a row grew in (dumps of one kind only; a dump given twice exits 64).
   `instances <dump> --type <name> [--module <file>] [--filter <0xprefix|/regex/|text>] [--sort bytes|address|generation|value|retained]
   [--retained] [--top N | --all] [--format table|csv|json]` lists the objects of a type (sprint 1.5): address, size,
   generation and a string's text (first 100 characters) or an array's length; with `--retained` (sprint 2.3) each
@@ -113,22 +151,25 @@ dotnet test --solution HeapScope.sln
   the tree below that object and its dominators from the top. `retained-by <snapshot> <type> [--module <file>] [--top N
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
   with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
+  Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
+  `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
+  that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.
   `set <snapshot> (--type <name> [--type ...] [--module <file>] | --namespace <name> | --assembly <file> | --interface
-  <name> | --unreachable | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>]) [--similar-group N] [--retained]
+  <name> | --unreachable | --address 0x... [--address ...] | --inspection <name> --row N [--baseline <dump>])
+  [--compared-with <dump> --change new|dead|survived] [--similar-group N] [--retained]
   [--view types|instances|generations|dominators|retained|paths|similar] [--top N | --all] [--format table|csv|json]`
   (sprint 3.1) shows an object set in one of the app's set views; `--retained` takes what the set keeps alive instead
   of its members; a set that selects nothing exits 1, two ways of choosing it 64. Since 3.2: `--interface` (full dumps),
   `--view paths` (the set's key retention paths), `--view similar` (Similar Retention groups, numbered from 1, with
-  their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers it; opened by its pattern, so it is the same group in another snapshot or refused). `diff --group interface` refuses `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
-  `summary` and `diff` take `--group interface` (full dumps; a type counts under each interface it implements).
+  their most different paths) and `--similar-group N` (the set's Similar Retention group N, as the similar view numbers
+  it; opened by its pattern, so it is the same group in another snapshot or refused). `summary` and `diff` take `--group
+  interface` (full dumps; a type counts under each interface it implements); `diff --group interface` refuses
+  `--fail-on-growth` (interface rows overlap) and `summary --group interface` refuses `--retained` (exit 64).
+  Since 3.3: `--compared-with <dump> --change new|dead|survived` takes the set's objects matched against another dump of
+  the process (dead objects live in the earlier dump: give it as the snapshot).
   Since 3.5: `--unreachable` (full dumps with a complete graph) is the objects no root reaches, with the retention views'
   roots (the finalizer queue counts: objects waiting for their finalizer are not in it); a gcdump or an incomplete dump
   is refused (exit 1).
-  The logs name an objects set (bookmarks) by its count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of
-  its distinct addresses sorted ascending, each as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
-  Both compute the snapshot's dominators on first use and save them next to the index cache. An unknown type, or an
-  `--address` with no object or one no root reaches, exits 1; a bad option 64. A tree cut at 50,000 rows, or a `--depth`
-  that would open more than 10,000 rows, is noted on stderr in every format; JSON echoes the depth reached and `--top`.
   `inspect <dump> [<name>] [--baseline <dump>] [--top N | --all] [--format table|csv|json]` runs the simple inspections
   (sprint 1.6) and the leak detectors (sprint 2.6): without a name, every inspection with its time, finding and note
   (one line each); with a name (`duplicate-strings`, `empty-collections`, `oversized-collections`, `sparse-arrays`,
@@ -145,9 +186,14 @@ dotnet test --solution HeapScope.sln
   the rule, recorded as timed; `below` re-arms under 90 percent of the threshold); it prints a line per sample, a line per snapshot and,
   at the end, the timeline file (`counters-<pid>-<time>.csv` in the session folder). Ctrl+C stops; a process that
   cannot be monitored exits 1.
-- DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` next
-  to the dump or in a DAC folder: CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the
-  `Symbols:DacFolder` setting. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
+- DAC lookup (ADR-017): local only. A dump from a runtime that is not installed needs its `mscordaccore.dll` in a DAC
+  folder (CLI `--dac-folder <folder>`, UI `--Symbols:DacFolder <folder>` or the `Symbols:DacFolder` setting) or next to
+  the dump, where it is loaded only once trusted (ADR-035, sprint 3.6): the app asks when it opens the dump (loaded or
+  from its index cache), naming the file and its SHA-256, and remembers a yes in `trusted-dacs.json` in HeapScope's data
+  folder (`%LOCALAPPDATA%\HeapScope`); the CLI refuses, names the hash and the trusted folders it searched, and
+  `--trust-dac <sha256>` (repeatable) trusts it for that run. A DAC HeapScope's capture copied is trusted already, unless
+  HeapScope ran elevated. To revoke a trust, delete its entry (or the file); the private copies under
+  `%LOCALAPPDATA%\HeapScope\dac` can be deleted at any time. `--allow-symbol-server` (CLI) or `Symbols:AllowMicrosoftSymbolServer true` opts in to
   downloads and logs a warning. Both reach the worker on its command line only.
 - Worker GC heaps: half the logical processors by default, so the worker cannot starve the UI; override with
   `--Worker:GcHeapCount <n>` (UI), the `Worker__GcHeapCount` environment variable, or `DOTNET_GCHeapCount` (hexadecimal).
@@ -158,8 +204,8 @@ dotnet test --solution HeapScope.sln
 - Live smoke run: `HeapScope --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
   (no process, no timeline file) and exits with the same codes as the other smoke runs.
 - UI smoke run: `HeapScope --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
-  (0 ok, 3 lag over the gate, 4 job failed, 5 the first window took over 30 s); details in ARCHITECTURE.md 8.
-  `HeapScope --smoke-open <dump>`
+  (0 ok, 3 lag over the gate, 4 job failed, 5 the first window took over 30 s, 6 a grid walked its whole row list);
+  details in ARCHITECTURE.md 8. `HeapScope --smoke-open <dump>`
   opens a dump through the Snapshots page instead, with the same checks; add `--smoke-compare <dump>` to also open a
   second dump and check the Compare tab (its cold first show is logged, a warm re-query is checked). `--smoke-open`
   also drills down (types, instances, object, the object's incoming references and retention paths, the type's
@@ -179,7 +225,12 @@ dotnet test --solution HeapScope.sln
   and by the Allocations page (sprint 2.5). Read any trace with PerfView,
   Visual Studio, or `dotnet run -c Release --project perf/HeapScope.Benchmarks -- trace-report --trace <file>`
   (`--timeline` for busy UI time per window, `--from HH:mm:ss.fff --to ...` for one stretch, `--focus <frame text>` for
-  the callers of a frame). Traced runs are slower: use them to find where time goes, not to check budgets.
+  the callers of a frame). It finds the UI thread by Avalonia's dispatcher (WPF's for old traces) and counts a sample
+  idle when the thread waits in its run loop (sprint 3.8). Traced runs are slower: use them to find where time goes,
+  not to check budgets.
+- Live sources (sprint 3.8, ADR-037): `dotnet run -c Release --project perf/HeapScope.Benchmarks -- live-tail --seconds
+  10` records an allocating copy of itself and reads the trace file while it grows, reporting events read and lost,
+  the delay to the reader and its memory.
 - Hybrid CPUs: when measuring UI responsiveness, remember Windows may put a background window's threads on efficiency
   cores. HeapScope's UI opts out (ADR-019); pinning a process (`ProcessorAffinity`) to performance or efficiency cores
   is how that was proven.
@@ -224,7 +275,9 @@ dotnet test --solution HeapScope.sln
 - Ctrl+C in tests: `LoadGen --launch <exe> [args]` runs a program with Ctrl+C enabled (children of the test host
   inherit "ignore Ctrl+C"), and `LoadGen --ctrl-c <pid>` sends Ctrl+C to that program's console.
 - A canceled capture waits for the runtime to finish writing and then deletes the dump: the CLI waits up to an hour
-  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`, `*.gcdump.partial`) is swept at the next start.
+  after Ctrl+C, closing the UI waits up to 5 minutes; anything left (`*.dmp.partial`, `*.gcdump.partial`) in the session
+  library is swept at the next start; a folder the user picked (`--out`) is never swept (sprint 3.7), so a leftover there
+  is the user's to delete.
 - Logs (sprint 2.3.7, ARCHITECTURE 11): a file per process and day, `heapscope-yyyyMMdd-<ui|cli>-<pid>.log`, in
   `%LOCALAPPDATA%\HeapScope\logs` (Linux `~/.local/share/HeapScope/logs`, macOS `~/Library/Application Support/HeapScope/logs`),
   with forwarded worker lines (`w<pid> g<generation>`); override the folder with `--Logging:File:Directory <dir>` (UI)
@@ -232,10 +285,13 @@ dotnet test --solution HeapScope.sln
   action across the UI or CLI and the worker, search for its `TraceId`. To find why a result was shown: the worker's
   "Snapshot ... opened" identity line, then the "... answered in" line of the query (and "Inspection ... basis" for an
   inspection). Kept 14 days, 50 MB per file. New log lines carry names and numbers only (ARCHITECTURE 11's policy); a
-  request or result goes through `Provenance`, never formatted by hand.
+  request or result goes through `Provenance`, never formatted by hand. The logs name an object set (bookmarks) by its
+  count and `#hash`: the first 8 bytes, in hexadecimal, of the SHA-256 of its distinct addresses sorted ascending, each
+  as 8 little-endian bytes (`ObjectSetSpecs.AddressHash`).
 - Tests that measure responsiveness run in an xUnit collection with parallelization disabled.
-- Tests that need gigabyte heaps or dumps (DenseHeap, the CLI Ctrl+C capture) run alone in `HeavyTestsCollection`, so
-  they cannot slow other tests into timeouts; they also carry `Category=Slow`.
+- Tests that need gigabyte heaps or dumps (DenseHeap, the CLI Ctrl+C capture, `SnapshotTests`) run alone in
+  `HeavyTestsCollection`, so they cannot slow other tests into timeouts. The CLI Ctrl+C capture also carries
+  `Category=Slow`.
 - Benchmarks: `dotnet run -c Release --project perf/HeapScope.Benchmarks -- <benchmark> [options]`. See
   section 6.
 
@@ -256,15 +312,19 @@ of debuggable code) and exit when the process given as parent exits.
   `POST /work` (a bounded cache, unsubscribed handlers, disposed timers and objects, finished async calls kept).
   Prints `READY pid=<pid> url=<url>` when listening (use port 0 for a free port). `POST /work` grows every enabled
   leak by `ItemsPerRequest` items; `GET /leaks` shows counts (0 for disabled leaks, which are never touched);
-  `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`.
+  `POST /leaks/{name}/grow?count=N` grows one enabled leak (404 unknown, 409 disabled, 400 negative); `GET /health`;
+  `POST /gc` runs one blocking full collection (sprint 3.6: tests of after-GC sizes ask for it rather than wait).
 - `fixtures/LeakyConsole`: `dotnet run --project fixtures/LeakyConsole -- --leak all|none|Name1,Name2
-  [--detected all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] --count N --payload BYTES [--publishers N] [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste]
+  [--detected all|none|Timer,DisposedReferenced,PendingAsync,FinalizerBacklog] --count N --payload BYTES [--publishers N]
+  [--semantics N] [--runtime-semantics N] [--late-garbage N] [--inspection] [--waste] [--retention-patterns N]
   [--parent-pid P]`;
   prints `READY pid=<pid>` and waits to be dumped and killed. `--semantics` adds the conditional weak table and
   embedded struct fixtures, `--runtime-semantics` the finalizable, POH, LOH, pinned handle, frozen literal and
   parked thread fixtures, `--late-garbage` dead table entries and weak-only objects created after the last full GC,
   `--inspection` one object with fields of every kind (1.5), `--waste` duplicated strings, empty and oversized
-  collections, large and sparse arrays, finalizable objects and pinned buffers with known amounts (1.6, `Waste.json`).
+  collections, large and sparse arrays, finalizable objects and pinned buffers with known amounts (1.6, `Waste.json`),
+  `--retention-patterns` objects held by known distinct retention patterns and a type with inherited and generic
+  interfaces (3.2, Similar Retention and interface grouping, `RetentionPatterns.json`).
 - `fixtures/LoadGen`: `LoadGen --url <url> --requests N --concurrency C [--dump <path> --pid <pid>
   [--dump-type Full|WithHeap]]` drives `POST /work`, then optionally writes a dump of the target.
 - `fixtures/scripts/New-SampleDump.ps1 -Tier Small|Medium [-Port N]` builds the fixtures, checks the port, runs
@@ -272,17 +332,28 @@ of debuggable code) and exit when the process given as parent exits.
   dump into `artifacts/dumps/` (git-ignored); a failed run deletes its partial dump and a size outside the tier's
   range is warned about. Measured: Small about 560 MB (5.6M objects) in about 10 s; Medium 4.0 GB (57.5M objects)
   in about 12 s, needing about 4 GB of RAM while running.
+- `fixtures/scripts/New-DenseDump.ps1 -TargetMB 3000` (sprint 1.2) starts the DenseHeap fixture (real Roslyn objects,
+  about 3 references per object), captures a full dump into `artifacts/dumps` and always stops the fixture (a `finally`
+  kill, and the fixture exits by itself when the script's process exits). About 2 minutes and a 4.4 GB dump for
+  3,000 MB. Load it with the `load-dump` benchmark (section 6).
 - `fixtures/KnownAnswers/*.json`: what the analysis must find for each leak and semantic fixture (format version 1
   and path shape grammar in its README). Integration tests verify every field with ClrMD (`KnownAnswerTests`,
   `DisabledLeakTests`, `LeakyApiGrowthTests`). Test harness: `FixtureProcess` (start LeakyConsole or LeakyApi,
   drive, capture any number of dumps, always killed), `DumpAnalysis` (ClrMD checks), `TempFolder`.
-- Benchmarks `dump-stats --dump <path> [--by-address 1] [--cache-mb N]` (ClrMD walk: objects, heap, references,
-  timings, peak private bytes and working set) and `stack-roots --dump <path>` (diagnostic: stack roots per thread
-  and frame). Both are measurement only, without a budget check.
 
 ## 4. Coding conventions
 - **Naming**: .NET conventions. `PascalCase` types and members, `_camelCase` private fields, `s_camelCase`
-  private static fields, `I` prefix for interfaces, `Async` suffix on async methods. One public type per file.
+  private static fields, `I` prefix for interfaces, `Async` suffix on async methods.
+- **Files** (sprint 3.8, peer review S9): one public type per file, except a Contracts file that holds one area's DTOs
+  and small records or enums that serve only the file's main type. `PublicTypesPerFileTests` lists the files that held
+  more in 3.8: none may be added, a listed file may not grow, and a file split below two leaves the list (update
+  `PublicTypesPerFile.txt`). Split a listed file when a change works in it anyway.
+- **Comments** (sprint 3.8, peer review S8): state the current reason, not the history. Cite a sprint, review or ADR
+  id only beside a guard someone might otherwise simplify away, so its reason can be found; the history lives in git,
+  the review files and the ADRs. Apply it to the code a change touches.
+- **Derived state** (sprint 3.8, peer review P20): Analysis returns values and keeps nothing, no static caches and no
+  mutable static state (`AnalysisStateTests`). What a snapshot derives gets a `DerivedData` slot in the worker:
+  computed once for concurrent callers and dropped when the snapshot closes.
 - **Nullable** is enabled everywhere; no `!` suppressions without a comment explaining why.
 - **Warnings are errors**; do not disable a warning without a comment and reviewer agreement.
 - **Async**: every async method takes a `CancellationToken` last (after `IProgress<T>` when present). Library
@@ -294,11 +365,11 @@ of debuggable code) and exit when the process given as parent exits.
   get services by constructor injection and never reference controls. Long work uses async relay commands with
   cancellation. Views use compiled bindings (`x:DataType`).
 - **Grids, keys and links** (sprint 2.7): every `DataGrid` sets `ctl:GridExports.ExportName` to a fixed name (a test
-  fails on one without), which gives it "Export to CSV..." and Command+E; a result column that names what a row opens
-  is `IsHidden`, and one that carries the target's data (string text, field values) is `HasValues`, so exports leave it
-  out unless the person opts in. Keyboard shortcuts live only in `Shortcuts` (the window and the About page read it).
-  A filter box is named `FilterBox` (Command+F). A row that opens an object implements `IObjectLink` (with
-  `LinkTypeName` when it knows the type), which also makes it bookmarkable with Command+D.
+  fails on one without), which gives it "Export to CSV..." and Ctrl+E (Cmd on macOS, for every shortcut here); a result
+  column that names what a row opens is `IsHidden`, and one that carries the target's data (string text, field values)
+  is `HasValues`, so exports leave it out unless the person opts in. Keyboard shortcuts live only in `Shortcuts` (the
+  window and the About page read it). A filter box is named `FilterBox` (Ctrl+F). A row that opens an object implements
+  `IObjectLink` (with `LinkTypeName` when it knows the type), which also makes it bookmarkable with Ctrl+D.
 - **Logging**: `ILogger<T>` via DI. Use structured templates, not string interpolation. Never log snapshot
   field values or string contents.
 - **Exceptions**: throw specific exception types; catch only at boundaries (RPC methods, commands, CLI
@@ -310,9 +381,10 @@ of debuggable code) and exit when the process given as parent exits.
   - Allocate final arrays once at exact size; grow with chunked buffers, not `List<T>` doubling.
   - Check the `CancellationToken` at least every 64K iterations.
 - **Text**: no em dashes or en dashes in code, comments, docs or UI text. Use a hyphen or a comma.
-- **License header**: every `.cs`, `.xaml` and `.ps1` file we own starts with the header in
+- **License header**: every `.cs`, `.axaml`, `.ps1` and `.sh` file we own starts with the header in
   `docs/licensing/SOURCE-HEADER.txt`, in the file's comment syntax (copy it from any existing file). Vendored code lives
-  in a `ThirdParty` project or folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test enforces it.
+  in a `ThirdParty` project or folder, keeps its own header and is listed in `THIRD-PARTY-NOTICES.md`. A test checks
+  every such file but `.sh`.
 - **Vendored code** (`src/HeapScope.ThirdParty.GcDump`, sprint 1.8): built without analyzers or a nullable context.
   Change it only when unavoidable, mark each change with a `HeapScope change` comment and list it in the project's
   `CHANGES.md`. Wrap it in our own types (`GcDumpCapturer`, `GcDumpLoader`); nothing else uses it directly.
@@ -324,6 +396,12 @@ of debuggable code) and exit when the process given as parent exits.
   that only arrives as a dependency counts too: `Avalonia.Fonts.Inter` (the Inter typeface, SIL Open Font License) comes
   with `Avalonia.Headless` and is kept out of the app's output (`ExcludeAssets="all"`), so it reaches only the tests. Update
   `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
+- **Adding a worker area** (sprint 3.8): a contract in Contracts (`I...Service`, methods ending in `Async` with the
+  token last, names unique across contracts), listed in `WorkerContracts.All` and in `IWorkerService`'s bases; a handler
+  (`...Handler : RpcHandler, I...Service`) registered in `WorkerRpcTargets` with `RpcTarget.For`; a fake partial in
+  `tests/HeapScope.UI.ViewModels.Tests/Fakes/`; a feature id in `SnapshotFeatureIds` with its rule in `FeatureRules`
+  when snapshots may lack it; and a protocol bump only for a removed or renamed method or a changed DTO shape
+  (`docs/architecture/process-model.md` 4.4).
 
 ## 5. Testing strategy
 - **Unit tests** (`*.Tests`): fast, deterministic. Analysis is tested on synthetic graphs built with
@@ -331,18 +409,14 @@ of debuggable code) and exit when the process given as parent exits.
 - **Architecture test**: `HeapScope.Architecture.Tests` enforces the dependency table in ARCHITECTURE.md.
 - **Integration tests** (`[Trait("Category", "Integration")]`): start real worker processes and fixture apps,
   capture real dumps, and assert the known answers.
-- **Slow tests** (`[Trait("Category", "Slow")]`): large synthetic graphs; part of the full run.
+- **Slow tests** (`[Trait("Category", "Slow")]`): long real captures, in the Integration project only (build/test.sh
+  checks this).
 - **Performance checks**: `perf/HeapScope.Benchmarks` measures against the budgets in ARCHITECTURE.md
   section 10; sprints that touch hot paths record results in their review file.
 - Runner: xUnit v3 on Microsoft.Testing.Platform (opted in through `global.json`); test projects are executables
   and can also be run directly from their output folder.
 - Assertions: Shouldly or plain xUnit asserts. FluentAssertions is not allowed (commercial license).
 - Tests that call methods taking a `CancellationToken` pass `TestContext.Current.CancellationToken` (xUnit1051).
-
-Dense sample dump (sprint 1.2): `./fixtures/scripts/New-DenseDump.ps1 -TargetMB 3000` starts the DenseHeap fixture
-(real Roslyn objects, about 3 references per object), captures a full dump into `artifacts/dumps` and always stops
-the fixture (a `finally` kill, and the fixture exits by itself when the script's process exits). About 2 minutes and
-a 4.4 GB dump for 3,000 MB. Load it with `load-dump --dump <path>`.
 
 ## 6. Benchmarks
 `perf/HeapScope.Benchmarks` is a plain console app (no BenchmarkDotNet, because the interesting cases use
@@ -357,7 +431,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   to an index cache and reopens it in memory and mapped (all checksums verified), against the reopen and mapped
   private memory budgets. `--phase write` then `--phase reopen` in a fresh process (optionally after a standby list
   purge as administrator) measures a cold reopen.
-- `dump-stats --dump <path> [--by-address 1] [--cache-mb N]`: a raw ClrMD walk (the 0.4 baseline).
+- `dump-stats --dump <path> [--by-address 1] [--cache-mb N]`: a raw ClrMD walk (the 0.4 baseline): objects, heap,
+  references, timings, peak private bytes and working set; no budget check.
+- `stack-roots --dump <path>`: stack roots per thread and frame (diagnostic; no budget check).
 - `load-dump --dump <path> [--cache-mb 512] [--keep-cache 1]`: HeapScope's loader on a real dump: counts, density,
   dropped data and segment completeness, private bytes when each phase starts and at peak, the cache write, the switch
   to mapped mode and both reopens, checked against the ARCHITECTURE.md 10 budgets (exit code 1 on a miss).
@@ -395,28 +471,63 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   sprint 2.3.5, work-in-progress commits may be pushed to `sprint/X.Y` to run CI on its draft PR; the squash merge still
   leaves one commit per sprint on `develop`. Work outside a sprint that the owner asks for (a fix, docs, a chore) uses
   its own short branch (`fix/...`, `chore/...`) off `develop` and the same PR flow.
-- CI (`.github/workflows/ci.yml`, sprints 2.3.5 and 2.3.6) runs on every PR into `develop` or `main`, every push to
-  them and on demand, on GitHub's hosted runners:
-  - Windows builds the solution, runs the fast tests, captures the LeakyConsole fixture with the CLI and checks the
-    known answers (`build/check-known-answers.sh`).
+- CI (`.github/workflows/ci.yml`, sprints 2.3.5, 2.3.6 and 3.6) runs on every PR into `develop` or `main`, every push to
+  them and on demand, on GitHub's hosted runners. Tests run through `build/test.sh` and the fixture dump through
+  `build/fixture-dump.sh`, the scripts the local gate uses; every job keeps its TRX results 14 days
+  (`test-results-<system>`), which is where a test that fails now and then shows up:
+  - Windows builds the solution, runs the fast and the integration tiers (since 3.6), captures the LeakyConsole fixture
+    with the CLI and checks the known answers (`build/check-known-answers.sh`). Since 2026-10-31 a second Windows job
+    runs the heavy collection (classes with the `Run=Heavy` trait: gigabyte heaps and dumps, the Ctrl+C capture, run one
+    at a time) beside it (`test.sh integration-heavy`; the first job runs `integration-light`), which halves the wait
+    for a PR. The local gate still runs the whole `integration` tier.
   - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests (the view model and headless UI
     tests included), dumps the fixture with `dotnet-dump` (pinned), checks the CLI's JSON against the known answers with
     `jq` (counts, sizes, retained sizes, the path root, a complete graph, a named runtime version) and opens the dump in
-    the app without a display (`--headless --smoke-open`). macOS does the same, informational (an arm64 runner;
-    ADR-025).
-  - After both pass, a package job publishes the self-contained builds per runtime identifier (`build/publish.sh`),
-    packs each as a tarball (which keeps the executables' modes), unpacks it and runs it as a user would (the CLI's
-    version, a worker ping, the worker's Server GC setting, a headless synthetic smoke; `osx-x64` is built but cannot
-    run on the arm64 runner) and, on pushes and manual runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
-  It does not replace the local gate, which also runs the integration tests. Fixture dumps are never uploaded.
+    the app without a display (`--headless --smoke-open`).
+  - No macOS runners since 2026-10-31 (owner: their minutes cost about ten times Linux's). Until then a macOS job did
+    what Linux does, informational (an arm64 runner; ADR-025). Nothing in CI tests on macOS now.
+  - Beside the tests (since 2026-10-31; before, after them), a package job publishes the self-contained builds per
+    runtime identifier (`build/publish.sh`, with the license files checked by `build/check-package.sh`), packs each as a
+    tarball (which keeps the executables' modes), unpacks it, checks it again and runs it as a user would (the CLI's
+    version, a worker ping, the worker's Server GC setting, a headless synthetic smoke; `osx-arm64` and `osx-x64` are
+    built on Linux and not run) and, on pushes and manual runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
+    Pushes to `develop` and `main` come from PRs whose required checks passed; a manual run uploads its builds whatever
+    its tests do.
+  The local gate runs the same tiers. Fixture dumps are never uploaded. Making the CI jobs
+  required checks on `develop` and `main` is a repository setting the owner applies.
 - A sprint's PR into `develop` is squash merged; the annotated tag `sprint-X.Y` goes on the resulting commit on
   `develop` and is pushed. In autonomous mode Claude merges sprint PRs once the gate passes; otherwise the owner
   merges.
+- GitHub auto-merge is allowed on the repository (owner, 2026-10-31): a PR with auto-merge on is squash merged when the
+  required checks of the ruleset "Protect main and develop" pass, and its branch is deleted. Both work on any plan only
+  while the repository is public. If it is ever made private on a free plan, GitHub turns off auto-merge and the
+  ruleset (rulesets and auto-merge on private repositories need a paid plan): merge by hand after CI is green, and
+  nothing then stops a merge with failing checks.
 - Versions follow the sprint number: `/close-sprint` sets `<Version>X.Y.0</Version>` in `Directory.Build.props`
   (`X.Y.Z` for an in-between sprint such as 2.3.5).
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
+- Release builds (sprint 3.7): publishing the GitHub release runs `release.yml`, which builds the tag for every runtime
+  identifier (read access only) and then, in one job that builds nothing, attaches the tarballs, an SBOM of the app, the
+  CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store (`gh attestation verify <file> --repo
+  rklundt/HeapScope` checks one; attestations need a public repository or GitHub Enterprise). To try it before a
+  release: `gh workflow run release.yml -f tag=<tag>` builds without attaching (a dry run; `-f dry-run=false` attaches);
+  manual runs need the workflow on the default branch. If a build fails after publishing, rerun the failed jobs: one
+  runtime failing does not cancel the others, and attaching replaces files of the same name. Security reports:
+  `SECURITY.md`.
+- SkiaSharp native libraries (ADR-038, 2026-10-30): `.github/workflows/skia-native.yml` builds `libSkiaSharp` for win-x64,
+  linux-x64 and macOS (one universal library for both macOS runtimes) from SkiaSharp's sources at a pinned commit, with
+  only `skia_use_dng_sdk` and `skia_use_piex` off; it checks each library (`build/check-no-dng.sh`) and attests the set.
+  It runs on a push that changes it (any branch but `main` and `develop`) or by hand once it is on `main`. The macOS
+  library needs a paid macOS runner, so it is built only on a manual run with `macos` checked (owner, 2026-10-31:
+  macOS minutes cost about ten times Linux's); a push builds the Windows and Linux ones. The owner
+  attaches its files (`libSkiaSharp.win-x64.dll` and `.pdb`, `libSkiaSharp.linux-x64.so`, `libSkiaSharp.osx.dylib`,
+  `SHA256SUMS`) to a pre-release tagged `skia-native-<SkiaSharp version>-<n>`, which `release.yml` does not build
+  (it builds `v*` tags only), and `build/skia-native.sh` pins that release, the SkiaSharp version and each checksum.
+  When an Avalonia update brings a new SkiaSharp, publish.sh fails until this is redone for the new version: change
+  `SKIASHARP_COMMIT` in the workflow (the commit of SkiaSharp's release tag), push, run it by hand with `macos` checked
+  (with the owner's OK for the macOS minutes), attach, and update the pins.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
   adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no

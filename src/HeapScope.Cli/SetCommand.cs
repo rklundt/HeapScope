@@ -110,20 +110,21 @@ internal static partial class CliCommands
                 result.AddError("--baseline goes with --inspection: the earlier dump a growth detector compares against.");
             }
         });
-        command.SetAction((parseResult, ct) => RunAsync(parseResult, async (output, error) =>
+        command.SetAction((parseResult, ct) => RunAsync(parseResult, services, async context =>
         {
-            var handle = await OpenForQueryAsync(parseResult.GetValue(dump)!, error, ct).ConfigureAwait(false);
+            var (output, error) = (context.Output, context.Error);
+            var handle = await OpenForQueryAsync(context, parseResult.GetValue(dump)!, ct).ConfigureAwait(false);
             if (handle is null)
             {
                 return Failure;
             }
 
-            var session = services().GetRequiredService<SnapshotSession>();
+            var session = context.Get<SnapshotSession>();
             await WriteNotesAsync(error, "Snapshot", handle).ConfigureAwait(false);
             SnapshotHandle? baselineHandle = null;
             if ((parseResult.GetValue(baseline) ?? parseResult.GetValue(comparedWith)) is { } baselineFile)
             {
-                baselineHandle = await OpenForQueryAsync(baselineFile, error, ct).ConfigureAwait(false);
+                baselineHandle = await OpenForQueryAsync(context, baselineFile, ct).ConfigureAwait(false);
                 if (baselineHandle is null)
                 {
                     return Failure;
@@ -279,7 +280,7 @@ internal static partial class CliCommands
                         if (!s.HasGenerations)
                         {
                             // As every capability gap is said (ARCHITECTURE.md 5.2): the reason, and a failing exit code.
-                            await error.WriteLineAsync("Error: " + CapabilityDescriptions.ExplainMissing(SnapshotFeatures.Generations, handle.Descriptor.Kind)).ConfigureAwait(false);
+                            await error.WriteLineAsync("Error: " + handle.Descriptor.WhyUnavailable(SnapshotFeatureIds.Generations)).ConfigureAwait(false);
                             return Failure;
                         }
 
