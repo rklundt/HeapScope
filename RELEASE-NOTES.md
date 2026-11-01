@@ -7,6 +7,7 @@ each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 | Version | Released |
 |---|---|
+| 3.8.0 | 2026-10-31, `v3.8.0` |
 | 3.5.0 | 2026-10-29, `v3.5.0` |
 | 2.2.0 | 2026-10-25, `v2.2.0` |
 
@@ -28,6 +29,8 @@ From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`): the same answ
   use.
 - Limited: the Live page's view model and an analysis workspace per snapshot stay as they were (Backlog); live
   allocations are decided (ADR-037), not built.
+- Also in this release (after the sprint): builds no longer contain Adobe's DNG SDK or Google's piex. They ship
+  HeapScope's own SkiaSharp native library built without them (ADR-038); HeapScope never reads camera raw images.
 
 ## 3.7.0: Hardening (sprint 3.7)
 
