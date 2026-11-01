@@ -281,14 +281,10 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         }
         else
         {
-            var path = _options.ResolveWorkerPath();
-            if (!File.Exists(path))
-            {
-                throw new WorkerStartException($"The analysis worker was not found at {path}. Rebuild HeapScope or set Worker:WorkerPath.");
-            }
-
+            var launch = _options.ResolveWorkerLaunch()
+                ?? throw new WorkerStartException($"The analysis worker was not found at {_options.ResolveWorkerPath()}. Reinstall HeapScope or set Worker:WorkerPath.");
             pipeName = NewPipeName();
-            process = StartProcess(path, pipeName);
+            process = StartProcess(launch, pipeName);
         }
 
         var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
@@ -416,9 +412,10 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         return info;
     }
 
-    private Process StartProcess(string path, string pipeName)
+    private Process StartProcess(WorkerLaunch launch, string pipeName)
     {
-        var info = new ProcessStartInfo(path)
+        var path = launch.WorkerFile;
+        var info = new ProcessStartInfo(launch.FileName)
         {
             UseShellExecute = false,
             RedirectStandardError = true,
@@ -426,6 +423,12 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(path)!,
         };
+        if (launch.Assembly is not null)
+        {
+            // The CLI's dotnet tool ships the worker's assembly only (sprint 3.9, ADR-039).
+            info.ArgumentList.Add(launch.Assembly);
+        }
+
         if (!info.Environment.TryGetValue("DOTNET_GCHeapCount", out var heapCount) || string.IsNullOrEmpty(heapCount))
         {
             // Hexadecimal, as the runtime reads it.
@@ -488,7 +491,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
             process.BeginOutputReadLine();
         }
 
-        _logger.LogInformation("Started worker process {Pid} (generation {Generation}) from {Path} on pipe {Pipe}", process.Id, generation, path, pipeName);
+        _logger.LogInformation("Started worker process {Pid} (generation {Generation}) from {Path} (host {Host}) on pipe {Pipe}", process.Id, generation, path, launch.Assembly is null ? "its executable" : launch.FileName, pipeName);
         return process;
     }
 

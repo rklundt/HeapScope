@@ -72,16 +72,26 @@ dotnet test --solution HeapScope.sln
   binding mistakes fail the build instead.
 - Builds per system (sprint 2.3.6): `bash build/publish.sh <rid> <folder>` publishes the app and the CLI for `win-x64`,
   `linux-x64`, `osx-arm64` or `osx-x64`, self-contained and ReadyToRun, each with the self-contained worker in
-  `worker/`. CI uploads the four on pushes to `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`,
-  kept 14 days): the download is a zip holding `HeapScope-<rid>.tar.gz`; unpack that with `tar -xzf`, which keeps the
-  executables' modes. macOS builds are not signed or notarized yet (Backlog). Since 3.6 every build carries `LICENSE`,
+  `worker/`. `bash build/archive.sh pack <folder> <output folder>` packs a build into its release archive (sprint 3.9,
+  ADR-039): a `.zip` for Windows, a `.tar.gz` elsewhere (it keeps the executables' modes); `archive.sh unpack` reverses
+  it, and `build/zip.cs` does the zip work without zip or unzip installed. CI uploads the four archives on pushes to
+  `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`, kept 14 days; the download is a zip holding
+  the archive). macOS builds are not shipped (ADR-039). Since 3.6 every build carries `LICENSE`,
   `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and each shipped package's own license and notice
-  files under `licenses/` (`build/collect-licenses.cs`), and leaves out the TraceEvent natives no code uses
+  files under `licenses/` (`build/collect-licenses.cs`, with a README there since 3.9 saying whose licenses they are),
+  and leaves out the TraceEvent natives no code uses
   (`HeapScopePublish`, `Directory.Build.targets`); `bash build/check-package.sh <folder>` checks both (publish.sh runs it).
   Since 2026-10-30 publish.sh swaps SkiaSharp's native library for HeapScope's build without the DNG SDK and piex
   (`build/skia-native.sh`, ADR-038), downloaded from this repository's release by its pinned checksum (needs network
   access, or `HEAPSCOPE_SKIA_NATIVE_DIR` naming a folder that holds the files); check-package.sh refuses a build whose
   `libSkiaSharp` holds DNG SDK or piex code (`build/check-no-dng.sh`). Debug builds and tests use the stock NuGet one.
+  `bash build/check-install.sh <unpacked build> <fixture dump>` runs a build as a user gets it, without .NET (sprint
+  3.9): the CLI, its worker and the app open the dump.
+- The CLI as a dotnet tool (sprint 3.9, ADR-039): `bash build/pack-tool.sh <folder>` packs `HeapScope.Cli.<version>.nupkg`
+  (command `heapscope-cli`, framework-dependent, one package for every system) with the worker's assembly (no
+  executable: the front end starts it through the `dotnet` host, `WorkerHostOptions.ResolveWorkerLaunch`) and the license
+  files, and checks it; `bash build/check-tool.sh <folder> <fixture dump>` installs it from that folder into a folder of
+  its own (`--tool-path`, never globally) and runs it. The pack properties apply only with `HeapScopeTool=true`.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli`,
   `heapscope-cli.exe` on Windows). Ctrl+C cancels; exit codes 0 ok, 1 failure, 64 usage, 130 canceled (`diff` also 2).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
@@ -487,10 +497,13 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   - No macOS runners since 2026-10-31 (owner: their minutes cost about ten times Linux's). Until then a macOS job did
     what Linux does, informational (an arm64 runner; ADR-025). Nothing in CI tests on macOS now.
   - Beside the tests (since 2026-10-31; before, after them), a package job publishes the self-contained builds per
-    runtime identifier (`build/publish.sh`, with the license files checked by `build/check-package.sh`), packs each as a
-    tarball (which keeps the executables' modes), unpacks it, checks it again and runs it as a user would (the CLI's
-    version, a worker ping, the worker's Server GC setting, a headless synthetic smoke; `osx-arm64` and `osx-x64` are
-    built on Linux and not run) and, on pushes and manual runs, uploads the tarballs (`HeapScope-<rid>`, kept 14 days).
+    runtime identifier (`build/publish.sh`, with the license files checked by `build/check-package.sh`) and packs each
+    in its release archive (`build/archive.sh`). For win-x64 and linux-x64 it unpacks the archive, dumps the fixture
+    (on Windows with the unpacked CLI) and runs the build as a user gets it, without .NET (`build/check-install.sh`: on
+    Windows with .NET off the path, on Linux in a plain `ubuntu:24.04` container with only the libraries INSTALL.md
+    lists); then it packs the CLI's dotnet tool and installs it from its file (`build/pack-tool.sh`,
+    `build/check-tool.sh`). `osx-arm64` and `osx-x64` are built on Linux and not run. On pushes and manual runs it
+    uploads the archives (`HeapScope-<rid>`, kept 14 days).
     Pushes to `develop` and `main` come from PRs whose required checks passed; a manual run uploads its builds whatever
     its tests do.
   The local gate runs the same tiers. Fixture dumps are never uploaded. Making the CI jobs
@@ -508,9 +521,11 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - Releases: when the owner says so, a PR from `develop` to `main`, merged with a merge commit (never squash, so the
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
-- Release builds (sprint 3.7): publishing the GitHub release runs `release.yml`, which builds the tag for every runtime
-  identifier (read access only) and then, in one job that builds nothing, attaches the tarballs, an SBOM of the app, the
-  CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store (`gh attestation verify <file> --repo
+- Release builds (sprint 3.7; channels and formats since 3.9, ADR-039): publishing the GitHub release runs `release.yml`,
+  which builds the tag for win-x64 (a `.zip`) and linux-x64 (a `.tar.gz`) and packs the CLI's dotnet tool (its version
+  must match the tag), with read access only, and then, in one job that builds nothing, attaches the archives, the tool
+  package, an SBOM of the app, the CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store
+  (`gh attestation verify <file> --repo
   rklundt/HeapScope` checks one; attestations need a public repository or GitHub Enterprise). To try it before a
   release: `gh workflow run release.yml -f tag=<tag>` builds without attaching (a dry run; `-f dry-run=false` attaches);
   manual runs need the workflow on the default branch. If a build fails after publishing, rerun the failed jobs: one
@@ -529,7 +544,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   `SKIASHARP_COMMIT` in the workflow (the commit of SkiaSharp's release tag), push, run it by hand with `macos` checked
   (with the owner's OK for the macOS minutes), attach, and update the pins.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
-  adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release.
+  adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release,
+  after a line pointing to `INSTALL.md`, which users follow from download to a first snapshot.
 - The owner (rklundt) is the sole author: commits use the noreply address in the repository's git config; no
   Co-Authored-By or generated-by lines in commits, PR titles or PR bodies. Files write the contact address as
   "rayklundt (at) outlook (dot) com".

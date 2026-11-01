@@ -1,8 +1,9 @@
 # HeapScope release builds (sprint 3.7, peer review P17). When the owner publishes a GitHub release (DEVELOPER.md 7), this
-# builds the release's tag for every runtime identifier with build/publish.sh (license files checked) and attaches each
-# tarball, an SBOM (CycloneDX) of the app, the CLI and the worker, and SHA256SUMS of them all, each with a build
-# provenance attestation in GitHub's attestation store. Builds are deterministic (ContinuousIntegrationBuild in CI).
-# Signing is sprint 3.9's.
+# builds the release's tag with build/publish.sh (license files checked) for the runtimes HeapScope ships (sprint 3.9,
+# ADR-039: win-x64 as a .zip, linux-x64 as a .tar.gz; macOS is not shipped), packs the CLI's dotnet tool, and attaches
+# them, an SBOM (CycloneDX) of the app, the CLI and the worker, and SHA256SUMS of them all, each with a build provenance
+# attestation in GitHub's attestation store. Builds are deterministic (ContinuousIntegrationBuild in CI). Nothing is
+# signed (ADR-039: no certificate); the checksums and attestations are how a download is verified.
 #
 # Least privilege (3.7 review): the builds, which run every restored package's build logic, hold read access only and hand
 # their files on as artifacts; one short job that runs no build holds the rights to attest and attach. A manual run takes
@@ -39,7 +40,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
-      # One runtime failing does not stop the others: their tarballs are still built and can be attached by a rerun.
+      # One runtime failing does not stop the other: its archive is still built and can be attached by a rerun.
       fail-fast: false
       matrix:
         include:
@@ -47,11 +48,6 @@ jobs:
             rid: win-x64
           - os: ubuntu-latest
             rid: linux-x64
-          # The macOS builds on Linux: no macOS runners (owner, 2026-10-31: about ten times the cost of Linux minutes).
-          - os: ubuntu-latest
-            rid: osx-arm64
-          - os: ubuntu-latest
-            rid: osx-x64
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -64,12 +60,38 @@ jobs:
         shell: bash
         run: |
           bash build/publish.sh ${{ matrix.rid }} "$RUNNER_TEMP/HeapScope-$TAG-${{ matrix.rid }}"
-          mkdir -p "$RUNNER_TEMP/out"
-          (cd "$RUNNER_TEMP" && tar -czf "out/HeapScope-$TAG-${{ matrix.rid }}.tar.gz" "HeapScope-$TAG-${{ matrix.rid }}")
+          bash build/archive.sh pack "$RUNNER_TEMP/HeapScope-$TAG-${{ matrix.rid }}" "$RUNNER_TEMP/out"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tarball-${{ matrix.rid }}
-          path: ${{ runner.temp }}/out/*.tar.gz
+          name: archive-${{ matrix.rid }}
+          path: ${{ runner.temp }}/out/HeapScope-*
+          if-no-files-found: error
+          retention-days: 7
+
+  tool:
+    name: The CLI's dotnet tool
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Pack
+        # One package for every system (ADR-039); its version is the tag's, or the release is wrong.
+        shell: bash
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          [ "v$version" = "$TAG" ] || { echo "The tag $TAG does not match the version $version"; exit 1; }
+          bash build/pack-tool.sh "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tool
+          path: ${{ runner.temp }}/out/HeapScope.Cli.*.nupkg
           if-no-files-found: error
           retention-days: 7
 
@@ -104,7 +126,7 @@ jobs:
 
   publish:
     name: Attest and attach
-    needs: [build, sbom]
+    needs: [build, tool, sbom]
     if: ${{ github.event_name == 'release' || !inputs.dry-run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -119,15 +141,16 @@ jobs:
           merge-multiple: true
       - name: Checksums
         shell: bash
-        run: (cd "$RUNNER_TEMP/assets" && sha256sum HeapScope-* > SHA256SUMS && cat SHA256SUMS)
+        run: (cd "$RUNNER_TEMP/assets" && sha256sum HeapScope-* HeapScope.Cli.*.nupkg > SHA256SUMS && cat SHA256SUMS)
       - name: Attest the build's provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             ${{ runner.temp }}/assets/HeapScope-*
+            ${{ runner.temp }}/assets/HeapScope.Cli.*.nupkg
             ${{ runner.temp }}/assets/SHA256SUMS
       - name: Attach to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "$RUNNER_TEMP"/assets/HeapScope-* "$RUNNER_TEMP/assets/SHA256SUMS" --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/assets/HeapScope-* "$RUNNER_TEMP"/assets/HeapScope.Cli.*.nupkg "$RUNNER_TEMP/assets/SHA256SUMS" --clobber --repo "$GITHUB_REPOSITORY"

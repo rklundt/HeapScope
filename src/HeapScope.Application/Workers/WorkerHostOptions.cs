@@ -88,7 +88,56 @@ public sealed class WorkerHostOptions
     /// </summary>
     public static string WorkerExecutableName => OperatingSystem.IsWindows() ? "HeapScope.Worker.exe" : "HeapScope.Worker";
 
-    /// <summary>The worker path to launch.</summary>
+    /// <summary>The worker's assembly, which the CLI's dotnet tool ships without an executable (sprint 3.9, ADR-039).</summary>
+    public const string WorkerAssemblyName = "HeapScope.Worker.dll";
+
+    /// <summary>The worker executable's path: <see cref="WorkerPath"/>, or the worker/ folder next to the executable.</summary>
     public string ResolveWorkerPath() =>
         WorkerPath ?? Path.Combine(AppContext.BaseDirectory, "worker", WorkerExecutableName);
+
+    /// <summary>How to start the worker in this process, or null when no worker is there.</summary>
+    public WorkerLaunch? ResolveWorkerLaunch() => ResolveWorkerLaunch(AppContext.BaseDirectory, RunningDotnetHost(), File.Exists);
+
+    /// <summary>
+    /// How to start the worker: its executable, or its assembly through <paramref name="dotnetHost"/> (the dotnet host of
+    /// a framework-dependent process) where no executable ships, as in the CLI's dotnet tool (sprint 3.9, ADR-039). A
+    /// configured <see cref="WorkerPath"/> ending in <c>.dll</c> is an assembly too. Null when neither is there.
+    /// </summary>
+    internal WorkerLaunch? ResolveWorkerLaunch(string baseDirectory, string? dotnetHost, Func<string, bool> exists)
+    {
+        var assembly = WorkerPath is { } configured
+            ? (configured.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? configured : null)
+            : Path.Combine(baseDirectory, "worker", WorkerAssemblyName);
+        var executable = WorkerPath is { } path
+            ? (assembly is null ? path : null)
+            : Path.Combine(baseDirectory, "worker", WorkerExecutableName);
+        if (executable is not null && exists(executable))
+        {
+            return new WorkerLaunch(executable, null);
+        }
+
+        return assembly is not null && dotnetHost is not null && exists(assembly) ? new WorkerLaunch(dotnetHost, assembly) : null;
+    }
+
+    /// <summary>
+    /// The dotnet host (<c>dotnet</c> or <c>dotnet.exe</c>) whose shared runtime runs this process, or null for a
+    /// self-contained process: a framework-dependent one loads the runtime from
+    /// <c>&lt;dotnet&gt;/shared/Microsoft.NETCore.App/&lt;version&gt;</c>.
+    /// </summary>
+    internal static string? RunningDotnetHost()
+    {
+        var version = Path.GetDirectoryName(typeof(object).Assembly.Location);
+        var framework = Path.GetDirectoryName(version);
+        var shared = Path.GetDirectoryName(framework);
+        var dotnet = Path.GetDirectoryName(shared);
+        if (dotnet is null
+            || !string.Equals(Path.GetFileName(framework), "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(Path.GetFileName(shared), "shared", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var host = Path.Combine(dotnet, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        return File.Exists(host) ? host : null;
+    }
 }

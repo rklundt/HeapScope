@@ -7,6 +7,10 @@ HeapScope is a desktop memory profiler for .NET applications (.NET 5 and later) 
 snapshots, and explains why objects are retained, through a desktop app or an equivalent command line
 (`heapscope-cli`). Snapshots never leave the machine.
 
+**Install**: download a release for Windows or Linux (no .NET needed), or the CLI as a `dotnet tool`; see
+[INSTALL.md](INSTALL.md).
+
+From source:
 - Build: `dotnet build HeapScope.sln`
 - Test: `dotnet test --solution HeapScope.sln`
 - UI: `dotnet run --project src/HeapScope.UI`

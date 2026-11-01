@@ -43,3 +43,4 @@ section 13 links here).
 - [ADR-036](ADR-036-index-caches-signed-with-a-per-user-key.md) Index caches signed with a per-user key (added in sprint 3.7)
 - [ADR-037](ADR-037-live-sources.md) Live sources (added in sprint 3.8, amends ADR-023)
 - [ADR-038](ADR-038-skiasharp-native-library-without-the-dng-sdk.md) SkiaSharp's native library without the DNG SDK (added 2026-10-30, outside a sprint)
+- [ADR-039](ADR-039-distribution.md) Distribution (added in sprint 3.9)

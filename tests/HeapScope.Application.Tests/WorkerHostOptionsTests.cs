@@ -48,6 +48,47 @@ public sealed class WorkerHostOptionsTests
     }
 
     [Fact]
+    public void The_worker_executable_starts_on_its_own_and_its_assembly_through_the_dotnet_host()
+    {
+        // Sprint 3.9, ADR-039: the CLI's dotnet tool ships the worker's assembly without an executable.
+        var root = Path.Combine(Path.GetTempPath(), "hs-tool");
+        var executable = Path.Combine(root, "worker", WorkerHostOptions.WorkerExecutableName);
+        var assembly = Path.Combine(root, "worker", "HeapScope.Worker.dll");
+        const string Host = "/usr/share/dotnet/dotnet";
+        var options = new WorkerHostOptions();
+
+        options.ResolveWorkerLaunch(root, Host, f => f == executable || f == assembly).ShouldBe(new WorkerLaunch(executable, null));
+        options.ResolveWorkerLaunch(root, null, f => f == executable).ShouldBe(new WorkerLaunch(executable, null));
+        options.ResolveWorkerLaunch(root, Host, f => f == assembly).ShouldBe(new WorkerLaunch(Host, assembly));
+        options.ResolveWorkerLaunch(root, Host, f => f == assembly)!.WorkerFile.ShouldBe(assembly);
+        options.ResolveWorkerLaunch(root, null, f => f == assembly).ShouldBeNull("a self-contained process has no host for an assembly");
+        options.ResolveWorkerLaunch(root, Host, _ => false).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_configured_worker_path_is_an_executable_unless_it_names_an_assembly()
+    {
+        const string Host = "/usr/share/dotnet/dotnet";
+
+        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker" }.ResolveWorkerLaunch("/ignored", Host, _ => true)
+            .ShouldBe(new WorkerLaunch("/opt/w/HeapScope.Worker", null));
+        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker.dll" }.ResolveWorkerLaunch("/ignored", Host, _ => true)
+            .ShouldBe(new WorkerLaunch(Host, "/opt/w/HeapScope.Worker.dll"));
+        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker" }.ResolveWorkerLaunch("/ignored", Host, _ => false).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_test_process_runs_on_an_installed_runtime_and_finds_its_dotnet_host()
+    {
+        // The tests run framework-dependent, as the dotnet tool does.
+        var host = WorkerHostOptions.RunningDotnetHost();
+
+        host.ShouldNotBeNull();
+        Path.GetFileNameWithoutExtension(host).ShouldBe("dotnet");
+        File.Exists(host).ShouldBeTrue();
+    }
+
+    [Fact]
     public void Pipe_names_are_unique_and_fit_a_macos_socket_path()
     {
         // Sprint 2.3.5: off Windows the pipe is a socket at <temp>/CoreFxPipe_<name>, at most 104 characters on macOS,

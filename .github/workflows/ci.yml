@@ -3,8 +3,10 @@
 #   checks the known answers. The heavy integration tests run in a second Windows job beside it.
 # - Linux builds the engine, the worker, the CLI and the Avalonia app, runs their tests, takes a core dump of the fixture
 #   with dotnet-dump, checks the CLI's known answers and opens the dump in the app without a display.
-# - Packages: self-contained builds per runtime identifier with their license files (checked), built beside the tests and
-#   uploaded as artifacts on pushes and manual runs.
+# - Packages: self-contained builds per runtime identifier with their license files (checked), in their release archives,
+#   built beside the tests and uploaded as artifacts on pushes and manual runs. The Windows and Linux ones are unpacked
+#   and run as a user gets them, without .NET (Linux in a plain Ubuntu container), on a fixture dump, and the CLI's
+#   dotnet tool is packed and installed from its file (sprint 3.9, ADR-039).
 # - No macOS runners (owner, 2026-10-31: their minutes cost about ten times Linux's). The macOS packages are built on
 #   Linux and not run; nothing here tests on macOS.
 # Tests run through build/test.sh and the fixture dump through build/fixture-dump.sh, as in the local gate (build/gate.sh).
@@ -201,35 +203,55 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
-      - name: Publish the app and the CLI, self-contained, with the worker and the license files
+      - name: Publish the app and the CLI, self-contained, with the worker and the license files, in the release archive
         # publish.sh copies the license files and checks the folder (build/check-package.sh, sprint 3.6, peer review P3).
+        # The archive is the release's (sprint 3.9): a .zip for Windows; a .tar.gz elsewhere, which keeps the executables'
+        # modes that an artifact upload of the folder drops (sprint 2.3.6 review H1).
         shell: bash
         run: |
           bash build/publish.sh ${{ matrix.rid }} "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}"
-          # A tarball keeps the executables' modes, which an artifact upload of the folder drops (sprint 2.3.6 review H1).
-          # Relative names: Git Bash's GNU tar reads "D:" in a Windows path as a remote host.
-          (cd "$RUNNER_TEMP" && tar -czf "HeapScope-${{ matrix.rid }}.tar.gz" "HeapScope-${{ matrix.rid }}")
-          du -sh "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}" "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}.tar.gz"
-      - name: Run the build as a user would get it
-        # Unpacked from the tarball: the CLI, its worker (started through the pipe) and the app without a display.
+          archive=$(bash build/archive.sh pack "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}" "$RUNNER_TEMP/out")
+          du -sh "$RUNNER_TEMP/HeapScope-${{ matrix.rid }}" "$archive"
+      - name: Unpack the archive and take a dump of the fixture
         if: ${{ matrix.runs }}
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/unpacked"
-          (cd "$RUNNER_TEMP/unpacked" && tar -xzf "../HeapScope-${{ matrix.rid }}.tar.gz")
-          dir="$RUNNER_TEMP/unpacked/HeapScope-${{ matrix.rid }}"
-          bash build/check-package.sh "$dir"
-          ext=""; [ "${{ matrix.rid }}" = "win-x64" ] && ext=".exe"
-          "$dir/heapscope-cli$ext" --version
-          "$dir/heapscope-cli$ext" worker ping
-          grep -q '"System.GC.Server": true' "$dir/worker/HeapScope.Worker.runtimeconfig.json"
-          "$dir/HeapScope$ext" --headless --smoke-synthetic 200000 --Logging:File:Directory "$RUNNER_TEMP/pkg-log" || { cat "$RUNNER_TEMP"/pkg-log/*.log; exit 1; }
-          grep -h "Smoke run:" "$RUNNER_TEMP"/pkg-log/*.log
+          dir=$(bash build/archive.sh unpack "$RUNNER_TEMP"/out/HeapScope-${{ matrix.rid }}.* "$RUNNER_TEMP/unpacked")
+          echo "UNPACKED=$dir" >> "$GITHUB_ENV"
+          dotnet build fixtures/LeakyConsole -c Release
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            # Captured by the unpacked CLI, as a user would.
+            bash build/fixture-dump.sh "$RUNNER_TEMP/dump/leaky.dmp" "cli=$dir/heapscope-cli.exe"
+          else
+            dotnet tool install --global dotnet-dump --version 10.0.750501
+            export PATH="$PATH:$HOME/.dotnet/tools"
+            bash build/fixture-dump.sh "$RUNNER_TEMP/dump/leaky.dmp" dotnet-dump
+          fi
+      - name: Run the build as a user gets it, without .NET
+        # The CLI, its worker and the app (without a display) open the fixture dump (build/check-install.sh). Windows hides
+        # its installed .NET; Linux runs in a plain Ubuntu container with only the libraries INSTALL.md lists. The image
+        # runs the check only; nothing built in it ships.
+        if: ${{ matrix.runs }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            bash build/check-install.sh "$UNPACKED" "$RUNNER_TEMP/dump/leaky.dmp"
+          else
+            docker run --rm -e HEAPSCOPE_DATA_FOLDER=/tmp/heapscope -v "$UNPACKED:/heapscope:ro" -v "$RUNNER_TEMP/dump:/dump" \
+              -v "$PWD/build:/build:ro" ubuntu:24.04 bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+              libicu74 libfontconfig1 > /dev/null && bash /build/check-install.sh /heapscope /dump/leaky.dmp'
+          fi
+      - name: Pack the CLI as a dotnet tool and install it from its file
+        if: ${{ matrix.runs }}
+        shell: bash
+        run: |
+          bash build/pack-tool.sh "$RUNNER_TEMP/tool"
+          bash build/check-tool.sh "$RUNNER_TEMP/tool" "$RUNNER_TEMP/dump/leaky.dmp"
       - name: Upload
         # Build output only; on pushes to develop or main and manual runs (sprint 2.3.6, decision 7).
         if: ${{ github.event_name != 'pull_request' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: HeapScope-${{ matrix.rid }}
-          path: ${{ runner.temp }}/HeapScope-${{ matrix.rid }}.tar.gz
+          path: ${{ runner.temp }}/out/HeapScope-${{ matrix.rid }}.*
           retention-days: 14
