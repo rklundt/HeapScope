@@ -56,7 +56,8 @@ follows 3.8.0.
 **In scope already** (product owner, 2026-10-30):
 - A README in the shipped `licenses/` folder: the files there are the licenses of third-party components, and
   HeapScope's own license is `LICENSE` beside it (so no one reads HeapScope as MIT).
-- The 3.9.0 release notes say that builds no longer contain Adobe's DNG SDK or Google's piex (ADR-038, 2026-10-31).
+- Done 2026-10-31: the 3.8.0 release notes say that builds no longer contain Adobe's DNG SDK or Google's piex
+  (ADR-038); 3.8.0 was released first.
 
 **Scope**: otherwise decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
 your proposal for a packaging sprint once you pick audiences and channels"). Options discussed after 2.4:
