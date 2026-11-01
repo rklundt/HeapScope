@@ -501,8 +501,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
     in its release archive (`build/archive.sh`). For win-x64 and linux-x64 it unpacks the archive, dumps the fixture
     (on Windows with the unpacked CLI) and runs the build as a user gets it, without .NET (`build/check-install.sh`: on
     Windows with .NET off the path, on Linux in a plain `ubuntu:24.04` container with only the libraries INSTALL.md
-    lists); then it packs the CLI's dotnet tool and installs it from its file (`build/pack-tool.sh`,
-    `build/check-tool.sh`). `osx-arm64` and `osx-x64` are built on Linux and not run. On pushes and manual runs it
+    lists), and installs the CLI's dotnet tool from its file (`build/check-tool.sh`), packed first by `build/pack-tool.sh`
+    (a publish for a runtime identifier rewrites the lock files, and the tool restores locked). `osx-arm64` and `osx-x64` are built on Linux and not run. On pushes and manual runs it
     uploads the archives (`HeapScope-<rid>`, kept 14 days).
     Pushes to `develop` and `main` come from PRs whose required checks passed; a manual run uploads its builds whatever
     its tests do.

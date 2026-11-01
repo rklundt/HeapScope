@@ -203,6 +203,11 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
+      - name: Pack the CLI as a dotnet tool
+        # Before the publish: a publish for a runtime identifier rewrites the lock files, and the tool restores locked.
+        if: ${{ matrix.runs }}
+        shell: bash
+        run: bash build/pack-tool.sh "$RUNNER_TEMP/tool"
       - name: Publish the app and the CLI, self-contained, with the worker and the license files, in the release archive
         # publish.sh copies the license files and checks the folder (build/check-package.sh, sprint 3.6, peer review P3).
         # The archive is the release's (sprint 3.9): a .zip for Windows; a .tar.gz elsewhere, which keeps the executables'
@@ -241,12 +246,10 @@ jobs:
               -v "$PWD/build:/build:ro" ubuntu:24.04 bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends \
               libicu74 libfontconfig1 > /dev/null && bash /build/check-install.sh /heapscope /dump/leaky.dmp'
           fi
-      - name: Pack the CLI as a dotnet tool and install it from its file
+      - name: Install the CLI's dotnet tool from its file
         if: ${{ matrix.runs }}
         shell: bash
-        run: |
-          bash build/pack-tool.sh "$RUNNER_TEMP/tool"
-          bash build/check-tool.sh "$RUNNER_TEMP/tool" "$RUNNER_TEMP/dump/leaky.dmp"
+        run: bash build/check-tool.sh "$RUNNER_TEMP/tool" "$RUNNER_TEMP/dump/leaky.dmp"
       - name: Upload
         # Build output only; on pushes to develop or main and manual runs (sprint 2.3.6, decision 7).
         if: ${{ github.event_name != 'pull_request' }}
