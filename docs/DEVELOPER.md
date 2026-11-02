@@ -539,15 +539,29 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 - SkiaSharp native libraries (ADR-038, 2026-10-30): `.github/workflows/skia-native.yml` builds `libSkiaSharp` for win-x64,
   linux-x64 and macOS (one universal library for both macOS runtimes) from SkiaSharp's sources at a pinned commit, with
   only `skia_use_dng_sdk` and `skia_use_piex` off; it checks each library (`build/check-no-dng.sh`) and attests the set.
-  It runs on a push that changes it (any branch but `main` and `develop`) or by hand once it is on `main`. The macOS
-  library needs a paid macOS runner, so it is built only on a manual run with `macos` checked (owner, 2026-10-31:
-  macOS minutes cost about ten times Linux's); a push builds the Windows and Linux ones. The owner
-  attaches its files (`libSkiaSharp.win-x64.dll` and `.pdb`, `libSkiaSharp.linux-x64.so`, `libSkiaSharp.osx.dylib`,
-  `SHA256SUMS`) to a pre-release tagged `skia-native-<SkiaSharp version>-<n>`, which `release.yml` does not build
-  (it builds `v*` tags only), and `build/skia-native.sh` pins that release, the SkiaSharp version and each checksum.
-  When an Avalonia update brings a new SkiaSharp, publish.sh fails until this is redone for the new version: change
-  `SKIASHARP_COMMIT` in the workflow (the commit of SkiaSharp's release tag), push, run it by hand with `macos` checked
-  (with the owner's OK for the macOS minutes), attach, and update the pins.
+  It runs by hand only (since 2026-11-02: a push trigger rebuilt Skia for every Dependabot action bump); the macOS
+  library is built only with `macos` checked (owner, 2026-10-31: macOS minutes cost about ten times Linux's on a private
+  repository; standard runners are free while the repository is public). The owner attaches its files
+  (`libSkiaSharp.win-x64.dll` and `.pdb`, `libSkiaSharp.linux-x64.so`, `libSkiaSharp.osx.dylib`, `SHA256SUMS`) to a
+  pre-release tagged `skia-native-<SkiaSharp version>-<n>`, which `release.yml` does not build (it builds `v*` tags
+  only), and `build/skia-native.sh` pins that release, the SkiaSharp version and each checksum.
+- **When an Avalonia update brings a new SkiaSharp (rare, BY HAND).** Nothing rebuilds HeapScope's SkiaSharp native
+  library on its own, so this step is easy to forget: it is needed only when SkiaSharp's version changes, which happens
+  through an Avalonia update (usually a Dependabot PR). You know it is needed when CI's check "SkiaSharp native library
+  is built for this SkiaSharp (ADR-038)" fails (also `bash build/skia-native.sh check`, the gate's first step, and every
+  package build): its message names both versions. Nothing is broken; do this on the update's branch:
+  1. In `.github/workflows/skia-native.yml`, set `SKIASHARP_COMMIT` to the commit of SkiaSharp's `v<version>` tag
+     (`gh api repos/mono/SkiaSharp/git/ref/tags/v<version>`, the `object.sha`; when its `object.type` is `tag`, the
+     commit is that tag's own `object.sha`: `gh api repos/mono/SkiaSharp/git/tags/<sha>`; a tag can move, a commit
+     cannot), and the comment beside it to the version.
+  2. Push the branch, then run the workflow on it with macOS (the osx package builds need that library):
+     `gh workflow run skia-native.yml --ref <branch> -f macos=true`. It takes about 20 minutes; each library is
+     checked for DNG SDK and piex code, and the set is attested.
+  3. Download the run's files and attach them to a new pre-release: `gh run download <run id> -D skia` and
+     `gh release create skia-native-<version>-1 --prerelease --title "SkiaSharp <version> native libraries without
+     the DNG SDK" skia/*/*` (the owner's OK, as for any release).
+  4. In `build/skia-native.sh`, set `skia_version`, `release` and each SHA-256 (from the release's `SHA256SUMS`). Push:
+     the check and the package builds pass again. The old pre-release can stay; nothing uses it.
 - Release notes: `RELEASE-NOTES.md` has a section per version (one per sprint), added by `/close-sprint`. A release
   adds its row to the table at the top, and the GitHub Release's notes are the sections since the previous release,
   after a line pointing to `INSTALL.md`, which users follow from download to a first snapshot.

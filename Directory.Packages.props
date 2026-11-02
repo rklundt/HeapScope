@@ -15,6 +15,11 @@
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="System.CommandLine" Version="2.0.14" />
   </ItemGroup>
+  <!--
+    Updating Avalonia: check that nothing HeapScope uses went paid (ADR-025), and whether it brings a new SkiaSharp. A new
+    SkiaSharp needs HeapScope's own SkiaSharp native library rebuilt BY HAND before any package builds (ADR-038; rare):
+    CI's "SkiaSharp native library" check fails with the steps, and DEVELOPER.md section 7 has them in full.
+  -->
   <ItemGroup Label="Avalonia UI (ADR-025: MIT only; before any update, check that nothing used went paid)">
     <PackageVersion Include="Avalonia" Version="12.1.4" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.1.4" />

@@ -27,15 +27,52 @@
 # sources and build scripts, at the same release, built by .github/workflows/skia-native.yml and attached to a release
 # of this repository; each is checked here against the checksum pinned below. HEAPSCOPE_SKIA_NATIVE_DIR may name a
 # folder that already holds them (an offline build); the checksums are checked either way. publish.sh runs this.
+# `check` only compares the SkiaSharp version the app restores (its lock file) with the one pinned here; CI and the gate
+# run it first, so a SkiaSharp update fails a check that says so by name.
 # Usage: skia-native.sh <rid> <publish folder>
-# On a SkiaSharp update: rerun skia-native.yml at the new release, attach its files to a new release, and update the
-# version, the release and the checksums here (DEVELOPER.md 7, "SkiaSharp native libraries").
+#        skia-native.sh check
+#
+# RARE, BY HAND: when an Avalonia update brings a new SkiaSharp, the libraries must be rebuilt for it before any package
+# builds. Nothing does this automatically (skia-native.yml runs only by hand, since 2026-11-02). The message below, and
+# DEVELOPER.md section 7, "When an Avalonia update brings a new SkiaSharp", give the steps.
 set -euo pipefail
-[ $# -eq 2 ] || { echo "Usage: skia-native.sh <rid> <publish folder>" >&2; exit 64; }
-rid="$1"
-out="$2"
 skia_version=3.119.4
 release=https://github.com/rklundt/HeapScope/releases/download/skia-native-3.119.4-1
+
+# Said wherever the versions differ, so whoever meets it (often in a Dependabot PR for Avalonia) knows what happened.
+stale() {
+  cat >&2 <<EOF
+==========================================================================================================
+SkiaSharp is now $1, but HeapScope's own SkiaSharp native library is built for $skia_version.
+
+This is expected after an Avalonia update, and nothing is broken. HeapScope ships its own build of
+SkiaSharp's native library, without Adobe's DNG SDK and Google's piex (ADR-038). That build is made by
+hand, once per SkiaSharp version, and every package build stops here until it is made for $1.
+
+What to do (DEVELOPER.md section 7, "When an Avalonia update brings a new SkiaSharp"):
+  1. In .github/workflows/skia-native.yml, set SKIASHARP_COMMIT to the commit of SkiaSharp's v$1 tag
+     (https://github.com/mono/SkiaSharp/releases/tag/v$1).
+  2. Push that branch and run the workflow on it by hand, with macOS:
+       gh workflow run skia-native.yml --ref <branch> -f macos=true
+  3. Attach the run's files to a new pre-release of this repository, skia-native-$1-1.
+  4. In build/skia-native.sh, set skia_version=$1, the release to skia-native-$1-1, and each
+     SHA-256 from that release's SHA256SUMS. Push; the package builds pass again.
+==========================================================================================================
+EOF
+  exit 1
+}
+
+if [ "${1:-}" = "check" ] && [ $# -eq 1 ]; then
+  lock="$(dirname "$0")/../src/HeapScope.UI/packages.lock.json"
+  restored=$(tr -d '\r' < "$lock" | awk '/^ *"SkiaSharp": \{/ { found = 1 } found && /"resolved"/ { gsub(/[^0-9.]/, ""); print; exit }')
+  [ -n "$restored" ] || { echo "No SkiaSharp in $lock: the app no longer uses it? Then publish.sh needs no skia-native.sh." >&2; exit 1; }
+  [ "$restored" = "$skia_version" ] || stale "$restored"
+  echo "SkiaSharp $restored: HeapScope's native library without the DNG SDK is built for it (ADR-038)."
+  exit 0
+fi
+[ $# -eq 2 ] || { echo "Usage: skia-native.sh <rid> <publish folder> | check" >&2; exit 64; }
+rid="$1"
+out="$2"
 case "$rid" in
   win-x64) files="libSkiaSharp.dll:libSkiaSharp.win-x64.dll:fbbce099ac3937de272e3714c17ce29d1100b99fc9193b78e67452bf263329a1 libSkiaSharp.pdb:libSkiaSharp.win-x64.pdb:b32f942a17a1a1b69ae6d47a46e7805b174cf47dd326f485311b6fdecd026bf4" ;;
   linux-x64) files="libSkiaSharp.so:libSkiaSharp.linux-x64.so:ae7c2afaefb4a19d1250a867f736380b6880eaa8ba6e5389d724ca0f921eef85" ;;
@@ -44,10 +81,8 @@ case "$rid" in
 esac
 
 # The libraries are built for one SkiaSharp release; SkiaSharp refuses a native library of another version at run time.
-grep -q "\"SkiaSharp/$skia_version\"" "$out/HeapScope.deps.json" || {
-  echo "The build does not use SkiaSharp $skia_version: rebuild the native libraries for its version (DEVELOPER.md 7)." >&2
-  exit 1
-}
+grep -q "\"SkiaSharp/$skia_version\"" "$out/HeapScope.deps.json" \
+  || stale "$(grep -o '"SkiaSharp/[0-9.]*"' "$out/HeapScope.deps.json" | head -1 | tr -dc '0-9.' || true)"
 
 sha256() { if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 work=$(mktemp -d)

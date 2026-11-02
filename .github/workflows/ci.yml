@@ -203,6 +203,10 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
+      - name: SkiaSharp native library is built for this SkiaSharp (ADR-038)
+        # Fails with the steps when an Avalonia update brought a new SkiaSharp: the library is rebuilt by hand (rare).
+        shell: bash
+        run: bash build/skia-native.sh check
       - name: Pack the CLI as a dotnet tool
         # Before the publish: a publish for a runtime identifier rewrites the lock files, and the tool restores locked.
         if: ${{ matrix.runs }}
