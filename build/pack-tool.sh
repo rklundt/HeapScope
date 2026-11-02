@@ -53,7 +53,10 @@ for file in heapscope-cli.dll DotnetToolSettings.xml worker/HeapScope.Worker.dll
   grep -qx "$tools/$file" <<< "$listing" || { echo "Missing $tools/$file"; failed=1; }
 done
 grep -qx "LICENSE" <<< "$listing" || { echo "Missing the package's LICENSE"; failed=1; }
-unwanted=$(grep -iE "/worker/HeapScope\.Worker(\.exe)?$|msdia140\.dll|KernelTraceControl\.dll" <<< "$listing" || true)
+# No worker executable and no runtime at any depth (3.9 review M5), no unreviewed binaries, at least one third-party
+# license folder.
+unwanted=$(grep -iE "/HeapScope\.Worker(\.exe)?$|(^|/)(lib)?(hostfxr|coreclr)\.(dll|so|dylib)$|msdia140\.dll|KernelTraceControl\.dll" <<< "$listing" || true)
+grep -qE "^$tools/licenses/[^/]+/.+" <<< "$listing" || { echo "No third-party license files under $tools/licenses/"; failed=1; }
 [ -z "$unwanted" ] || { echo "Files a tool must not carry:"; echo "$unwanted"; failed=1; }
 [ "$failed" -eq 0 ] && echo "Packed $package: the worker's assembly, the license files, no executable worker or unreviewed binaries."
 exit "$failed"

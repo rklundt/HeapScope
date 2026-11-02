@@ -50,19 +50,43 @@ public sealed class WorkerHostOptionsTests
     [Fact]
     public void The_worker_executable_starts_on_its_own_and_its_assembly_through_the_dotnet_host()
     {
-        // Sprint 3.9, ADR-039: the CLI's dotnet tool ships the worker's assembly without an executable.
+        // ADR-039: the CLI's dotnet tool ships the worker's assembly without an executable.
         var root = Path.Combine(Path.GetTempPath(), "hs-tool");
         var executable = Path.Combine(root, "worker", WorkerHostOptions.WorkerExecutableName);
         var assembly = Path.Combine(root, "worker", "HeapScope.Worker.dll");
         const string Host = "/usr/share/dotnet/dotnet";
         var options = new WorkerHostOptions();
 
-        options.ResolveWorkerLaunch(root, Host, f => f == executable || f == assembly).ShouldBe(new WorkerLaunch(executable, null));
-        options.ResolveWorkerLaunch(root, null, f => f == executable).ShouldBe(new WorkerLaunch(executable, null));
-        options.ResolveWorkerLaunch(root, Host, f => f == assembly).ShouldBe(new WorkerLaunch(Host, assembly));
-        options.ResolveWorkerLaunch(root, Host, f => f == assembly)!.WorkerFile.ShouldBe(assembly);
-        options.ResolveWorkerLaunch(root, null, f => f == assembly).ShouldBeNull("a self-contained process has no host for an assembly");
-        options.ResolveWorkerLaunch(root, Host, _ => false).ShouldBeNull();
+        options.ResolveWorkerLaunch(root, Host, true, f => f == executable || f == assembly).ShouldBe(new WorkerLaunch(executable, null));
+        options.ResolveWorkerLaunch(root, null, true, f => f == executable).ShouldBe(new WorkerLaunch(executable, null));
+        options.ResolveWorkerLaunch(root, Host, true, f => f == assembly).ShouldBe(new WorkerLaunch(Host, assembly));
+        options.ResolveWorkerLaunch(root, Host, true, f => f == assembly).WorkerFile.ShouldBe(assembly);
+    }
+
+    [Fact]
+    public void A_worker_that_cannot_start_says_which_case_it_is_and_what_to_do()
+    {
+        // 3.9 review M1 and M3: each refusal names the files or the host and a next step.
+        var root = Path.Combine(Path.GetTempPath(), "hs-tool");
+        var folder = Path.Combine(root, "worker");
+        var assembly = Path.Combine(folder, "HeapScope.Worker.dll");
+        const string Host = "/usr/share/dotnet/dotnet";
+        var options = new WorkerHostOptions();
+
+        var none = Should.Throw<WorkerStartException>(() => options.ResolveWorkerLaunch(root, Host, true, _ => false));
+        none.Message.ShouldContain($"No analysis worker in {folder}");
+        none.Message.ShouldContain(WorkerHostOptions.WorkerExecutableName);
+        none.Message.ShouldContain("HeapScope.Worker.dll");
+        none.Message.ShouldContain("dotnet tool uninstall -g HeapScope.Cli");
+
+        var noHost = Should.Throw<WorkerStartException>(() => options.ResolveWorkerLaunch(root, null, true, f => f == assembly));
+        noHost.Message.ShouldContain(assembly);
+        noHost.Message.ShouldContain("needs a dotnet host");
+        noHost.Message.ShouldContain("Install the .NET 10 runtime");
+
+        var x86 = Should.Throw<WorkerStartException>(() => options.ResolveWorkerLaunch(root, Host, false, f => f == assembly));
+        x86.Message.ShouldContain("needs a 64-bit .NET");
+        x86.Message.ShouldContain(Host);
     }
 
     [Fact]
@@ -70,11 +94,14 @@ public sealed class WorkerHostOptionsTests
     {
         const string Host = "/usr/share/dotnet/dotnet";
 
-        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker" }.ResolveWorkerLaunch("/ignored", Host, _ => true)
+        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker" }.ResolveWorkerLaunch("/ignored", Host, true, _ => true)
             .ShouldBe(new WorkerLaunch("/opt/w/HeapScope.Worker", null));
-        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker.dll" }.ResolveWorkerLaunch("/ignored", Host, _ => true)
+        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker.dll" }.ResolveWorkerLaunch("/ignored", Host, true, _ => true)
             .ShouldBe(new WorkerLaunch(Host, "/opt/w/HeapScope.Worker.dll"));
-        new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker" }.ResolveWorkerLaunch("/ignored", Host, _ => false).ShouldBeNull();
+        Should.Throw<WorkerStartException>(() => new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker" }.ResolveWorkerLaunch("/ignored", Host, true, _ => false))
+            .Message.ShouldContain("Worker:WorkerPath was not found: /opt/w/HeapScope.Worker");
+        Should.Throw<WorkerStartException>(() => new WorkerHostOptions { WorkerPath = "/opt/w/HeapScope.Worker.dll" }.ResolveWorkerLaunch("/ignored", null, true, _ => true))
+            .Message.ShouldContain("needs a dotnet host");
     }
 
     [Fact]

@@ -281,8 +281,7 @@ public sealed class WorkerHost : IWorkerClient, IHostedService, IAsyncDisposable
         }
         else
         {
-            var launch = _options.ResolveWorkerLaunch()
-                ?? throw new WorkerStartException($"The analysis worker was not found at {_options.ResolveWorkerPath()}. Reinstall HeapScope or set Worker:WorkerPath.");
+            var launch = _options.ResolveWorkerLaunch();
             pipeName = NewPipeName();
             process = StartProcess(launch, pipeName);
         }

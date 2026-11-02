@@ -42,9 +42,12 @@ case "$1" in
     esac
     ;;
   unpack)
-    case "$2" in
-      *.zip) name="$(basename "$2" .zip)"; dotnet run "$here/zip.cs" -- extract "$2" "$out" >&2 ;;
-      *.tar.gz) name="$(basename "$2" .tar.gz)"; (cd "$out" && tar -xzf "$2") ;;
+    [ -f "$2" ] || { echo "No such archive: $2" >&2; exit 64; }
+    archive="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+    case "$archive" in
+      *.zip) name="$(basename "$archive" .zip)"; dotnet run "$here/zip.cs" -- extract "$archive" "$out" >&2 ;;
+      # From the archive's folder by a relative name, as pack does (Git Bash's tar and "D:").
+      *.tar.gz) name="$(basename "$archive" .tar.gz)"; (cd "$(dirname "$archive")" && tar -xzf "$(basename "$archive")" -C "$out") ;;
       *) echo "Not a release archive: $2" >&2; exit 64 ;;
     esac
     echo "$out/$name"

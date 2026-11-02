@@ -242,7 +242,8 @@ jobs:
           if [ "${{ matrix.rid }}" = "win-x64" ]; then
             bash build/check-install.sh "$UNPACKED" "$RUNNER_TEMP/dump/leaky.dmp"
           else
-            docker run --rm -e HEAPSCOPE_DATA_FOLDER=/tmp/heapscope -v "$UNPACKED:/heapscope:ro" -v "$RUNNER_TEMP/dump:/dump" \
+            docker run --rm -e HEAPSCOPE_DATA_FOLDER=/tmp/heapscope -e Logging__File__Directory=/dump/logs \
+              -v "$UNPACKED:/heapscope:ro" -v "$RUNNER_TEMP/dump:/dump" \
               -v "$PWD/build:/build:ro" ubuntu:24.04 bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends \
               libicu74 libfontconfig1 > /dev/null && bash /build/check-install.sh /heapscope /dump/leaky.dmp'
           fi
@@ -250,6 +251,17 @@ jobs:
         if: ${{ matrix.runs }}
         shell: bash
         run: bash build/check-tool.sh "$RUNNER_TEMP/tool" "$RUNNER_TEMP/dump/leaky.dmp"
+      - name: Keep HeapScope's logs
+        # So a failed check above can be explained (3.9 review M7). Logs hold paths and type names, never dump values.
+        if: ${{ always() && matrix.runs }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-logs-${{ matrix.rid }}
+          path: |
+            artifacts/heapscope-logs
+            ${{ runner.temp }}/dump/logs
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload
         # Build output only; on pushes to develop or main and manual runs (sprint 2.3.6, decision 7).
         if: ${{ github.event_name != 'pull_request' }}

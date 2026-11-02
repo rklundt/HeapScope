@@ -41,11 +41,24 @@ export HEAPSCOPE_DATA_FOLDER="${HEAPSCOPE_DATA_FOLDER:-$(mktemp -d)}"
 
 ext=""
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ext=".exe" ;; esac
-"$dir/heapscope-cli$ext" --version
-"$dir/heapscope-cli$ext" worker ping
-grep -q '"System.GC.Server": true' "$dir/worker/HeapScope.Worker.runtimeconfig.json"
-summary=$("$dir/heapscope-cli$ext" summary "$dump" --filter StaticCacheEntry | tr -d '\r')
-grep -qE "^ +2,000 .* Fixtures\.Leaks\.StaticCacheEntry$" <<< "$summary" || { echo "$summary"; echo "The CLI did not count 2,000 StaticCacheEntry objects"; exit 1; }
+# On failure, the end of each HeapScope log (CI sets Logging__File__Directory; otherwise the data folder's logs).
+fail() { echo "$1" >&2; for f in "${Logging__File__Directory:-$HEAPSCOPE_DATA_FOLDER/logs}"/*.log; do [ -f "$f" ] && { echo "== $f" >&2; tail -40 "$f" >&2; }; done; exit 1; }
+
+# Self-contained, not only .NET hidden: Windows finds an installed .NET through the registry too (3.9 review M6). Each
+# executable carries its runtime (includedFrameworks, no frameworks) and its host resolver beside it.
+for config in "$dir/HeapScope.runtimeconfig.json" "$dir/heapscope-cli.runtimeconfig.json" "$dir/worker/HeapScope.Worker.runtimeconfig.json"; do
+  grep -q '"includedFrameworks"' "$config" && ! grep -q '"frameworks\?"' "$config" \
+    || fail "$config does not describe a self-contained build"
+  ls "$(dirname "$config")" | grep -qiE '^(lib)?hostfxr\.(dll|so)$' || fail "No hostfxr beside $config"
+done
+grep -q '"System.GC.Server": true' "$dir/worker/HeapScope.Worker.runtimeconfig.json" || fail "The worker's runtimeconfig does not turn Server GC on"
+
+"$dir/heapscope-cli$ext" --version || fail "heapscope-cli --version failed"
+info=$("$dir/heapscope-cli$ext" worker info 2>&1 | tr -d '\r') || { echo "$info" >&2; fail "heapscope-cli worker info failed: the worker did not start"; }
+echo "$info"
+grep -qE '^Server GC: +True$' <<< "$info" || fail "The worker does not run Server GC"
+summary=$("$dir/heapscope-cli$ext" summary "$dump" --filter StaticCacheEntry | tr -d '\r') || fail "heapscope-cli summary failed"
+grep -qE "^ +2,000 .* Fixtures\.Leaks\.StaticCacheEntry$" <<< "$summary" || { echo "$summary"; fail "The CLI did not count 2,000 StaticCacheEntry objects"; }
 
 log=$(mktemp -d)
 "$dir/HeapScope$ext" --headless --smoke-open "$dump" --Logging:File:Directory "$log" || { cat "$log"/*.log; exit 1; }
