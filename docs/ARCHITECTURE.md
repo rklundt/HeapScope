@@ -120,7 +120,8 @@ Capture and sessions (sprint 1.1):
 HeapScope.sln
 build/                         Shared MSBuild targets (worker deployment next to UI and CLI); the gate, test, fixture
                                dump, publish, license, package and SkiaSharp native scripts shared by CI and the local
-                               gate (sprint 3.6, ADR-038)
+                               gate (sprint 3.6, ADR-038); release archives, the CLI's dotnet tool and the checks that
+                               run them as a user would (sprint 3.9, ADR-039)
 src/
   HeapScope.Core               Domain model: snapshot abstraction, capability model, compact graph,
                                type table, root model, string table. No dependencies at all.
@@ -161,7 +162,8 @@ perf/
 .github/workflows/ci.yml       CI on GitHub's runners: Windows and Linux, and the builds per system (sprints 2.3.5,
 2.3.6; no macOS runners since 2026-10-31).
 .github/workflows/fuzz.yml     Nightly mutation tests with more iterations (sprint 3.7).
-.github/workflows/release.yml  Release builds per runtime identifier, SBOM, checksums and attestations (sprint 3.7).
+.github/workflows/release.yml  Release builds (win-x64 .zip, linux-x64 .tar.gz, the CLI's dotnet tool), SBOM, checksums
+                               and attestations (sprint 3.7; ADR-039).
 .github/workflows/skia-native.yml SkiaSharp's native library built without the DNG SDK and piex (ADR-038).
 fixtures/
   Leaks                        Shared leak implementations and semantic fixtures (namespace Fixtures.Leaks).

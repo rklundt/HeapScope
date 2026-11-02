@@ -397,7 +397,8 @@ public static class DacLocator
     {
         if (dumpArchitecture != host)
         {
-            return $"This dump comes from an {dumpArchitecture} process and HeapScope runs as {host}: open it with the {dumpArchitecture} build of HeapScope.";
+            // HeapScope's releases are x64 only (ADR-039); the dotnet tool runs as its machine's architecture (3.9 review M3).
+            return $"This dump comes from an {dumpArchitecture} process and HeapScope runs as {host}: open it on an {dumpArchitecture} machine with HeapScope's dotnet tool, or with a build of HeapScope from source for {dumpArchitecture}.";
         }
 
         return dumpPlatform != platform && !symbolServerAllowed

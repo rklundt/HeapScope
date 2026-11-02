@@ -34,6 +34,7 @@ failed=0
 for file in LICENSE ADDITIONAL-TERMS.md COMMERCIAL.md THIRD-PARTY-NOTICES.md; do
   [ -s "$dir/$file" ] || { echo "Missing $file"; failed=1; }
 done
+grep -q "They are not HeapScope's license" "$dir/licenses/README.md" 2>/dev/null || { echo "Missing licenses/README.md, which says whose licenses the folder holds"; failed=1; }
 ls "$dir"/licenses/Microsoft.NETCore.App.Runtime.*/* > /dev/null 2>&1 || { echo "Missing the .NET runtime's license files under licenses/"; failed=1; }
 ls "$dir"/licenses/SkiaSharp.NativeAssets.*/THIRD-PARTY-NOTICES.txt > /dev/null 2>&1 || { echo "Missing SkiaSharp's native notices under licenses/"; failed=1; }
 unreviewed=$(find "$dir" -iname 'msdia140.dll' -o -iname 'KernelTraceControl.dll')

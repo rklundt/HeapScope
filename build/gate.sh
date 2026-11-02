@@ -40,6 +40,9 @@ started=$(date +%s)
 
 build_ok=true
 warnings=0
+# A new SkiaSharp (after an Avalonia update) needs HeapScope's native library rebuilt by hand first; this says how.
+echo "== SkiaSharp native library" | tee -a "$log"
+bash build/skia-native.sh check 2>&1 | tee -a "$log" || build_ok=false
 for configuration in Debug Release; do
   echo "== Build $configuration" | tee -a "$log"
   output=$(dotnet build HeapScope.sln -c "$configuration" 2>&1) || build_ok=false

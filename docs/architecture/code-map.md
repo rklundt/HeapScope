@@ -329,4 +329,12 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   [2.3.5]. Since
   2026-10-30 (ADR-038): `skia-native.sh` (publish.sh swaps in HeapScope's SkiaSharp native library without the DNG SDK
   and piex, by pinned checksum) and `check-no-dng.sh` (no DNG SDK or piex code in a library; check-package.sh and
-  `.github/workflows/skia-native.yml`, which builds the libraries, run it).
+  `.github/workflows/skia-native.yml`, which builds the libraries, run it). Since 3.9 (ADR-039): `archive.sh` (a build's
+  release archive, `.zip` for Windows and `.tar.gz` elsewhere, and back), `zip.cs` (zip files without zip installed),
+  `check-install.sh` (an unpacked build run without .NET on a fixture dump), `pack-tool.sh` (the CLI's dotnet tool,
+  checked) and `check-tool.sh` (installs it from its file and runs it). The worker starts from its executable, or from
+  its assembly through the dotnet host in the tool: `WorkerHostOptions.ResolveWorkerLaunch` (a
+  `WorkerStartException` per case when it cannot) and `WorkerLaunch` (Application), and `ProcessDiscovery` counts such a
+  worker as HeapScope's own (Capture); `RuntimeEnvironment.DescribeBuild` (Contracts) names the build form in every log
+  header. Tests: `WorkerHostOptionsTests`, `RuntimeEnvironmentTests`, `ProcessDiscoveryTests` and the integration test
+  `ToolWorkerTests` (the worker's assembly through the dotnet host).

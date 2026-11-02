@@ -45,11 +45,18 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
+- From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
+  (`LogWarning(ex, ...)` reaches the console logger; keep stacks in the file log, M11); capturing or finding one of
+  HeapScope's own processes says "No running .NET process with id N was found" and logs nothing (say "pid N is
+  HeapScope's own" and log the rule that matched, M13); a `--log-level` option for the CLI (today only the environment
+  variable `Logging__File__MinimumLevel`, M14).
 - A documented CI leak check for users' pipelines: a sample workflow running `heapscope-cli diff --fail-on-growth` on
   two fixture dumps.
 - Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
   macOS packages are built on Linux and never run, and the macOS core dump checks (known answers, DAC trust) no longer
   run. Before macOS ships, the product owner picks a way: a Mac of their own, or macOS runners for a release only.
+  Standard hosted runners are free in public repositories, and HeapScope is public; the owner checks the billing
+  report before macOS runners come back (2026-10-31).
 - Objects finalized between two snapshots: the baseline's finalizable objects whose finalizer has not run, matched by
   address (ADR-032) against the later dump (from 3.5's scope). By address it is an upper bound outside gen2, LOH and POH
   (moved objects count as dead), and it needs a bit per object of each snapshot: add a memory reservation callback to
@@ -204,10 +211,18 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   reads or sends them (M2, a protocol change); releasing the worker result sets of snapshots not shown, and measuring
   front end and worker memory with three Medium snapshots open, each with a full analysis path, and trimming the row
   lists of subjects not shown (M3); export marks for a gcdump's sampled counts (L17).
-- Linux and macOS packaging (from 2.3.5; the self-contained builds per runtime identifier, arm64 for Apple silicon, came in
-  2.3.6): a macOS app bundle with signing and notarization (needs an Apple developer account, a paid one), Linux
-  packages (a zipped folder from CI today; .deb, .rpm or Flatpak to decide), smaller builds (the app and the worker each carry the
-  runtime: about 356 MB for win-x64 with ReadyToRun).
+- More channels and formats (sprint 3.9 decided GitHub Releases with a Windows `.zip`, a Linux `.tar.gz` and the CLI's
+  dotnet tool, ADR-039; product owner, 2026-10-31):
+  - nuget.org for the dotnet tool, so it installs by name (`dotnet tool install -g HeapScope.Cli`): needs a nuget.org
+    account; publish from a manual workflow with Trusted Publishing (no stored API key), run with the owner's OK per
+    release.
+  - winget: a manifest per release in Microsoft's winget-pkgs repository, pointing at the release's zip.
+  - Linux packages: rpm first, then deb or AppImage; and an `install.sh` that links the commands into `~/.local/bin` and
+    adds a desktop menu entry.
+  - A single-file Windows build (the app as one exe, the worker beside it) instead of the folder.
+  - A macOS app bundle with signing and notarization (needs a paid Apple developer account); see "Testing on macOS".
+  - Smaller builds: the app and the worker each carry the runtime (about 356 MB unpacked for win-x64 with ReadyToRun;
+    the zip is about 143 MB).
 - .NET Framework target support.
 
 - `ValueBound.Approximate` and caveat codes (from the 2.4 review M3, an ADR-024 amendment): a result on an incomplete

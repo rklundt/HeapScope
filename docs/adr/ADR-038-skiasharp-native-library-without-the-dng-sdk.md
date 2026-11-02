@@ -25,6 +25,8 @@
   - `THIRD-PARTY-NOTICES.md` says the DNG SDK and piex are not in HeapScope's builds, and drops the DNG credit line.
     SkiaSharp's own notices file still ships unchanged under `licenses/`.
 - Consequences: every SkiaSharp update that Avalonia brings needs the libraries rebuilt and the pins updated before a
-  package builds (publish.sh fails until then; DEVELOPER.md 7). Publishing needs network access to the release, or the
+  package builds, by hand (the workflow runs only by hand since 2026-11-02; it is rare): CI's "SkiaSharp native
+  library" check, the gate and publish.sh fail until then with the steps (DEVELOPER.md 7, "When an Avalonia update
+  brings a new SkiaSharp"). Publishing needs network access to the release, or the
   files in a folder (`HEAPSCOPE_SKIA_NATIVE_DIR`). HeapScope cannot open raw camera images, which it never did. A
   future runtime (for example linux-arm64 or win-arm64) needs its own build in the workflow first.

@@ -43,9 +43,28 @@ public static class RuntimeEnvironment
     /// <summary>Whether the process carries its own runtime (a published build) rather than an installed one.</summary>
     public static bool SelfContained { get; } = IsSelfContained();
 
-    /// <summary>One line: version with revision, system, architecture, runtime, self-contained.</summary>
+    /// <summary>
+    /// One line: version with revision, system, architecture, runtime, self-contained, the build form and the folder it
+    /// runs from (3.9 review M12: support tells a release archive from the dotnet tool or a source build, and finds it).
+    /// </summary>
     public static string Summary =>
-        $"{ProductInfo.Name} {ProductInfo.InformationalVersion}; {System}; {Architecture}; {Framework}; self-contained {SelfContained}";
+        $"{ProductInfo.Name} {ProductInfo.InformationalVersion}; {System}; {Architecture}; {Framework}; self-contained {SelfContained}; {DescribeBuild(SelfContained, AppContext.BaseDirectory)}; folder {AppContext.BaseDirectory}";
+
+    /// <summary>
+    /// The build form: a self-contained build (a release archive or a publish), the CLI's dotnet tool (installed under a
+    /// <c>.store</c> folder by <c>dotnet tool install</c>), or a framework-dependent build (from source).
+    /// </summary>
+    public static string DescribeBuild(bool selfContained, string folder)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+        if (selfContained)
+        {
+            return "self-contained build";
+        }
+
+        var segments = folder.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        return segments.Contains(".store", StringComparer.OrdinalIgnoreCase) ? "dotnet tool" : "framework-dependent build";
+    }
 
     private static bool IsSelfContained()
     {

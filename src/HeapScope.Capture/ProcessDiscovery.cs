@@ -80,11 +80,18 @@ public sealed partial class ProcessDiscovery(IElevationProbe? elevation = null) 
     /// <summary>
     /// HeapScope itself (this process, and the UI, CLI and worker started from this installation) is never listed or
     /// captured: a dump of the worker would contain the snapshots it holds. Matched by pid and executable path, not by
-    /// name, so a user's own app called HeapScope is still listed.
+    /// name, so a user's own app called HeapScope is still listed. In the CLI's dotnet tool the worker runs as the dotnet
+    /// host, so its command line names the worker's assembly in this installation (sprint 3.9, ADR-039).
     /// </summary>
     private static bool IsOwn(int processId) =>
         processId == Environment.ProcessId
-        || (ReadImagePath(processId) is { } image && image.StartsWith(s_ownFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        || (ReadImagePath(processId) is { } image && image.StartsWith(s_ownFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        || RunsOwnWorkerAssembly(ReadCommandLine(processId), s_ownFolder);
+
+    /// <summary>Whether <paramref name="commandLine"/> runs the worker assembly of the installation in <paramref name="ownFolder"/>.</summary>
+    internal static bool RunsOwnWorkerAssembly(string? commandLine, string ownFolder) =>
+        commandLine is not null
+        && commandLine.Contains(Path.Combine(ownFolder, "worker", "HeapScope.Worker.dll"), StringComparison.OrdinalIgnoreCase);
 
     private DotNetProcess? Describe(int processId)
     {

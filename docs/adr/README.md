@@ -29,7 +29,7 @@ section 13 links here).
 - [ADR-022](ADR-022-license-agplv3-only-with-additional-terms-attribution-on-the.md) License: AGPLv3 only with additional terms, attribution on the main screen (added before sprint 1.8)
 - [ADR-023](ADR-023-gcdump-capture-moves-to-the-worker.md) gcdump capture moves to the worker (added in sprint 1.9, amended by ADR-037: it stays in the front end)
 - [ADR-024](ADR-024-retention-semantics-shared-by-paths-and-dominators.md) Retention semantics shared by paths and dominators (added in sprint 2.3)
-- [ADR-025](ADR-025-ui-platform-avalonia-on-windows-linux-and-macos.md) UI platform: Avalonia on Windows, Linux and macOS (added in sprint 2.3.5, amends ADR-001)
+- [ADR-025](ADR-025-ui-platform-avalonia-on-windows-linux-and-macos.md) UI platform: Avalonia on Windows, Linux and macOS (added in sprint 2.3.5, amends ADR-001; amended by ADR-039)
 - [ADR-026](ADR-026-sharing-results-an-exported-analysis-analysis-only-by-defaul.md) Sharing results: an exported analysis, analysis only by default (added in sprint 2.3.5)
 - [ADR-027](ADR-027-dominator-children-kept-the-tree-served-flattened.md) Dominator children kept; the tree served flattened (added in sprint 2.4)
 - [ADR-028](ADR-028-allocation-traces-read-in-the-worker-from-eventpipe-allocati.md) Allocation traces read in the worker from EventPipe allocation ticks (added in sprint 2.5)
@@ -43,3 +43,4 @@ section 13 links here).
 - [ADR-036](ADR-036-index-caches-signed-with-a-per-user-key.md) Index caches signed with a per-user key (added in sprint 3.7)
 - [ADR-037](ADR-037-live-sources.md) Live sources (added in sprint 3.8, amends ADR-023)
 - [ADR-038](ADR-038-skiasharp-native-library-without-the-dng-sdk.md) SkiaSharp's native library without the DNG SDK (added 2026-10-30, outside a sprint)
+- [ADR-039](ADR-039-distribution.md) Distribution (added in sprint 3.9, amends ADR-025)

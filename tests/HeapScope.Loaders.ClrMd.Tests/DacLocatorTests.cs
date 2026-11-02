@@ -161,7 +161,7 @@ public sealed class DacLocatorTests : IDisposable
     [Theory]
     [InlineData("WINDOWS", Architecture.X64, "WINDOWS", Architecture.X64, false, null)]
     [InlineData("LINUX", Architecture.Arm64, "LINUX", Architecture.Arm64, false, null)]
-    [InlineData("WINDOWS", Architecture.X64, "WINDOWS", Architecture.Arm64, true, "This dump comes from an X64 process and HeapScope runs as Arm64: open it with the X64 build of HeapScope.")]
+    [InlineData("WINDOWS", Architecture.X64, "WINDOWS", Architecture.Arm64, true, "This dump comes from an X64 process and HeapScope runs as Arm64: open it on an X64 machine with HeapScope's dotnet tool, or with a build of HeapScope from source for X64.")]
     [InlineData("LINUX", Architecture.X64, "WINDOWS", Architecture.X64, false, "This dump comes from Linux and HeapScope runs on Windows: open it with HeapScope or heapscope-cli on Linux.")]
     [InlineData("LINUX", Architecture.X64, "WINDOWS", Architecture.X64, true, null)]
     [InlineData("OSX", Architecture.Arm64, "LINUX", Architecture.Arm64, false, "This dump comes from macOS and HeapScope runs on Linux: open it with HeapScope or heapscope-cli on macOS.")]

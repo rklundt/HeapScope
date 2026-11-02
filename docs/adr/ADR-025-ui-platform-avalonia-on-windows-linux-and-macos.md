@@ -1,4 +1,4 @@
-# ADR-025 UI platform: Avalonia on Windows, Linux and macOS (added in sprint 2.3.5, amends ADR-001)
+# ADR-025 UI platform: Avalonia on Windows, Linux and macOS (added in sprint 2.3.5, amends ADR-001; amended by ADR-039)
 
 - Context: the product owner wants to reach Linux developers (possibly macOS) and teams sharing results (2026-10-25).
   Everything but the WPF UI already targets plain `net10.0`; the engine stays .NET because ClrMD has no equivalent
@@ -63,3 +63,6 @@
   drawing in software measures the machine); the Windows smoke gate is unchanged. Avalonia's build telemetry is off for
   the repository (`Directory.Build.targets`, CI's `AVALONIA_TELEMETRY_OPTOUT`), since HeapScope sends nothing anywhere
   (12).
+- Amended by ADR-039 (sprint 3.9): releases ship win-x64 and linux-x64 only (macOS builds are built but not shipped),
+  and the CLI's dotnet tool carries a framework-dependent worker started through the dotnet host, beside the
+  self-contained worker per runtime identifier.

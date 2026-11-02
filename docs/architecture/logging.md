@@ -143,3 +143,10 @@ references such as "ARCHITECTURE.md 11" still name the right section.
   The worker logs the reachability walks it keeps per snapshot. Every log file's header names the data folder and where
   it came from (the default, `HEAPSCOPE_DATA_FOLDER`), and the worker's start line names the folder it was given; the
   variable moves the logs too, so look for a run's log in `<data folder>/logs`.
+- Packaging (sprint 3.9, ADR-039): every log header (and the About page) names the build form (`self-contained build`
+  for a release archive or a publish, `dotnet tool`, `framework-dependent build` from source) and the folder the process
+  runs from. The client's "Started worker process" line names the worker's file and its host: "its executable", or the
+  `dotnet` host that runs the worker's assembly in the dotnet tool. In the tool the worker's own start line gives
+  `dotnet` as its path; its header's folder is the tool's `worker` folder. A worker that cannot start says which case it
+  is (no worker in the folder, an assembly without a dotnet host, a 32-bit host, a configured path not found) with a
+  next step.
