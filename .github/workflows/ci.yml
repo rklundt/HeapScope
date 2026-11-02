@@ -48,7 +48,7 @@ jobs:
         # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - name: Build
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - name: Build
@@ -131,7 +131,7 @@ jobs:
         # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - name: Build the CLI and the app (with the worker) and the fixture
@@ -200,7 +200,7 @@ jobs:
         # No token is left in the checkout for later steps (sprint 3.7, peer review P16).
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - name: Pack the CLI as a dotnet tool
