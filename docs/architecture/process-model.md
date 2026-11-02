@@ -8,7 +8,8 @@ references such as "ARCHITECTURE.md 4" still name the right section.
 ### 4.1 Processes
 - **UI process** (Avalonia; AnyCPU, so 64-bit on x64 and arm64): shell, view models, Application services, capture.
 - **CLI process** (AnyCPU, 64-bit): same Application services, console output.
-- **Worker process** (64-bit, the machine's architecture; `HeapScope.Worker`): one per UI or CLI instance. Holds every loaded snapshot
+- **Worker process** (64-bit, the machine's architecture; `HeapScope.Worker`, or `dotnet` running
+  `HeapScope.Worker.dll` in the CLI's dotnet tool): one per UI or CLI instance. Holds every loaded snapshot
   of the session (a diff needs both snapshots in one address space). Uses Server GC, non-concurrent
   (section 9), and runs at below-normal process priority so its ordinary threads yield to the UI and the profiled
   application. This does not cover Server GC threads, which the runtime creates at highest thread priority (they
@@ -19,7 +20,11 @@ references such as "ARCHITECTURE.md 4" still name the right section.
 1. Application's `WorkerHost` starts the worker with `--pipe <name> --parent-pid <pid>`. The pipe name is
    `HeapScope.W.<24 random hex digits>` (sprint 2.3.5; off Windows a pipe is a Unix domain socket in the temp folder,
    whose path macOS limits to 104 characters); the pipe is created with `PipeOptions.CurrentUserOnly`. The worker's
-   executable is `HeapScope.Worker.exe` on Windows and `HeapScope.Worker` elsewhere.
+   executable is `HeapScope.Worker.exe` on Windows and `HeapScope.Worker` elsewhere. The CLI's dotnet tool ships the
+   worker's assembly without an executable (ADR-039): `WorkerHostOptions.ResolveWorkerLaunch` then starts
+   `HeapScope.Worker.dll` through the `dotnet` host whose shared runtime runs the front end (found from the runtime's
+   folder, not the path), refusing a 32-bit host. The worker's pid, its parent watcher and its folder are the same either
+   way, and process discovery leaves it out by its command line (it names this installation's worker assembly).
 2. The worker creates the pipe server and waits up to 30 s for the client; the client connects with a
    timeout and calls `GetInfoAsync` as a handshake, which also checks the protocol version.
 3. The worker exits when the pipe disconnects or when the parent process exits (it watches the parent's

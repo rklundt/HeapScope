@@ -101,23 +101,56 @@ HeapScope.Cli`. The tool works like the CLI in the archives (capture on Windows 
 
 - Windows, in the app: the Processes page lists the .NET processes you can capture; pick one and capture a full dump
   or a gcdump. The CLI does the same: `heapscope-cli list`, then `heapscope-cli capture --pid <pid> --out app.dmp`.
-- Linux: take a dump with `dotnet-dump collect --process-id <pid> --type Full` (install it with `dotnet tool install
-  --global dotnet-dump`), then open the file in the app or run `heapscope-cli summary <dump>`.
+  Then `heapscope-cli summary app.dmp` shows what is on its heap. Capturing a process that runs as administrator needs
+  HeapScope run as administrator too.
+- Linux: take a dump with `dotnet-dump collect --process-id <pid> --type Full`, then open the file in the app or run
+  `heapscope-cli summary <dump>`. Without .NET, use dotnet-dump's standalone download
+  (https://aka.ms/dotnet-dump/linux-x64; make it executable with `chmod +x`); with the .NET SDK, `dotnet tool install
+  --global dotnet-dump` installs it.
 
-To open a dump, HeapScope needs the dumped runtime's data access component (DAC). It finds it in the .NET runtimes
-installed on the machine, in its own runtime when the versions match, or next to a dump that HeapScope captured. When it
-cannot, the message says what to do (`--dac-folder`, or downloading it from Microsoft's symbol server when you allow it).
+To open a dump, HeapScope needs the dumped runtime's data access component (DAC), which must match the .NET version
+the dumped process ran on. HeapScope finds it in the .NET runtimes installed on the machine and in its own runtime when
+the versions match, so a dump from a server with another .NET version usually needs that runtime installed, or its DAC
+in a folder you name (`--dac-folder`, or the `Symbols:DacFolder` setting). A DAC that came with the dump (in its folder)
+is native code from whoever made the dump: the app asks before using it and remembers a yes, and the CLI uses it only
+with `--trust-dac <sha256>`, which its refusal names. A DAC that HeapScope's own capture copied is trusted. When none is
+found, the message says what to do, including downloading it from Microsoft's symbol server if you allow that.
 
 ## Where HeapScope keeps its data
 
-Sessions, logs and settings go to `%LOCALAPPDATA%\HeapScope` on Windows and `~/.local/share/HeapScope` on Linux, or
-to the folder the `HEAPSCOPE_DATA_FOLDER` environment variable names. A snapshot's index cache goes next to its dump,
-or into that folder when the dump's folder cannot be written. Logs are described in the README,
+Sessions and logs go to `%LOCALAPPDATA%\HeapScope` on Windows and `~/.local/share/HeapScope` on Linux (under
+`$XDG_DATA_HOME` when it is set), or to the folder the `HEAPSCOPE_DATA_FOLDER` environment variable names. Sessions hold
+full dumps, which can contain anything the dumped process held (passwords and keys included). A snapshot's index cache
+goes next to its dump, or into that folder when the dump's folder cannot be written. Logs are described in the README,
 under "Logs and getting help".
+
+## Settings
+
+HeapScope reads its settings from an `appsettings.json` file you create beside `HeapScope` and `heapscope-cli`, and from
+environment variables that name the setting with `__` between its parts. For example, a DAC folder:
+
+```json
+{ "Symbols": { "DacFolder": "/srv/dacs" } }
+```
+
+or `Symbols__DacFolder=/srv/dacs` in the environment. An `appsettings.json` stays behind when you extract a new
+release, so copy it across; for the dotnet tool, use environment variables, since an update replaces the tool's folder.
+
+## If HeapScope does not start
+
+- Run it from a terminal to see its message, and look in the `logs` folder of the data folder above. For a more
+  detailed log of one run, set `Logging__File__MinimumLevel=Debug` (the app also takes
+  `--Logging:File:MinimumLevel Debug`).
+- Windows SmartScreen: see the Windows steps above. Windows 11's Smart App Control blocks programs that are not signed
+  and has no "Run anyway"; HeapScope's builds are not signed, so they cannot run where it is on.
+- Linux, a message about ICU ("Couldn't find a valid ICU package"): install ICU (see the Linux steps above).
+- Linux, the app stops while starting its display (SkiaSharp cannot load `libSkiaSharp`): install fontconfig.
+- The dotnet tool, "You must install or update .NET": install the .NET 10 runtime, or use the archive.
 
 ## Updating and removing
 
 There is no installer and nothing in the registry. To update, extract the new release next to the old one (and point
-the Linux links at it); to remove HeapScope, delete its folder and the links. Your data folder stays until you delete
-it. The [releases page](https://github.com/rklundt/HeapScope/releases) lists every version; watch the repository's
+the Linux links at it, and copy any `appsettings.json`); to remove HeapScope, delete its folder and the links. Your
+data folder, with its dumps, stays until you delete it; on Windows, trace conversions may also leave files in
+`%TEMP%\HeapScope`. The [releases page](https://github.com/rklundt/HeapScope/releases) lists every version; watch the repository's
 releases on GitHub to hear of new ones.

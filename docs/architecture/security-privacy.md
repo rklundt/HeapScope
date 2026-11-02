@@ -47,10 +47,14 @@ references such as "ARCHITECTURE.md 12" still name the right section.
   identifier, including the release builds, restores unlocked: the gap is in the Backlog), Actions are pinned to release
   commits with no token left in checkouts, Dependabot proposes NuGet and Actions updates, and `SECURITY.md` says how to
   report a vulnerability privately.
-- Releases (sprint 3.7, peer review P17): publishing a GitHub release builds its tag for every runtime identifier and
-  attaches the tarballs, an SBOM (CycloneDX) of the app, the CLI and the worker, and `SHA256SUMS`, all with build
+- Releases (sprint 3.7, peer review P17; forms since 3.9, ADR-039): publishing a GitHub release builds its tag for
+  win-x64 (a `.zip`) and linux-x64 (a `.tar.gz`) and packs the CLI's dotnet tool, installs that tool file on Windows and
+  Linux, and attaches them, an SBOM (CycloneDX) of the app, the CLI and the worker, and `SHA256SUMS`, all with build
   provenance attestations in GitHub's attestation store (`release.yml`; the builds hold read access only, one job that
-  builds nothing attests and attaches; a manual run is a dry run by default); CI and release builds are deterministic (`ContinuousIntegrationBuild`).
+  builds nothing attests and attaches; a manual run is a dry run by default); CI and release builds are deterministic
+  (`ContinuousIntegrationBuild`). Nothing is signed: users verify by checksum and attestation (INSTALL.md). The dotnet
+  tool installs from the downloaded file only, through a `nuget.config` that clears every other source, since HeapScope
+  does not hold its package ID on nuget.org yet (3.9 review H1).
 - Published builds (sprint 3.6, peer review P3; CI uploads them as artifacts) carry `LICENSE`, `ADDITIONAL-TERMS.md`,
   `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and every shipped package's own license and notice files under `licenses/`;
   the TraceEvent native binaries (`KernelTraceControl.dll`, `msdia140.dll`), which nothing calls and whose redistribution

@@ -91,7 +91,10 @@ dotnet test --solution HeapScope.sln
   (command `heapscope-cli`, framework-dependent, one package for every system) with the worker's assembly (no
   executable: the front end starts it through the `dotnet` host, `WorkerHostOptions.ResolveWorkerLaunch`) and the license
   files, and checks it; `bash build/check-tool.sh <folder> <fixture dump>` installs it from that folder into a folder of
-  its own (`--tool-path`, never globally) and runs it. The pack properties apply only with `HeapScopeTool=true`.
+  its own (`--tool-path`, never globally) through a `nuget.config` that clears every other source, as INSTALL.md says,
+  and runs it (`worker info` with Server GC, and the summary when given a dump). The pack properties apply only with
+  `HeapScopeTool=true`, which also publishes the worker for the tool (framework-dependent, no executable) instead of
+  copying its build folder. On failure the check scripts print the end of each HeapScope log.
 - Run the CLI: `dotnet run --project src/HeapScope.Cli -- --version` (the built executable is `heapscope-cli`,
   `heapscope-cli.exe` on Windows). Ctrl+C cancels; exit codes 0 ok, 1 failure, 64 usage, 130 canceled (`diff` also 2).
   Commands: `list` (running .NET processes with runtime, elevation, working set and command line),
@@ -502,8 +505,9 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
     (on Windows with the unpacked CLI) and runs the build as a user gets it, without .NET (`build/check-install.sh`: on
     Windows with .NET off the path, on Linux in a plain `ubuntu:24.04` container with only the libraries INSTALL.md
     lists), and installs the CLI's dotnet tool from its file (`build/check-tool.sh`), packed first by `build/pack-tool.sh`
-    (a publish for a runtime identifier rewrites the lock files, and the tool restores locked). `osx-arm64` and `osx-x64` are built on Linux and not run. On pushes and manual runs it
-    uploads the archives (`HeapScope-<rid>`, kept 14 days).
+    (a publish for a runtime identifier rewrites the lock files, and the tool restores locked). `osx-arm64` and
+    `osx-x64` are built on Linux and not run. On pushes and manual runs it uploads the archives (`HeapScope-<rid>`, kept
+    14 days), and it always uploads HeapScope's logs of the checks (`package-logs-<rid>`).
     Pushes to `develop` and `main` come from PRs whose required checks passed; a manual run uploads its builds whatever
     its tests do.
   The local gate runs the same tiers. Fixture dumps are never uploaded. Making the CI jobs
@@ -523,7 +527,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   pre-release for now). Only the owner decides when to release.
 - Release builds (sprint 3.7; channels and formats since 3.9, ADR-039): publishing the GitHub release runs `release.yml`,
   which builds the tag for win-x64 (a `.zip`) and linux-x64 (a `.tar.gz`) and packs the CLI's dotnet tool (its version
-  must match the tag), with read access only, and then, in one job that builds nothing, attaches the archives, the tool
+  must match the tag), installs that tool file on Windows and Linux (`build/check-tool.sh` without a dump), with read
+  access only, and then, in one job that builds nothing, attaches the archives, the tool
   package, an SBOM of the app, the CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store
   (`gh attestation verify <file> --repo
   rklundt/HeapScope` checks one; attestations need a public repository or GitHub Enterprise). To try it before a

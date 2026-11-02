@@ -42,7 +42,7 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.6 | Urgent fixes | Closed | 2026-10-29 | sprint-3.6 |
 | 3.7 | Hardening | Closed | 2026-10-30 | sprint-3.7 |
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
-| 3.9 | Packaging and distribution | In Progress | | |
+| 3.9 | Packaging and distribution | Wrapping | | |
 
 ---
 
@@ -133,7 +133,16 @@ reach users.
 8. [x] Backlog and docs: decision 4 and 7's items in the Backlog; DEVELOPER.md (release section), ARCHITECTURE.md (code
    map) and README describe what was built.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** ([docs/reviews/sprint-3.9.md](reviews/sprint-3.9.md)): 2 High, 15 Moderate, 30 Low after dedupe,
+covering the sprint and the work merged since `sprint-3.8` (ADR-038, the CI changes). Both Highs fixed and confirmed:
+the tool installs from the downloaded file only (a `nuget.config` that clears every other source; the ID is not held on
+nuget.org), and INSTALL.md says the SDK installs the tool. Moderates (product owner, "all recos"): 13 fixed (worker
+start messages per case, a 32-bit host refused, the dotnet host start tested and Server GC checked, the release
+installs its tool file on Windows and Linux, a clean worker publish for the tool, self-containment proven on Windows,
+CI failures explained with logs, INSTALL.md completed, the build form in every log header, docs); M11, M13 and a CLI
+`--log-level` deferred to the Backlog. Measured: the release dry run built a 142 MB Windows zip, a 110 MB Linux
+tar.gz and a 9.4 MB tool package; the package jobs take 2 to 4 minutes with the clean-machine checks; the Linux build
+runs in a plain `ubuntu:24.04` with only `libicu74` and `libfontconfig1`.
 
 ---
 

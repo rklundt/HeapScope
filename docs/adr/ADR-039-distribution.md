@@ -1,4 +1,4 @@
-# ADR-039 Distribution (added in sprint 3.9)
+# ADR-039 Distribution (added in sprint 3.9, amends ADR-025)
 
 - Context: since 3.7, `release.yml` builds every runtime identifier on a published release, self-contained (ADR-025),
   with SBOMs, checksums and attestations; 3.8.0 was the first release with builds attached. Sprint 3.9 decides who
@@ -12,8 +12,9 @@
     `heapscope-cli`, the .NET 10 runtime; installing it needs a .NET SDK), attached to the release and installed from the
     downloaded file only, through a `nuget.config` that clears every other source (3.9 review H1: the ID is not held on
     nuget.org yet, so a package of that name there could be installed instead). Capture
-    stays Windows only; the tool is untested on macOS. A tool carries no worker executable, so the front end starts
-    the worker's assembly through the `dotnet` host that runs it.
+    stays Windows only; the tool is tested on x64 only and untested on macOS. A tool carries no worker executable, so
+    the front end starts the worker's assembly through the `dotnet` host that runs it, a 64-bit one (it refuses a 32-bit
+    host). This amends ADR-025's worker per runtime identifier: the tool's worker is framework-dependent.
   - Every file attached is listed in `SHA256SUMS` and attested; the shipped license files and the attribution strip
     (ADR-022) are unchanged in every form.
   - `INSTALL.md` takes a user from download to a first snapshot on each system.

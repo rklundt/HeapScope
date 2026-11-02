@@ -33,7 +33,20 @@ failed once under full local load and passes alone; untouched by this sprint (li
 
 ## Moderate
 
-Awaiting the product owner's decisions.
+Decided by the product owner on 2026-11-01 ("all recos"):
+- Fixed: M1 (one `WorkerStartException` per case, with tests), M2 (`ToolWorkerTests`: the worker's assembly through the
+  dotnet host, Server GC, the host in the start line, left out of `list`; the check scripts assert Server GC through
+  `worker info`), M3 (a 32-bit host refused; the architecture-mismatch message names the tool or a source build), M4
+  (`release.yml` installs the tool file on Windows and Linux before attaching), M5 (the tool's worker is published, not
+  copied; the check refuses a worker executable or runtime at any depth and requires third-party licenses), M6 (each
+  runtimeconfig lists `includedFrameworks` and `hostfxr` sits beside it), M7 (failures print a reason and the end of the
+  logs; the package job uploads them), M8 (`archive.sh unpack` resolves the path), M9 (`RELEASE-NOTES.md` points to
+  INSTALL.md), M10 (INSTALL.md: Windows paths, standalone dotnet-dump, the DAC and its trust, a Settings section, "If
+  HeapScope does not start", data folder notes), M12 (every log header names the build form and folder;
+  `RuntimeEnvironmentTests`), M14 (the README and INSTALL.md document `Logging__File__MinimumLevel`), M15 (logging and
+  privacy sections, with process-model 4.1 and 4.2 and worker-memory 9).
+- Deferred to the Backlog: M11, M13, and M14's `--log-level` option.
+
 
 - **M1 The worker-not-found message is wrong for the tool** (senior-dev, support-engineer; solution-architect and
   gc-specialist as Low). It always names `worker/HeapScope.Worker(.exe)`, which a tool never ships, says "not found"
@@ -137,4 +150,11 @@ Listed only; not fixed in this sprint.
 
 ## Markdown sweep
 
-To be recorded after the docs step.
+After the fixes and the docs step, every tracked Markdown file was searched for what this sprint made stale (tarballs,
+the four runtimes in a release, `--add-source`, the old worker messages, the worker's executable as its only form, the
+3.9.0 release notes item) and the changed files were read whole. Changed by the sweep: `SECURITY.md` (what a release
+carries from 3.9.0), `docs/DEVELOPER.md` (the package job's logs; a long line), ADR-025 and the ADR index (amended by
+ADR-039). Changed in the docs step: ADR-039, `INSTALL.md`, `README.md`, `RELEASE-NOTES.md`, `docs/BACKLOG.md`,
+`docs/SPRINTS.md`, `docs/architecture/` (code map, logging, process model, security and privacy, worker memory).
+Records of past sprints (`docs/sprints/phase-*.md`, past reviews) stay as written. No em or en dashes in any changed
+file; every relative link in the changed files resolves.

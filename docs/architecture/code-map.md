@@ -333,5 +333,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   release archive, `.zip` for Windows and `.tar.gz` elsewhere, and back), `zip.cs` (zip files without zip installed),
   `check-install.sh` (an unpacked build run without .NET on a fixture dump), `pack-tool.sh` (the CLI's dotnet tool,
   checked) and `check-tool.sh` (installs it from its file and runs it). The worker starts from its executable, or from
-  its assembly through the dotnet host in the tool: `WorkerHostOptions.ResolveWorkerLaunch` and `WorkerLaunch`
-  (Application), and `ProcessDiscovery` counts such a worker as HeapScope's own (Capture).
+  its assembly through the dotnet host in the tool: `WorkerHostOptions.ResolveWorkerLaunch` (a
+  `WorkerStartException` per case when it cannot) and `WorkerLaunch` (Application), and `ProcessDiscovery` counts such a
+  worker as HeapScope's own (Capture); `RuntimeEnvironment.DescribeBuild` (Contracts) names the build form in every log
+  header. Tests: `WorkerHostOptionsTests`, `RuntimeEnvironmentTests`, `ProcessDiscoveryTests` and the integration test
+  `ToolWorkerTests` (the worker's assembly through the dotnet host).

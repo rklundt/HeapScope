@@ -2,7 +2,8 @@
 
 Each sprint sets the version to its number (sprint 3.5 is version 3.5.0). A version is released when the owner says
 so: it is merged into `main`, tagged `vX.Y.Z` and published as a GitHub Release whose notes are the sections since the
-previous release. Versions without a release are listed too, so every change can be traced to its sprint. The review of
+previous release, after a first line pointing to [INSTALL.md](INSTALL.md), which takes you from download to a first
+snapshot. Versions without a release are listed too, so every change can be traced to its sprint. The review of
 each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 | Version | Released |

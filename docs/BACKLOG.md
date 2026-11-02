@@ -45,6 +45,11 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   trace (CPU sampling, context switches, ready thread) of the smoke run and log the UI thread's CPU time per lag.
 - Worker Server GC threads run at normal priority despite the below-normal process (from 0.3): evaluate a job
   object CPU rate, EcoQoS or GC heap affinity once a trace shows them preempting the UI.
+- From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
+  (`LogWarning(ex, ...)` reaches the console logger; keep stacks in the file log, M11); capturing or finding one of
+  HeapScope's own processes says "No running .NET process with id N was found" and logs nothing (say "pid N is
+  HeapScope's own" and log the rule that matched, M13); a `--log-level` option for the CLI (today only the environment
+  variable `Logging__File__MinimumLevel`, M14).
 - A documented CI leak check for users' pipelines: a sample workflow running `heapscope-cli diff --fail-on-growth` on
   two fixture dumps.
 - Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
