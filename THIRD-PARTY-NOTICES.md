@@ -119,7 +119,7 @@ tracing and symbol lookup. Nothing in HeapScope calls them, and since sprint 3.6
 |---|---|---|---|
 | xunit.v3 | 4.0.2 | Apache-2.0 | .NET Foundation |
 | Shouldly | 4.3.0 | BSD-3-Clause | Jake Ginnivan, Joseph Woodward, Simon Cropp and contributors |
-| Microsoft.CodeAnalysis.CSharp (DenseHeap fixture) | 5.0.0 | MIT | Microsoft Corporation |
+| Microsoft.CodeAnalysis.CSharp (DenseHeap fixture) | 5.9.0 | MIT | Microsoft Corporation |
 | Avalonia.BuildServices (build time, via Avalonia; its telemetry task is disabled by `Directory.Build.targets`) | 11.3.2 | MIT | The AvaloniaUI Project |
 | Avalonia.Fonts.Inter (via Avalonia.Headless; excluded from the app's output, the tests only) | 12.1.4 | SIL OFL 1.1 (the Inter typeface) | The AvaloniaUI Project |
 
