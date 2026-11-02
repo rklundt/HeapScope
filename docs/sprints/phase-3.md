@@ -1,4 +1,4 @@
-# HeapScope sprints: Phase 3 (depth to match dotMemory) and the peer review sprints
+# HeapScope sprints: Phase 3 (depth to match dotMemory), the peer review sprints and packaging (3.9)
 
 Closed sprints moved here from [SPRINTS.md](../SPRINTS.md) in sprint 3.8; each keeps its goal, scope,
 acceptance criteria, decisions, tasks and review summary as they stood when it closed. Reviews are in
@@ -754,3 +754,103 @@ the production profile at a realistic rate: a 64 KB write buffer made a live vie
 part or deferred (the UI reading cells by name, CLI refusals logged). CI found a race in a test that killed a traced
 process before its first flush. Measured: the CLI's answers on 34 commands equal the pre-sprint baseline after every
 merge; 1,475 tests before the wrap.
+
+---
+
+## Sprint 3.9: Packaging and distribution
+
+Planned in Phase 2 as sprint 2.8 and renumbered 3.9 on 2026-10-30 (product owner), so that its version, 3.9.0,
+follows 3.8.0.
+
+**Goal**: people install and run HeapScope without building it.
+
+**In scope already** (product owner, 2026-10-30):
+- A README in the shipped `licenses/` folder: the files there are the licenses of third-party components, and
+  HeapScope's own license is `LICENSE` beside it (so no one reads HeapScope as MIT).
+- Done 2026-10-31: the 3.8.0 release notes say that builds no longer contain Adobe's DNG SDK or Google's piex
+  (ADR-038); 3.8.0 was released first.
+
+**Scope**: otherwise decided at /start-sprint once the product owner picks the audiences and channels (2026-10-26: "good with
+your proposal for a packaging sprint once you pick audiences and channels"). Options discussed after 2.4:
+- Windows: a self-contained single-file publish (the app and the worker, which is its own process), a
+  framework-dependent zip on a shared runtime, winget, MSIX, code signing.
+- Linux: a self-contained tar.gz with a `.sh` launcher; AppImage, deb or rpm.
+- macOS: an app bundle in a DMG, signed and notarized (needs an Apple developer account).
+- The CLI as a `dotnet tool`.
+- Release builds: `release.yml` (3.7) already builds every runtime identifier on a published release, with checksums
+  and attestations; releases to `main` stay the product owner's call (DEVELOPER.md 7).
+
+Constraints: every bundled component keeps an allowed license (DEVELOPER.md 4), with its notices shipped; the
+attribution strip and the license files ship unchanged (ADR-022); before any Avalonia update, check whether anything
+used has moved to a paid model. Signing certificates, store accounts and paid services need the product owner's OK.
+Builds ship HeapScope's own SkiaSharp native library, without Adobe's DNG SDK (ADR-038, 2026-10-30); a channel that
+repackages the build keeps it, and a SkiaSharp update rebuilds it (DEVELOPER.md 7).
+
+**Open questions for /start-sprint**: audiences (who installs it, on which systems); channels (GitHub Releases only,
+or also winget, a dotnet tool, package feeds); self-contained or shared runtime; signing on which systems; how updates
+reach users.
+
+**Acceptance criteria** (set at /start-sprint, 2026-10-31):
+- On a Linux machine with no .NET (a plain Ubuntu container in CI) and a Windows machine with .NET hidden (a CI runner
+  with it off the path), the release archive unpacks, the app runs its headless smoke, and the CLI pings its worker and
+  answers a summary of a fixture dump.
+- The CLI's tool package installs from the downloaded file with `dotnet tool install` on Windows and Linux, and the
+  installed `heapscope-cli` pings its worker and answers the same summary.
+- A release attaches a `.zip` for win-x64, a `.tar.gz` for linux-x64, the tool package, the SBOMs and `SHA256SUMS`, each
+  attested, and no macOS build; the shipped `licenses/` folder has its README.
+- `INSTALL.md` takes a new user from download to a first snapshot on each system, linked from the README and the
+  release notes.
+
+**Dependencies**: 2.3.6 (the Avalonia app, ADR-025).
+
+**Decisions** (product owner, 2026-10-31):
+1. Audience and channel: people on Windows and Linux (x64) download a release from GitHub Releases; the builds are
+   self-contained, so no .NET install is needed.
+2. Windows gets a `.zip` (Explorer opens it), Linux a `.tar.gz` (keeps the executables' modes).
+3. The CLI is also a `dotnet tool`: one framework-dependent package for every system, ID `HeapScope.Cli`, command
+   `heapscope-cli`; capture stays Windows only and macOS is untested. Inside the tool the worker runs through the
+   `dotnet` host (`HeapScope.Worker.dll`), since a tool carries no worker executable.
+4. The tool package is attached to each GitHub Release and installed from the downloaded file. Publishing to nuget.org
+   goes to the Backlog (no account yet).
+5. macOS is not shipped: `release.yml` stops attaching macOS builds; CI still builds them on Linux so they keep building.
+   The 3.8.0 macOS files stay. (Standard runners are free in public repositories; the owner checks the billing report
+   before macOS testing comes back, Backlog "Testing on macOS".)
+6. No code signing (its yearly cost does not fit an open source project); `INSTALL.md` explains SmartScreen's warning.
+7. Backlog: winget, rpm, deb and AppImage, a single-file Windows build, a Linux `install.sh` with a desktop menu entry,
+   smaller builds (about 356 MB unpacked for win-x64; the worker carries its own runtime).
+8. No update check in the app: GitHub Releases lists the versions.
+9. The clean-machine proof runs in CI (a plain Ubuntu container; a Windows runner with .NET off the path); the owner may
+   check once more in Windows Sandbox.
+
+**Task breakdown**:
+1. [x] ADR-039, distribution: the channels, formats and refusals above. Proof: the ADR index and ARCHITECTURE.md link it.
+2. [x] The shipped `licenses/` folder has a README saying its files are third-party licenses and HeapScope's own is
+   `LICENSE` beside it. Proof: `build/check-package.sh` fails without it.
+3. [x] The worker found inside a tool: when `worker/` holds `HeapScope.Worker.dll` and no worker executable, the front
+   end starts it through the `dotnet` host that runs the front end; with neither, the error names the folder. Proof:
+   unit tests of the worker path choice (executable, dll through the host, neither).
+4. [x] The tool package: `HeapScope.Cli` packs as a tool with the worker (no executable), HeapScope's license files and
+   the third-party licenses, built by `build/pack-tool.sh`. Proof: CI packs it, installs it from the file into a tool
+   folder on Windows and Linux, and runs `--version`, `worker ping` and a summary of a fixture dump.
+5. [x] Release archives: `release.yml` builds win-x64 and linux-x64 only, zips the Windows build, and attaches the tool
+   package with the others (checksummed and attested). Proof: a dry run of `release.yml` and the CI package job's
+   unpack-and-run of the same archive.
+6. [x] Clean-machine runs: the Linux build in a plain Ubuntu container (no .NET; the system libraries it needs found and
+   listed) and the Windows build with .NET off the path, each opening a fixture dump with the CLI and running the app's
+   headless smoke. Proof: the CI jobs.
+7. [x] `INSTALL.md`: download, checksum and attestation checks, Windows (unblocking, SmartScreen), Linux (libraries,
+   `~/.local/bin` links), the tool, the data folder, uninstalling. Linked from the README and the release notes. Proof:
+   the Markdown sweep and the clean-machine steps match it.
+8. [x] Backlog and docs: decision 4 and 7's items in the Backlog; DEVELOPER.md (release section), ARCHITECTURE.md (code
+   map) and README describe what was built.
+
+**Review summary** ([docs/reviews/sprint-3.9.md](../reviews/sprint-3.9.md)): 2 High, 15 Moderate, 30 Low after dedupe,
+covering the sprint and the work merged since `sprint-3.8` (ADR-038, the CI changes). Both Highs fixed and confirmed:
+the tool installs from the downloaded file only (a `nuget.config` that clears every other source; the ID is not held on
+nuget.org), and INSTALL.md says the SDK installs the tool. Moderates (product owner, "all recos"): 13 fixed (worker
+start messages per case, a 32-bit host refused, the dotnet host start tested and Server GC checked, the release
+installs its tool file on Windows and Linux, a clean worker publish for the tool, self-containment proven on Windows,
+CI failures explained with logs, INSTALL.md completed, the build form in every log header, docs); M11, M13 and a CLI
+`--log-level` deferred to the Backlog. Measured: the release dry run built a 142 MB Windows zip, a 110 MB Linux
+tar.gz and a 9.4 MB tool package; the package jobs take 2 to 4 minutes with the clean-machine checks; the Linux build
+runs in a plain `ubuntu:24.04` with only `libicu74` and `libfontconfig1`.

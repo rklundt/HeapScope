@@ -14,6 +14,22 @@ each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 Everything else was built on `develop` and first shipped in the next release above it.
 
+## 3.9.0: Packaging and distribution (sprint 3.9)
+
+Install HeapScope without building it: see [INSTALL.md](INSTALL.md), from download to a first snapshot.
+- **Windows and Linux downloads**: each release has a `.zip` for Windows (x64) and a `.tar.gz` for Linux (x64) with the
+  app and the CLI. They carry their own .NET, so nothing else needs installing; Linux needs ICU and fontconfig, which
+  most systems have.
+- **The CLI as a dotnet tool**: with the .NET 10 SDK, `HeapScope.Cli` installs from the release's `.nupkg` file, on
+  Windows and Linux. It installs from that file only (INSTALL.md shows how), since HeapScope is not on nuget.org yet.
+- **Checked like a user would**: every build is unpacked and run on a machine without .NET before it ships, and every
+  file a release attaches is listed in `SHA256SUMS` with a build provenance attestation.
+- **Clearer support**: each log names the build form (release archive, dotnet tool, source build) and its folder; a
+  worker that cannot start says why and what to do; the license files of third-party components have a README saying
+  whose they are.
+- Limited: macOS is not shipped (untested), nothing is signed (Windows SmartScreen and Smart App Control warn or block;
+  INSTALL.md explains), and the tool is not on nuget.org or winget yet (Backlog).
+
 ## 3.8.0: Modularity (sprint 3.8)
 
 From the peer review of 3.5.0 (`docs/reviews/peer-review-3.5.md`): the same answers, in a structure Phase 4 can build on.

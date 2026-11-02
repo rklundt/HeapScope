@@ -14,7 +14,7 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <IsPackable>false</IsPackable>
-    <Version>3.8.0</Version>
+    <Version>3.9.0</Version>
     <Product>HeapScope</Product>
     <Company>HeapScope</Company>
     <Copyright>Copyright (C) 2026 Ray Klundt</Copyright>
