@@ -242,10 +242,13 @@ jobs:
           if [ "${{ matrix.rid }}" = "win-x64" ]; then
             bash build/check-install.sh "$UNPACKED" "$RUNNER_TEMP/dump/leaky.dmp"
           else
-            docker run --rm -e HEAPSCOPE_DATA_FOLDER=/tmp/heapscope -e Logging__File__Directory=/dump/logs \
+            # The container runs as root, and HeapScope's files are private to their owner: hand them back to the runner's
+            # user afterwards, so the logs can be uploaded.
+            docker run --rm -e HEAPSCOPE_DATA_FOLDER=/tmp/heapscope -e Logging__File__Directory=/dump/logs -e OWNER="$(id -u):$(id -g)" \
               -v "$UNPACKED:/heapscope:ro" -v "$RUNNER_TEMP/dump:/dump" \
               -v "$PWD/build:/build:ro" ubuntu:24.04 bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-              libicu74 libfontconfig1 > /dev/null && bash /build/check-install.sh /heapscope /dump/leaky.dmp'
+              libicu74 libfontconfig1 > /dev/null && bash /build/check-install.sh /heapscope /dump/leaky.dmp; code=$?; \
+              chown -R "$OWNER" /dump; exit $code'
           fi
       - name: Install the CLI's dotnet tool from its file
         if: ${{ matrix.runs }}
