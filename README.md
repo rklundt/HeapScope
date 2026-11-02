@@ -2,11 +2,15 @@
 
 Powered by [HeapScope](https://github.com/rklundt/HeapScope) by Ray Klundt.
 
-HeapScope is a desktop memory profiler for .NET applications (.NET 5 and later) on Windows, Linux and macOS, built on
-.NET 10. It opens memory snapshots (and captures them on Windows), shows what is on the heap and what grew between two
-snapshots, and explains why objects are retained, through a desktop app or an equivalent command line
-(`heapscope-cli`). Snapshots never leave the machine.
+HeapScope is a desktop memory profiler for .NET applications (.NET 5 and later) on Windows and Linux (macOS from
+source, untested), built on .NET 10. It opens memory snapshots (and captures them on Windows), shows what is on the heap
+and what grew between two snapshots, and explains why objects are retained, through a desktop app or an equivalent
+command line (`heapscope-cli`). Snapshots never leave the machine.
 
+**Install**: download a release for Windows or Linux (no .NET needed), or the CLI as a `dotnet tool`; see
+[INSTALL.md](INSTALL.md).
+
+From source:
 - Build: `dotnet build HeapScope.sln`
 - Test: `dotnet test --solution HeapScope.sln`
 - UI: `dotnet run --project src/HeapScope.UI`
@@ -60,8 +64,9 @@ Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHIT
 HeapScope writes a log file per run, which records the versions, the snapshots opened and why each result was produced
 (never values from a dump): `%LOCALAPPDATA%\HeapScope\logs` on Windows, `~/.local/share/HeapScope/logs` on Linux and
 `~/Library/Application Support/HeapScope/logs` on macOS (under the folder `HEAPSCOPE_DATA_FOLDER` names, when set).
-The About page shows the folder and copies the version details for a support request;
-`--Logging:File:MinimumLevel Debug` adds detail for one run. Logs are kept 14 days. They hold file paths and type
+The About page shows the folder and copies the version details for a support request. For more detail in one run,
+start the app with `--Logging:File:MinimumLevel Debug`, or set the environment variable
+`Logging__File__MinimumLevel=Debug` (the CLI reads settings from the environment, not from its arguments). Logs are kept 14 days. They hold file paths and type
 names, so share them only with someone you trust.
 
 ## License

@@ -16,4 +16,33 @@
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
   <Import Project="$(HeapScopeRoot)build\Worker.Deploy.targets" />
+
+  <!--
+    The CLI as a dotnet tool (sprint 3.9, ADR-039): one framework-dependent package for every system, built by
+    build/pack-tool.sh, which collects the license files into HeapScopeToolLicenses first. The worker ships as its
+    assembly without an executable (a tool's files must run anywhere), and the front end starts it through the dotnet host.
+  -->
+  <PropertyGroup Condition="'$(HeapScopeTool)' == 'true'">
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>heapscope-cli</ToolCommandName>
+    <PackageId>HeapScope.Cli</PackageId>
+    <Authors>Ray Klundt</Authors>
+    <Description>HeapScope's command line: capture (Windows) and analyze .NET memory dumps and gcdumps, from heap summaries to retention paths and leak detectors.</Description>
+    <PackageTags>dotnet;memory;heap;dump;gcdump;leak;diagnostics</PackageTags>
+    <PackageProjectUrl>https://github.com/rklundt/HeapScope</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/rklundt/HeapScope</RepositoryUrl>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(HeapScopeTool)' == 'true'">
+    <None Include="$(HeapScopeToolLicenses)/LICENSE" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
+  <!-- The license files go next to the CLI in the tool's folder, as in a published build. -->
+  <Target Name="HeapScopeToolLicenses" AfterTargets="Publish" Condition="'$(HeapScopeTool)' == 'true'">
+    <Error Condition="!Exists('$(HeapScopeToolLicenses)/licenses/README.md')" Text="HeapScopeToolLicenses must name the folder build/collect-licenses.cs wrote; run build/pack-tool.sh." />
+    <ItemGroup>
+      <_HeapScopeToolLicenseFiles Include="$(HeapScopeToolLicenses)/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_HeapScopeToolLicenseFiles)" DestinationFiles="@(_HeapScopeToolLicenseFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
 </Project>

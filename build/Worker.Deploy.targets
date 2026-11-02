@@ -24,10 +24,20 @@
           SkipUnchangedFiles="true" />
   </Target>
   <!-- A published UI or CLI carries the worker the same way (built output of the worker, same configuration). -->
-  <Target Name="HeapScopePublishWorker" AfterTargets="Publish" DependsOnTargets="HeapScopeDeployWorker" Condition="'$(RuntimeIdentifier)' == ''">
+  <Target Name="HeapScopePublishWorker" AfterTargets="Publish" DependsOnTargets="HeapScopeDeployWorker" Condition="'$(RuntimeIdentifier)' == '' and '$(HeapScopeTool)' != 'true'">
     <Copy SourceFiles="@(_HeapScopeWorkerFiles)"
           DestinationFiles="@(_HeapScopeWorkerFiles->'$(PublishDir)worker\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
+  </Target>
+  <!--
+    The CLI's dotnet tool (ADR-039) runs anywhere: the worker is published for it, framework-dependent and without an
+    executable (the front end starts its assembly through the dotnet host), never copied from the build folder, which
+    may hold a runtime identifier's self-contained worker or stale files (3.9 review M5). HeapScopePublish keeps
+    TraceEvent's native binaries out (Directory.Build.targets).
+  -->
+  <Target Name="HeapScopePublishWorkerForTool" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' == '' and '$(HeapScopeTool)' == 'true'">
+    <MSBuild Projects="$(_HeapScopeWorkerProject)" Targets="Publish"
+             Properties="Configuration=$(Configuration);UseAppHost=false;HeapScopePublish=true;PublishDir=$(PublishDir)worker\" />
   </Target>
   <!--
     Published for a runtime identifier (self-contained builds per system, sprint 2.3.6): the worker is published for the

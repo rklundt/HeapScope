@@ -26,13 +26,13 @@
 // notice files under licenses/<package>.<version>/, read from the restore's project.assets.json of each published
 // project. The .NET runtime a self-contained build carries is a package too (its runtime pack).
 //
-// Usage: dotnet run build/collect-licenses.cs -- <publish folder> <runtime identifier> <project folder>...
+// Usage: dotnet run build/collect-licenses.cs -- <publish folder> <runtime identifier, or any> <project folder>...
 
 using System.Text.Json;
 
 if (args.Length < 3)
 {
-    Console.Error.WriteLine("Usage: collect-licenses.cs <publish folder> <runtime identifier> <project folder>...");
+    Console.Error.WriteLine("Usage: collect-licenses.cs <publish folder> <runtime identifier, or any> <project folder>...");
     return 64;
 }
 
@@ -54,7 +54,9 @@ foreach (var project in args.Skip(2))
     using var assets = JsonDocument.Parse(File.ReadAllBytes(assetsPath));
     var root = assets.RootElement;
     string[] folders = [.. root.GetProperty("packageFolders").EnumerateObject().Select(p => p.Name), Path.Combine(dotnetRoot, "packs")];
-    var target = root.GetProperty("targets").EnumerateObject().FirstOrDefault(t => t.Name.EndsWith("/" + rid, StringComparison.Ordinal));
+    // "any": a framework-dependent build for every system (the CLI's dotnet tool, sprint 3.9), the restore without a runtime.
+    var target = root.GetProperty("targets").EnumerateObject()
+        .FirstOrDefault(t => rid == "any" ? !t.Name.Contains('/', StringComparison.Ordinal) : t.Name.EndsWith("/" + rid, StringComparison.Ordinal));
     if (target.Value.ValueKind != JsonValueKind.Object)
     {
         Console.Error.WriteLine($"{assetsPath} has no restore for {rid}; publish with -r {rid} first.");
@@ -90,6 +92,18 @@ foreach (var project in args.Skip(2))
 
 var licenses = Path.Combine(output, "licenses");
 Directory.CreateDirectory(licenses);
+// Says whose licenses these are, so no one reads HeapScope as licensed under them (sprint 3.9).
+File.WriteAllText(Path.Combine(licenses, "README.md"), """
+    # Third-party licenses
+
+    The files in this folder are the licenses and notices of the third-party components that ship with HeapScope, one
+    folder per package and version. They are not HeapScope's license.
+
+    HeapScope is licensed under the GNU Affero General Public License, version 3 only, with additional terms under its
+    Section 7: see `LICENSE` and `ADDITIONAL-TERMS.md` in the folder above. Commercial licenses are described in
+    `COMMERCIAL.md`. `THIRD-PARTY-NOTICES.md` in the folder above lists every component and its license.
+
+    """);
 var missing = new List<string>();
 foreach (var (package, folder) in packages)
 {

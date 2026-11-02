@@ -4,6 +4,11 @@ Part of [ARCHITECTURE.md](../ARCHITECTURE.md); the section numbers are the same 
 references such as "ARCHITECTURE.md 9" still name the right section.
 
 ## 9. Worker memory and GC settings
+Both ways the worker starts (its executable, or its assembly through the `dotnet` host in the CLI's dotnet tool,
+ADR-039) take these settings from the same places: Server GC and non-concurrent from the worker's
+`HeapScope.Worker.runtimeconfig.json`, which both forms ship; the heap count from the environment the client sets; the
+below-normal priority from the worker itself. CI checks Server GC on both (`worker info` in `build/check-install.sh`
+and `build/check-tool.sh`) and `ToolWorkerTests` on the dotnet host start.
 - Server GC, non-concurrent (`ServerGarbageCollection=true`, `ConcurrentGarbageCollection=false`):
   throughput matters more than pause times in the worker, and background GC adds memory overhead. DATAS
   (dynamic adaptation, on by default for Server GC since .NET 9) is off in the worker: the GC turns it off when a heap

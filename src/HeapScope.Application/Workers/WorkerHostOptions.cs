@@ -30,7 +30,10 @@ public sealed class WorkerHostOptions
 {
     public const string SectionName = "Worker";
 
-    /// <summary>Full path of HeapScope.Worker.exe; defaults to the worker/ folder next to the executable.</summary>
+    /// <summary>
+    /// Full path of the worker's executable, or of its assembly (<c>.dll</c>, started through the dotnet host); defaults
+    /// to the worker/ folder next to the executable.
+    /// </summary>
     public string? WorkerPath { get; set; }
 
     /// <summary>When set, connects to an already running worker on this pipe instead of launching one.</summary>
@@ -88,7 +91,84 @@ public sealed class WorkerHostOptions
     /// </summary>
     public static string WorkerExecutableName => OperatingSystem.IsWindows() ? "HeapScope.Worker.exe" : "HeapScope.Worker";
 
-    /// <summary>The worker path to launch.</summary>
+    /// <summary>The worker's assembly, which the CLI's dotnet tool ships without an executable (sprint 3.9, ADR-039).</summary>
+    public const string WorkerAssemblyName = "HeapScope.Worker.dll";
+
+    /// <summary>The worker executable's path: <see cref="WorkerPath"/>, or the worker/ folder next to the executable.</summary>
     public string ResolveWorkerPath() =>
         WorkerPath ?? Path.Combine(AppContext.BaseDirectory, "worker", WorkerExecutableName);
+
+    /// <summary>How to start the worker in this process; throws <see cref="WorkerStartException"/> saying why it cannot.</summary>
+    public WorkerLaunch ResolveWorkerLaunch() =>
+        ResolveWorkerLaunch(AppContext.BaseDirectory, RunningDotnetHost(), Environment.Is64BitProcess, File.Exists);
+
+    /// <summary>
+    /// How to start the worker: its executable, or its assembly through <paramref name="dotnetHost"/> (the dotnet host of
+    /// a framework-dependent process) where no executable ships, as in the CLI's dotnet tool (ADR-039). A configured
+    /// <see cref="WorkerPath"/> ending in <c>.dll</c> is an assembly too. When it cannot, the exception says which case it
+    /// is and what to do (3.9 review M1), and refuses a 32-bit host: the worker is 64-bit (ARCHITECTURE.md 2, review M3).
+    /// </summary>
+    internal WorkerLaunch ResolveWorkerLaunch(string baseDirectory, string? dotnetHost, bool is64BitProcess, Func<string, bool> exists)
+    {
+        var assembly = WorkerPath is { } configured
+            ? (configured.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? configured : null)
+            : Path.Combine(baseDirectory, "worker", WorkerAssemblyName);
+        var executable = WorkerPath is { } path
+            ? (assembly is null ? path : null)
+            : Path.Combine(baseDirectory, "worker", WorkerExecutableName);
+        if (executable is not null && exists(executable))
+        {
+            return new WorkerLaunch(executable, null);
+        }
+
+        if (assembly is not null && exists(assembly))
+        {
+            if (dotnetHost is null)
+            {
+                throw new WorkerStartException(
+                    $"The analysis worker's assembly {assembly} needs a dotnet host to start, and none was found next to the .NET runtime this process runs on. "
+                    + "Install the .NET 10 runtime (https://dot.net), or use a release archive, which needs no .NET.");
+            }
+
+            if (!is64BitProcess)
+            {
+                throw new WorkerStartException(
+                    $"HeapScope's analysis worker needs a 64-bit .NET, and this one ({dotnetHost}) is 32-bit. "
+                    + "Install the x64 .NET 10 SDK and install the tool with it, or use a release archive.");
+            }
+
+            return new WorkerLaunch(dotnetHost, assembly);
+        }
+
+        if (WorkerPath is not null)
+        {
+            throw new WorkerStartException($"The analysis worker set in Worker:WorkerPath was not found: {WorkerPath}. Correct the setting or remove it.");
+        }
+
+        throw new WorkerStartException(
+            $"No analysis worker in {Path.Combine(baseDirectory, "worker")}: neither {WorkerExecutableName} nor {WorkerAssemblyName} is there. "
+            + "Extract the release archive again with its worker folder, or reinstall the dotnet tool (dotnet tool uninstall -g HeapScope.Cli, then install it as INSTALL.md says).");
+    }
+
+    /// <summary>
+    /// The dotnet host (<c>dotnet</c> or <c>dotnet.exe</c>) whose shared runtime runs this process, or null for a
+    /// self-contained process: a framework-dependent one loads the runtime from
+    /// <c>&lt;dotnet&gt;/shared/Microsoft.NETCore.App/&lt;version&gt;</c>.
+    /// </summary>
+    internal static string? RunningDotnetHost()
+    {
+        var version = Path.GetDirectoryName(typeof(object).Assembly.Location);
+        var framework = Path.GetDirectoryName(version);
+        var shared = Path.GetDirectoryName(framework);
+        var dotnet = Path.GetDirectoryName(shared);
+        if (dotnet is null
+            || !string.Equals(Path.GetFileName(framework), "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(Path.GetFileName(shared), "shared", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var host = Path.Combine(dotnet, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        return File.Exists(host) ? host : null;
+    }
 }
