@@ -21,6 +21,11 @@
 //
 // Commercial licenses are available. See COMMERCIAL.md.
 
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Diagnostics.Runtime;
 
@@ -37,19 +42,45 @@ public sealed class DumpAnalysis : IDisposable
 
     private readonly DataTarget _target;
 
-    private DumpAnalysis(DataTarget target, ClrRuntime runtime)
+    private DumpAnalysis(DataTarget target, ClrRuntime runtime, string dacPath, LocalImageLocator locator)
     {
         _target = target;
         Runtime = runtime;
+        DacPath = dacPath;
+        Locator = locator;
     }
 
     public ClrRuntime Runtime { get; }
 
+    /// <summary>The DAC this check loaded: the one beside the dumped runtime on this machine.</summary>
+    public string DacPath { get; }
+
+    /// <summary>What ClrMD asked the file locator for while opening the dump, and whether a local file answered.</summary>
+    internal LocalImageLocator Locator { get; }
+
     public ClrHeap Heap => Runtime.Heap;
 
-    public static DumpAnalysis Open(string path)
+    /// <summary>
+    /// Opens a fixture dump taken on this machine, independently of HeapScope's loader and DAC lookup, and locally only: the
+    /// DAC is the one beside the dumped runtime, and a missing image is looked for only at its recorded local path (2026-11-03:
+    /// ClrMD's default locator can fall back to Microsoft's symbol server, and one CI run failed with "Could not find
+    /// matching DAC for this runtime" where HeapScope's local-only loader had just opened the same dump). A failure says
+    /// what was looked for and found, never dump contents.
+    /// </summary>
+    public static DumpAnalysis Open(string path) => Open(path, runtimeFolder: null);
+
+    /// <summary>As <see cref="Open(string)"/>, with the DAC taken from <paramref name="runtimeFolder"/> (tests of the failure).</summary>
+    internal static DumpAnalysis Open(string path, string? runtimeFolder)
     {
-        var target = DataTarget.LoadDump(path);
+        var locator = new LocalImageLocator();
+        var watch = Stopwatch.StartNew();
+        // The signature check stays on; recording it shows whether it ran and when (ADR-035 leaves open whether it applies).
+        var target = DataTarget.LoadDump(path, new DataTargetOptions
+        {
+            FileLocator = locator,
+            DacSignatureVerificationOverride = dac => locator.RecordSignatureCheck(dac),
+        });
+        var loadTime = watch.Elapsed;
         try
         {
             if (target.ClrVersions.Length == 0)
@@ -57,13 +88,95 @@ public sealed class DumpAnalysis : IDisposable
                 throw new InvalidOperationException($"No .NET runtime found in {path}.");
             }
 
-            return new DumpAnalysis(target, target.ClrVersions[0].CreateRuntime());
+            var clr = target.ClrVersions[0];
+            var folder = runtimeFolder ?? Path.GetDirectoryName(clr.ModuleInfo.FileName) ?? string.Empty;
+            var dac = Path.Combine(folder, DacFileName(target.DataReader.TargetPlatform));
+            if (!File.Exists(dac))
+            {
+                throw new InvalidOperationException(Describe($"No DAC beside the dumped runtime: {dac} does not exist.", path, target, clr, dac, locator, loadTime, null, null));
+            }
+
+            watch.Restart();
+            try
+            {
+                return new DumpAnalysis(target, clr.CreateRuntime(dac, ignoreMismatch: false), dac, locator);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(Describe("ClrMD could not create the runtime with the local DAC.", path, target, clr, dac, locator, loadTime, watch.Elapsed, ex), ex);
+            }
         }
         catch
         {
             target.Dispose();
             throw;
         }
+    }
+
+    private static string DacFileName(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "mscordaccore.dll" : platform == OSPlatform.OSX ? "libmscordaccore.dylib" : "libmscordaccore.so";
+
+    /// <summary>
+    /// Everything that explains a failed open from the CI log alone: identities, paths, sizes and times only. Each line is
+    /// guarded, so a line that cannot be read never hides the original error.
+    /// </summary>
+    private static string Describe(string problem, string path, DataTarget target, ClrInfo clr, string dac, LocalImageLocator locator, TimeSpan loadTime, TimeSpan? createTime, Exception? error)
+    {
+        var text = new StringBuilder(problem).AppendLine();
+        Line(text, "Dump", () => $"{path}; {target.DataReader.TargetPlatform} {target.DataReader.Architecture}, pointer size {target.DataReader.PointerSize}");
+        Line(text, "Runtime", () => $"{clr.Flavor} {clr.Version}; module {clr.ModuleInfo.FileName}; index time stamp {clr.IndexTimeStamp:x8}, size {clr.IndexFileSize}");
+        Line(text, "Debugging library", () => string.Join(" | ", clr.DebuggingLibraries.Select(l =>
+            $"{l.Kind} {l.FileName}; {l.Platform} {l.TargetArchitecture}; index time stamp {l.IndexTimeStamp:x8}, size {l.IndexFileSize}; archived under {l.ArchivedUnder}")));
+        Line(text, "DAC beside the runtime", () => $"{dac}; {DescribeFile(dac)}");
+        Line(text, "Runtimes installed", () => string.Join(" | ", InstalledRuntimeFolders()));
+        Line(text, "Locator", () => locator.Requests.Count == 0 ? "asked for nothing" : string.Join(" | ", locator.Requests));
+        Line(text, "Times", () => $"LoadDump {loadTime.TotalMilliseconds:F0} ms, CreateRuntime {(createTime is { } created ? created.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture) + " ms" : "not reached")}");
+        Line(text, "Test host", () => $"{RuntimeInformation.FrameworkDescription} from {Path.GetDirectoryName(typeof(object).Assembly.Location)}; ClrMD {typeof(DataTarget).Assembly.GetName().Version}");
+        Line(text, "Environment", () => $"DOTNET_ROOT {Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? "(not set)"}; _NT_SYMBOL_PATH {(Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH") is null ? "not set" : "set")}; runner image {Environment.GetEnvironmentVariable("ImageOS") ?? "-"} {Environment.GetEnvironmentVariable("ImageVersion") ?? "-"}");
+        for (var inner = error; inner is not null; inner = inner.InnerException)
+        {
+            var current = inner;
+            Line(text, "Error", () => $"{current.GetType().FullName} (HResult 0x{current.HResult:x8}): {current.Message}");
+        }
+
+        return text.ToString();
+    }
+
+    private static void Line(StringBuilder text, string label, Func<string> read)
+    {
+        string value;
+        try
+        {
+            value = read();
+        }
+        catch (Exception ex)
+        {
+            value = $"(could not be read: {ex.GetType().Name})";
+        }
+
+        text.Append("  ").Append(label).Append(": ").AppendLine(value);
+    }
+
+    /// <summary>The version folders of each .NET install root this machine has (DOTNET_ROOT and the default one).</summary>
+    private static IEnumerable<string> InstalledRuntimeFolders()
+    {
+        string?[] roots = [Environment.GetEnvironmentVariable("DOTNET_ROOT"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet")];
+        return roots.OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(root => Path.Combine(root, "shared", "Microsoft.NETCore.App"))
+            .Where(Directory.Exists)
+            .SelectMany(Directory.EnumerateDirectories);
+    }
+
+    private static string DescribeFile(string file)
+    {
+        if (!File.Exists(file))
+        {
+            return "missing";
+        }
+
+        var info = new FileInfo(file);
+        var identity = LocalImageLocator.ReadIdentity(file) is { } id ? $"PE time stamp {id.TimeStamp:x8}, image size {id.ImageSize}" : "not a readable PE image";
+        return $"{info.Length} bytes, {identity}, version {FileVersionInfo.GetVersionInfo(file).FileVersion}, written {info.LastWriteTimeUtc:u}";
     }
 
     /// <summary>Counts instances of each requested type name in one heap walk.</summary>
@@ -314,5 +427,75 @@ public sealed class DumpAnalysis : IDisposable
 
         steps.Reverse();
         return steps;
+    }
+}
+
+/// <summary>
+/// A file locator for fixture dumps taken on this machine: an image is the file at its recorded path when its PE time
+/// stamp and size match, never a download. It records each request, so a test can show that nothing would have gone
+/// to a symbol server. Separate from HeapScope's own locator on purpose (this is the independent check).
+/// </summary>
+internal sealed class LocalImageLocator : IFileLocator
+{
+    private readonly List<string> _requests = [];
+
+    public IReadOnlyList<string> Requests
+    {
+        get
+        {
+            lock (_requests)
+            {
+                return [.. _requests];
+            }
+        }
+    }
+
+    /// <summary>
+    /// The requests no local file answered. Empty means nothing the check needed so far was missing locally; it does not
+    /// show what ClrMD's default locator would do, only that this check never needs anything but local files.
+    /// </summary>
+    public IReadOnlyList<string> Unanswered => [.. Requests.Where(r => r.EndsWith(": not found locally", StringComparison.Ordinal))];
+
+    public string? FindPEImage(string fileName, int buildTimeStamp, int imageSize, bool checkProperties)
+    {
+        var found = File.Exists(fileName) && ReadIdentity(fileName) is { } id && id.TimeStamp == buildTimeStamp && id.ImageSize == imageSize;
+        Record($"{fileName} (time stamp {buildTimeStamp:x8}, size {imageSize}): {(found ? "found" : "not found locally")}");
+        return found ? fileName : null;
+    }
+
+    public string? FindPEImage(string fileName, SymbolProperties archivedUnder, ImmutableArray<byte> buildIdOrUUID, OSPlatform originalPlatform, bool checkProperties)
+    {
+        Record($"{fileName} (build id, {originalPlatform}, archived under {archivedUnder}): not found locally");
+        return null;
+    }
+
+    /// <summary>Records that ClrMD asked whether to check a DAC's signature, and keeps the check on.</summary>
+    public bool RecordSignatureCheck(string dac)
+    {
+        Record($"signature check of {dac}: on");
+        return true;
+    }
+
+    internal static (int TimeStamp, int ImageSize)? ReadIdentity(string file)
+    {
+        try
+        {
+            using var stream = File.OpenRead(file);
+            using var reader = new PEReader(stream);
+            var headers = reader.PEHeaders;
+            return headers.PEHeader is { } pe ? (headers.CoffHeader.TimeDateStamp, pe.SizeOfImage) : null;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private void Record(string request)
+    {
+        lock (_requests)
+        {
+            _requests.Add(request);
+        }
     }
 }
