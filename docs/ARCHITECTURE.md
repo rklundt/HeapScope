@@ -330,8 +330,8 @@ The table matches `Directory.Packages.props`, the authoritative list.
 | System.IO.Hashing | 10.0.14 | MIT | Storage, Analysis |
 | StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.ViewModels, UI |
-| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.4 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT; SkiaSharp's native library in published builds is HeapScope's own build without the DNG SDK and piex, ADR-038) | UI, UI tests (2.3.6) |
-| Avalonia.Fonts.Inter | 12.1.4 | MIT (the font is OFL-1.1, so its assets are excluded) | UI (comes with Avalonia.Headless) |
+| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.5 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT; SkiaSharp's native library in published builds is HeapScope's own build without the DNG SDK and piex, ADR-038) | UI, UI tests (2.3.6) |
+| Avalonia.Fonts.Inter | 12.1.5 | MIT (the font is OFL-1.1, so its assets are excluded) | UI (comes with Avalonia.Headless) |
 | Avalonia.Controls.DataGrid | 12.1.2 | MIT | UI (2.3.6) |
 | System.CommandLine | 2.0.14 | MIT | Cli |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |
