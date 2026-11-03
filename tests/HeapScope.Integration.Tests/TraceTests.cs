@@ -63,17 +63,50 @@ public sealed class TraceTests(RunningApi shared) : IClassFixture<RunningApi>, I
     [Fact]
     public async Task Canceling_stops_the_trace_early_and_keeps_a_readable_file()
     {
-        var path = _root.File("canceled.nettrace");
+        // A cancel can land before EventPipe has started the session (2026-11-03: under CI load, 1 s was not enough). Then
+        // the recording is canceled and nothing is left behind; the test checks that and tries again a little later, until
+        // a cancel lands on a running session, which stops it early and keeps a readable file.
+        foreach (var after in new[] { 1, 3, 10 })
+        {
+            var path = _root.File($"canceled-{after}s.nettrace");
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+            cancel.CancelAfter(TimeSpan.FromSeconds(after));
+            var stopwatch = Stopwatch.StartNew();
+
+            TraceResult result;
+            try
+            {
+                result = await new TraceService().RecordAsync(shared.Api.ProcessId, path, TraceKind.Gc, TimeSpan.FromMinutes(5), cancel.Token);
+            }
+            catch (OperationCanceledException) when (!Ct.IsCancellationRequested)
+            {
+                File.Exists(path).ShouldBeFalse("a recording canceled before its session started keeps no file");
+                Directory.EnumerateFiles(_root.Path, TraceRecorder.PartialPattern(path)).ShouldBeEmpty();
+                continue;
+            }
+
+            stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(60));
+            result.StoppedEarly.ShouldBeTrue();
+            File.Exists(path).ShouldBeTrue();
+            Read(path).Values.Sum().ShouldBeGreaterThan(0);
+            return;
+        }
+
+        Assert.Fail("Every cancel (after 1, 3 and 10 s) landed before the trace session started.");
+    }
+
+    [Fact]
+    public async Task A_trace_canceled_before_its_session_starts_keeps_nothing()
+    {
+        var path = _root.File("never-started.nettrace");
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        cancel.CancelAfter(TimeSpan.FromSeconds(1));
-        var stopwatch = Stopwatch.StartNew();
+        await cancel.CancelAsync();
 
-        var result = await new TraceService().RecordAsync(shared.Api.ProcessId, path, TraceKind.Gc, TimeSpan.FromMinutes(5), cancel.Token);
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => new TraceService().RecordAsync(shared.Api.ProcessId, path, TraceKind.Gc, TimeSpan.FromMinutes(5), cancel.Token));
 
-        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(60));
-        result.StoppedEarly.ShouldBeTrue();
-        File.Exists(path).ShouldBeTrue();
-        Read(path).Values.Sum().ShouldBeGreaterThan(0);
+        File.Exists(path).ShouldBeFalse();
+        Directory.EnumerateFiles(_root.Path, TraceRecorder.PartialPattern(path)).ShouldBeEmpty();
     }
 
     [Fact]
