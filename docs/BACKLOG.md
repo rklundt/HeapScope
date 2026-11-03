@@ -50,7 +50,9 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   the test helper failed where HeapScope's loader had just opened the dump; the helper is local-only since 2026-11-03
   and explains any failure); under full local load only, passing alone: `LiveWorkflowTests` (an allocation trace for a
   run's whole length), `CounterMonitorTests`, `DiffTests` (leak deltas short of the known answers). Act on any that
-  recurs: find the cause before adding a retry.
+  recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
+  landed before EventPipe had started the session; the test now checks both outcomes (canceled before the start keeps
+  nothing; after it, the trace stops early and is kept).
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
   (`LogWarning(ex, ...)` reaches the console logger; keep stacks in the file log, M11); capturing or finding one of
   HeapScope's own processes says "No running .NET process with id N was found" and logs nothing (say "pid N is
