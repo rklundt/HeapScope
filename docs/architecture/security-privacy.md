@@ -88,8 +88,9 @@ references such as "ARCHITECTURE.md 12" still name the right section.
 - Bookmarks (sprint 2.7) are kept in `bookmarks.json` in HeapScope's data folder (owner-only): the snapshot
   file's full path, size and write time, the object's address and type name, a color and a time; no field values or
   string text.
-- CI (sprint 2.3.5) dumps only the LeakyConsole fixture on GitHub's runners and never uploads the dump. The builds it
-  uploads (sprint 2.3.6) hold build output only.
+- CI (sprint 2.3.5) dumps only HeapScope's own fixtures (LeakyConsole, LeakyApi, DenseHeap) on GitHub's runners and
+  never uploads a dump. The builds it uploads (sprint 2.3.6) hold build output only. The tests' independent ClrMD check
+  opens those dumps with a local-only file locator (2026-11-03), so no module identifier goes to a symbol server.
 - Off Windows, HeapScope's own folders and files are the user's alone (sprint 2.3.6, `PrivateFiles`): sessions, logs,
   index caches and their sidecars, monitoring timelines and traces are created 0700 (folders) and 0600 (files) instead
   of the process umask, which often lets other users read them. A folder the user picked keeps its permissions; on

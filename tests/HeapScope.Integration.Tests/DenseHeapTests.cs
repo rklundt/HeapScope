@@ -53,6 +53,8 @@ public sealed class DenseHeapTests : IDisposable
 
         var result = new ClrMdDumpLoader().Load(path, cancellationToken: TestContext.Current.CancellationToken);
         using var graph = result.Graph;
+        // Printed first, so a failure of the check's own open still shows what HeapScope chose.
+        TestContext.Current.TestOutputHelper?.WriteLine($"HeapScope's DAC choice: {Describe(result.Diagnostics.Dac)}");
         using var dump = DumpAnalysis.Open(path);
         long objects = 0, references = 0;
         foreach (var obj in dump.Heap.EnumerateObjects())
@@ -74,7 +76,19 @@ public sealed class DenseHeapTests : IDisposable
         ((double)graph.EdgeCount / graph.ObjectCount).ShouldBeGreaterThan(2.5, "a dense heap, unlike the 1.1 to 1.2 of the leak fixtures");
         ((double)graph.ColumnBytes / graph.ObjectCount).ShouldBeInRange(30, 38, "the 6.2 budget for 2 to 4 references per object");
         GraphQueries.CountTypes(graph).Keys.ShouldContain(k => k.StartsWith("Microsoft.CodeAnalysis.", StringComparison.Ordinal));
+
+        // The one input both sides share is checked, not assumed (2026-11-03): HeapScope's DAC lookup chose the same build
+        // as the independent check's DAC beside the dumped runtime.
+        var chosen = result.Diagnostics.Dac?.Path;
+        chosen.ShouldNotBeNull(result.Diagnostics.Dac?.ToString());
+        Sha256(chosen).ShouldBe(Sha256(dump.DacPath), $"HeapScope chose {chosen}; the check loaded {dump.DacPath}");
+        dump.Locator.Unanswered.ShouldBeEmpty(string.Join(Environment.NewLine, dump.Locator.Requests));
     }
+
+    private static string Describe(HeapScope.Core.Loading.DacChoice? choice) =>
+        choice is null ? "(none)" : $"{choice.Path ?? "(downloaded)"} by {choice.Rule}; candidates: {string.Join("; ", choice.Candidates)}";
+
+    private static string Sha256(string file) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file)));
 
     [Fact]
     public async Task The_fixture_is_killed_on_dispose_and_exits_by_itself_when_its_parent_exits()
