@@ -32,7 +32,7 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.Smoke;
 
 /// <summary>
-/// Captures the pages of the app as PNG files, in the light and the dark theme, for the design review and the README
+/// Captures the pages of the app as PNG files, one theme per run, for the design review and the README
 /// (<c>--headless --screenshots folder --smoke-open dump</c>, optionally <c>--smoke-compare</c>, <c>--smoke-allocations</c>
 /// and <c>--smoke-live</c>). Fixture dumps only: everything a page shows goes into a picture. The Processes page's rows are
 /// made up, so this machine's real processes and command lines never appear.
@@ -49,19 +49,18 @@ internal sealed class ScreenshotRunner(IServiceProvider services, Window window,
         await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.ApplicationIdle).GetTask();
     }
 
-    /// <summary>Saves the window as it stands, once per theme.</summary>
+    /// <summary>
+    /// Saves the window as it stands, named by the run's theme (<c>--Ui:Theme Light</c> or <c>Dark</c>). One theme per run: the
+    /// charts resolve their colors when they first draw, so a theme switched mid-run would leave them in the old colors.
+    /// </summary>
     private async Task CaptureAsync(string name)
     {
-        var app = Avalonia.Application.Current!;
-        foreach (var (theme, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeVariant.Dark, "dark") })
-        {
-            app.RequestedThemeVariant = theme;
-            await SettleAsync();
-            var path = Path.Combine(folder, $"{name}-{suffix}.png");
-            using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No frame was rendered.");
-            frame.Save(path, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
-            _logger.LogInformation("Screenshot written: {Path}", path);
-        }
+        await SettleAsync();
+        var suffix = Avalonia.Application.Current!.ActualThemeVariant == ThemeVariant.Dark ? "dark" : "light";
+        var path = Path.Combine(folder, $"{name}-{suffix}.png");
+        using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No frame was rendered.");
+        frame.Save(path, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+        _logger.LogInformation("Screenshot written: {Path}", path);
     }
 
     /// <summary>Drives the pages and returns the exit code.</summary>
