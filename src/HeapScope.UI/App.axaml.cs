@@ -120,7 +120,12 @@ public sealed partial class App : Avalonia.Application
             window.Show();
 
             var options = _host.Services.GetRequiredService<UiOptions>();
-            if (await new SmokeRunner(_host.Services).RunAsync(options) is int exitCode)
+            if (options.ScreenshotFolder is { } screenshots)
+            {
+                _exitCode = await new ScreenshotRunner(_host.Services, window, screenshots).RunAsync(options);
+                window.Close();
+            }
+            else if (await new SmokeRunner(_host.Services).RunAsync(options) is int exitCode)
             {
                 _exitCode = exitCode;
                 window.Close();

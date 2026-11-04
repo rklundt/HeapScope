@@ -47,9 +47,10 @@ namespace HeapScope.UI;
 /// <param name="SmokeLiveSamples">When set (<c>--smoke-live N</c>), the Live page charts N synthetic samples fed fast
 /// (sprint 1.7) and the run exits with the dispatcher checks.</param>
 /// <param name="SmokeAllocationsPath">With <c>--smoke-open</c>, an allocations trace to show on the Allocations page (sprint 2.5).</param>
-public sealed record UiOptions(int? SmokeSyntheticObjects, string? SmokeOpenPath = null, string? SmokeComparePath = null, string? SmokeTracePath = null, int? SmokeLiveSamples = null, string? SmokeAllocationsPath = null)
+/// <param name="ScreenshotFolder">With <c>--headless</c> (<c>--screenshots folder</c>), saves each page as PNG files (<see cref="Smoke.ScreenshotRunner"/>).</param>
+public sealed record UiOptions(int? SmokeSyntheticObjects, string? SmokeOpenPath = null, string? SmokeComparePath = null, string? SmokeTracePath = null, int? SmokeLiveSamples = null, string? SmokeAllocationsPath = null, string? ScreenshotFolder = null)
 {
-    public bool IsSmokeRun => SmokeSyntheticObjects is not null || SmokeOpenPath is not null || SmokeLiveSamples is not null;
+    public bool IsSmokeRun => SmokeSyntheticObjects is not null || SmokeOpenPath is not null || SmokeLiveSamples is not null || ScreenshotFolder is not null;
 }
 
 /// <summary>Builds the generic host (DI, configuration, logging) for the app.</summary>
@@ -94,7 +95,8 @@ internal static class UiHost
             builder.Configuration["smoke-compare"],
             builder.Configuration["smoke-trace"],
             smokeLive is null ? null : int.Parse(smokeLive, NumberStyles.None, CultureInfo.InvariantCulture),
-            builder.Configuration["smoke-allocations"]);
+            builder.Configuration["smoke-allocations"],
+            builder.Configuration["screenshots"]);
         builder.Services.AddSingleton(options);
 
         builder.Services.AddSingleton<IUiDispatcher>(new AvaloniaUiDispatcher(dispatcher));
