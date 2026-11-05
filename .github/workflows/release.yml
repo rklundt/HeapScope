@@ -191,7 +191,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTE: "**The macOS packages are untested.** They are built on Linux, not on a Mac, and have not been run. They are not signed or notarized."
+          NOTE: "**The macOS packages are untested.** They are built on Linux, not on a Mac, and have not been run. They are not signed or notarized. See https://github.com/rklundt/HeapScope/blob/main/INSTALL.md#macos-untested"
         run: |
           gh release view "$TAG" --json body --jq .body --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/body.md"
           if ! grep -qF "$NOTE" "$RUNNER_TEMP/body.md"; then

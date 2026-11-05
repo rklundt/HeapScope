@@ -43,14 +43,15 @@ public class ProcessNameTests
         ClrMdDumpLoader.ProcessNameOf(modules).Name.ShouldBe(name);
 
     [Theory]
-    [InlineData(@"C:\Program Files\dotnet\dotnet.exe", "dotnet")]
-    [InlineData("/usr/share/dotnet/dotnet", "dotnet")]
-    [InlineData("/app/Orders.Api", "Orders.Api")]
-    public void The_path_the_dump_records_settles_it(string imagePath, string name)
+    [InlineData(@"C:\Program Files\dotnet\dotnet.exe", true, "dotnet")]
+    [InlineData("/usr/share/dotnet/dotnet", false, "dotnet")]
+    [InlineData("/app/Orders.Api", false, "Orders.Api")]
+    [InlineData("/app/Orders.exe", false, "Orders.exe")]
+    public void The_path_the_dump_records_settles_it(string imagePath, bool windows, string name)
     {
-        var choice = ClrMdDumpLoader.ProcessNameOf(["/app/libcoreclr.so", @"C:\app\Other.exe"], imagePath, windows: false);
+        var choice = ClrMdDumpLoader.ProcessNameOf(["/app/libcoreclr.so", @"C:\app\Other.exe"], imagePath, windows);
         choice.Name.ShouldBe(name);
-        choice.Source.ShouldBe("the executable's path the dump records");
+        choice.Source.ShouldBe("the executable's path the dump records: " + imagePath);
     }
 
     [Theory]
@@ -60,14 +61,24 @@ public class ProcessNameTests
         ClrMdDumpLoader.ProcessNameOf(["/app/libcoreclr.so", "/app/Orders.Api"], imagePath, windows: false).Name.ShouldBe("Orders.Api");
 
     [Fact]
-    public void An_exe_mapped_on_another_system_is_not_the_executable() =>
-        ClrMdDumpLoader.ProcessNameOf(["/app/Plugin.exe", "/app/Orders.Api"], windows: false).Name.ShouldBe("Orders.Api");
+    public void An_exe_mapped_on_another_system_is_not_the_executable_and_the_log_says_it_was_left_out()
+    {
+        var choice = ClrMdDumpLoader.ProcessNameOf(["/app/Plugin.exe", "/app/Orders.Api"], windows: false);
+        choice.Name.ShouldBe("Orders.Api");
+        choice.Source.ShouldBe("the first of 2 modules not named like a library (.exe modules are not considered on this system); the dump records no path");
+        ClrMdDumpLoader.ProcessNameOf(["/app/Plugin.exe"], windows: false).Source.ShouldBe("unknown: no executable among 1 modules; the dump records no path");
+    }
+
+    [Fact]
+    public void The_log_says_why_the_recorded_path_was_not_used() =>
+        ClrMdDumpLoader.ProcessNameOf([@"C:\app\Orders.exe"], whyNoPath: "reading the recorded path failed: IOException").Source
+            .ShouldBe("the only .exe of 1 modules; reading the recorded path failed: IOException");
 
     [Theory]
-    [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Orders.Core.dll" }, "the only .exe of 2 modules")]
-    [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Plugin.exe", "" }, "the first of 2 .exe modules of 2")]
-    [InlineData(new[] { "/app/libcoreclr.so", "/app/Orders.Api" }, "the first of 2 modules that is not a library (no .exe)")]
-    [InlineData(new[] { "/app/libcoreclr.so" }, "unknown: no .exe or executable among 1 modules")]
+    [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Orders.Core.dll" }, "the only .exe of 2 modules; the dump records no path")]
+    [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Plugin.exe", "" }, "the first of 2 .exe modules of 2; the dump records no path")]
+    [InlineData(new[] { "/app/libcoreclr.so", "/app/Orders.Api" }, "the first of 2 modules not named like a library (no .exe); the dump records no path")]
+    [InlineData(new[] { "/app/libcoreclr.so" }, "unknown: no .exe or executable among 1 modules; the dump records no path")]
     public void The_rule_that_chose_the_name_is_stated_for_the_log(string[] modules, string source) =>
         ClrMdDumpLoader.ProcessNameOf(modules).Source.ShouldBe(source);
 }

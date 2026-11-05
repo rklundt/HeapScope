@@ -51,6 +51,10 @@ public sealed partial class JobViewModel : ObservableObject
     [ObservableProperty]
     private string _statusText = "Running";
 
+    /// <summary>Why a failed job failed, in full: a refusal puts its next step last.</summary>
+    [ObservableProperty]
+    private string? _failure;
+
     public JobViewModel(TrackedJob job)
     {
         _job = job ?? throw new ArgumentNullException(nameof(job));
@@ -89,9 +93,10 @@ public sealed partial class JobViewModel : ObservableObject
             JobStatus.Running => IsIndeterminate ? Phase : string.Create(CultureInfo.CurrentCulture, $"{Phase} {Percent:N0}%"),
             JobStatus.Completed => "Completed",
             JobStatus.Canceled => "Canceled",
-            JobStatus.Failed => "Failed: " + _job.Error,
+            JobStatus.Failed => "Failed",
             _ => Status.ToString(),
         };
+        Failure = Status == JobStatus.Failed ? _job.Error : null;
         if (Status != JobStatus.Running)
         {
             IsIndeterminate = false;

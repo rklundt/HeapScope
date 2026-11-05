@@ -163,7 +163,7 @@ perf/
 .github/workflows/ci.yml       CI on GitHub's runners: Windows and Linux, and the builds per system (sprints 2.3.5,
 2.3.6; no macOS runners since 2026-10-31).
 .github/workflows/fuzz.yml     Nightly mutation tests with more iterations (sprint 3.7).
-.github/workflows/release.yml  Release builds (win-x64 .zip, linux-x64 .tar.gz, the CLI's dotnet tool), SBOM, checksums
+.github/workflows/release.yml  Release builds (win-x64 .zip; linux-x64 and untested macOS .tar.gz; the CLI's dotnet tool), SBOM, checksums
                                and attestations (sprint 3.7; ADR-039).
 .github/workflows/skia-native.yml SkiaSharp's native library built without the DNG SDK and piex (ADR-038).
 fixtures/
@@ -234,7 +234,7 @@ flowchart TD
 | Application | Core, Contracts, Capture | StreamJsonRpc |
 | Cli | Application, Contracts | System.CommandLine |
 | UI.ViewModels | Application, Contracts | CommunityToolkit.Mvvm |
-| UI | Application, Contracts, UI.ViewModels | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Controls.DataGrid, Avalonia.Headless, Avalonia.Fonts.Inter (assets excluded), CommunityToolkit.Mvvm (MIT only, ADR-025) |
+| UI | Application, Contracts, UI.ViewModels | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Controls.DataGrid, Avalonia.Headless, Avalonia.Fonts.Inter, CommunityToolkit.Mvvm (MIT packages, ADR-025; the Inter font in its package is SIL OFL 1.1, allowed for fonts only, ADR-040) |
 
 Rules:
 - Core references nothing, not even Microsoft.Extensions.*. It is pure domain types and data structures.
@@ -332,7 +332,7 @@ The table matches `Directory.Packages.props`, the authoritative list.
 | StreamJsonRpc | 2.26.150 | MIT | Worker, Application |
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | UI.ViewModels, UI |
 | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless | 12.1.5 | MIT (natives: ANGLE BSD-3, SkiaSharp and HarfBuzzSharp MIT; SkiaSharp's native library in published builds is HeapScope's own build without the DNG SDK and piex, ADR-038) | UI, UI tests (2.3.6) |
-| Avalonia.Fonts.Inter | 12.1.5 | MIT (the Inter typeface in it is SIL OFL 1.1, allowed for fonts; ADR-040) | UI (comes with Avalonia.Headless) |
+| Avalonia.Fonts.Inter | 12.1.5 | MIT (the Inter typeface in it is SIL OFL 1.1, allowed for fonts; ADR-040) | UI (shipped since 3.10) |
 | Avalonia.Controls.DataGrid | 12.1.2 | MIT | UI (2.3.6) |
 | System.CommandLine | 2.0.14 | MIT | Cli |
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |

@@ -32,7 +32,7 @@
              x:Class="HeapScope.UI.Views.Pages.SnapshotTab"
              x:DataType="vm:SnapshotsViewModel">
   <Grid Margin="0,8,0,0">
-    <ctl:EmptyState Icon="Snapshots" Text="Open a full memory dump (.dmp) to see what is on the heap, or capture one on the Processes page."
+    <ctl:EmptyState Icon="Snapshots" Text="{x:Static vm:PlatformHints.SnapshotEmpty}"
                     IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}" />
 
     <DockPanel IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">

@@ -64,7 +64,7 @@ internal static class LayerRules
         ["HeapScope.UI.ViewModels"] = new(["HeapScope.Application", "HeapScope.Contracts"], ["CommunityToolkit.Mvvm"]),
 
         // The Avalonia desktop app (sprint 2.3.6, ADR-025): MIT Avalonia packages only (the update rule in CLAUDE.md).
-        // Avalonia.Fonts.Inter is referenced only to exclude its assets (an OFL font that comes with Avalonia.Headless).
+        // Avalonia.Fonts.Inter ships since 3.10: an MIT package holding an OFL font, allowed for fonts only (ADR-040).
         ["HeapScope.UI"] = new(
             ["HeapScope.Application", "HeapScope.Contracts", "HeapScope.UI.ViewModels"],
             ["Avalonia", "Avalonia.Desktop", "Avalonia.Themes.Fluent", "Avalonia.Controls.DataGrid", "Avalonia.Headless", "Avalonia.Fonts.Inter", "CommunityToolkit.Mvvm"]),

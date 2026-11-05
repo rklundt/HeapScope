@@ -140,8 +140,8 @@
     </ScrollViewer>
     <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="4">
       <Grid>
-        <ctl:EmptyState Icon="Live" Text="Choose a process and press Start to chart its GC heap." IsVisible="{Binding !Samples.Count}" />
-        <ctl:TimelineChart x:Name="Chart" Samples="{Binding Samples}" Markers="{Binding Markers}" GcMarkers="{Binding GcMarkers}" Version="{Binding ChartVersion}" />
+        <ctl:EmptyState Icon="Live" Text="{x:Static vm:PlatformHints.LiveEmpty}" IsVisible="{Binding !HasSamples}" />
+        <ctl:TimelineChart x:Name="Chart" Samples="{Binding Samples}" RunStart="{Binding ChartStart}" Markers="{Binding Markers}" GcMarkers="{Binding GcMarkers}" Version="{Binding ChartVersion}" />
       </Grid>
     </Border>
   </DockPanel>

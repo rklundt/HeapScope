@@ -422,7 +422,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
             result.Graph!.Dispose();
             logger.LogInformation("Index cache {Path} not used: loader version {Old}, current {New}", cachePath, result.Metadata.LoaderVersion, _kinds.For(result.Metadata.Info.Kind).LoaderVersion);
-            notes.Add("The index cache was rebuilt: it was written by an older version of HeapScope, whose results for this snapshot could differ.");
+            notes.Add("The index cache was rebuilt: it was written by an older version of HeapScope, so this open took longer. The release notes say what changed.");
             return null;
         }
 
@@ -450,7 +450,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         CancellationToken cancellationToken)
     {
         var loader = _kinds.ForFile(path).CreateLoader();
-        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
+        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress, notes.Exists(static n => n.StartsWith("The index cache was rebuilt", StringComparison.Ordinal))), cancellationToken);
         HeapGraph? graph = loaded.Graph;
         var diagnostics = loaded.Diagnostics;
         var metadata = new IndexCacheMetadata(
@@ -601,8 +601,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         public DerivedData Derived { get; } = new();
     }
 
-    private sealed class LoadProgressAdapter(Rpc.ThrottledProgress<JobProgress> target) : IProgress<LoadProgress>
+    private sealed class LoadProgressAdapter(Rpc.ThrottledProgress<JobProgress> target, bool rebuilding) : IProgress<LoadProgress>
     {
-        public void Report(LoadProgress value) => target.Report(new JobProgress(value.Phase, value.Completed, value.Total));
+        // A rebuild's wait says why, while the user waits (sprint 3.10 review M18).
+        public void Report(LoadProgress value) =>
+            target.Report(new JobProgress(rebuilding ? "Rebuilding the index cache: " + value.Phase : value.Phase, value.Completed, value.Total));
     }
 }

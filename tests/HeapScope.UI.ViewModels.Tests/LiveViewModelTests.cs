@@ -334,6 +334,47 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         TimelineLayout.ByteTicks(maxBytes).ShouldBe(megabytes.Select(m => m * 1024 * 1024));
 
     [Fact]
+    public async Task The_empty_state_hides_when_samples_arrive_and_returns_when_a_new_run_clears_them()
+    {
+        var raised = new List<string?>();
+        _live.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        _live.HasSamples.ShouldBeFalse();
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+
+        await _live.StartCommand.ExecuteAsync(null);
+        await _feed.SendAsync(100 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.Samples.Count == 1);
+
+        _live.HasSamples.ShouldBeTrue();
+        raised.ShouldContain(nameof(LiveViewModel.HasSamples), "a list does not notify, so this must");
+        _live.ChartStart.ShouldBe(_live.Samples[0].At);
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+
+        await _live.StartCommand.ExecuteAsync(null);
+        _live.HasSamples.ShouldBeFalse("a new run starts empty");
+        _live.ChartStart.ShouldBeNull();
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+    }
+
+    [Fact]
+    public void The_time_axis_counts_from_the_run_s_start_once_the_window_has_slid()
+    {
+        var at = new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.Zero);
+        HeapSample Sample(int seconds) => new(at.AddSeconds(seconds), 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        var ticks = TimelineLayout.TimeTicks([Sample(630), Sample(930)], 600, at);
+
+        ticks.Select(t => t.Label).ShouldBe(["11:00", "12:00", "13:00", "14:00", "15:00"]);
+        ticks[0].X.ShouldBe(60, "30 s into the window");
+        TimelineLayout.TimeTicks([Sample(0), Sample(300)], 600, at).Select(t => t.Label).First().ShouldBe("0:00");
+    }
+
+    [Fact]
     public void The_time_axis_labels_elapsed_time_at_round_steps()
     {
         var at = new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.Zero);

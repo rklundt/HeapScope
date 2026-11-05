@@ -264,7 +264,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `Services/`: `AvaloniaUiDispatcher`, `AvaloniaUserInteraction` (the system file picker), `DispatcherWatchdog`,
   `ThemeChooser`, `AppFonts`, `NativeMethods` (Windows only). `Themes/`: `Light.axaml` and `Dark.axaml` (theme dictionaries with
   the same keys), `Styles.axaml` and `Icons.axaml` (ADR-040). `Controls/` since 3.10: `DuotoneIcon`, `ButtonIcon`, `EmptyState`,
-  `ThemeBrush` (a background named by a data row, which follows the theme), `NumberHeaders`, `SignConverters`.
+  `ThemeBrush` (a background named by a data row, which follows the theme), `NumberHeaders`, `SignConverters`. In
+  `UI.ViewModels`, `PlatformHints` holds the next steps that depend on whether this system can capture.
   `Assets/heapscope.ico`: the app's icon, from `build/make-icon.cs`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9,
   2.3.6]; `Smoke/ScreenshotRunner`: every page as PNG files [3.10]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
   Retainers tab (`RetainersTab`), `Controls/IcicleChart` (drawn in one pass, geometry from the view models),

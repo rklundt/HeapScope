@@ -29,7 +29,7 @@
              xmlns:ctl="using:HeapScope.UI.Controls"
              x:Class="HeapScope.UI.Views.Pages.JobRow"
              x:DataType="vm:JobViewModel">
-  <Grid ColumnDefinitions="280,*,240,Auto" Margin="0,2">
+  <Grid ColumnDefinitions="280,*,240,Auto" RowDefinitions="Auto,Auto" Margin="0,2">
     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
       <ctl:DuotoneIcon Icon="{Binding StatusIcon}" VerticalAlignment="Center" IsVisible="{Binding !IsRunning}" />
       <TextBlock Text="{Binding Title}" MaxWidth="256" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
@@ -38,5 +38,8 @@
                  Value="{Binding Percent, Mode=OneWay}" IsIndeterminate="{Binding IsIndeterminate}" />
     <TextBlock Grid.Column="2" Text="{Binding StatusText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
     <Button Grid.Column="3" Classes="compact" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}" />
+    <!-- A refusal puts its next step last, so it wraps here and can be copied (sprint 3.10 review M19). -->
+    <SelectableTextBlock Grid.Row="1" Grid.ColumnSpan="4" Text="{Binding Failure}" TextWrapping="Wrap" Margin="22,2,0,2"
+                         IsVisible="{Binding Failure, Converter={x:Static ObjectConverters.IsNotNull}}" />
   </Grid>
 </UserControl>

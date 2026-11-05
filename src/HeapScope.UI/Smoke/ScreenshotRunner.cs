@@ -84,13 +84,29 @@ internal sealed class ScreenshotRunner(IServiceProvider services, Window window,
         var processes = services.GetRequiredService<ProcessesViewModel>();
         Show(processes);
         {
+            // The page refreshes itself when shown: its real rows must be in before these replace them.
             await SettleAsync();
-            await Task.Delay(1500);
+            await Task.Delay(500);
+            for (var waited = 0; processes.IsBusy && waited < 300; waited++)
+            {
+                await Task.Delay(100);
+            }
+
+            if (processes.IsBusy)
+            {
+                throw new InvalidOperationException("The Processes page's refresh did not finish, so its real rows could reach the picture.");
+            }
+
             processes.Processes.Clear();
             processes.Processes.Add(new ProcessRow(18244, "LeakyApi", ".NET 10.0.14", "No", 412_000_000, "LeakyApi.exe --urls http://localhost:5100", false));
             processes.Processes.Add(new ProcessRow(20112, "OrdersWorker", ".NET 8.0.21", "No", 1_260_000_000, "dotnet OrdersWorker.dll", false));
             processes.Processes.Add(new ProcessRow(9320, "ReportingService", ".NET 9.0.10", "Yes", 788_000_000, "ReportingService.exe", true));
             await CaptureAsync("02-processes");
+            if (processes.Processes.Count != 3 || processes.Processes.Any(static p => p.ProcessId is not (18244 or 20112 or 9320)))
+            {
+                File.Delete(Path.Combine(folder, $"02-processes-{(Avalonia.Application.Current!.ActualThemeVariant == ThemeVariant.Dark ? "dark" : "light")}.png"));
+                throw new InvalidOperationException("Real processes reached the Processes page's picture, so it was deleted.");
+            }
         }
 
         if (options.SmokeOpenPath is { } dump)

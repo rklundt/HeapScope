@@ -70,8 +70,11 @@ public static class TimelineLayout
         }
     }
 
-    /// <summary>The labels of the time axis: elapsed time from the first sample at round steps, at most about six across.</summary>
-    public static IReadOnlyList<(double X, string Label)> TimeTicks(IReadOnlyList<HeapSample> samples, double width)
+    /// <summary>
+    /// The labels of the time axis: the time since <paramref name="runStart"/> (the first sample without one) at round steps, at
+    /// most about six across. Only the last samples are kept, so the first in the window may be well into the run.
+    /// </summary>
+    public static IReadOnlyList<(double X, string Label)> TimeTicks(IReadOnlyList<HeapSample> samples, double width, DateTimeOffset? runStart = null)
     {
         ArgumentNullException.ThrowIfNull(samples);
         if (samples.Count < 2 || width <= 0)
@@ -87,14 +90,15 @@ public static class TimelineLayout
 
         int[] steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400];
         var step = steps.FirstOrDefault(s => span / s <= 6, steps[^1]);
+        var offset = runStart is { } start ? Math.Max(0, (samples[0].At - start).TotalSeconds) : 0;
         var ticks = new List<(double X, string Label)>();
-        for (var at = 0L; at <= span; at += step)
+        for (var at = (long)Math.Ceiling(offset / step) * step; at <= offset + span; at += step)
         {
             var time = TimeSpan.FromSeconds(at);
             var label = time.TotalHours >= 1
                 ? string.Create(CultureInfo.InvariantCulture, $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}")
                 : string.Create(CultureInfo.InvariantCulture, $"{time.Minutes}:{time.Seconds:00}");
-            ticks.Add((at / span * width, label));
+            ticks.Add(((at - offset) / span * width, label));
         }
 
         return ticks;

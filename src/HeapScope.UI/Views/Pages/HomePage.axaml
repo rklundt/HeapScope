@@ -36,9 +36,9 @@
       <WrapPanel Margin="0,0,0,24">
         <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="0,0,8,0" Command="{Binding OpenDumpCommand}" />
         <Button ctl:ButtonIcon.Icon="Capture" Content="Capture from a process" Margin="0,0,8,0" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowProcessesCommand}"
-                ToolTip.Tip="Choose a running .NET process and capture a full dump of it." />
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.CaptureTip}" />
         <Button ctl:ButtonIcon.Icon="Live" Content="Watch live" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowLiveCommand}"
-                ToolTip.Tip="Chart a running process's GC heap, and capture dumps when a rule fires." />
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.LiveTip}" />
       </WrapPanel>
       <DockPanel Margin="0,0,0,4">
         <Button ctl:ButtonIcon.Icon="Refresh" DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />

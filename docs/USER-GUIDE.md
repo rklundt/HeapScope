@@ -20,11 +20,11 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   Key retention paths can be shown as a diagram, the paths merged into one graph from the roots down; "Fit to width"
   scales it down to the page. A type's "Why alive" page has a Similar retention button.
 - **Comparison depth.** Compare can show each type's New and Dead objects, matched by address for two dumps of one
-  process (an object a compacting GC moved counts as dead and new), and open a row's new, dead or survived objects as a
+  process (an estimate: a GC moves most young objects, so those usually count as dead and new, and survivors are reliable for Gen2, LOH, POH and frozen objects; new and survived objects can include garbage not yet collected), and open a row's new, dead or survived objects as a
   set; each type's retained bytes in both snapshots; and the change per generation. "Trend across snapshots" puts the
   objects and bytes of up to 20 ticked snapshots side by side, with how often each type grew. The CLI's `diff`
   matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one heap kind's growth
-  (`--fail-on-growth 50MB --growth-of gen2`) or on each row (`--fail-on-growth-per-row`); `trend` compares several
+  (`--fail-on-growth 50MB --growth-of gen2`) or on each row (`--fail-on-growth-per-row`). For a stable gate, capture after a full GC in the target or compare gcdumps, since a full dump counts garbage not yet collected; that GC moves objects, so skip it when you match them by address; `trend` compares several
   dumps.
 - **Live workflow.** The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
   garbage collection (Force GC, a dotted line on the chart). Under "Snapshot rules" it captures on a schedule or when the

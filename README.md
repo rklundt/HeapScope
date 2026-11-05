@@ -54,7 +54,8 @@ the icicle chart shows the shape of it at a glance. Click down until you reach t
 ### Compare: what grew between this morning and now?
 
 Put two dumps side by side and sort by growth, per type, in objects and bytes, retained bytes or generation. Two dumps of
-the same process also match objects by address, so you can open what is new, what died and what survived. Trend view lines
+the same process also match objects by address, so you can open what is new, what died and what survived. That is an estimate,
+most reliable for older objects, since a GC moves young ones. Trend view lines
 up to 20 snapshots side by side and shows how often each type grew.
 
 <picture>
@@ -85,7 +86,8 @@ size, or when it has grown by a set amount. Come back to dumps from before and a
 heapscope-cli diff before.dmp after.dmp --fail-on-growth 50MB
 ```
 
-It exits with code 2 when the growth is over your limit, and 0 when it is not.
+It exits with code 2 when the growth is over your limit, and 0 when it is not. A full dump also counts garbage not yet
+collected, so for a stable gate capture after a full GC in the target, or compare gcdumps.
 
 ### Private by design: dumps are full of secrets?
 
@@ -96,12 +98,14 @@ Microsoft's symbol server, and only if you allow it. That request sends module i
 ### Built for big dumps: tired of your profiler freezing?
 
 Analysis runs in a separate worker process, so the window keeps responding, and if the worker crashes you can restart it
-from a banner. Measured on a 24-core machine with 32 GB of RAM:
+from a banner. Measured on 3.10, three runs each, on a 24-core machine with 32 GB of RAM:
 
-| Dump | First load | Reopen | Worker's peak memory |
+| Dump | First load | Reopen | Peak memory, first load |
 |---|---|---|---|
-| 4.0 GB, 57.5 million objects | 15.8 s | 0.6 s | 2.4 GB |
-| 4.4 GB, 54 million objects, as densely linked as a real application | about 1 minute | 1.0 s | 2.6 GB |
+| 4.0 GB, 55 million objects | 35 to 48 s | about 1 s | 2.2 to 2.5 GB |
+| 4.0 GB, 49 million objects, as densely linked as a real application | 54 to 75 s | about 1 s | 2.4 GB |
+
+Retained sizes take more: computing them in memory peaked at about 3.3 and 3.9 GB on dumps of this size when last measured.
 
 ### Results you can check: someone doubts a number?
 
@@ -150,13 +154,13 @@ Copyright (C) 2026 Ray Klundt.
 HeapScope is licensed under the [GNU Affero General Public License, version 3 only](LICENSE), with
 [additional terms](ADDITIONAL-TERMS.md) under Section 7 of that license. In short, and the files themselves govern:
 
-- **Copyleft, including over a network.** Modified versions, and services built on them, must be released under the
-  same license with their source code.
+- **Copyleft, including over a network.** If you distribute a modified version, or let people use one over a network, you
+  must offer it under the same license with its source code.
 - **Attribution.** Every work based on HeapScope must keep the notice "Powered by HeapScope by Ray Klundt" (or "Based
   on HeapScope by Ray Klundt"), with HeapScope linked to https://github.com/rklundt/HeapScope. In a user interface it
   must be readable on the main screen (or a splash screen shown for at least five seconds): real text on an opaque
   background, at least 4.5:1 contrast, no smaller than the body text. Command line tools show it in help, version and
-  startup output. Modified versions must be marked as such.
+  startup output where applicable, and in their primary documentation. Modified versions must be marked as such.
 - **AI and machine learning (Section 6).** Models trained, fine-tuned or evaluated with HeapScope code, screens, or
   processes must credit it in their documentation, and code that an AI system produces from HeapScope is a work based on
   it, carrying the attribution and the same license. Text and data mining rights are reserved.

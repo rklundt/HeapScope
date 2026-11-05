@@ -124,7 +124,7 @@
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Roots" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />
-                <DataGridTextColumn Header="Path" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
+                <DataGridTextColumn Header="Path" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" MinWidth="240" />
               </DataGrid.Columns>
             </DataGrid>
             <TreeView x:Name="RetentionTree" ItemsSource="{Binding RetentionTree}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">

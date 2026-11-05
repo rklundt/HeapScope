@@ -27,11 +27,15 @@ namespace HeapScope.UI.ViewModels;
 /// <summary>Column headers for grids built from a result set's column list (sprint 1.6).</summary>
 public static class ColumnHeaders
 {
-    /// <summary>The width of a generated number column: enough for its header, and for the numbers under it.</summary>
-    public static double NumberWidth(string header)
+    /// <summary>
+    /// The width of a generated number column: enough for its header and for the numbers under it. Counts and bytes are shown in
+    /// full, so they hold "8,000,000,000" (a Medium heap); a percent is short.
+    /// </summary>
+    public static double NumberWidth(string header, HeapScope.Contracts.ResultColumnKind kind)
     {
         ArgumentNullException.ThrowIfNull(header);
-        return Math.Max(92, (header.Length * 7) + 24);
+        var numbers = kind == HeapScope.Contracts.ResultColumnKind.Percent ? 92 : 130;
+        return Math.Max(numbers, (header.Length * 7) + 24);
     }
 
     /// <summary>

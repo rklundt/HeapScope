@@ -56,7 +56,8 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   3.10 (2026-11-04), each failing differently, each test passing alone: `DiffTests` again and `LeakyApiGrowthTests` (growth a
   little short of the known answers, for example `System.Byte[]` 4,973 of 5,000), `UiResponsivenessTests` (one operation of at
   most 159 ms as a job ended, 17 ms alone), and all 12 `AllocationTraceTests` (their fixture's setup canceled). `DiffTests` has
-  now recurred. Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
+  now recurred. `SignedCacheTests.Processes_creating_the_key_at_once_end_with_one_key` once on the same sprint (2026-11-05; passes alone,
+  and in its project's whole run). Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
   landed before EventPipe had started the session; the test now checks both outcomes (canceled before the start keeps
   nothing; after it, the trace stops early and is kept).
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
@@ -66,6 +67,9 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   variable `Logging__File__MinimumLevel`, M14).
 - A documented CI leak check for users' pipelines: a sample workflow running `heapscope-cli diff --fail-on-growth` on
   two fixture dumps.
+- First load is slower than sprint 1.2 measured (sprint 3.10): a Medium dump took 35 to 48 s against 15.8 s, inside the 3 minute
+  budget, with one pass ranging 13 to 25 s between runs on a machine in use. Measure on a quiet machine and trace the object pass
+  before Phase 4 adds loader work (`docs/architecture/budgets.md`).
 - Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
   macOS packages are built on Linux and never run, and the macOS core dump checks (known answers, DAC trust) no longer
   run. Since 3.10 releases attach them marked untested (ADR-039). Before that mark comes off, the product owner picks a way

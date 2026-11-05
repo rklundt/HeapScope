@@ -142,7 +142,12 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Bumped once per sample: the chart redraws when it changes.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSamples))]
     private int _chartVersion;
+
+    /// <summary>When the run began, so the time axis reads the run's age once the window has slid past its start.</summary>
+    [ObservableProperty]
+    private DateTimeOffset? _chartStart;
 
     public LiveViewModel(MonitorService monitor, ICaptureService capture, IUiDispatcher dispatcher, ILogger<LiveViewModel>? logger = null, IUserInteraction? interaction = null, AllocationsViewModel? allocations = null)
     {
@@ -165,6 +170,9 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>The chart's samples, oldest first (read on the UI thread).</summary>
     public IReadOnlyList<HeapSample> Samples => _samples;
+
+    /// <summary>Whether the chart has anything to show (raised with <see cref="ChartVersion"/>: the list itself does not notify).</summary>
+    public bool HasSamples => _samples.Count > 0;
 
     /// <summary>When rules took snapshots, for the chart's markers.</summary>
     public IReadOnlyList<DateTimeOffset> Markers => _markers;
@@ -246,6 +254,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         PastRunShown = null;
         HighGcPressure = false;
         Latest = null;
+        ChartStart = null;
         ChartVersion++;
         var options = new MonitorOptions(
             TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds)),
@@ -420,6 +429,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             var read = await TimelineFile.ReadAsync(path, CancellationToken.None);
             _samples.Clear();
             _samples.AddRange(read.Samples.TakeLast(WindowSamples));
+            ChartStart = read.Samples.Count > 0 ? read.Samples[0].At : null;
             _markers.Clear();
             _markers.AddRange(read.Events.Where(e => e.Text.StartsWith(MonitorRun.SnapshotEventPrefix, StringComparison.Ordinal)).Select(e => e.At));
             _gcMarkers.Clear();
@@ -603,6 +613,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
+        ChartStart ??= sample.Counters.At;
         _samples.Add(sample.Counters);
         if (_samples.Count > WindowSamples)
         {

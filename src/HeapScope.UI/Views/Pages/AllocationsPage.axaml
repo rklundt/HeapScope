@@ -56,7 +56,7 @@
     </StackPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
     <ctl:EmptyState DockPanel.Dock="Top" Icon="Allocations" IsVisible="{Binding IsEmpty}"
-                    Text="No allocation trace is open. Select a process on the Processes page and use Record allocations while the application runs, or open a .nettrace file. HeapScope then shows which types and call stacks allocated the most." />
+                    Text="{x:Static vm:PlatformHints.AllocationsEmpty}" />
     <ContentControl Content="{Binding Selected}">
       <ContentControl.DataTemplates>
         <DataTemplate DataType="vm:AllocationTraceViewModel">
@@ -98,7 +98,8 @@
                   <Button Content="All types" Margin="8,0,0,0" Command="{Binding AllTypesCommand}" IsVisible="{Binding HasType}" />
                 </WrapPanel>
                 <DockPanel DataContext="{Binding Tree}" x:DataType="vm:AllocationTreeViewModel">
-                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" ToolTip.Tip="{Binding Note}" />
+                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
+                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Note}" TextWrapping="Wrap" />
                   <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
                   <DataGrid x:Name="TreeGrid" ctl:GridExports.ExportName="AllocationCallTree" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
                             ctl:GridBehaviors.Rows="{Binding Rows}"

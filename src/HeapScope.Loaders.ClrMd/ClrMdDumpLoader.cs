@@ -584,22 +584,31 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         return stream.ReadAtLeast(start, 4, throwOnEndOfStream: false) == 4 && SnapshotFileSignature.IsMinidump(start);
     }
 
-    private static ProcessNameChoice ProcessName(DataTarget target) =>
-        ProcessNameOf(
-            target.EnumerateModules().Select(static module => module.FileName ?? string.Empty),
-            ImagePath(target.DataReader),
-            target.DataReader.TargetPlatform == OSPlatform.Windows);
-
-    /// <summary>The executable's path as the dump records it. Not every reader has it, and a name must not fail a load.</summary>
-    private static string? ImagePath(IDataReader reader)
+    private static ProcessNameChoice ProcessName(DataTarget target)
     {
+        var (imagePath, whyNoPath) = ImagePath(target.DataReader);
+        return ProcessNameOf(
+            target.EnumerateModules().Select(static module => module.FileName ?? string.Empty),
+            imagePath,
+            target.DataReader.TargetPlatform == OSPlatform.Windows,
+            whyNoPath);
+    }
+
+    /// <summary>The executable's path as the dump records it, or why there is none. Not every reader has it, and a name must not fail a load.</summary>
+    private static (string? Path, string WhyNot) ImagePath(IDataReader reader)
+    {
+        if (reader is not IProcessInfoProvider provider)
+        {
+            return (null, "this kind of dump records no path");
+        }
+
         try
         {
-            return reader is IProcessInfoProvider provider ? provider.GetProcessInfo().ImagePath : null;
+            return (provider.GetProcessInfo().ImagePath, "the dump records no path");
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException or IndexOutOfRangeException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException or IndexOutOfRangeException or OverflowException or ClrDiagnosticsException)
         {
-            return null;
+            return (null, "reading the recorded path failed: " + ex.GetType().Name);
         }
     }
 
@@ -614,13 +623,13 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
     /// library, with its dots kept (Orders.Api). That is a judgment, not proof: under `ulimit -s unlimited` a mapped data file
     /// could sort first, and the log states the rule used. With no such module the name is unknown, not a library's.
     /// </summary>
-    internal static ProcessNameChoice ProcessNameOf(IEnumerable<string> modules, string? imagePath = null, bool windows = true)
+    internal static ProcessNameChoice ProcessNameOf(IEnumerable<string> modules, string? imagePath = null, bool windows = true, string whyNoPath = "the dump records no path")
     {
         if (!string.IsNullOrEmpty(imagePath) && RecordedPath.FileName(imagePath) is { Length: > 0 } image)
         {
             return new ProcessNameChoice(
-                image.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? image[..^".exe".Length] : image,
-                "the executable's path the dump records");
+                windows && image.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? image[..^".exe".Length] : image,
+                "the executable's path the dump records: " + imagePath);
         }
 
         var named = 0;
@@ -660,11 +669,15 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             ? new ProcessNameChoice(
                 executable[..^".exe".Length],
                 executables == 1
-                    ? $"the only .exe of {counted} modules"
-                    : $"the first of {executables.ToString(CultureInfo.InvariantCulture)} .exe modules of {counted}")
+                    ? $"the only .exe of {counted} modules; {whyNoPath}"
+                    : $"the first of {executables.ToString(CultureInfo.InvariantCulture)} .exe modules of {counted}; {whyNoPath}")
             : candidate is not null
-                ? new ProcessNameChoice(candidate, $"the first of {counted} modules that is not a library (no .exe)")
-                : new ProcessNameChoice(null, $"unknown: no .exe or executable among {counted} modules");
+                ? new ProcessNameChoice(candidate, windows
+                    ? $"the first of {counted} modules not named like a library (no .exe); {whyNoPath}"
+                    : $"the first of {counted} modules not named like a library (.exe modules are not considered on this system); {whyNoPath}")
+                : new ProcessNameChoice(null, windows
+                    ? $"unknown: no .exe or executable among {counted} modules; {whyNoPath}"
+                    : $"unknown: no executable among {counted} modules; {whyNoPath}");
     }
 
     private static bool LooksLikeLibrary(string name) =>

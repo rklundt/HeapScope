@@ -24,9 +24,8 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Data.Converters;
-using Avalonia.Controls.Primitives;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using HeapScope.UI.ViewModels;
 
 namespace HeapScope.UI.Controls;
@@ -41,17 +40,17 @@ public sealed class KeyPathDiagramView : Control
     public static readonly StyledProperty<KeyPathDiagram?> DiagramProperty =
         AvaloniaProperty.Register<KeyPathDiagramView, KeyPathDiagram?>(nameof(Diagram));
 
-    /// <summary>Scales the diagram down to the width it is given (the scroll viewer around it then has no horizontal bar).</summary>
+    /// <summary>
+    /// Scales the diagram down to the width of the scroll viewer around it, no further than <see cref="KeyPathDiagram.MinFitScale"/>
+    /// to stay readable. A diagram still wider keeps the viewer's horizontal bar, so none of it is out of reach.
+    /// </summary>
     public static readonly StyledProperty<bool> FitWidthProperty =
         AvaloniaProperty.Register<KeyPathDiagramView, bool>(nameof(FitWidth));
-
-    /// <summary>A scroll viewer's horizontal bar for a fit-to-width diagram: off, or it would offer infinite width.</summary>
-    public static FuncValueConverter<bool, ScrollBarVisibility> ScrollBarForFit { get; } =
-        new(static fit => fit ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
 
     private const double Inset = 12;
 
     private double _scale = 1;
+    private ScrollViewer? _viewer;
 
     static KeyPathDiagramView()
     {
@@ -77,6 +76,35 @@ public sealed class KeyPathDiagramView : Control
         set => SetValue(FitWidthProperty, value);
     }
 
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _viewer = this.FindAncestorOfType<ScrollViewer>();
+        if (_viewer is not null)
+        {
+            _viewer.SizeChanged += OnViewerSizeChanged;
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        if (_viewer is not null)
+        {
+            _viewer.SizeChanged -= OnViewerSizeChanged;
+            _viewer = null;
+        }
+
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnViewerSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (FitWidth)
+        {
+            InvalidateMeasure();
+        }
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         if (Diagram is not { Nodes.Count: > 0 } diagram)
@@ -84,7 +112,9 @@ public sealed class KeyPathDiagramView : Control
             return default;
         }
 
-        _scale = FitWidth ? diagram.FitScale(availableSize.Width - (2 * Inset)) : 1;
+        // A viewer with a horizontal bar measures its content at infinite width, so the width to fit is the viewer's own.
+        var width = _viewer is { Bounds.Width: > 0 } viewer ? viewer.Bounds.Width : availableSize.Width;
+        _scale = FitWidth ? diagram.FitScale(width - (2 * Inset)) : 1;
         return new Size((diagram.Width * _scale) + (2 * Inset), (diagram.Height * _scale) + (2 * Inset));
     }
 

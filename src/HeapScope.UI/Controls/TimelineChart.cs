@@ -63,6 +63,16 @@ public sealed class TimelineChart : Control
         ActualThemeVariantChanged += (_, _) => InvalidateVisual();
     }
 
+    /// <summary>When the run began: the time axis counts from here, not from the first sample still in the window.</summary>
+    public static readonly StyledProperty<DateTimeOffset?> RunStartProperty =
+        AvaloniaProperty.Register<TimelineChart, DateTimeOffset?>(nameof(RunStart));
+
+    public DateTimeOffset? RunStart
+    {
+        get => GetValue(RunStartProperty);
+        set => SetValue(RunStartProperty, value);
+    }
+
     public IReadOnlyList<HeapSample>? Samples
     {
         get => GetValue(SamplesProperty);
@@ -151,7 +161,7 @@ public sealed class TimelineChart : Control
         }
 
         context.DrawLine(grid, new Point(0, plot), new Point(width, plot));
-        foreach (var (x, value) in TimelineLayout.TimeTicks(samples, width))
+        foreach (var (x, value) in TimelineLayout.TimeTicks(samples, width, RunStart))
         {
             var label = Label(value, subtle);
             context.DrawText(label, new Point(Math.Clamp(x - (label.Width / 2), 0, Math.Max(0, width - label.Width)), plot + 1));

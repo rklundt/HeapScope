@@ -127,7 +127,7 @@
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:RetentionGroupItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathCount, StringFormat='{}{0:N0}'}" Width="70" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Type" x:DataType="vm:RetentionGroupItem" Binding="{Binding TypeText}" Width="*" MinWidth="240" />
-                <DataGridTextColumn Header="The most different paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathsText}" Width="3*" />
+                <DataGridTextColumn Header="The most different paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathsText}" Width="3*" MinWidth="240" />
               </DataGrid.Columns>
             </DataGrid>
             <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" />

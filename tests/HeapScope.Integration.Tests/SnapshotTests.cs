@@ -89,6 +89,40 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
     private static async Task<ResultSetInfo> SummaryAsync(SnapshotSession session, SnapshotHandle handle) =>
         (await session.QueryTypeSummaryAsync(handle, TypeGrouping.Type, null, null, true, null, Ct)).Rows.Info;
 
+    /// <summary>A fix in what the loader records reaches snapshots cached before it (sprint 3.10 review M15), in both memory modes.</summary>
+    [Theory]
+    [InlineData(SnapshotMemoryMode.InMemory)]
+    [InlineData(SnapshotMemoryMode.Mapped)]
+    public async Task A_cache_from_an_older_loader_is_rebuilt_with_a_note(SnapshotMemoryMode mode)
+    {
+        (await _session.StartOpen(_dump, mode: mode).Result).Descriptor.FromCache.ShouldBeFalse();
+        await _host.RestartAsync(Ct);
+
+        var signer = HeapScope.Storage.IndexCacheSigner.ForThisUser(HeapScope.Core.HeapScopeFolders.Default.Root).Signer;
+        var fingerprint = HeapScope.Storage.SnapshotFingerprint.Compute(_dump);
+        var older = _dump + ".older";
+        var current = HeapScope.Storage.IndexCacheReader.Open(CachePath, signer, fingerprint, HeapScope.Storage.MemoryMode.InMemory, Ct);
+        current.Success.ShouldBeTrue(current.Detail);
+        using (var graph = current.Graph!)
+        {
+            current.Metadata!.LoaderVersion.ShouldBe(HeapScope.Loaders.ClrMd.ClrMdDumpLoader.CurrentVersion);
+            current.Metadata.ProcessNameSource.ShouldNotBeNull().ShouldStartWith("the executable's path the dump records", customMessage: "kept, so a reopen's log still says it");
+            HeapScope.Storage.IndexCacheWriter.Write(older, signer, graph, current.Metadata with { LoaderVersion = HeapScope.Loaders.ClrMd.ClrMdDumpLoader.CurrentVersion - 1 }, fingerprint, cancellationToken: Ct);
+        }
+
+        File.Move(older, CachePath, overwrite: true);
+
+        var rebuilt = (await _session.StartOpen(_dump, mode: mode).Result).Descriptor;
+
+        rebuilt.FromCache.ShouldBeFalse();
+        rebuilt.ProcessName.ShouldBe("LeakyConsole");
+        rebuilt.Notes.ShouldContain(n => n.StartsWith("The index cache was rebuilt", StringComparison.Ordinal));
+        await _host.RestartAsync(Ct);
+        var again = (await _session.StartOpen(_dump, mode: mode).Result).Descriptor;
+        again.FromCache.ShouldBeTrue("the rebuilt cache is current");
+        again.Notes.ShouldNotContain(n => n.StartsWith("The index cache was rebuilt", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task First_open_loads_the_dump_and_writes_the_cache_and_the_next_open_reuses_it()
     {

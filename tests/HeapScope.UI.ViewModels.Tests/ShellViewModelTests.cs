@@ -57,6 +57,35 @@ public sealed class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_failed_job_keeps_its_whole_reason_apart_from_its_status()
+    {
+        var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
+        var row = _shell.Jobs.ShouldHaveSingleItem();
+        row.Failure.ShouldBeNull();
+
+        _worker.Service.FailSynthetic(new InvalidOperationException("It could not be read. Next step: install the runtime."));
+        await Should.ThrowAsync<InvalidOperationException>(run);
+
+        row.StatusText.ShouldBe("Failed");
+        row.Failure!.ShouldEndWith("Next step: install the runtime.");
+    }
+
+    [Theory]
+    [InlineData(true, "Processes page", "Start", "Record allocations")]
+    [InlineData(false, "dotnet-dump", "needs Windows", "needs Windows")]
+    public void Empty_pages_name_a_next_step_this_system_has(bool canCapture, string snapshot, string live, string allocations)
+    {
+        PlatformHints.SnapshotEmptyOn(canCapture).ShouldContain(snapshot);
+        PlatformHints.LiveEmptyOn(canCapture).ShouldContain(live);
+        PlatformHints.AllocationsEmptyOn(canCapture).ShouldContain(allocations);
+        if (!canCapture)
+        {
+            PlatformHints.SnapshotEmptyOn(canCapture).ShouldNotContain("Processes page");
+            PlatformHints.AllocationsEmptyOn(canCapture).ShouldNotContain("Processes page");
+        }
+    }
+
+    [Fact]
     public async Task Starting_a_job_adds_it_to_the_jobs_panel_and_progress_updates_it()
     {
         var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);

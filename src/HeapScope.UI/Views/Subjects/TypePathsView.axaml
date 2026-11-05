@@ -43,8 +43,7 @@
       <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
-    <ScrollViewer IsVisible="{Binding ShowDiagram}" VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="{Binding FitDiagram, Converter={x:Static ctl:KeyPathDiagramView.ScrollBarForFit}}">
+    <ScrollViewer IsVisible="{Binding ShowDiagram}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
       <ctl:KeyPathDiagramView x:Name="PathsDiagram" Diagram="{Binding Diagram}" FitWidth="{Binding FitDiagram}" AutomationProperties.Name="Key retention paths diagram" />
     </ScrollViewer>
     <DataGrid x:Name="TypePathsGrid" IsVisible="{Binding !ShowDiagram}" ctl:GridExports.ExportName="RetentionPaths" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
@@ -54,7 +53,7 @@
         <DataGridTextColumn Header="Objects" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes" x:DataType="vm:KeyPathItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
         <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />
-        <DataGridTextColumn Header="Path from the root" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
+        <DataGridTextColumn Header="Path from the root" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" MinWidth="240" />
       </DataGrid.Columns>
     </DataGrid>
   </DockPanel>

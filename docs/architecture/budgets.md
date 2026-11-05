@@ -15,7 +15,7 @@ Initial budgets (sprints refine them with measurements):
 
 | Budget | Target | Measured |
 |---|---|---|
-| Medium (~4 GB, ~50M objects) first load on a 16 GB laptop | < 3 min | 15.8 s on the fixture Medium dump (1.2, `load-dump`, 32 GB machine); about 20 s end to end in the UI smoke run |
+| Medium (~4 GB, ~50M objects) first load on a 16 GB laptop | < 3 min | 35.1 to 48.2 s on a fixture Medium dump (3.10, `load-dump`, 32 GB machine); 15.8 s in 1.2; about 20 s end to end in the UI smoke run |
 | Medium reopen from index cache | < 20 s in memory; < 2 s mapped | 0.6 s in memory, 0.6 s mapped warm; 0.8 s and 1.0 s cold (0.5, synthetic 50M); 0.6 s for the fixture Medium (1.2) |
 | Worker peak memory, Medium, in-memory mode (machines with room, e.g. 32 GB) | < 1.5x the dump's managed heap size | 2.4 GB for a 3.36 GB managed heap, 0.71x (1.2) |
 | Worker peak memory, Medium first load on a 16 GB laptop (graph, builder buffers and ClrMD caches) | < 4 GB | 2.4 GB (1.2, fixture Medium at 1.14 references per object) |
@@ -55,6 +55,13 @@ memory-mapped dump reader):
 | Medium (4,022 MB) | 57.5M | 1.14 | 7.0 s | 6.7 s | 15.8 s | 2,395 MB | 1,457 MB |
 | Roslyn compiler server (423 MB, a real application) | 0.35M | 2.01 | 0.4 s | 0.2 s | 1.7 s | 130 MB | 10 MB |
 | DenseHeap (4,440 MB; 3.4 GB heap of real Roslyn objects) | 54.1M | 3.03 | 27.5 s | 29.2 s | 64.4 s | 2,636 MB | 1,759 MB |
+
+Remeasured in sprint 3.10, on new dumps (the older ones need a runtime no longer installed): runtime 10.0.14, `load-dump`, Release,
+three runs each with desktop applications open, the same machine. Medium (3,984 MB, 54.8M objects): first load 35.1 to 48.2 s,
+reopen in memory 0.9 to 1.3 s, peak 2,197 to 2,470 MB. DenseHeap (4,017 MB, 48.6M objects): first load 53.5 to 75.0 s, reopen
+1.0 to 1.2 s, peak 2,361 to 2,364 MB. All budgets met. Medium's first load is 2 to 3 times the table's 15.8 s and later's 19 s.
+The object pass alone ranged from 13 to 25 s between runs of one dump, and the loader has gained work since, but neither has been
+shown to be the cause (Backlog).
 
 The leak fixture heaps are sparse (1.1 to 1.2 references per object). The DenseHeap fixture (`fixtures/DenseHeap`,
 captured with `fixtures/scripts/New-DenseDump.ps1`) builds a Medium-size heap at real-application density out of the

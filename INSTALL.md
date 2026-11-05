@@ -70,7 +70,20 @@ refuse to open them. The steps below are what should work; nobody has confirmed 
    does the analysis.
 3. Run `./HeapScope` from that folder, or `./heapscope-cli` for the CLI.
 
-Capturing needs Windows, so take a dump with `dotnet-dump` and open the file in the app or the CLI.
+Capturing needs Windows, so take a dump with `dotnet-dump` and open the file in the app or the CLI (see
+[Your first snapshot](#your-first-snapshot)).
+
+### If macOS refuses it
+
+Also unconfirmed. Both steps turn off a macOS check for this folder, so [check the download](#check-the-download) first.
+
+- It says the app "cannot be opened" or "cannot be verified": remove the download mark with
+  `xattr -dr com.apple.quarantine <folder>`, or allow it under System Settings, Privacy & Security, Open Anyway.
+- Terminal says `killed` on Apple silicon: give the files a local signature, the `worker` folder included:
+  `find <folder> -type f \( -perm +111 -o -name '*.dylib' \) -exec codesign --force --sign - {} \;`
+
+If you try a macOS package, please say how it went in an [issue](https://github.com/rklundt/HeapScope/issues): nobody has
+reported yet.
 
 To build on your Mac instead, with the .NET 10 SDK, run `bash build/publish.sh osx-arm64 <folder>` (or `osx-x64`) in a clone
 of the repository. That build is untested too.
@@ -123,6 +136,7 @@ HeapScope.Cli`. The tool works like the CLI in the archives (capture on Windows 
   `heapscope-cli summary <dump>`. Without .NET, use dotnet-dump's standalone download
   (https://aka.ms/dotnet-dump/linux-x64; make it executable with `chmod +x`); with the .NET SDK, `dotnet tool install
   --global dotnet-dump` installs it.
+- macOS (untested): the same `dotnet-dump collect` command, with `dotnet-dump` from `dotnet tool install --global dotnet-dump`.
 
 To open a dump, HeapScope needs the dumped runtime's data access component (DAC), which must match the .NET version
 the dumped process ran on. HeapScope finds it in the .NET runtimes installed on the machine and in its own runtime when
@@ -134,8 +148,8 @@ found, the message says what to do, including downloading it from Microsoft's sy
 
 ## Where HeapScope keeps its data
 
-Sessions and logs go to `%LOCALAPPDATA%\HeapScope` on Windows and `~/.local/share/HeapScope` on Linux, `~/Library/Application Support/HeapScope` on macOS (under
-`$XDG_DATA_HOME` when it is set), or to the folder the `HEAPSCOPE_DATA_FOLDER` environment variable names. Sessions hold
+Sessions and logs go to `%LOCALAPPDATA%\HeapScope` on Windows, `~/.local/share/HeapScope` on Linux (under `$XDG_DATA_HOME` when it is set) and
+`~/Library/Application Support/HeapScope` on macOS, or to the folder the `HEAPSCOPE_DATA_FOLDER` environment variable names. Sessions hold
 full dumps, which can contain anything the dumped process held (passwords and keys included). A snapshot's index cache
 goes next to its dump, or into that folder when the dump's folder cannot be written. Logs are described in the [user guide](docs/USER-GUIDE.md#logs-and-getting-help),
 under "Logs and getting help".
@@ -159,6 +173,7 @@ release, so copy it across; for the dotnet tool, use environment variables, sinc
   `--Logging:File:MinimumLevel Debug`).
 - Windows SmartScreen: see the Windows steps above. Windows 11's Smart App Control blocks programs that are not signed
   and has no "Run anyway"; HeapScope's builds are not signed, so they cannot run where it is on.
+- macOS: see [If macOS refuses it](#if-macos-refuses-it).
 - Linux, a message about ICU ("Couldn't find a valid ICU package"): install ICU (see the Linux steps above).
 - Linux, the app stops while starting its display (SkiaSharp cannot load `libSkiaSharp`): install fontconfig.
 - The dotnet tool, "You must install or update .NET": install the .NET 10 runtime, or use the archive.

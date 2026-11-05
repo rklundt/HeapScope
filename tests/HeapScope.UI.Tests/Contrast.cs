@@ -33,6 +33,9 @@ internal static class Contrast
 
     public static double Ratio(string a, string b)
     {
+        // A translucent color's contrast depends on what is under it, so a pair is only checked opaque.
+        IsOpaque(a).ShouldBeTrue($"{a} is not opaque");
+        IsOpaque(b).ShouldBeTrue($"{b} is not opaque");
         var (la, lb) = (Luminance(Parse(a)), Luminance(Parse(b)));
         return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
     }
