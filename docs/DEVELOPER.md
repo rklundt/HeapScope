@@ -406,9 +406,10 @@ of debuggable code) and exit when the process given as parent exits.
   colors and contrast.
 - **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
   anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. A package
-  that only arrives as a dependency counts too: `Avalonia.Fonts.Inter` (the Inter typeface, SIL Open Font License) comes
-  with `Avalonia.Headless` and is kept out of the app's output (`ExcludeAssets="all"`), so it reaches only the tests. Update
-  `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
+  that only arrives as a dependency counts too. The SIL Open Font License is allowed for fonts only (product owner,
+  2026-11-03): the app ships the Inter typeface (ADR-040), with its license text in `build/licenses/Avalonia.Fonts.Inter`,
+  which `build/check-package.sh` looks for in a published build. Update `THIRD-PARTY-NOTICES.md` whenever a dependency is
+  added, removed or vendored.
 - **Adding a worker area** (sprint 3.8): a contract in Contracts (`I...Service`, methods ending in `Async` with the
   token last, names unique across contracts), listed in `WorkerContracts.All` and in `IWorkerService`'s bases; a handler
   (`...Handler : RpcHandler, I...Service`) registered in `WorkerRpcTargets` with `RpcTarget.For`; a fake partial in

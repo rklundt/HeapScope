@@ -24,6 +24,7 @@
 
 using Avalonia;
 using Avalonia.Headless;
+using HeapScope.UI.Services;
 
 namespace HeapScope.UI;
 
@@ -61,7 +62,7 @@ internal static class Program
     public static AppBuilder BuildApp(string[] args, bool headless)
     {
         // Avalonia's own warnings (binding errors, platform problems) go to the HeapScope log once it exists (review M18).
-        var builder = AppBuilder.Configure(() => new App(args)).AfterSetup(_ => Avalonia.Logging.Logger.Sink = new Services.AvaloniaLogSink());
+        var builder = AppBuilder.Configure(() => new App(args)).UseAppFont().AfterSetup(_ => Avalonia.Logging.Logger.Sink = new Services.AvaloniaLogSink());
         return headless
             ? builder.UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             : builder.UsePlatformDetect();

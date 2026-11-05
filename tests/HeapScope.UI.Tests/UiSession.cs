@@ -25,6 +25,7 @@
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Logging;
+using HeapScope.UI.Services;
 
 [assembly: AssemblyFixture(typeof(HeapScope.UI.Tests.UiSession))]
 
@@ -47,7 +48,7 @@ public sealed class UiSession : IDisposable
 
     /// <summary>The headless app (Avalonia finds it by this name).</summary>
     public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+        AppBuilder.Configure<App>().UseAppFont().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 
     /// <summary>Runs <paramref name="body"/> on the UI thread and returns its result.</summary>
     public Task<T> RunAsync<T>(Func<Task<T>> body) => _session.Dispatch(body, TestContext.Current.CancellationToken);

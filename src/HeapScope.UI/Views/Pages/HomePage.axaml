@@ -31,9 +31,9 @@
              x:DataType="vm:HomeViewModel">
   <ScrollViewer>
     <StackPanel Margin="4">
-      <TextBlock FontSize="20" Text="Home" Margin="0,0,0,12" />
+      <TextBlock Classes="pageTitle" Text="Home" Margin="0,0,0,12" />
       <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Text="Open a full memory dump of a .NET process to see what is on its heap." />
-      <Button Content="Open dump..." HorizontalAlignment="Left" Padding="16,4" Margin="0,0,0,24" Command="{Binding OpenDumpCommand}" />
+      <Button Classes="primary" Content="Open dump..." HorizontalAlignment="Left" Padding="16,4" Margin="0,0,0,24" Command="{Binding OpenDumpCommand}" />
       <DockPanel Margin="0,0,0,4">
         <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
         <Button DockPanel.Dock="Right" Content="Clean up old sessions..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}"
@@ -54,10 +54,10 @@
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="sessions:SessionSummary">
                 <StackPanel Orientation="Horizontal">
-                  <Button Content="Open" Padding="8,0" Margin="2,1"
+                  <Button Classes="compact" Content="Open" Margin="2,1"
                           Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).OpenSessionCommand}"
                           CommandParameter="{Binding}" />
-                  <Button Content="Delete..." Padding="8,0" Margin="2,1"
+                  <Button Classes="compact" Content="Delete..." Margin="2,1"
                           Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).DeleteSessionCommand}"
                           CommandParameter="{Binding}" />
                 </StackPanel>

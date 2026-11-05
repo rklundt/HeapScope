@@ -45,6 +45,47 @@ public class ThemeTests(UiSession ui)
         }
     }
 
+    /// <summary>ADR-040: text stays readable on every surface it sits on, the selection included.</summary>
+    [Theory]
+    [InlineData("Light.axaml")]
+    [InlineData("Dark.axaml")]
+    public void Text_colors_meet_4_5_to_1_on_every_surface(string theme)
+    {
+        var brushes = Brushes(theme);
+        foreach (var surface in new[] { "Window", "Surface", "Rail", "Header", "AltRow", "Selection" })
+        {
+            foreach (var text in new[] { "Text", "Subtle", "Accent", "Growth", "Shrink" })
+            {
+                Contrast.Ratio(brushes["Brush." + text], brushes["Brush." + surface]).ShouldBeGreaterThanOrEqualTo(4.5, $"{text} on {surface}");
+            }
+        }
+
+        foreach (var (text, surface) in new[]
+        {
+            ("Brush.OnAccent", "Brush.Accent"),
+            ("Brush.Text", "Brush.Note.Background"),
+            ("Brush.Text", "Brush.Info.Background"),
+            ("Brush.Text", "Brush.Error.Background"),
+            ("Brush.Text", "Icicle.Bar1"),
+            ("Brush.Text", "Icicle.Bar2"),
+            ("Icicle.PathText", "Icicle.Path"),
+        })
+        {
+            Contrast.Ratio(brushes[text], brushes[surface]).ShouldBeGreaterThanOrEqualTo(4.5, $"{text} on {surface}");
+        }
+    }
+
+    /// <summary>ADR-040: an input's edge can be seen (WCAG 1.4.11 asks 3:1 of what identifies a control).</summary>
+    [Theory]
+    [InlineData("Light.axaml")]
+    [InlineData("Dark.axaml")]
+    public void Control_edges_meet_3_to_1(string theme)
+    {
+        var brushes = Brushes(theme);
+        Contrast.Ratio(brushes["Brush.BorderStrong"], brushes["Brush.Surface"]).ShouldBeGreaterThanOrEqualTo(3);
+        Contrast.Ratio(brushes["TextControlBorderBrush"], brushes["Brush.Surface"]).ShouldBeGreaterThanOrEqualTo(3);
+    }
+
     [Theory]
     [InlineData(null, "Default")]
     [InlineData("", "Default")]

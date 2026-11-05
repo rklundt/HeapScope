@@ -64,28 +64,38 @@
     <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.Surface}" Padding="8,3">
       <DockPanel>
         <TextBlock DockPanel.Dock="Right" Text="F1: keyboard shortcuts" Classes="subtle" Margin="12,0,0,0" />
-        <Button x:Name="CancelExport" DockPanel.Dock="Right" Content="Cancel export" Padding="6,0" Margin="8,0,0,0"
+        <Button DockPanel.Dock="Right" Classes="link" Content="{Binding FinishedJobsText}" Margin="12,0,0,0" Command="{Binding ShowJobsCommand}"
+                IsVisible="{Binding FinishedJobsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" ToolTip.Tip="Show the Jobs page" />
+        <Button x:Name="CancelExport" DockPanel.Dock="Right" Classes="compact" Content="Cancel export" Margin="8,0,0,0"
                 Command="{Binding Exports.CancelCommand}" IsVisible="{Binding Exports.IsExporting}" />
         <TextBlock x:Name="ExportStatus" DockPanel.Dock="Right" Text="{Binding Exports.Status}" Classes="subtle" Margin="12,0,0,0" />
         <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" />
       </DockPanel>
     </Border>
-    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="12,6" MaxHeight="160">
-      <DockPanel>
-        <TextBlock DockPanel.Dock="Top" Text="Jobs" FontWeight="SemiBold" Margin="0,0,0,4" />
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <ItemsControl ItemsSource="{Binding Jobs}" />
-        </ScrollViewer>
-      </DockPanel>
+    <!-- Only the jobs running now; the Jobs page keeps the finished ones. -->
+    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="12,4" MaxHeight="160"
+            IsVisible="{Binding IsJobsPanelVisible}">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Jobs}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:JobViewModel">
+              <pages:JobRow IsVisible="{Binding IsRunning}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
     </Border>
-    <Border DockPanel.Dock="Left" Width="180" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0">
-      <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}" Padding="4,8" Background="Transparent">
-        <ListBox.ItemTemplate>
-          <DataTemplate x:DataType="vm:NavigationItem">
-            <TextBlock Text="{Binding Title}" />
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
+    <Border DockPanel.Dock="Left" Width="168" Background="{DynamicResource Brush.Rail}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="HeapScope" FontSize="14" FontWeight="SemiBold" Margin="16,14,0,12" />
+        <ListBox Classes="nav" ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItem">
+              <TextBlock Text="{Binding Title}" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
     </Border>
     <!-- Each page is built when first shown and then kept: switching pages is a visibility change, not a rebuild of
          its grids, and keeps scroll positions and expanded state (sprint 1.5). -->

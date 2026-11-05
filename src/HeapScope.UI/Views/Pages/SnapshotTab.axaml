@@ -37,15 +37,17 @@
 
     <DockPanel IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
       <StackPanel DockPanel.Dock="Top" DataContext="{Binding Selected}" x:DataType="vm:SnapshotItemViewModel">
-        <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
-        <TextBlock Text="{Binding Process}" Classes="subtle" />
-        <TextBlock Text="{Binding Source}" Classes="subtle" Margin="0,0,0,8" />
+        <WrapPanel Margin="0,0,0,8">
+          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,0,10,0" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding Process}" Classes="subtle" FontSize="12" Margin="0,0,10,0" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding Source}" Classes="subtle" FontSize="12" VerticalAlignment="Center" />
+        </WrapPanel>
         <WrapPanel>
-          <Border Classes="tile"><StackPanel><TextBlock Text="Objects" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-          <Border Classes="tile"><StackPanel><TextBlock Text="Heap size" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Size}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-          <Border Classes="tile"><StackPanel><TextBlock Text="Types" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-          <Border Classes="tile"><StackPanel><TextBlock Text="References" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
-          <Border Classes="tile"><StackPanel><TextBlock Text="Roots" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="18" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Objects" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Heap size" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Size}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Types" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="References" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
+          <Border Classes="tile"><StackPanel><TextBlock Text="Roots" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
         </WrapPanel>
         <Border Classes="note" IsVisible="{Binding HasNotes}">
           <ItemsControl ItemsSource="{Binding Notes}">

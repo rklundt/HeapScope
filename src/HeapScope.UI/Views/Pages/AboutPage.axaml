@@ -29,7 +29,7 @@
              x:DataType="vm:AboutViewModel">
   <ScrollViewer>
   <StackPanel Margin="4">
-    <TextBlock FontSize="20" Text="About" Margin="0,0,0,12" />
+    <TextBlock Classes="pageTitle" Text="About" Margin="0,0,0,12" />
     <TextBlock Text="{Binding ProductVersion}" />
     <SelectableTextBlock Margin="0,8,0,0" Text="{Binding Environment}" TextWrapping="Wrap" Classes="subtle" />
     <SelectableTextBlock Margin="0,4,0,0" Text="{Binding LogFolder, StringFormat='Logs: {0}'}" TextWrapping="Wrap" Classes="subtle"

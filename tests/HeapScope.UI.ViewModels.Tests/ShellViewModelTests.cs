@@ -79,6 +79,44 @@ public sealed class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task The_jobs_panel_shows_only_while_a_job_runs_and_finished_jobs_move_to_the_status_line()
+    {
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+        _shell.FinishedJobsText.ShouldBeEmpty();
+
+        var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
+        _shell.IsJobsPanelVisible.ShouldBeTrue();
+        _shell.Jobs.ShouldHaveSingleItem().IsRunning.ShouldBeTrue();
+        _shell.FinishedJobsText.ShouldBeEmpty();
+
+        // The Jobs page lists the jobs itself, so the panel steps aside there.
+        _shell.ShowJobsCommand.Execute(null);
+        _shell.SelectedItem.Page.ShouldBeSameAs(_shell.JobsPage);
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+        _shell.SelectedItem = _shell.NavigationItems[0];
+        _shell.IsJobsPanelVisible.ShouldBeTrue();
+
+        _worker.Service.CompleteSynthetic(1000);
+        await run;
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+        _shell.FinishedJobsText.ShouldBe("1 job finished");
+    }
+
+    [Fact]
+    public async Task The_status_line_says_how_many_jobs_failed()
+    {
+        var failed = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
+        _worker.Service.FailSynthetic(new WorkerCrashedException("The worker stopped."));
+        await failed;
+
+        _shell.FinishedJobsText.ShouldBe("1 job finished, 1 failed");
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+
+        _shell.JobsPage.ClearFinishedCommand.Execute(null);
+        _shell.FinishedJobsText.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Cancel_calls_through_to_the_worker_call()
     {
         var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);

@@ -32,7 +32,7 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.Smoke;
 
 /// <summary>
-/// Captures the pages of the app as PNG files, one theme per run, for the design review and the README
+/// Captures the pages of the app as PNG files at twice the size, one theme per run, for the design review and the README
 /// (<c>--headless --screenshots folder --smoke-open dump</c>, optionally <c>--smoke-compare</c>, <c>--smoke-allocations</c>
 /// and <c>--smoke-live</c>). Fixture dumps only: everything a page shows goes into a picture. The Processes page's rows are
 /// made up, so this machine's real processes and command lines never appear.
@@ -69,6 +69,7 @@ internal sealed class ScreenshotRunner(IServiceProvider services, Window window,
         Directory.CreateDirectory(folder);
         window.Width = 1440;
         window.Height = 900;
+        window.SetRenderScaling(2);
         var shell = services.GetRequiredService<ShellViewModel>();
         var snapshots = services.GetRequiredService<SnapshotsViewModel>();
         void Show(object page) => shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == page);
