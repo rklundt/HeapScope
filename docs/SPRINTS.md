@@ -43,7 +43,7 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.7 | Hardening | Closed | 2026-10-30 | sprint-3.7 |
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
 | 3.9 | Packaging and distribution | Closed | 2026-11-01 | sprint-3.9 |
-| 3.10 | Visual design and README | In Progress | | |
+| 3.10 | Visual design and README | Wrapping | | |
 | 3.11 | First-show performance and refactor analysis | Planned | | |
 
 ---
@@ -123,7 +123,7 @@ default settings, an inverted hierarchy and real defects; a mockup of its top ch
    no clipped headers or values, one percent format, the zero delta not red, LOH and POH column headers. Proof: unit tests of
    the column building and formats; captures at 1440 wide.
 8. [x] Charts follow the theme: the icicle chart, key path diagram and both timelines redraw on a theme change, the brush
-   converters replaced. Proof: UI tests that switch the theme and check the resolved colors (Backlog L13, L14).
+   converters replaced. Proof: UI tests that switch the theme and check the resolved colors (Backlog L14).
 9. [x] Home and empty states: three start actions, no diagnostics on Home, a labeled cleanup, grids that say what to do when
    empty. Proof: view tests; captures.
 10. [x] The retention diagram: thin edges, labels that stay readable, the target visible, Fit to width. Proof: geometry unit
@@ -136,7 +136,15 @@ default settings, an inverted hierarchy and real defects; a mockup of its top ch
 14. [x] Docs: ARCHITECTURE.md and its pages, DEVELOPER.md (screenshots, the design tokens), Backlog items from decision 10.
     Proof: the Markdown sweep.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** ([docs/reviews/sprint-3.10.md](reviews/sprint-3.10.md)): 5 High, 27 Moderate, 28 Low after dedupe, counting what the
+confirmation rounds found. Highs fixed and confirmed: the screenshot script deleting the folder it was given; a dump's process name,
+now from the path the dump records and logged with its rule; three README and guide claims that did not hold (tested to 8 GB, what a row
+opens, any number of snapshots). Moderates (product owner): 26 fixed, among them Live's empty state, Fit to width out of reach, clipped
+numbers, a cut tree's hidden warning, the time axis, failed jobs' reasons, next steps off Windows, an older cache opening when its
+rebuild lacks the DAC, and tests that enforce the theme's contract; M16 moved to sprint 3.11. Lows listed; six fixed in passing. Measured:
+start about 535 ms, worst dispatcher lag 184 of 200 ms, cold first shows over 100 ms 5 to 13 per run (from 3 to 7); first load of a Medium
+dump 35 to 48 s, against 15.8 s in sprint 1.2, inside budget and in the Backlog. Not run: the Linux and macOS text on those systems; macOS
+packages on a Mac.
 
 ---
 

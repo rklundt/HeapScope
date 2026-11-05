@@ -174,6 +174,19 @@ Listed only (the skill: not fixed, not raised).
 - L28 Comments and `code-map.md:53` still say "the objects the row counted": `ObjectSetResolver.cs:389`, `Inspection.cs:205`,
   `InspectionsViewModel.cs:231`, `DetectorTypeRow.cs:34` (support-engineer, confirmation round).
 
+Fixed in passing, since a change or the sweep touched them: L3, L17, L20, L22, L27 (the `.exe` point) and part of L28.
+
+## Markdown sweep
+
+Every tracked Markdown file against the code, by a read-only agent, after the fixes above; past review files and `docs/sprints/` left as
+written. Read in full: the root files, `docs/`, `docs/architecture/` apart from `graph-format.md`, ADR-039 and 040, `.claude/`. The other
+ADRs, most of `RELEASE-NOTES.md` and the research notes were searched by keyword. Not checked: DEVELOPER.md's CLI option lists against the
+commands, the smoke exit codes, ADR-040's sizes and contrast numbers.
+Changed: `SECURITY.md`, `README.md`, `docs/USER-GUIDE.md`, `docs/DEVELOPER.md`, `docs/ARCHITECTURE.md`, `docs/SPRINTS.md`,
+`docs/architecture/code-map.md`, `logging.md` and `index-cache.md`. Left alone: `.claude/agents/solution-architect.md` says "versioned via
+`ProtocolVersion`", which `WorkerInfo.ProtocolVersion` still is. No em or en dashes in any tracked Markdown file. `THIRD-PARTY-NOTICES.md`
+matches the packages and vendored files, apart from test project lock files, which were not checked.
+
 ## Clean, per the reviewers
 
 Layering, process boundaries and IPC (no project references changed, Contracts untouched); ADR-022's notice; ADR-025, 038 and 039

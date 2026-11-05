@@ -142,7 +142,7 @@ Or build it from source:
 
 ## Documentation
 
-- [User guide](docs/USER-GUIDE.md): how each part works, every shortcut and filter, logs and getting help.
+- [User guide](docs/USER-GUIDE.md): how each part works, the shortcuts and filters, logs and getting help.
 - [Install](INSTALL.md) and [release notes](RELEASE-NOTES.md).
 - [Developer guide](docs/DEVELOPER.md), [architecture](docs/ARCHITECTURE.md) and [how to contribute](CONTRIBUTING.md).
 - [Security policy](SECURITY.md).

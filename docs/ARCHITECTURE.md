@@ -338,6 +338,7 @@ The table matches `Directory.Packages.props`, the authoritative list.
 | Microsoft.Diagnostics.Runtime (ClrMD) | 4.2.751201 | MIT | Loaders.ClrMd |
 | Microsoft.Diagnostics.NETCore.Client | 0.2.750501 | MIT | Capture |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 4.0.0 | MIT | Capture (Loaders.GcDump in 1.8, Loaders.Trace in 2.5) |
+| Microsoft.CodeAnalysis.CSharp | 5.9.0 | MIT | DenseHeap fixture |
 | xunit.v3 | 4.0.2 | Apache 2.0 | tests |
 | Shouldly | 4.3.0 | BSD 3-Clause | tests |
 

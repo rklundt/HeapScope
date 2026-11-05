@@ -18,7 +18,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 - **Retention views.** Similar Retention groups a set's objects by how they are retained (the paths of all their direct
   holders, not only the shortest one), each group with its most different paths; a group opens as a set of its own.
   Key retention paths can be shown as a diagram, the paths merged into one graph from the roots down; "Fit to width"
-  scales it down to the page. A type's "Why alive" page has a Similar retention button.
+  scales it down to the page, to three quarters of its size at most; a wider diagram keeps its scroll bar. A type's "Why alive" page has a Similar retention button.
 - **Comparison depth.** Compare can show each type's New and Dead objects, matched by address for two dumps of one
   process (an estimate: a GC moves most young objects, so those usually count as dead and new, and survivors are reliable for Gen2, LOH, POH and frozen objects; new and survived objects can include garbage not yet collected), and open a row's new, dead or survived objects as a
   set; each type's retained bytes in both snapshots; and the change per generation. "Trend across snapshots" puts the
@@ -27,7 +27,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   (`--fail-on-growth 50MB --growth-of gen2`) or on each row (`--fail-on-growth-per-row`). For a stable gate, capture after a full GC in the target or compare gcdumps, since a full dump counts garbage not yet collected; that GC moves objects, so skip it when you match them by address; `trend` compares several
   dumps.
 - **Live workflow.** The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
-  garbage collection (Force GC, a dotted line on the chart). Under "Snapshot rules" it captures on a schedule or when the
+  garbage collection (Force GC, a dotted line on the chart). Under "Snapshot rules" it captures on a schedule, when the heap has grown by an amount you set, or when the
   heap passes a size, and records an allocation trace for the whole run when asked; "Past runs of this session" reopens
   earlier timelines and snapshots. One capture per process runs at a time, from any page or rule. Snapshots can be closed
   and deleted with their caches, sessions deleted, and old sessions cleaned up from the Home page; each asks first.
@@ -43,7 +43,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   those on screen. String text and field values are left out unless you say yes for that export.
 - **Jobs.** Long work shows a progress row above the status line while it runs, with Cancel. Finished jobs move to the
   Jobs page; the status line says how many finished and how many failed, and a click on it opens the page.
-- **Keyboard.** F1 lists every shortcut on the About page: Ctrl+1 to 7 for the pages, Alt+1 to 4 for the Snapshots
+- **Keyboard.** F1 lists every shortcut on the About page: Ctrl+1 to 7 (Cmd on macOS) for the pages, Alt+1 to 4 for the Snapshots
   tabs, Ctrl+F for the filter, Ctrl+L for the analysis path, F5 to refresh.
 - **Appearance.** HeapScope follows your system's light or dark theme, and changes with it while it runs. To choose one,
   start the app with `--Ui:Theme Light` or `--Ui:Theme Dark`.

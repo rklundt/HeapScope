@@ -277,12 +277,12 @@ dotnet test --solution HeapScope.sln
   a run's timeline, markers and snapshot cards read only. A capture or Force GC of a process already being captured is
   refused with the reason, from any page; a rule due meanwhile fires at the next free sample. The Snapshots page's
   "Close and delete..." deletes a session snapshot with its index caches; the Home page deletes a session ("Delete...")
-  or the sessions not opened for N days ("Clean up old sessions..."); each lists the files and asks first, only files
+  or the sessions not opened for N days ("Clean up..."); each lists the files and asks first, only files
   inside the session folder go, and the current session and sessions with an open snapshot, a capture or a run are
   kept. The Live smoke run records nothing in the session library (`RecordRuns` off).
 - Inspections (sprint 1.6): the Snapshots page's Inspections tab runs the selected snapshot's inspections the first
-  time it is shown (one at a time, in the worker): a tile per inspection with its finding, cause and fix (or why it is
-  unavailable), fragmentation bars per heap, and the selected inspection's rows; double-click or Enter opens a row's
+  time it is shown (one at a time, in the worker): a list row per inspection with its finding (or why it is
+  unavailable), and for the selected one its cause, fix, fragmentation bars per heap and rows; double-click or Enter opens a row's
   objects (a type in its scope, equal strings, or one object) on the Snapshot tab.
 - Theme: the UI follows the system's light or dark setting (Windows, macOS, the Linux desktop); `--Ui:Theme Light|Dark`
   or the `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI/Themes/Light.axaml` and `Dark.axaml` (theme

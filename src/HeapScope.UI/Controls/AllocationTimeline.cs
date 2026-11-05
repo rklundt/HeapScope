@@ -176,7 +176,7 @@ public sealed class AllocationTimeline : Control
     private double XOf(double seconds) => AllocationTimelineGeometry.XOf(seconds, Bounds.Width, Buckets, BucketSeconds, DurationSeconds);
 
     private static FormattedText Label(string text, IBrush brush) =>
-        new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
+        new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, brush);
 
     private IBrush? Brush(string key) => this.TryFindResource(key, ActualThemeVariant, out var value) ? value as IBrush : null;
 }

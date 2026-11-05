@@ -50,8 +50,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   retains together, exactly) [2.4]. `Sets/ObjectSet` (a set's members as sorted object indices and a bit mask, built from
   types, addresses or indices), `Sets/SetDominators` (the members no other member dominates), `TypeAggregation.Compute`
   over a set, `SetRetention.Compute` over a set (optionally returning the retained objects as a set),
-  `TypeGroups.MatchGroup` (a namespace's or an assembly's types) and `InspectionTable.MembersOf` (the objects a leak
-  detector row counted) [3.1]. `Retention/SimilarRetention` (a set's members grouped by retention pattern, each group
+  `TypeGroups.MatchGroup` (a namespace's or an assembly's types) and `InspectionTable.MembersOf` (the objects behind a leak
+  detector row) [3.1]. `Retention/SimilarRetention` (a set's members grouped by retention pattern, each group
   with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
   signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
   grouping in `TypeGroups` (`GroupKey.Interface`, `TypeInterfaces`, `MatchInterface`) and `TypeDiff` [3.2].
@@ -60,7 +60,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `TypeTrend` (rows across several snapshots) [3.3].
 - **Storage.** `IndexCacheSigner` (passed to every reader and writer: the user's key in the worker, `None` written out
   in tools and tests; ADR-036 amended) [3.8]. The index cache format, reader and writer (section 7); the metadata records the loader version that
-  built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
+  built the graph [1.8] and the rule that chose the process name (`ProcessNameSource`) [3.10]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
   `TryGetSection<T>`), `IndexFileLayout` (the sections of the base cache and of each sidecar), `IndexFileDirectory` (the
   header and directory checks both readers share) and `IndexCacheLocator.GetSidecarPath` [2.1]. `MappedIndexFileWriter`
@@ -80,7 +80,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   shared with the loader, runtime creation failures wrapped with a next step) [1.5]; `MinidumpHeader` [1.2, 1.8];
   `CoreFileHeader` (a Linux or macOS core cut short: program headers or load commands, or a segment's file range, past
   the end of the file; such a core loses CompleteGraph and ExactCounts like a truncated minidump), a core's capture time
-  from the file's write time marked `SnapshotFacts.CaptureTimeFromFile` with a note, loader version 3 [2.3.5];
+  from the file's write time marked `SnapshotFacts.CaptureTimeFromFile` with a note, loader version 3 [2.3.5]; `ClrMdDumpLoader.ProcessNameOf`: the executable's path the dump records, else its modules, and which rule chose it, loader version 4 [3.10];
   `UnixLocalPath` (the local path rule on Linux and macOS: the mount holding the path, links resolved) [2.3.5];
   `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2];
   a DAC next to the dump only once trusted by its SHA-256 and loaded from a private copy (`BesideDumpDirectories`,
@@ -341,4 +341,6 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `WorkerStartException` per case when it cannot) and `WorkerLaunch` (Application), and `ProcessDiscovery` counts such a
   worker as HeapScope's own (Capture); `RuntimeEnvironment.DescribeBuild` (Contracts) names the build form in every log
   header. Tests: `WorkerHostOptionsTests`, `RuntimeEnvironmentTests`, `ProcessDiscoveryTests` and the integration test
-  `ToolWorkerTests` (the worker's assembly through the dotnet host).
+  `ToolWorkerTests` (the worker's assembly through the dotnet host). Sprint 3.10, by hand: `build/demo-data.sh` and
+  `build/screenshots.sh` (the demo dumps and the app's pictures), `build/make-icon.cs` (the app's icon); `build/licenses/` holds license
+  files a package does not carry itself (Inter's OFL).
