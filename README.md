@@ -28,8 +28,8 @@ static collections, undisposed service scopes, piles of `HttpClient`, async meth
 backlog.
 
 It checks for waste too: duplicate strings, oversized collections, sparse arrays and fragmentation. Each finding gives you
-the likely cause and a fix, then opens exactly the objects it counted. A finding is a lead to check, not a verdict, and it
-says so where a pattern can also be normal.
+the likely cause and a fix, and a leak detector's row opens exactly the objects it counted. A finding is a lead to check, not
+a verdict, and it says so where a pattern can also be normal.
 
 ### Why alive: this object should be gone, so who is holding it?
 
@@ -55,7 +55,7 @@ the icicle chart shows the shape of it at a glance. Click down until you reach t
 
 Put two dumps side by side and sort by growth, per type, in objects and bytes, retained bytes or generation. Two dumps of
 the same process also match objects by address, so you can open what is new, what died and what survived. Trend view lines
-up any number of snapshots and shows how often each type grew.
+up to 20 snapshots side by side and shows how often each type grew.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/compare-dark.png">
@@ -121,7 +121,8 @@ HeapScope is in pre-release. Plainly:
 - **Unsigned builds.** Windows SmartScreen will warn you. [INSTALL.md](INSTALL.md) shows how to check a download against its
   checksums and build provenance.
 - **Modern .NET only.** It analyzes .NET 5 and later, not .NET Framework.
-- **A size limit.** It is built and tested for dumps up to about 8 GB and 50 million objects. Larger ones are not a target yet.
+- **A size limit.** It is built for dumps up to about 8 GB and 50 million objects, and measured so far up to 4.4 GB and 57.5
+  million objects. Larger ones are not a target yet.
 
 ## Get started
 

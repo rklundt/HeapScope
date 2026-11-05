@@ -463,6 +463,11 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             diagnostics.IncompleteSegments,
             diagnostics.Dac);
         var timings = loaded.Timings;
+        if (diagnostics.ProcessNameSource is { } nameSource)
+        {
+            logger.LogInformation("Process name of {Path}: {ProcessName}, {Source}", path, loaded.Info.ProcessName ?? "unknown", nameSource);
+        }
+
         logger.LogInformation(
             "Loaded {Path} from the dump in {Seconds:N1} s: open {OpenSeconds:N1} s, objects {ObjectsSeconds:N1} s, references {ReferencesSeconds:N1} s, roots {RootsSeconds:N1} s, build {BuildSeconds:N1} s; unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}, debuggable modules {Debuggable}",
             path,

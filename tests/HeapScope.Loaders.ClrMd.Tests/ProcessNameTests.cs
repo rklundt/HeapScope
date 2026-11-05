@@ -29,8 +29,22 @@ public class ProcessNameTests
     [Theory]
     [InlineData(new[] { @"C:\app\Microsoft.AspNetCore.Http.Results.dll", @"C:\Program Files\dotnet\dotnet.exe", @"C:\app\LeakyApi.dll" }, "dotnet")]
     [InlineData(new[] { @"C:\app\Orders.Api.exe", @"C:\app\Orders.Core.dll" }, "Orders.Api")]
+    [InlineData(new[] { @"C:\app\ORDERS.EXE", @"C:\app\Plugin.exe" }, "ORDERS")]
     [InlineData(new[] { "/usr/share/dotnet/dotnet", "/usr/share/dotnet/libcoreclr.so" }, "dotnet")]
+    [InlineData(new[] { "/usr/lib/libc.so.6", "/app/libcoreclr.so", "/app/Orders.Core.dll", "/app/Orders.Api" }, "Orders.Api")]
+    [InlineData(new[] { "/usr/local/share/dotnet/libhostfxr.dylib", "/usr/local/share/dotnet/dotnet" }, "dotnet")]
+    [InlineData(new[] { "", "/app/Orders.Api" }, "Orders.Api")]
+    [InlineData(new[] { @"C:\app\Orders.Core.dll", "/usr/lib/libc.so.6" }, null)]
+    [InlineData(new[] { "" }, null)]
     [InlineData(new string[0], null)]
     public void The_process_is_the_executable_wherever_it_is_listed(string[] modules, string? name) =>
-        ClrMdDumpLoader.ProcessNameOf(modules).ShouldBe(name);
+        ClrMdDumpLoader.ProcessNameOf(modules).Name.ShouldBe(name);
+
+    [Theory]
+    [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Orders.Core.dll" }, "the only .exe of 2 modules")]
+    [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Plugin.exe", "" }, "the first of 2 .exe modules of 2")]
+    [InlineData(new[] { "/app/libcoreclr.so", "/app/Orders.Api" }, "the first of 2 modules that is not a library (no .exe)")]
+    [InlineData(new[] { "/app/libcoreclr.so" }, "unknown: no .exe or executable among 1 modules")]
+    public void The_rule_that_chose_the_name_is_stated_for_the_log(string[] modules, string source) =>
+        ClrMdDumpLoader.ProcessNameOf(modules).Source.ShouldBe(source);
 }

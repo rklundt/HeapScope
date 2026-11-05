@@ -27,9 +27,14 @@
 # Pictures go to the folder given, named NN-page-light.png and NN-page-dark.png; docs/images holds the ones the README uses.
 # Usage: screenshots.sh [output folder, default artifacts/screenshots] [Release|Debug]
 set -uo pipefail
-out="${1:-artifacts/screenshots}"
+# A folder given is read from where the script was called, and only this script's own picture names are removed from it.
+if [ $# -ge 1 ]; then
+  mkdir -p "$1" || exit 1
+  out="$(cd "$1" && pwd)"
+fi
 configuration="${2:-Release}"
 cd "$(dirname "$0")/.."
+out="${out:-$(pwd)/artifacts/screenshots}"
 demo=artifacts/demo
 for file in demo-before.dmp demo-after.dmp demo-allocations.nettrace; do
   [ -s "$demo/$file" ] || { echo "Missing $demo/$file: run build/demo-data.sh first."; exit 1; }
@@ -38,7 +43,8 @@ dotnet build src/HeapScope.UI -c "$configuration" -v quiet -nologo || exit 1
 root="$(pwd -W 2>/dev/null || pwd)"
 export HEAPSCOPE_DATA_FOLDER="$root/$demo/data"
 app="src/HeapScope.UI/bin/$configuration/net10.0/HeapScope"
-rm -rf "$out"
+mkdir -p "$out" || exit 1
+rm -f "$out"/[0-9][0-9]-*-light.png "$out"/[0-9][0-9]-*-dark.png
 # The Live page watches the fixture, under load, for real.
 dotnet build fixtures/LeakyApi -c "$configuration" -v quiet -nologo || exit 1
 url=http://127.0.0.1:5198
@@ -60,5 +66,5 @@ for theme in Light Dark; do
   echo "$theme theme: exit code $code"
   [ "$code" -eq 0 ] || failed=1
 done
-echo "$(ls "$out" | wc -l) pictures in $out"
+echo "$(ls "$out"/[0-9][0-9]-*-light.png "$out"/[0-9][0-9]-*-dark.png 2>/dev/null | wc -l) pictures in $out"
 exit "$failed"

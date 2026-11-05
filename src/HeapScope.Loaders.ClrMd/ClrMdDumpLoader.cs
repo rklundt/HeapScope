@@ -139,10 +139,11 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         var graph = builder.Build(cancellationToken);
         var build = stopwatch.Elapsed - open - objects - references - roots;
 
+        var processName = ProcessName(target);
         var info = new SnapshotInfo(
             SnapshotKind.FullDump,
             fullPath,
-            ProcessName(target),
+            processName.Name,
             ProcessId(target),
             DacLocator.RuntimeVersion(clr.Version, Path.GetDirectoryName(clr.ModuleInfo.FileName)),
             target.DataReader.PointerSize,
@@ -159,7 +160,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             graph,
             info,
             capabilities,
-            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments, dac),
+            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments, dac, processName.Source),
             new LoadTimings(open, objects, references, roots, build));
     }
 
@@ -582,28 +583,62 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         return stream.ReadAtLeast(start, 4, throwOnEndOfStream: false) == 4 && SnapshotFileSignature.IsMinidump(start);
     }
 
-    private static string? ProcessName(DataTarget target) =>
+    private static ProcessNameChoice ProcessName(DataTarget target) =>
         ProcessNameOf(target.EnumerateModules().Select(static module => module.FileName ?? string.Empty));
 
+    /// <summary>A dump's process name and which rule chose it, for the log (sprint 3.10 review H2).</summary>
+    internal readonly record struct ProcessNameChoice(string? Name, string Source);
+
     /// <summary>
-    /// The process's name from its modules. The reader's order is not load order, so the first module may be any library: a
-    /// Windows dump's executable is the one .exe. A core file's modules have no such mark, so the first is the best there is.
+    /// The process's name from its modules. The reader sorts them by base address, not load order, so the first may be any
+    /// library. A Windows dump's executable is its .exe (the first, if the process mapped another). A core file's modules have
+    /// no such mark: an executable usually sits below its libraries, so the name is the first module that does not look like a
+    /// library, with its dots kept (Orders.Api). This is still a judgment: `ulimit -s unlimited` can put libraries first, though
+    /// they are then skipped by name. With no such module the name is unknown, not a library's.
     /// </summary>
-    internal static string? ProcessNameOf(IEnumerable<string> modules)
+    internal static ProcessNameChoice ProcessNameOf(IEnumerable<string> modules)
     {
-        string? first = null;
+        var named = 0;
+        var executables = 0;
+        string? executable = null;
+        string? candidate = null;
         foreach (var module in modules)
         {
             var name = RecordedPath.FileName(module);
-            first ??= name;
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+
+            named++;
             if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             {
-                return Path.GetFileNameWithoutExtension(name);
+                executables++;
+                executable ??= name;
+            }
+            else if (candidate is null && !LooksLikeLibrary(name))
+            {
+                candidate = name;
             }
         }
 
-        return first is null ? null : Path.GetFileNameWithoutExtension(first);
+        var counted = named.ToString(CultureInfo.InvariantCulture);
+        return executable is not null
+            ? new ProcessNameChoice(
+                executable[..^".exe".Length],
+                executables == 1
+                    ? $"the only .exe of {counted} modules"
+                    : $"the first of {executables.ToString(CultureInfo.InvariantCulture)} .exe modules of {counted}")
+            : candidate is not null
+                ? new ProcessNameChoice(candidate, $"the first of {counted} modules that is not a library (no .exe)")
+                : new ProcessNameChoice(null, $"unknown: no .exe or executable among {counted} modules");
     }
+
+    private static bool LooksLikeLibrary(string name) =>
+        name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith(".so", StringComparison.Ordinal)
+        || name.Contains(".so.", StringComparison.Ordinal)
+        || name.EndsWith(".dylib", StringComparison.Ordinal);
 
     private static int? ProcessId(DataTarget target) =>
         target.DataReader.ProcessId is var id and > 0 ? id : null;

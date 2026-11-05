@@ -22,7 +22,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 - **Comparison depth.** Compare can show each type's New and Dead objects, matched by address for two dumps of one
   process (an object a compacting GC moved counts as dead and new), and open a row's new, dead or survived objects as a
   set; each type's retained bytes in both snapshots; and the change per generation. "Trend across snapshots" puts the
-  objects and bytes of any number of ticked snapshots side by side, with how often each type grew. The CLI's `diff`
+  objects and bytes of up to 20 ticked snapshots side by side, with how often each type grew. The CLI's `diff`
   matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one heap kind's growth
   (`--fail-on-growth 50MB --growth-of gen2`) or on each row (`--fail-on-growth-per-row`); `trend` compares several
   dumps.
