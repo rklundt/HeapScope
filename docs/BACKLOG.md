@@ -52,8 +52,11 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   keeps TRX results 14 days): `DenseHeapTests` once in CI (2026-11-02, release PR #45; ClrMD's default DAC lookup in
   the test helper failed where HeapScope's loader had just opened the dump; the helper is local-only since 2026-11-03
   and explains any failure); under full local load only, passing alone: `LiveWorkflowTests` (an allocation trace for a
-  run's whole length), `CounterMonitorTests`, `DiffTests` (leak deltas short of the known answers). Act on any that
-  recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
+  run's whole length), `CounterMonitorTests`, `DiffTests` (leak deltas short of the known answers). Three gate runs on sprint
+  3.10 (2026-11-04), each failing differently, each test passing alone: `DiffTests` again and `LeakyApiGrowthTests` (growth a
+  little short of the known answers, for example `System.Byte[]` 4,973 of 5,000), `UiResponsivenessTests` (one operation of at
+  most 159 ms as a job ended, 17 ms alone), and all 12 `AllocationTraceTests` (their fixture's setup canceled). `DiffTests` has
+  now recurred. Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
   landed before EventPipe had started the session; the test now checks both outcomes (canceled before the start keeps
   nothing; after it, the trace stops early and is kept).
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
