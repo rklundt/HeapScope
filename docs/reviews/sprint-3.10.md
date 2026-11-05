@@ -37,8 +37,8 @@ severity.
   objects in scope. The first fix copied the guide's "a leak detector's row opens exactly the objects it counted", which support-engineer
   found false too: a growing collection's row opens the collection, event rows open delegates and their targets, `System.Timers.Timer`
   rows open two objects per timer. Fix: the README says a row opens the objects behind it (for a growing collection, the collection
-  itself); the guide states each case, in support-engineer's own wording from the second round. Status: Fixed; three rounds; confirmed by
-  support-engineer. Remaining: M25 to M27.
+  itself); the guide states each case, in support-engineer's own wording from the second round. Status: Fixed; three rounds; the final wording is
+  support-engineer's own and was not reviewed again. Remaining: M25 to M27.
 - **H5 "Any number of snapshots" was not true** (support-engineer). `README.md:57`, `docs/USER-GUIDE.md:25`. A trend takes at
   most 20 (`SummaryDtos.cs:275`), and the app says so. Fix: "up to 20" in both, and in `code-map.md`. Status: Fixed; confirmed by
   support-engineer.
