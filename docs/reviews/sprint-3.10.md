@@ -6,7 +6,7 @@ the SkiaSharp workflow made manual, two test flake fixes). Four perspectives, ru
 `.claude/agents/`: solution-architect, senior-dev, gc-specialist and support-engineer. None had a shell; each read the files
 on `sprint/3.10`. Moderates are the product owner's to decide (no autonomy for this sprint).
 
-Totals after dedupe: 5 High, 21 Moderate, 26 Low. A finding raised by more than one reviewer is merged and keeps the highest
+Totals after dedupe: 5 High, 27 Moderate, 28 Low, counting what the confirmation rounds found. A finding raised by more than one reviewer is merged and keeps the highest
 severity.
 
 ## High / Urgent
@@ -14,24 +14,34 @@ severity.
 - **H1 The screenshot script deleted whatever folder it was given** (senior-dev). `build/screenshots.sh:41`. `rm -rf "$out"` on
   a documented argument, resolved after a `cd`, so `screenshots.sh ~/Desktop` would wipe the Desktop. Data loss for a developer;
   the default path was safe. Fix: only this script's own `NN-*-light.png` and `NN-*-dark.png` are removed, and a given path is
-  resolved before the `cd`. Status: Fixed; confirmation pending.
+  resolved before the `cd`. Status: Fixed; confirmed by senior-dev, whose small notes (an inherited `out`, an empty argument, a
+  failed `cd`, `CDPATH`) were applied.
 - **H2 A dump's process name could be wrong and could not be explained** (support-engineer High; gc-specialist two Moderates;
   solution-architect and senior-dev Low). `ClrMdDumpLoader.ProcessNameOf`. ClrMD sorts modules by base address, so a core file's
   first module could be a library, the same defect decision 13 fixed on Windows; `/app/Orders.Api` became `Orders`; an empty
   first name returned "" and bypassed "Unknown process"; the log held only the result. The name feeds `IdentityMatcher`, which
-  refuses New and Dead when names differ, so it is more than a label. Fix: empty names are skipped; only `.exe` is stripped; the
-  fallback is the first module that does not look like a library, else unknown; the rule is logged at load
-  (`docs/architecture/logging.md`); new unit cases; `build/check-known-answers.sh` asserts `dotnet` on the real dumps CI takes
-  on Windows and Linux. Checked on the demo dump: `dotnet`, and the log line. Status: Fixed; confirmation pending.
+  refuses New and Dead when names differ, so it is more than a label. Fix: the name comes from the executable's path the dump
+  records (ClrMD's `IProcessInfoProvider`, found by gc-specialist in the first confirmation round). Without one, as on Mach-O, the
+  modules decide: empty names skipped, " (deleted)" trimmed, the .exe rule on Windows targets only, else the first module not named
+  like a library, else unknown. The rule is kept in the cache metadata and logged in the identity line, so a reopen still says it
+  (`docs/architecture/logging.md`); new unit cases; `build/check-known-answers.sh` asserts `dotnet` on the real dumps CI takes on
+  Windows and Linux. Checked on the demo dump, fresh and cached: `process dotnet (48260; name: the executable's path the dump
+  records)`. Status: Fixed; two rounds; confirmed by senior-dev, gc-specialist and support-engineer. Their remaining points are
+  M22 to M24 and L27.
 - **H3 "Built and tested" up to 8 GB was not true** (support-engineer High; gc-specialist Low). `README.md:124`. ADR-004 sets
   the target; the largest measured dump is 4.4 GB. A user with a 7 GB dump was told this size was tested. Fix: "built for" that
-  size, "measured so far up to 4.4 GB and 57.5 million objects". Status: Fixed; confirmation pending.
+  size, "measured so far up to 4.4 GB and 57.5 million objects". Status: Fixed; confirmed by support-engineer against
+  `budgets.md`.
 - **H4 "Each finding opens exactly the objects it counted" was not true** (support-engineer High; gc-specialist Low).
   `README.md:30`. Fragmentation rows name no objects and are refused (`ObjectSetResolver.cs:446`); other rows open their type's
-  objects in scope. Fix: "a leak detector's row opens exactly the objects it counted", as the guide already said. Status: Fixed;
-  confirmation pending.
+  objects in scope. The first fix copied the guide's "a leak detector's row opens exactly the objects it counted", which support-engineer
+  found false too: a growing collection's row opens the collection, event rows open delegates and their targets, `System.Timers.Timer`
+  rows open two objects per timer. Fix: the README says a row opens the objects behind it (for a growing collection, the collection
+  itself); the guide states each case, in support-engineer's own wording from the second round. Status: Fixed; three rounds; confirmed by
+  support-engineer. Remaining: M25 to M27.
 - **H5 "Any number of snapshots" was not true** (support-engineer). `README.md:57`, `docs/USER-GUIDE.md:25`. A trend takes at
-  most 20 (`SummaryDtos.cs:275`), and the app says so. Fix: "up to 20" in both. Status: Fixed; confirmation pending.
+  most 20 (`SummaryDtos.cs:275`), and the app says so. Fix: "up to 20" in both, and in `code-map.md`. Status: Fixed; confirmed by
+  support-engineer.
 
 ## Moderate
 
@@ -106,6 +116,22 @@ Decisions are the product owner's; status below until they are made.
   owner only; ADDITIONAL-TERMS.md is not to be edited on a reviewer's suggestion. "Code, screens, or processes" goes beyond 6.2's
   "this work"; "help, version and startup output" drops 1.4's "where applicable"; "must be released" drops the condition of
   conveying or offering over a network. Status: awaiting decision.
+- **M22 The name rule's log text can be false off Windows** (support-engineer, confirmation round). `ClrMdDumpLoader.cs:666`. On a non-Windows
+  dump .exe modules are skipped, but the text says "(no .exe)". Suggested: build the text from the target system and assert it.
+  Status: awaiting decision.
+- **M23 The recorded path is not logged, nor why it went unused** (support-engineer, confirmation round). `ClrMdDumpLoader.cs:596-623`. A failed
+  read looks the same as a dump with no path. Suggested: put the path in the source text (`logging.md` allows paths) and say why a
+  fallback was used. Status: awaiting decision.
+- **M24 No test covers the name rule surviving the cache** (support-engineer, confirmation round). `ProcessNameSource` appears only under `src/`.
+  Suggested: a metadata round trip test, including JSON without the field. Status: awaiting decision.
+- **M25 The set line's count repeats objects** (support-engineer, confirmation round). `ObjectSetResolver.cs:422`. "The {n} objects listed for
+  the row" counts repeats, so a log can read "1001 objects ... the 2000 objects listed". Suggested: "{n} entries listed for the row".
+  Status: awaiting decision.
+- **M26 Double-click does nothing on some rows that do hold objects** (support-engineer, confirmation round). `InspectionsViewModel.cs:233,239`.
+  Timer "(static method)" and finalizer "(other types: n)" rows have no type or address, so only "Open as a set" opens them, with no
+  explanation. Suggested: open the set for any detector row whose table has members. Status: awaiting decision.
+- **M27 The CLI's help still says "the objects that row counted"** (support-engineer, confirmation round). `SetCommand.cs:54`. Suggested: "the
+  objects behind that row". Status: awaiting decision.
 
 ## Low / Trivial
 
@@ -144,7 +170,11 @@ Listed only (the skill: not fixed, not raised).
 - L25 `SnapshotStore.cs:417-426`: the loader version is checked after the whole cache is read, leaving 1.5 to 1.8 GB of garbage in
   memory mode, unmeasured (gc-specialist).
 - L26 `ProcessNameOf`: a process that maps a second .exe takes the first listed; the PE header's flag would settle it
-  (solution-architect, senior-dev). Remains after H2; the log now states it.
+  (solution-architect, senior-dev). Remains after H2 only where no path is recorded; the log states the rule.
+- L27 `ClrMdDumpLoader.cs:622`: the recorded path's `.exe` is stripped on any system, so a Linux executable named `Foo.exe` shows as `Foo`;
+  an exec through `/proc/self/exe` shows as `exe` (gc-specialist, confirmation round).
+- L28 Comments and `code-map.md:53` still say "the objects the row counted": `ObjectSetResolver.cs:389`, `Inspection.cs:205`,
+  `InspectionsViewModel.cs:231`, `DetectorTypeRow.cs:34` (support-engineer, confirmation round).
 
 ## Clean, per the reviewers
 

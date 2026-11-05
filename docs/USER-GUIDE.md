@@ -13,7 +13,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 - **Object sets.** Select several types (Ctrl or Shift and click, or Shift+Down) and press Ctrl+Shift+O (Cmd+Shift+O), or
   open a namespace or assembly row, a Compare row, an inspection row, your bookmarks or what a set retains: the set
   gets its own step with Types, Instances, Generations, Dominators, Paths and Similar Retention views and "Objects
-  retained by this set". A leak detector's row opens the objects behind it: a growing collection's row opens the collection itself, not its elements, and an event or timer row also opens what holds each subscription, so its object count can be higher than the row's. The CLI's `set` command shows the
+  retained by this set". A leak detector's row opens the objects behind it: a growing collection's row opens the collection itself, not its elements, an event row opens each subscriber delegate and the object it calls, not the publisher, so its object count can differ from the row's in either direction, and a timer row opens the queue entries, plus the timer object for a `System.Timers.Timer`, not the owner the row names. The CLI's `set` command shows the
   same views.
 - **Retention views.** Similar Retention groups a set's objects by how they are retained (the paths of all their direct
   holders, not only the shortest one), each group with its most different paths; a group opens as a set of its own.
