@@ -45,7 +45,7 @@ severity.
 
 ## Moderate
 
-The product owner decided 1 to 13, 15 and 17 to 21 on 2026-11-05, and asked for 22 to 27 to be rechecked and done after them.
+The product owner decided all of them on 2026-11-05, having 22 to 27 rechecked and done after the others, and M14 and M16 revisited last.
 
 - **M1 Live's empty state never hides** (solution-architect, senior-dev, support-engineer). `LivePage.axaml:143`,
   `LiveViewModel.cs:167`. `!Samples.Count` binds to a plain list with no change notification, so "Choose a process and press
@@ -92,12 +92,12 @@ The product owner decided 1 to 13, 15 and 17 to 21 on 2026-11-05, and asked for 
   can fail or pass a build; the advice exists only in DEVELOPER.md. Suggested: one sentence in both. Status: Fix now. Fixed in both files.
 - **M14 A cache rebuild can block a dump whose DAC is gone** (gc-specialist). `SnapshotStore.cs:419-426`. A stale cache is rejected
   before the dump is known to load, so a `dotnet-dump` dump can stop opening after a runtime update, for a name change. Nothing is
-  lost: the old cache stays. Suggested: fall back to the stale cache with a note, or accept while in pre-release. Status: to revisit with the owner after the others (owner, 2026-11-05).
+  lost: the old cache stays. Suggested: fall back to the stale cache with a note, or accept while in pre-release. Status: Fix now (owner, 2026-11-05). Fixed: when a rebuild fails on a missing DAC, the older cache opens with a note and a warning in the log, also on a reopen after a worker restart. An explicit Rebuild still fails. Tested in `tests/HeapScope.Worker.Tests/OlderCacheTests.cs`, with a stand-in loader.
 - **M15 No test drives the cache rebuild** (gc-specialist). `SnapshotStore.cs:419-426`. Decision 13's "caches are rebuilt" has no
   proof. Suggested: an integration test in both memory modes. Status: Fix now. Fixed: `SnapshotTests.A_cache_from_an_older_loader_is_rebuilt_with_a_note`, in both memory modes. Sidecars are not asserted there; their identity check has its own tests.
 - **M16 Cold first-show blips doubled, cause not established** (gc-specialist; senior-dev Low). `budgets.md:119-126`. From 3 to 7
   per run to 5 to 13, exempt from the gate, worst unchanged, lag 184 of 200 ms. "New styles" is inferred, and JIT is as likely.
-  Suggested: trace one cold first show; a ceiling. Status: to revisit with the owner after the others (owner, 2026-11-05).
+  Suggested: trace one cold first show; a ceiling. Status: Moved to sprint 3.11 (owner, 2026-11-05), with a refactor analysis.
 - **M17 A macOS user has no next step when macOS refuses the package** (support-engineer). `INSTALL.md`, `release.yml:194`. No entry
   under "If HeapScope does not start", no first snapshot bullet, no link from the release note, no request for results. Suggested:
   a short "If macOS refuses it" list marked unconfirmed, a `dotnet-dump` bullet, the link, an issue link. Status: Fix now. Fixed: an unconfirmed "If macOS refuses it" list, a first snapshot bullet, the release note links to it, an issue link. L17 fixed with it, since this sprint caused it.

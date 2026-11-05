@@ -44,6 +44,7 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
 | 3.9 | Packaging and distribution | Closed | 2026-11-01 | sprint-3.9 |
 | 3.10 | Visual design and README | In Progress | | |
+| 3.11 | First-show performance and refactor analysis | Planned | | |
 
 ---
 
@@ -138,6 +139,22 @@ default settings, an inverted hierarchy and real defects; a mockup of its top ch
 **Review summary**: to be filled by /wrap-sprint.
 
 ---
+
+## Sprint 3.11: First-show performance and refactor analysis
+
+**Goal**: know why pages hitch the first time they open, and what in the code is worth refactoring, before Phase 4 adds to both.
+
+**Background**: the product owner asked for this sprint on 2026-11-05, from the 3.10 review. M16: cold first shows over 100 ms went
+from 3 to 7 per run to 5 to 13, exempt from the gate, with the worst dispatcher lag 184 of 200 ms and the cause only inferred.
+
+**Scope, to settle at /start-sprint**:
+- Trace a cold first show (`--smoke-trace`, with JIT events), attribute the blips, and fix what the trace supports. Consider a ceiling
+  on logged first shows, and a run on a Medium dump, not only the demo dumps.
+- A refactor analysis of the codebase: what to change, why and at what cost, as a ranked list the owner decides on. It proposes; any
+  refactor it leads to is the owner's call.
+- To consider pulling in: the Backlog's slower first load (the object pass), and the tests that fail only under full load.
+
+**Tasks**: to be filled by /start-sprint.
 
 ## Peer review sprints
 

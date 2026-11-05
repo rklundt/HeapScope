@@ -126,7 +126,9 @@ Rules:
   `A_crafted_gcdump_naming_an_unknown_type_is_refused_without_creating_it`, sprint 1.9).
 - Index caches record the version of the loader that built them (`IndexCacheMetadata.LoaderVersion`,
   `ISnapshotLoader.Version`: full dumps 4 since 3.10, gcdumps 1); the worker rebuilds a cache from an older version with
-  a note, so a fix in what a loader records reaches snapshots cached before it (review M7).
+  a note, so a fix in what a loader records reaches snapshots cached before it (review M7). If that rebuild fails because the
+  dump's DAC is gone, the older cache opens instead, with a note and a warning in the log (3.10 review M14); an explicit Rebuild
+  still fails, and says what is missing.
 - Type names: the writer joins generic arguments without a space, writes compiler names' `<>` as `[]`, splits arrays
   above 1 KB and 10 KB into nodes named `T[] (Bytes > 10K)`, and drops the declaring types of nested types. The loader
   undoes the first three (`TypeNames.Normalize`); the last cannot be undone. Types without a method table are told apart
