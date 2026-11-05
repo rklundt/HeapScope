@@ -47,6 +47,12 @@ public sealed class KeyPathDiagramView : Control
         AffectsMeasure<KeyPathDiagramView>(DiagramProperty);
     }
 
+    public KeyPathDiagramView()
+    {
+        // The colors are the theme's, read when drawing.
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
+    }
+
     public KeyPathDiagram? Diagram
     {
         get => GetValue(DiagramProperty);

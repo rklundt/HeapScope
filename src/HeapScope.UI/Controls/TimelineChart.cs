@@ -57,6 +57,12 @@ public sealed class TimelineChart : Control
         AffectsRender<TimelineChart>(SamplesProperty, MarkersProperty, GcMarkersProperty, VersionProperty);
     }
 
+    public TimelineChart()
+    {
+        // The colors are the theme's, read when drawing.
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
+    }
+
     public IReadOnlyList<HeapSample>? Samples
     {
         get => GetValue(SamplesProperty);

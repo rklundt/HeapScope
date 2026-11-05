@@ -89,7 +89,14 @@
   <Style Selector="TextBlock.subtle">
     <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
   </Style>
+  <Style Selector="TextBlock.growth">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
+  </Style>
+  <Style Selector="TextBlock.shrink">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Shrink}" />
+  </Style>
   <Style Selector="TextBlock.number">
+    <Setter Property="FontFeatures" Value="+tnum" />
     <Setter Property="HorizontalAlignment" Value="Right" />
     <Setter Property="Margin" Value="4,0" />
   </Style>

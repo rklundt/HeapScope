@@ -85,7 +85,7 @@
             <DataTemplate x:DataType="vm:BookmarkItem">
               <DockPanel ToolTip.Tip="{Binding SnapshotTitle}">
                 <Button DockPanel.Dock="Left" Width="14" Height="14" MinHeight="0" Padding="0" Margin="0,0,6,0" VerticalAlignment="Center"
-                        Background="{Binding ColorKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}"
+                        ctl:ThemeBrush.Background="{Binding ColorKey}"
                         Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).CycleColorCommand}" CommandParameter="{Binding}"
                         ToolTip.Tip="Change the color" AutomationProperties.Name="Change the color" />
                 <Button DockPanel.Dock="Right" Classes="dismiss" Margin="4,0,0,0"

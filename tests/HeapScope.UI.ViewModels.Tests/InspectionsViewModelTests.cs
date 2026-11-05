@@ -313,10 +313,21 @@ public sealed class InspectionsViewModelTests : IDisposable
     [InlineData("FreePercent", "Free %")]
     [InlineData("PinnedObjects", "Pinned objects")]
     [InlineData("Value", "Value")]
+    [InlineData("LOHBytes", "LOH bytes")]
+    [InlineData("POHObjects", "POH objects")]
+    [InlineData("LOH", "LOH")]
+    [InlineData("BytesOnLOH", "Bytes on LOH")]
     public void Column_headers_split_names_into_words(string name, string header)
     {
         ColumnHeaders.Header(name).ShouldBe(header);
     }
+
+    [Theory]
+    [InlineData("Size", 84)]
+    [InlineData("Null slots", 94)]
+    [InlineData("Pinned objects bytes", 164)]
+    public void A_generated_number_column_is_as_wide_as_its_header_needs(string header, double width) =>
+        ColumnHeaders.NumberWidth(header).ShouldBe(width);
 
     public void Dispose()
     {

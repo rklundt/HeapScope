@@ -281,8 +281,9 @@ public static class GridBehaviors
                 // The cells are a read-only list whose runtime type may have no public indexer: pick the cell in a converter.
                 Binding = new Binding(nameof(CellRowItem.Display)) { Converter = CellAt.Instance, ConverterParameter = index, Mode = BindingMode.OneWay },
                 Width = column.Kind == ResultColumnKind.Address ? new DataGridLength(150)
-                    : numeric ? new DataGridLength(110)
+                    : numeric ? new DataGridLength(ColumnHeaders.NumberWidth(ColumnHeaders.Header(column.Name)))
                     : new DataGridLength(1, DataGridLengthUnitType.Star),
+                MinWidth = numeric || column.Kind == ResultColumnKind.Address ? 0 : 240,
                 CanUserSort = false,
             };
             if (numeric)
@@ -297,6 +298,8 @@ public static class GridBehaviors
 
             grid.Columns.Add(text);
         }
+
+        NumberHeaders.ApplyAfterLayout(grid);
     }
 
     /// <summary>The cell at the column's index of a row's display cells.</summary>

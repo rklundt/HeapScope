@@ -64,6 +64,7 @@ public sealed class IcicleChart : Control
 
     public IcicleChart()
     {
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
         ClipToBounds = true;
         Focusable = true;
     }
@@ -136,18 +137,20 @@ public sealed class IcicleChart : Control
         var bars = new[] { Brush("Icicle.Bar1"), Brush("Icicle.Bar2") };
         var path = Brush("Icicle.Path") ?? Brushes.Orange;
         var text = Brush("Brush.Text") ?? Brushes.Black;
+        var pathText = Brush("Icicle.PathText") ?? Brushes.Black;
         var border = new Pen(Brush("Brush.Surface") ?? Brushes.White, 1);
         var selected = SelectedSegment;
         foreach (var bar in _bars)
         {
             var rect = new Rect(bar.X, bar.Y, bar.Width, bar.Height - 1);
-            var fill = IcicleGeometry.IsOnPath(bar.Segment, selected) ? path : bars[bar.Segment.Level % 2] ?? Brushes.LightBlue;
+            var onPath = IcicleGeometry.IsOnPath(bar.Segment, selected);
+            var fill = onPath ? path : bars[bar.Segment.Level % 2] ?? Brushes.LightBlue;
             context.DrawRectangle(fill, border, rect);
             if (bar.Width >= 40)
             {
                 var label = new FormattedText(
                     string.Create(CultureInfo.CurrentCulture, $"{bar.Segment.Name} ({Format.Bytes(bar.Segment.Width)})"),
-                    CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, text)
+                    CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, onPath ? pathText : text)
                 {
                     MaxTextWidth = Math.Max(1, bar.Width - 6),
                     MaxLineCount = 1,

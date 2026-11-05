@@ -27,7 +27,17 @@ namespace HeapScope.UI.ViewModels;
 /// <summary>Column headers for grids built from a result set's column list (sprint 1.6).</summary>
 public static class ColumnHeaders
 {
-    /// <summary>A column header from a column name: words split at capitals ("NullSlots" is "Null slots"), percent as "%".</summary>
+    /// <summary>The width of a generated number column: enough for its header, and for the numbers under it.</summary>
+    public static double NumberWidth(string header)
+    {
+        ArgumentNullException.ThrowIfNull(header);
+        return Math.Max(84, (header.Length * 7) + 24);
+    }
+
+    /// <summary>
+    /// A column header from a column name: words split at capitals ("NullSlots" is "Null slots"), an acronym stays whole
+    /// ("LOHBytes" is "LOH bytes"), percent as "%".
+    /// </summary>
     public static string Header(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -39,14 +49,19 @@ public static class ColumnHeaders
         var text = new System.Text.StringBuilder(name.Length + 4);
         for (var i = 0; i < name.Length; i++)
         {
-            if (i > 0 && char.IsUpper(name[i]))
+            var capital = char.IsUpper(name[i]);
+            var afterCapital = i > 0 && char.IsUpper(name[i - 1]);
+            var beforeCapital = i + 1 < name.Length && char.IsUpper(name[i + 1]);
+            var acronym = capital && (afterCapital || beforeCapital);
+            // The last capital of a run, with a lower case letter next, starts the next word: "LOHBytes" has "B" as one.
+            var startsWord = capital && (!afterCapital || (i + 1 < name.Length && char.IsLower(name[i + 1])));
+            if (i > 0 && startsWord)
             {
-                text.Append(' ').Append(char.ToLowerInvariant(name[i]));
+                text.Append(' ');
             }
-            else
-            {
-                text.Append(name[i]);
-            }
+
+            var keepCapital = i == 0 || (acronym && !(afterCapital && i + 1 < name.Length && char.IsLower(name[i + 1])));
+            text.Append(capital && !keepCapital ? char.ToLowerInvariant(name[i]) : name[i]);
         }
 
         return text.ToString();

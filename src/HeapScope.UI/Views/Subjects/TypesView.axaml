@@ -42,7 +42,7 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:HeapKindShare">
             <Border ctl:ProportionalPanel.Weight="{Binding Fraction}" ToolTip.Tip="{Binding Text}"
-                    Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+                    ctl:ThemeBrush.Background="{Binding BrushKey}" />
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
@@ -55,7 +55,7 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:HeapKindShare">
             <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-              <Border Width="10" Height="10" Margin="0,0,4,0" Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+              <Border Width="10" Height="10" Margin="0,0,4,0" ctl:ThemeBrush.Background="{Binding BrushKey}" />
               <TextBlock Text="{Binding Text}" FontSize="11" Classes="subtle" />
             </StackPanel>
           </DataTemplate>
@@ -100,7 +100,7 @@
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>
-        <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+        <DataGridTemplateColumn Header="Name" Width="*" MinWidth="240" SortMemberPath="Name">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:TypeRowItem">
               <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"
@@ -111,7 +111,7 @@
         </DataGridTemplateColumn>
         <DataGridTextColumn Header="Objects" x:DataType="vm:TypeRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Objects" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes" x:DataType="vm:TypeRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="130" SortMemberPath="Bytes" CellStyleClasses="number" />
-        <DataGridTextColumn Header="%" x:DataType="vm:TypeRowItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CanUserSort="False" CellStyleClasses="number" />
+        <DataGridTextColumn Header="%" x:DataType="vm:TypeRowItem" Binding="{Binding Percent, StringFormat='{}{0:N1}'}" Width="60" CanUserSort="False" CellStyleClasses="number" />
         <DataGridTextColumn Header="Retained" x:DataType="vm:TypeRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="130" SortMemberPath="Retained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
         <DataGridTextColumn Header="Gen0" x:DataType="vm:TypeRowItem" Binding="{Binding Gen0, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
         <DataGridTextColumn Header="Gen1" x:DataType="vm:TypeRowItem" Binding="{Binding Gen1, StringFormat='{}{0:N0}'}" Width="110" CanUserSort="False" CellStyleClasses="number" Tag="Generations" IsVisible="False" />

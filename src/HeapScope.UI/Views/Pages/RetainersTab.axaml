@@ -116,7 +116,7 @@
               ctl:GridBehaviors.ExpandCommand="{Binding ExpandCommand}" ctl:GridBehaviors.CollapseCommand="{Binding CollapseCommand}"
               ToolTip.Tip="Enter or a double-click expands or collapses a row; Right expands, Left collapses.">
       <DataGrid.Columns>
-        <DataGridTemplateColumn Header="Retainer" Width="*">
+        <DataGridTemplateColumn Header="Retainer" Width="*" MinWidth="240">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:DominatorRowItem">
               <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -131,7 +131,7 @@
         </DataGridTemplateColumn>
         <DataGridTextColumn Header="Objects" x:DataType="vm:DominatorRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
         <DataGridTextColumn Header="Retained" x:DataType="vm:DominatorRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number" />
-        <DataGridTextColumn Header="%" x:DataType="vm:DominatorRowItem" Binding="{Binding Percent, StringFormat='{}{0:N2}'}" Width="60" CellStyleClasses="number" />
+        <DataGridTextColumn Header="%" x:DataType="vm:DominatorRowItem" Binding="{Binding Percent, StringFormat='{}{0:N1}'}" Width="60" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes" x:DataType="vm:DominatorRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="110" CellStyleClasses="number" />
         <DataGridTextColumn Header="Address" x:DataType="vm:DominatorRowItem" Binding="{Binding AddressText}" Width="150" CellStyleClasses="address" />
       </DataGrid.Columns>

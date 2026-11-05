@@ -80,7 +80,7 @@
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Field" x:DataType="vm:ReferenceRowItem" Binding="{Binding Field}" Width="140" />
                 <DataGridTextColumn Header="Address" x:DataType="vm:ReferenceRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
-                <DataGridTextColumn Header="Type" x:DataType="vm:ReferenceRowItem" Binding="{Binding Type}" Width="*" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:ReferenceRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferenceRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
               </DataGrid.Columns>
             </DataGrid>
@@ -96,7 +96,7 @@
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Field" x:DataType="vm:ReferrerRowItem" Binding="{Binding Field}" Width="140" />
                 <DataGridTextColumn Header="Address" x:DataType="vm:ReferrerRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
-                <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Refs" x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
               </DataGrid.Columns>
@@ -123,7 +123,7 @@
                       ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Roots" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
-                <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" />
+                <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Path" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
               </DataGrid.Columns>
             </DataGrid>

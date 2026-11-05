@@ -64,6 +64,7 @@ public sealed class AllocationTimeline : Control
 
     public AllocationTimeline()
     {
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
         ClipToBounds = true;
         Cursor = new Cursor(StandardCursorType.Cross);
     }

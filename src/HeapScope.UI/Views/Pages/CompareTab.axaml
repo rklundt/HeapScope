@@ -78,7 +78,7 @@
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GroupNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IdentityNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetainedNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
-    <DataGrid x:Name="CompareGrid" ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}" ctl:GridExports.ExportName="Comparison" CanUserSortColumns="True" SelectionMode="Extended"
+    <DataGrid x:Name="CompareGrid" FrozenColumnCount="1" ctl:GridBehaviors.VisibleColumnGroups="{Binding VisibleColumnGroups}" ctl:GridExports.ExportName="Comparison" CanUserSortColumns="True" SelectionMode="Extended"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
@@ -95,7 +95,7 @@
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>
-        <DataGridTemplateColumn Header="Name" Width="*" SortMemberPath="Name">
+        <DataGridTemplateColumn Header="Name" Width="*" MinWidth="240" SortMemberPath="Name">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:DiffRowItem">
               <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"
@@ -109,28 +109,28 @@
             <TextBlock Text="Change" ToolTip.Tip="new: only in the current snapshot. gone: only in the baseline. copies: the same type is loaded a different number of times (see the Types columns), for example a plugin reloaded while its old copy stays alive." />
           </DataGridTextColumn.Header>
         </DataGridTextColumn>
-        <DataGridTemplateColumn Header="Objects +/-" Width="110" SortMemberPath="ObjectsDelta">
+        <DataGridTemplateColumn Header="Objects +/-" Width="110" SortMemberPath="ObjectsDelta" CellStyleClasses="number">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:DiffRowItem">
               <TextBlock Classes="number" VerticalAlignment="Center" Text="{Binding ObjectsDelta, StringFormat='{}{0:+#,0;-#,0;0}'}"
-                         Foreground="{Binding Trend, Converter={x:Static ctl:TrendBrushConverter.Instance}}" />
+                         Classes.growth="{Binding ObjectsDelta, Converter={x:Static ctl:SignConverters.IsPositive}}"
+                         Classes.shrink="{Binding ObjectsDelta, Converter={x:Static ctl:SignConverters.IsNegative}}" />
             </DataTemplate>
           </DataGridTemplateColumn.CellTemplate>
         </DataGridTemplateColumn>
-        <DataGridTemplateColumn Header="Bytes +/-" Width="130" SortMemberPath="BytesDelta">
+        <DataGridTemplateColumn Header="Bytes +/-" Width="130" SortMemberPath="BytesDelta" CellStyleClasses="number">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:DiffRowItem">
               <TextBlock Classes="number" VerticalAlignment="Center" Text="{Binding BytesDelta, StringFormat='{}{0:+#,0;-#,0;0}'}"
-                         Foreground="{Binding Trend, Converter={x:Static ctl:TrendBrushConverter.Instance}}" />
+                         Classes.growth="{Binding BytesDelta, Converter={x:Static ctl:SignConverters.IsPositive}}"
+                         Classes.shrink="{Binding BytesDelta, Converter={x:Static ctl:SignConverters.IsNegative}}" />
             </DataTemplate>
           </DataGridTemplateColumn.CellTemplate>
         </DataGridTemplateColumn>
-        <DataGridTextColumn Header="Objects (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineObjects, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="BaselineObjects" CellStyleClasses="number" />
-        <DataGridTextColumn Header="Objects (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentObjects, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="CurrentObjects" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Objects (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineObjects, StringFormat='{}{0:N0}'}" Width="132" SortMemberPath="BaselineObjects" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Objects (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentObjects, StringFormat='{}{0:N0}'}" Width="132" SortMemberPath="CurrentObjects" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineBytes, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="BaselineBytes" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentBytes, StringFormat='{}{0:N0}'}" Width="140" SortMemberPath="CurrentBytes" CellStyleClasses="number" />
-        <DataGridTextColumn Header="Types (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="100" SortMemberPath="BaselineTypes" CellStyleClasses="number" />
-        <DataGridTextColumn Header="Types (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="100" SortMemberPath="CurrentTypes" CellStyleClasses="number" />
         <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding NewObjects, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="NewObjects" CellStyleClasses="number" Tag="Identity" IsVisible="False">
           <DataGridTextColumn.Header>
             <TextBlock Text="New objects" ToolTip.Tip="Current objects with no object of the same type and size at their address in the baseline. An object a collection moved counts as dead and new." />
@@ -149,6 +149,8 @@
         <DataGridTextColumn Header="Gen2 +/-" x:DataType="vm:DiffRowItem" Binding="{Binding Gen2Delta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="Gen2Delta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
         <DataGridTextColumn Header="LOH +/-" x:DataType="vm:DiffRowItem" Binding="{Binding LohDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="LohDelta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
         <DataGridTextColumn Header="POH +/-" x:DataType="vm:DiffRowItem" Binding="{Binding PohDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="PohDelta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
+        <DataGridTextColumn Header="Types (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="122" SortMemberPath="BaselineTypes" CellStyleClasses="number" />
+        <DataGridTextColumn Header="Types (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="122" SortMemberPath="CurrentTypes" CellStyleClasses="number" />
       </DataGrid.Columns>
     </DataGrid>
     </DockPanel>

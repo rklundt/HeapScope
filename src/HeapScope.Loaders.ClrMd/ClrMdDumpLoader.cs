@@ -581,15 +581,27 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         return stream.ReadAtLeast(start, 4, throwOnEndOfStream: false) == 4 && SnapshotFileSignature.IsMinidump(start);
     }
 
-    private static string? ProcessName(DataTarget target)
+    private static string? ProcessName(DataTarget target) =>
+        ProcessNameOf(target.EnumerateModules().Select(static module => module.FileName ?? string.Empty));
+
+    /// <summary>
+    /// The process's name from its modules. The reader's order is not load order, so the first module may be any library: a
+    /// Windows dump's executable is the one .exe. A core file's modules have no such mark, so the first is the best there is.
+    /// </summary>
+    internal static string? ProcessNameOf(IEnumerable<string> modules)
     {
-        foreach (var module in target.EnumerateModules())
+        string? first = null;
+        foreach (var module in modules)
         {
-            // The first module of a process dump is the executable.
-            return Path.GetFileNameWithoutExtension(RecordedPath.FileName(module.FileName ?? string.Empty));
+            var name = RecordedPath.FileName(module);
+            first ??= name;
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetFileNameWithoutExtension(name);
+            }
         }
 
-        return null;
+        return first is null ? null : Path.GetFileNameWithoutExtension(first);
     }
 
     private static int? ProcessId(DataTarget target) =>
