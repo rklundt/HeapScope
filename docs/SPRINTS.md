@@ -98,6 +98,10 @@ default settings, an inverted hierarchy and real defects; a mockup of its top ch
     decision 8's rule that its pictures are real captures. Decided while building it, 2026-11-04.
 13. A dump's process name was the first module ClrMD listed, which the demo dump showed as an ASP.NET library. Found by the
     captures and fixed here (loader version 4, so caches are rebuilt). Decided while building it, 2026-11-04.
+14. Releases attach the macOS packages after all, with a strong note on the release page that they are built on Linux, not
+    on a Mac, and untested (amends decision 11's "macOS not shipped" and ADR-039). README and INSTALL.md say so too, and
+    mention building on a Mac with `build/publish.sh`. Product owner, 2026-11-05.
+15. README's license summary, the AI point: reworded by the product owner, 2026-11-05. ADDITIONAL-TERMS.md is unchanged.
 
 **Task breakdown**:
 1. [x] The screenshot mode: `--screenshots` (one theme per run, 2x), `build/screenshots.sh` and the demo data script. Proof:

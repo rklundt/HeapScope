@@ -76,7 +76,7 @@ dotnet test --solution HeapScope.sln
   ADR-039): a `.zip` for Windows, a `.tar.gz` elsewhere (it keeps the executables' modes); `archive.sh unpack` reverses
   it, and `build/zip.cs` does the zip work without zip or unzip installed. CI uploads the four archives on pushes to
   `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`, kept 14 days; the download is a zip holding
-  the archive). macOS builds are not shipped (ADR-039). Since 3.6 every build carries `LICENSE`,
+  the archive). Releases attach the macOS builds marked untested: built on Linux, never run (ADR-039). Since 3.6 every build carries `LICENSE`,
   `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and each shipped package's own license and notice
   files under `licenses/` (`build/collect-licenses.cs`, with a README there since 3.9 saying whose licenses they are),
   and leaves out the TraceEvent natives no code uses
@@ -540,7 +540,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
 - Release builds (sprint 3.7; channels and formats since 3.9, ADR-039): publishing the GitHub release runs `release.yml`,
-  which builds the tag for win-x64 (a `.zip`) and linux-x64 (a `.tar.gz`) and packs the CLI's dotnet tool (its version
+  which builds the tag for win-x64 (a `.zip`), linux-x64, osx-arm64 and osx-x64 (each a `.tar.gz`; the macOS ones on Linux,
+  and its last step puts a note at the top of the release's notes saying they are untested) and packs the CLI's dotnet tool (its version
   must match the tag), installs that tool file on Windows and Linux (`build/check-tool.sh` without a dump), with read
   access only, and then, in one job that builds nothing, attaches the archives, the tool
   package, an SBOM of the app, the CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store

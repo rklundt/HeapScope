@@ -7,7 +7,7 @@
 Powered by [HeapScope](https://github.com/rklundt/HeapScope) by Ray Klundt.
 
 A free, open source memory profiler for .NET 5 and later, as a desktop app and a command line tool. It runs on Windows and
-Linux, and your memory dumps never leave your machine.
+Linux, with untested macOS packages, and your memory dumps never leave your machine.
 
 [Install it](INSTALL.md) | [User guide](docs/USER-GUIDE.md) | [Release notes](RELEASE-NOTES.md)
 
@@ -112,9 +112,12 @@ test suite checks results against fixture dumps whose answers are known.
 
 HeapScope is in pre-release. Plainly:
 
-- **Windows for live work.** Capturing a dump, recording allocations and the Live page need Windows. On Linux, HeapScope
-  opens dumps taken with `dotnet-dump`.
-- **No macOS builds.** You can build it from source there, but it is untested.
+- **Windows: everything.** Capture dumps, record allocations, watch the Live page and analyze the results.
+- **Linux: dump analysis.** Take a dump with `dotnet-dump` and open it in the app or the CLI. Capturing from HeapScope,
+  recording allocations and the Live page need Windows.
+- **macOS: untested.** Each release has macOS packages, but they are built on Linux, not on a Mac, and have not been run.
+  They are not signed or notarized, so macOS may refuse them. You can also build one on your Mac with `build/publish.sh`,
+  which is untested too.
 - **Unsigned builds.** Windows SmartScreen will warn you. [INSTALL.md](INSTALL.md) shows how to check a download against its
   checksums and build provenance.
 - **Modern .NET only.** It analyzes .NET 5 and later, not .NET Framework.
@@ -122,8 +125,8 @@ HeapScope is in pre-release. Plainly:
 
 ## Get started
 
-Download a release for Windows or Linux, with no .NET needed, or get the CLI as a `dotnet tool`. [INSTALL.md](INSTALL.md)
-takes you from download to your first snapshot.
+Download a release for Windows or Linux, with no .NET needed, or get the CLI as a `dotnet tool`. Untested macOS packages
+are there too. [INSTALL.md](INSTALL.md) takes you from download to your first snapshot.
 
 Or build it from source:
 
@@ -153,9 +156,9 @@ HeapScope is licensed under the [GNU Affero General Public License, version 3 on
   must be readable on the main screen (or a splash screen shown for at least five seconds): real text on an opaque
   background, at least 4.5:1 contrast, no smaller than the body text. Command line tools show it in help, version and
   startup output. Modified versions must be marked as such.
-- **AI and machine learning (Section 6).** Text and data mining rights are reserved. Models trained, fine-tuned or
-  evaluated on HeapScope must credit it in their documentation, and code that an AI system produces from HeapScope is a
-  work based on it, carrying the attribution and the same license.
+- **AI and machine learning (Section 6).** Models trained, fine-tuned or evaluated with HeapScope code, screens, or
+  processes must credit it in their documentation, and code that an AI system produces from HeapScope is a work based on
+  it, carrying the attribution and the same license. Text and data mining rights are reserved.
 - **Commercial licenses** that waive some or all of these requirements are available; see [COMMERCIAL.md](COMMERCIAL.md).
 
 Third-party components keep their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

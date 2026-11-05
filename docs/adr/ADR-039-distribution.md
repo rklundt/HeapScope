@@ -5,7 +5,8 @@
   installs HeapScope, from where and in which forms (product owner, 2026-10-31). HeapScope is open source with no
   budget for certificates or store accounts, and CI has no macOS runners (2026-10-31).
 - Decision:
-  - Audience: developers and support engineers on Windows and Linux, x64. Channel: GitHub Releases only.
+  - Audience: developers and support engineers on Windows and Linux, x64, plus macOS packages marked untested (see the
+    amendment below). Channel: GitHub Releases only.
   - Each release attaches a self-contained build of the app and the CLI (each with its worker) for win-x64 as a `.zip`
     (Explorer opens it) and for linux-x64 as a `.tar.gz` (it keeps the executables' modes). No .NET install is needed.
   - The CLI is also a `dotnet tool`: one framework-dependent package for every system (`HeapScope.Cli`, command
@@ -19,13 +20,15 @@
     (ADR-022) are unchanged in every form.
   - `INSTALL.md` takes a user from download to a first snapshot on each system.
 - Refused or deferred:
-  - macOS builds are not attached: they are built on Linux and never run (Backlog "Testing on macOS"); signing and
-    notarizing need a paid Apple account.
+  - Signing and notarizing the macOS packages: they need a paid Apple account.
   - Code signing on Windows: its yearly cost does not fit an open source project; `INSTALL.md` explains SmartScreen's
     warning for an unsigned download.
   - No update check in the app: the releases page lists the versions.
   - Backlog: nuget.org (needs an account; then the tool installs by name), winget, rpm, deb and AppImage, a single-file
     Windows build, a Linux `install.sh` with a desktop menu entry, smaller builds.
+- Amended in sprint 3.10 (product owner, 2026-11-05): releases also attach `osx-arm64` and `osx-x64` as `.tar.gz`, where
+  3.9 left them off. They are built on Linux and never run (Backlog "Testing on macOS"), so `release.yml` puts a note saying
+  so at the top of the release's notes, and README and `INSTALL.md` say it too. `INSTALL.md`'s macOS steps are unconfirmed.
 - Consequences: a user verifies a download by its checksum and attestation, not a signature. The worker has two ways
   to start (its executable in a self-contained build, its assembly through `dotnet` in the tool), both covered by CI.
   Adding a channel later (nuget.org, winget) repackages these files and keeps the license files and checks.

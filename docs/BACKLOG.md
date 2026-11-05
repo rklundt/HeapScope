@@ -68,7 +68,8 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   two fixture dumps.
 - Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
   macOS packages are built on Linux and never run, and the macOS core dump checks (known answers, DAC trust) no longer
-  run. Before macOS ships, the product owner picks a way: a Mac of their own, or macOS runners for a release only.
+  run. Since 3.10 releases attach them marked untested (ADR-039). Before that mark comes off, the product owner picks a way
+  to test them: a Mac of their own, or macOS runners for a release only.
   Standard hosted runners are free in public repositories, and HeapScope is public; the owner checks the billing
   report before macOS runners come back (2026-10-31).
 - Objects finalized between two snapshots: the baseline's finalizable objects whose finalizer has not run, matched by

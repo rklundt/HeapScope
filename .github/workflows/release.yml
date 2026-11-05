@@ -1,6 +1,7 @@
 # HeapScope release builds (sprint 3.7, peer review P17). When the owner publishes a GitHub release (DEVELOPER.md 7), this
 # builds the release's tag with build/publish.sh (license files checked) for the runtimes HeapScope ships (sprint 3.9,
-# ADR-039: win-x64 as a .zip, linux-x64 as a .tar.gz; macOS is not shipped), packs the CLI's dotnet tool, and attaches
+# ADR-039: win-x64 as a .zip, linux-x64 and both macOS runtimes as a .tar.gz, the macOS ones built on Linux, never run and
+# called untested on the release), packs the CLI's dotnet tool, and attaches
 # them, an SBOM (CycloneDX) of the app, the CLI and the worker, and SHA256SUMS of them all, each with a build provenance
 # attestation in GitHub's attestation store. Builds are deterministic (ContinuousIntegrationBuild in CI). Nothing is
 # signed (ADR-039: no certificate); the checksums and attestations are how a download is verified.
@@ -48,6 +49,11 @@ jobs:
             rid: win-x64
           - os: ubuntu-latest
             rid: linux-x64
+          # Built on Linux, which cannot run them (no macOS runners); the publish job says so on the release.
+          - os: ubuntu-latest
+            rid: osx-arm64
+          - os: ubuntu-latest
+            rid: osx-x64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,3 +186,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$RUNNER_TEMP"/assets/HeapScope-* "$RUNNER_TEMP"/assets/HeapScope.Cli.*.nupkg "$RUNNER_TEMP/assets/SHA256SUMS" --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Say on the release that the macOS packages are untested
+        # A note a person adds can be forgotten (ADR-039). A rerun finds it there and leaves the notes alone.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTE: "**The macOS packages are untested.** They are built on Linux, not on a Mac, and have not been run. They are not signed or notarized."
+        run: |
+          gh release view "$TAG" --json body --jq .body --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/body.md"
+          if ! grep -qF "$NOTE" "$RUNNER_TEMP/body.md"; then
+            { printf '%s\n\n' "$NOTE"; cat "$RUNNER_TEMP/body.md"; } > "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"
+          fi
