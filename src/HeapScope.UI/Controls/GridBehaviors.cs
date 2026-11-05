@@ -283,7 +283,7 @@ public static class GridBehaviors
                 Width = column.Kind == ResultColumnKind.Address ? new DataGridLength(150)
                     : numeric ? new DataGridLength(ColumnHeaders.NumberWidth(ColumnHeaders.Header(column.Name)))
                     : new DataGridLength(1, DataGridLengthUnitType.Star),
-                MinWidth = numeric || column.Kind == ResultColumnKind.Address ? 0 : 240,
+                MinWidth = numeric || column.Kind == ResultColumnKind.Address ? 0 : 180,
                 CanUserSort = false,
             };
             if (numeric)

@@ -79,6 +79,16 @@ public sealed class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public void Home_s_start_actions_show_their_pages_and_About_holds_the_diagnostics()
+    {
+        _shell.ShowProcessesCommand.Execute(null);
+        _shell.SelectedItem.Title.ShouldBe("Processes");
+        // This shell has no Live page, so the action has nowhere to go.
+        _shell.ShowLiveCommand.CanExecute(null).ShouldBeFalse();
+        _shell.About.Diagnostics.ShouldBeSameAs(_shell.Home);
+    }
+
+    [Fact]
     public async Task The_jobs_panel_shows_only_while_a_job_runs_and_finished_jobs_move_to_the_status_line()
     {
         _shell.IsJobsPanelVisible.ShouldBeFalse();

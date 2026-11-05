@@ -32,4 +32,7 @@ public static class SignConverters
     public static FuncValueConverter<long, bool> IsPositive { get; } = new(static value => value > 0);
 
     public static FuncValueConverter<long, bool> IsNegative { get; } = new(static value => value < 0);
+
+    /// <summary>Whether a list has anything in it (its <c>Count</c>), for a panel with nothing to show otherwise.</summary>
+    public static FuncValueConverter<int, bool> HasItems { get; } = new(static count => count > 0);
 }

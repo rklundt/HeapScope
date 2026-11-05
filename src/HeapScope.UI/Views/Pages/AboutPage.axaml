@@ -43,6 +43,18 @@
     </StackPanel>
     <TextBlock Margin="0,16,0,0" TextWrapping="Wrap" Classes="subtle"
                Text="Memory dumps can contain secrets. HeapScope never uploads anything." />
+    <!-- The synthetic job exercises the worker, progress and cancellation; it is a support tool, not a way to start. -->
+    <StackPanel DataContext="{Binding Diagnostics}" x:DataType="vm:HomeViewModel" Margin="0,16,0,0">
+      <TextBlock Text="Diagnostics" FontWeight="SemiBold" Margin="0,0,0,4" />
+      <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Classes="subtle"
+                 Text="Run a synthetic graph job to exercise the analysis worker, progress and cancellation." />
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Text="Objects" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <TextBox Width="140" Text="{Binding ObjectCount}" />
+        <Button Content="Run synthetic job" Margin="8,0,0,0" Command="{Binding RunSyntheticCommand}" />
+      </StackPanel>
+      <TextBlock Margin="0,8,0,0" Text="{Binding LastResult}" TextWrapping="Wrap" />
+    </StackPanel>
     <!-- Sprint 2.7: the one shortcut table, which the window also uses; F1 comes here. -->
     <TextBlock x:Name="ShortcutsHeading" Text="Keyboard shortcuts" FontWeight="SemiBold" Margin="0,16,0,6" />
     <ItemsControl x:Name="ShortcutList" ItemsSource="{Binding Shortcuts}">

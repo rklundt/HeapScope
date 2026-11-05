@@ -32,7 +32,7 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
       <TextBlock Classes="pageTitle" Text="Processes" VerticalAlignment="Center" />
       <Button ctl:ButtonIcon.Icon="Refresh" Content="Refresh" Margin="16,0,0,0" Command="{Binding RefreshCommand}" />
-      <Button ctl:ButtonIcon.Icon="Capture" Content="Capture dump" Margin="8,0,0,0" Command="{Binding CaptureCommand}" />
+      <Button ctl:ButtonIcon.Icon="Capture" Classes="primary" Content="Capture dump" Margin="8,0,0,0" Command="{Binding CaptureCommand}" />
       <CheckBox Content="As gcdump" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDump}"
                 ToolTip.Tip="The object graph only: much smaller and quicker to open, but no field values, string text or generations. The process runs one full garbage collection." />
       <!-- Sprint 2.5: sampled allocations with call stacks, shown on the Allocations page when done. -->

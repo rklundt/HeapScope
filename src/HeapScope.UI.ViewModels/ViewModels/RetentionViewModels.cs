@@ -185,6 +185,10 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
     [ObservableProperty]
     private bool _showDiagram;
 
+    /// <summary>Whether the diagram scales down to the page's width.</summary>
+    [ObservableProperty]
+    private bool _fitDiagram;
+
     [ObservableProperty]
     private string? _status;
 
@@ -278,8 +282,8 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
         Totals = string.Create(
             CultureInfo.CurrentCulture,
             $"{result.Objects:N0} objects: {result.Objects - result.Unreachable:N0} reachable along {result.Paths.Count + result.OtherPaths:N0} paths, {result.Unreachable:N0} not reachable from any root ({Format.Bytes(result.UnreachableBytes)})")
-            + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
             + (result.OtherPaths > 0 ? string.Create(CultureInfo.CurrentCulture, $"; {result.OtherPaths:N0} smaller paths not listed hold {result.OtherObjects:N0} objects") : string.Empty)
+            + (result.Unreachable > 0 ? ". " + result.UnreachableNote : string.Empty)
             + ReferrersText.Incomplete(result.CompleteGraph).Replace("referrers", "paths", StringComparison.Ordinal);
         Status = result.Objects == 0 ? (_set is null ? "No objects of this type." : "The set has no objects.") : null;
     }

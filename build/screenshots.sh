@@ -39,11 +39,23 @@ root="$(pwd -W 2>/dev/null || pwd)"
 export HEAPSCOPE_DATA_FOLDER="$root/$demo/data"
 app="src/HeapScope.UI/bin/$configuration/net10.0/HeapScope"
 rm -rf "$out"
+# The Live page watches the fixture, under load, for real.
+dotnet build fixtures/LeakyApi -c "$configuration" -v quiet -nologo || exit 1
+url=http://127.0.0.1:5198
+log="$demo/live-fixture.log"
+dotnet "fixtures/LeakyApi/bin/$configuration/net10.0/LeakyApi.dll" --urls "$url" --Leaks:Detected all --Clean:Enabled true > "$log" 2>&1 &
+fixture_pid=$!
+( while kill -0 "$fixture_pid" 2>/dev/null; do curl -s -o /dev/null -X POST "$url/work"; sleep 0.05; done ) &
+traffic_pid=$!
+trap 'kill "$traffic_pid" "$fixture_pid" 2>/dev/null || true' EXIT
+for _ in $(seq 1 60); do grep -q READY "$log" && break; sleep 1; done
+pid=$(sed -n 's/.*READY pid=\([0-9]*\).*/\1/p' "$log")
+[ -n "$pid" ] || { echo "The fixture did not report READY within 60 s."; exit 1; }
 failed=0
 for theme in Light Dark; do
-  timeout 300 "$app" --headless --Ui:Theme "$theme" --screenshots "$out" \
+  timeout 400 "$app" --headless --Ui:Theme "$theme" --screenshots "$out" \
     --smoke-open "$root/$demo/demo-before.dmp" --smoke-compare "$root/$demo/demo-after.dmp" \
-    --smoke-allocations "$root/$demo/demo-allocations.nettrace" --smoke-live 6000 --Logging:File:Directory "$root/$demo/logs"
+    --smoke-allocations "$root/$demo/demo-allocations.nettrace" --screenshot-live-pid "$pid" --Logging:File:Directory "$root/$demo/logs"
   code=$?
   echo "$theme theme: exit code $code"
   [ "$code" -eq 0 ] || failed=1

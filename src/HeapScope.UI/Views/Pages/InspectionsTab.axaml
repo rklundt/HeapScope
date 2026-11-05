@@ -33,6 +33,26 @@
              x:Class="HeapScope.UI.Views.Pages.InspectionsTab"
              x:DataType="vm:SnapshotsViewModel">
   <UserControl.Styles>
+    <!-- The selection is on the card, so the group heading above it stays out of it. -->
+    <Style Selector="ListBox#TileList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox#TileList ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="Border.card:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.AltRow}" />
+    </Style>
+    <Style Selector="Border.card.selected">
+      <Setter Property="Background" Value="{DynamicResource Brush.Selection}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent}" />
+    </Style>
     <Style Selector="TextBlock.findings">
       <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
     </Style>
@@ -47,7 +67,7 @@
       <ComboBox x:Name="BaselinePicker" MinWidth="320" ItemsSource="{Binding BaselineChoices}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
                 ToolTip.Tip="An earlier snapshot of the same process: the growth detectors compare with it (open both dumps). None: they report only what is large." />
     </StackPanel>
-    <ScrollViewer DockPanel.Dock="Left" Width="360" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
+    <ScrollViewer DockPanel.Dock="Left" Width="320" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
       <StackPanel>
         <ListBox x:Name="TileList" ItemsSource="{Binding Tiles}" SelectedItem="{Binding Selected, Mode=TwoWay}" Background="Transparent"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -55,27 +75,33 @@
             <Style Selector="ListBoxItem">
               <Setter Property="HorizontalContentAlignment" Value="Stretch" />
               <Setter Property="Padding" Value="0" />
-              <Setter Property="Margin" Value="0,0,0,6" />
+              <Setter Property="Margin" Value="0,0,0,4" />
             </Style>
           </ListBox.Styles>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InspectionTileViewModel">
               <StackPanel>
-              <TextBlock Classes="groupHeading" Text="{Binding GroupHeader}" IsVisible="{Binding HasGroupHeader}" FontWeight="SemiBold" FontSize="14" Margin="0,4,0,4"
+              <TextBlock Classes="groupHeading" Text="{Binding GroupHeader}" IsVisible="{Binding HasGroupHeader}" FontWeight="SemiBold" Margin="0,8,0,4"
                          Background="Transparent" Cursor="Arrow" />
-              <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="10,6">
+              <Border Classes="card" Classes.selected="{Binding $parent[ListBoxItem].IsSelected}">
                 <StackPanel>
-                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding Summary}" TextWrapping="Wrap"
-                             Classes.findings="{Binding HasFindings}" Classes.unavailable="{Binding !IsAvailable}" />
+                  <!-- Found nothing: one quiet row, title and count, so what found something stands out. -->
+                  <DockPanel IsVisible="{Binding !HasFindings}">
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Classes="subtle" Classes.unavailable="{Binding !IsAvailable}" Margin="8,0,0,0" TextTrimming="CharacterEllipsis" MaxWidth="150" ToolTip.Tip="{Binding Summary}" />
+                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                  </DockPanel>
+                  <StackPanel IsVisible="{Binding HasFindings}">
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Classes="findings" />
+                    <ItemsControl ItemsSource="{Binding FirstRows}" Margin="0,2,0,0">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                          <TextBlock Text="{Binding}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
                   <ctl:NoteText Text="{Binding Status}" Classes="subtle" />
-                  <ItemsControl ItemsSource="{Binding FirstRows}" Margin="0,2,0,0">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="x:String">
-                        <TextBlock Text="{Binding}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
                   <ctl:NoteText Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Classes="subtle" />
                 </StackPanel>
               </Border>
@@ -99,10 +125,10 @@
     </ScrollViewer>
     <Panel DockPanel.Dock="Top" IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
       <StackPanel DataContext="{Binding Selected}" x:DataType="vm:InspectionTileViewModel" Margin="0,0,0,6">
-        <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
-        <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-        <TextBlock TextWrapping="Wrap" Classes="subtle"><Run Text="Cause: " /><Run Text="{Binding Cause}" /></TextBlock>
-        <TextBlock TextWrapping="Wrap" Classes="subtle"><Run Text="Fix: " /><Run Text="{Binding Fix}" /></TextBlock>
+        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,0,0,4" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,2"><Run Text="Cause " FontWeight="SemiBold" /><Run Text="{Binding Cause}" /></TextBlock>
+        <TextBlock TextWrapping="Wrap"><Run Text="Fix " FontWeight="SemiBold" /><Run Text="{Binding Fix}" /></TextBlock>
       </StackPanel>
     </Panel>
     <DataGrid x:Name="InspectionGrid" ctl:GridExports.ExportName="Inspection" CanUserSortColumns="False"

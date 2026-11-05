@@ -81,6 +81,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Allocations = allocations;
         About = about;
         about.Shortcuts = ShortcutList;
+        about.Diagnostics = Home;
         if (allocations is not null)
         {
             // A trace opened or recorded shows the Allocations page.
@@ -208,6 +209,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void ShowJobs() => SelectedItem = NavigationItems.First(i => i.Page == JobsPage);
+
+    [RelayCommand]
+    private void ShowProcesses() => SelectedItem = NavigationItems.First(i => i.Page is ProcessesViewModel);
+
+    private bool HasLive() => Live is not null;
+
+    [RelayCommand(CanExecute = nameof(HasLive))]
+    private void ShowLive() => SelectedItem = NavigationItems.First(i => i.Page == Live);
 
     private void RaiseJobsChanged()
     {

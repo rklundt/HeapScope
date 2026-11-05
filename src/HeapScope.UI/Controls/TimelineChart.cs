@@ -98,32 +98,36 @@ public sealed class TimelineChart : Control
             return;
         }
 
-        var layers = TimelineLayout.Layers(samples, width, height, out var maxBytes);
+        var text = Brush("Brush.Text") ?? Brushes.Black;
+        var subtle = Brush("Brush.Subtle") ?? Brushes.Gray;
+        var surface = Brush("Brush.Surface") ?? Brushes.White;
+        var grid = new Pen(Brush("Brush.Border") ?? Brushes.Gray, 1);
+        var plot = Math.Max(1, height - TimelineLayout.TimeAxisHeight);
+        var layers = TimelineLayout.Layers(samples, width, plot, out var maxBytes);
         for (var k = layers.Count - 1; k >= 0; k--)
         {
             var geometry = new StreamGeometry();
             using (var figure = geometry.Open())
             {
-                figure.BeginFigure(new Point(layers[k][0].X, height), isFilled: true);
+                figure.BeginFigure(new Point(layers[k][0].X, plot), isFilled: true);
                 foreach (var point in layers[k])
                 {
                     figure.LineTo(new Point(point.X, point.Y));
                 }
 
-                figure.LineTo(new Point(layers[k][^1].X, height));
+                figure.LineTo(new Point(layers[k][^1].X, plot));
                 figure.EndFigure(isClosed: true);
             }
 
             context.DrawGeometry(Brush(TimelineLayout.LayerKeys[k]) ?? Brushes.Gray, null, geometry);
         }
 
-        var text = Brush("Brush.Text") ?? Brushes.Black;
         var marker = new Pen(text, 1, DashStyle.Dash);
         foreach (var at in Markers ?? [])
         {
             if (TimelineLayout.XOf(samples, at, width) is { } x)
             {
-                context.DrawLine(marker, new Point(x, 0), new Point(x, height));
+                context.DrawLine(marker, new Point(x, 0), new Point(x, plot));
             }
         }
 
@@ -132,15 +136,30 @@ public sealed class TimelineChart : Control
         {
             if (TimelineLayout.XOf(samples, at, width) is { } x)
             {
-                context.DrawLine(gc, new Point(x, 0), new Point(x, height));
+                context.DrawLine(gc, new Point(x, 0), new Point(x, plot));
             }
         }
 
-        var label = new FormattedText(
-            string.Create(CultureInfo.CurrentCulture, $"{maxBytes / (1024.0 * 1024.0):N0} MB"),
-            CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, text);
-        context.DrawText(label, new Point(4, 2));
+        // The gridlines cross the layers, each with its size on the surface's color so it reads over any of them.
+        foreach (var bytes in TimelineLayout.ByteTicks(maxBytes))
+        {
+            var y = plot - (bytes / (double)maxBytes * plot);
+            context.DrawLine(grid, new Point(0, y), new Point(width, y));
+            var label = Label(string.Create(CultureInfo.CurrentCulture, $"{bytes / (1024 * 1024):N0} MB"), subtle);
+            context.FillRectangle(surface, new Rect(2, y + 1, label.Width + 6, label.Height));
+            context.DrawText(label, new Point(5, y + 1));
+        }
+
+        context.DrawLine(grid, new Point(0, plot), new Point(width, plot));
+        foreach (var (x, value) in TimelineLayout.TimeTicks(samples, width))
+        {
+            var label = Label(value, subtle);
+            context.DrawText(label, new Point(Math.Clamp(x - (label.Width / 2), 0, Math.Max(0, width - label.Width)), plot + 1));
+        }
     }
+
+    private static FormattedText Label(string value, IBrush brush) =>
+        new(value, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, brush);
 
     private IBrush? Brush(string key) => this.TryFindResource(key, ActualThemeVariant, out var value) ? value as IBrush : null;
 }

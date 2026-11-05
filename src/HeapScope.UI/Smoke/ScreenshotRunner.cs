@@ -34,11 +34,15 @@ namespace HeapScope.UI.Smoke;
 /// <summary>
 /// Captures the pages of the app as PNG files at twice the size, one theme per run, for the design review and the README
 /// (<c>--headless --screenshots folder --smoke-open dump</c>, optionally <c>--smoke-compare</c>, <c>--smoke-allocations</c>
-/// and <c>--smoke-live</c>). Fixture dumps only: everything a page shows goes into a picture. The Processes page's rows are
+/// and <c>--screenshot-live-pid</c>). Fixture data only: everything a page shows goes into a picture. The Processes page's rows are
 /// made up, so this machine's real processes and command lines never appear.
 /// </summary>
 internal sealed class ScreenshotRunner(IServiceProvider services, Window window, string folder)
 {
+    private const int LiveSeconds = 45;
+
+    private const string DiagramType = "System.Threading.TimerCallback";
+
     private readonly ILogger _logger = services.GetRequiredService<ILogger<ScreenshotRunner>>();
 
     /// <summary>Waits until the UI thread has nothing left to do, then a little longer for queued rows and charts.</summary>
@@ -99,7 +103,10 @@ internal sealed class ScreenshotRunner(IServiceProvider services, Window window,
             await CaptureAsync("03-types");
 
             var navigator = snapshots.Navigator;
-            snapshots.Types.OpenRowCommand!.Execute(snapshots.Types.Rows.GetRow(0));
+            // A type with a few retention paths, so the diagram's picture can be read.
+            var shown = Enumerable.Range(0, Math.Min(snapshots.Types.Rows.Count, 50)).Select(snapshots.Types.Rows.GetRow)
+                .FirstOrDefault(row => row?.Name?.StartsWith(DiagramType, StringComparison.Ordinal) == true) ?? snapshots.Types.Rows.GetRow(0);
+            snapshots.Types.OpenRowCommand!.Execute(shown);
             var instances = (InstancesViewModel)navigator.Current!;
             await instances.QueryTask;
             await TouchAsync(instances.Rows);
@@ -121,6 +128,7 @@ internal sealed class ScreenshotRunner(IServiceProvider services, Window window,
             await paths.LoadTask;
             await CaptureAsync("07-why-alive");
             paths.ShowDiagram = true;
+            paths.FitDiagram = true;
             await CaptureAsync("08-why-alive-diagram");
             paths.ShowDiagram = false;
             navigator.BackCommand.Execute(null);
@@ -157,20 +165,24 @@ internal sealed class ScreenshotRunner(IServiceProvider services, Window window,
             await CaptureAsync("12-allocations");
         }
 
-        if (options.SmokeLiveSamples is not null && shell.Live is { } live)
+        // Watches the running fixture itself: the picture shows what a real run looks like, not made-up samples.
+        if (options.ScreenshotLivePid is { } pid && shell.Live is { } live)
         {
             Show(live);
             await SettleAsync();
-            live.SelectedProcess = new ProcessRow(18244, "LeakyApi", ".NET 10.0.14", "No", 412_000_000, string.Empty, false);
+            await live.RefreshCommand.ExecuteAsync(null);
+            live.SelectedProcess = live.Processes.FirstOrDefault(p => p.ProcessId == pid)
+                ?? throw new InvalidOperationException($"The process {pid} is not among the .NET processes the Live page lists.");
             live.WriteTimeline = false;
             live.RecordRuns = false;
             await live.StartCommand.ExecuteAsync(null);
+            await Task.Delay(LiveSeconds * 1000);
+            await CaptureAsync("13-live");
+            live.StopCommand.Execute(null);
             if (live.Run is { } run)
             {
                 await run.Completion;
             }
-
-            await CaptureAsync("13-live");
         }
 
         Show(shell.JobsPage);

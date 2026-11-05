@@ -43,7 +43,7 @@
   <DockPanel Margin="4">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
       <TextBlock Classes="pageTitle" Text="Allocations" VerticalAlignment="Center" />
-      <Button ctl:ButtonIcon.Icon="OpenFile" Content="Open trace..." Margin="16,0,0,0" Command="{Binding OpenCommand}"
+      <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open trace..." Margin="16,0,0,0" Command="{Binding OpenCommand}"
               ToolTip.Tip="Open an allocations trace (.nettrace) recorded by Record allocations or 'heapscope-cli trace --profile allocations'" />
       <ComboBox Margin="12,0,0,0" MinWidth="320" ItemsSource="{Binding Traces}" SelectedItem="{Binding Selected, Mode=TwoWay}" IsVisible="{Binding !IsEmpty}">
         <ComboBox.ItemTemplate>
@@ -55,10 +55,8 @@
       <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" IsVisible="{Binding !IsEmpty}" />
     </StackPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,8" />
-    <Border DockPanel.Dock="Top" Classes="info" IsVisible="{Binding IsEmpty}">
-      <TextBlock TextWrapping="Wrap"
-                 Text="No allocation trace is open. Select a process on the Processes page and use Record allocations while the application runs, or open a .nettrace file. HeapScope then shows which types and call stacks allocated the most." />
-    </Border>
+    <ctl:EmptyState DockPanel.Dock="Top" Icon="Allocations" IsVisible="{Binding IsEmpty}"
+                    Text="No allocation trace is open. Select a process on the Processes page and use Record allocations while the application runs, or open a .nettrace file. HeapScope then shows which types and call stacks allocated the most." />
     <ContentControl Content="{Binding Selected}">
       <ContentControl.DataTemplates>
         <DataTemplate DataType="vm:AllocationTraceViewModel">
@@ -79,7 +77,7 @@
             <Grid Grid.Row="2" ColumnDefinitions="2*,6,3*">
               <!-- The types of the interval; selecting one narrows the trees and stacks. -->
               <DockPanel Grid.Column="0" DataContext="{Binding Types}" x:DataType="vm:AllocationTypesViewModel">
-                <TextBlock DockPanel.Dock="Top" Text="Types" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBlock DockPanel.Dock="Top" Text="Types" FontWeight="SemiBold" Height="28" Margin="0,0,0,2" Padding="0,5,0,0" />
                 <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
                 <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
                 <DataGrid x:Name="TypesGrid" ctl:GridExports.ExportName="AllocatedTypes" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
@@ -90,7 +88,7 @@
               <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
               <!-- Back traces (the allocating methods, then their callers) or the call tree (top-down). -->
               <DockPanel Grid.Column="2">
-                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,2">
+                <WrapPanel DockPanel.Dock="Top" MinHeight="28" Margin="0,0,0,2">
                   <RadioButton Content="Back traces" GroupName="TreeKind" IsChecked="{Binding !ShowCallTree}" Margin="0,0,12,0"
                                ToolTip.Tip="The methods that allocated, then their callers" />
                   <RadioButton Content="Call tree" GroupName="TreeKind" IsChecked="{Binding ShowCallTree}" Margin="0,0,12,0"
@@ -100,9 +98,8 @@
                   <Button Content="All types" Margin="8,0,0,0" Command="{Binding AllTypesCommand}" IsVisible="{Binding HasType}" />
                 </WrapPanel>
                 <DockPanel DataContext="{Binding Tree}" x:DataType="vm:AllocationTreeViewModel">
-                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" />
+                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" ToolTip.Tip="{Binding Note}" />
                   <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" />
-                  <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Note}" TextWrapping="Wrap" Classes="subtle" />
                   <DataGrid x:Name="TreeGrid" ctl:GridExports.ExportName="AllocationCallTree" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" ctl:GridBehaviors.ScrollToSelection="True"
                             ctl:GridBehaviors.Rows="{Binding Rows}"
                             ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
@@ -150,7 +147,14 @@
               <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
               <DockPanel Grid.Column="2">
                 <TextBlock DockPanel.Dock="Top" Text="Frames, the allocating method first" FontWeight="SemiBold" Margin="0,0,0,2" />
-                <ListBox x:Name="FramesList" ItemsSource="{Binding SelectedFrames}" />
+                <ListBox x:Name="FramesList" ItemsSource="{Binding SelectedFrames}">
+                  <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                      <Setter Property="Padding" Value="6,2" />
+                      <Setter Property="MinHeight" Value="22" />
+                    </Style>
+                  </ListBox.Styles>
+                </ListBox>
               </DockPanel>
             </Grid>
           </Grid>

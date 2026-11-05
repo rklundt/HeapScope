@@ -24,6 +24,7 @@
 -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              x:Class="HeapScope.UI.Views.Pages.JobsPage"
              x:DataType="vm:JobsPageViewModel">
@@ -32,8 +33,11 @@
       <TextBlock Classes="pageTitle" Text="Jobs" />
       <Button Content="Clear finished" Margin="16,0,0,0" Command="{Binding ClearFinishedCommand}" />
     </StackPanel>
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-      <ItemsControl ItemsSource="{Binding Jobs}" />
-    </ScrollViewer>
+    <Grid>
+      <ctl:EmptyState Icon="Jobs" Text="No jobs yet. Opening a dump, capturing or recording shows its progress here." IsVisible="{Binding !Jobs.Count}" />
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Jobs}" />
+      </ScrollViewer>
+    </Grid>
   </DockPanel>
 </UserControl>

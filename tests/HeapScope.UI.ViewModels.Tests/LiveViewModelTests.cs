@@ -324,4 +324,25 @@ public sealed class LiveViewModelTests : IAsyncDisposable
             }
         }
     }
+
+    [Theory]
+    [InlineData(941L * 1024 * 1024, new long[] { 200, 400, 600, 800 })]
+    [InlineData(50L * 1024 * 1024, new long[] { 20, 40 })]
+    [InlineData(3L * 1024 * 1024, new long[] { 1, 2, 3 })]
+    [InlineData(0L, new long[0])]
+    public void The_chart_has_a_few_round_gridlines(long maxBytes, long[] megabytes) =>
+        TimelineLayout.ByteTicks(maxBytes).ShouldBe(megabytes.Select(m => m * 1024 * 1024));
+
+    [Fact]
+    public void The_time_axis_labels_elapsed_time_at_round_steps()
+    {
+        var at = new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.Zero);
+        HeapSample Sample(int seconds) => new(at.AddSeconds(seconds), 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        var ticks = TimelineLayout.TimeTicks([Sample(0), Sample(300)], 600);
+        ticks.Select(t => t.Label).ShouldBe(["0:00", "1:00", "2:00", "3:00", "4:00", "5:00"]);
+        ticks[1].X.ShouldBe(120);
+        TimelineLayout.TimeTicks([Sample(0), Sample(7200)], 600).Select(t => t.Label).ShouldContain("1:00:00");
+        TimelineLayout.TimeTicks([Sample(0)], 600).ShouldBeEmpty();
+    }
 }

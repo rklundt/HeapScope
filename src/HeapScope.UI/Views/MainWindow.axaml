@@ -106,7 +106,7 @@
     </Border>
     <!-- Each page is built when first shown and then kept: switching pages is a visibility change, not a rebuild of
          its grids, and keeps scroll positions and expanded state (sprint 1.5). -->
-    <ItemsControl ItemsSource="{Binding NavigationItems}" Margin="12,8,4,4">
+    <ItemsControl ItemsSource="{Binding NavigationItems}" Margin="12,8,8,4">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate>
           <Grid />

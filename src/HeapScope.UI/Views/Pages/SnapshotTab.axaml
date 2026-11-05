@@ -32,8 +32,8 @@
              x:Class="HeapScope.UI.Views.Pages.SnapshotTab"
              x:DataType="vm:SnapshotsViewModel">
   <Grid Margin="0,8,0,0">
-    <TextBlock Text="Open a full memory dump (.dmp) to see what is on the heap." Classes="subtle"
-               IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}" />
+    <ctl:EmptyState Icon="Snapshots" Text="Open a full memory dump (.dmp) to see what is on the heap, or capture one on the Processes page."
+                    IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}" />
 
     <DockPanel IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
       <StackPanel DockPanel.Dock="Top" DataContext="{Binding Selected}" x:DataType="vm:SnapshotItemViewModel">
@@ -65,7 +65,7 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
           <Button ctl:ButtonIcon.Icon="Back" Content="Back" Command="{Binding BackCommand}" ToolTip.Tip="Back along the analysis path (Alt+Left or the mouse's back button)" />
           <Button ctl:ButtonIcon.Icon="Forward" Content="Forward" Margin="4,0,0,0" Command="{Binding ForwardCommand}" ToolTip.Tip="Forward along the analysis path (Alt+Right or the mouse's forward button)" />
-          <ItemsControl ItemsSource="{Binding Trail}" Margin="12,0,0,0" VerticalAlignment="Center">
+          <ItemsControl Classes="trail" ItemsSource="{Binding Trail}" Margin="12,0,0,0" VerticalAlignment="Center">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
                 <StackPanel Orientation="Horizontal" />
@@ -74,7 +74,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:AnalysisStep">
                 <StackPanel Orientation="Horizontal">
-                  <TextBlock Text=" / " Classes="subtle" />
+                  <TextBlock Classes="subtle separator" Text=" / " />
                   <TextBlock Text="{Binding Title}" MaxWidth="360" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
                 </StackPanel>
               </DataTemplate>

@@ -63,6 +63,7 @@ public class ThemeTests(UiSession ui)
         foreach (var (text, surface) in new[]
         {
             ("Brush.OnAccent", "Brush.Accent"),
+            ("Brush.Window", "Brush.Growth"),
             ("Brush.Text", "Brush.Note.Background"),
             ("Brush.Text", "Brush.Info.Background"),
             ("Brush.Text", "Brush.Error.Background"),

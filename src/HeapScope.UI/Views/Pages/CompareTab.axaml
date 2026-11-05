@@ -72,8 +72,8 @@
                 ToolTip.Tip="Each row's retained bytes in both snapshots (lower bounds). The first time for a snapshot this computes its dominators." />
       <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
                 ToolTip.Tip="The change in bytes per generation (Gen0, Gen1, Gen2, LOH, POH): growth in Gen2 is what stays." />
-      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
     </WrapPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" TextWrapping="Wrap" Margin="0,0,8,6" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding GroupNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IdentityNote}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
@@ -95,7 +95,7 @@
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>
-        <DataGridTemplateColumn Header="Name" Width="*" MinWidth="240" SortMemberPath="Name">
+        <DataGridTemplateColumn Header="Name" Width="*" MinWidth="320" SortMemberPath="Name">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:DiffRowItem">
               <TextBlock Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"

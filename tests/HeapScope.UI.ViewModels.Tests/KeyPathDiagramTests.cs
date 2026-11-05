@@ -92,6 +92,41 @@ public sealed class KeyPathDiagramTests
         diagram.Nodes.Single(n => n.Kind == DiagramNodeKind.Target).ShouldSatisfyAllConditions(n => n.Label.ShouldBe("Namespace App"), n => n.Objects.ShouldBe(5));
     }
 
+    [Theory]
+    [InlineData(100_000, 100_000, 3)]
+    [InlineData(0, 100_000, 1)]
+    [InlineData(5, 0, 1)]
+    public void An_edge_is_between_one_and_three_pixels(long objects, long max, double thickness) =>
+        KeyPathDiagram.EdgeThickness(objects, max).ShouldBe(thickness);
+
+    [Fact]
+    public void A_small_edge_still_shows_beside_a_large_one()
+    {
+        var small = KeyPathDiagram.EdgeThickness(10, 100_000);
+        small.ShouldBeGreaterThan(1.3);
+        small.ShouldBeLessThan(KeyPathDiagram.EdgeThickness(1_000, 100_000));
+    }
+
+    [Fact]
+    public void Fitting_to_the_width_scales_down_only_as_far_as_the_labels_stay_readable()
+    {
+        var diagram = KeyPathDiagram.Build([Path("a", 1), Path("b", 1), Path("c", 1), Path("d", 1)], showFramework: false);
+
+        diagram.FitScale(double.PositiveInfinity).ShouldBe(1);
+        diagram.FitScale(diagram.Width * 2).ShouldBe(1, "never enlarged");
+        diagram.FitScale(diagram.Width * 0.8).ShouldBe(0.8);
+        diagram.FitScale(10).ShouldBe(KeyPathDiagram.MinFitScale);
+    }
+
+    [Fact]
+    public void The_target_is_centered_under_the_roots()
+    {
+        var diagram = KeyPathDiagram.Build([Path("a", 1), Path("b", 1), Path("c", 1)], showFramework: false);
+
+        var target = diagram.Nodes.Single(n => n.Kind == DiagramNodeKind.Target);
+        target.X.ShouldBe(diagram.Nodes.Where(n => n.Kind == DiagramNodeKind.Root).Average(n => n.X));
+    }
+
     private static KeyPathDto Path(string root, long objects, params (string Type, bool Framework)[] steps) =>
         new(new PathRootDto(RootKindDto.StaticField, false, "static field " + root), [.. steps.Select(s => new PathStepDto(s.Type, s.Framework))], "App.Item", objects, objects * 10, 0x1000);
 }

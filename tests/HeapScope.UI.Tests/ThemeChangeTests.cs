@@ -91,8 +91,8 @@ public class ThemeChangeTests(UiSession ui)
                 Dispatcher.UIThread.RunJobs();
                 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No frame was rendered.");
                 using var pixels = frame.Lock();
-                // Gen0 is the bottom layer, so the last row but one, in the middle, is its color.
-                var offset = ((pixels.Size.Height - 2) * pixels.RowBytes) + (pixels.Size.Width / 2 * 4);
+                // Gen0 is the bottom layer: just above the time axis, away from the gridlines, in the middle.
+                var offset = ((pixels.Size.Height - 22) * pixels.RowBytes) + (pixels.Size.Width / 2 * 4);
                 var (first, second, third) = (Marshal.ReadByte(pixels.Address, offset), Marshal.ReadByte(pixels.Address, offset + 1), Marshal.ReadByte(pixels.Address, offset + 2));
                 var drawn = pixels.Format == PixelFormat.Bgra8888
                     ? global::Avalonia.Media.Color.FromRgb(third, second, first)

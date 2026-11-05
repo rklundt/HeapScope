@@ -36,8 +36,8 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.ViewModels;
 
 /// <summary>
-/// Home page: open a dump (sprint 1.2), recent sessions with their snapshots (sprint 1.1, dotMemory's workspace list)
-/// and the synthetic diagnostic job (sprint 0.3).
+/// Home page: open a dump (sprint 1.2) and recent sessions with their snapshots (sprint 1.1, dotMemory's workspace list). The
+/// synthetic diagnostic job (sprint 0.3) lives here too, and the About page shows it.
 /// </summary>
 public sealed partial class HomeViewModel(WorkerOperations operations, SnapshotsViewModel? snapshots = null, SessionLibrary? library = null, IUserInteraction? interaction = null, Microsoft.Extensions.Logging.ILogger<HomeViewModel>? logger = null) : ObservableObject
 {
@@ -342,6 +342,9 @@ public sealed partial class AboutViewModel(WorkerOperations operations, IUserInt
 
     /// <summary>Where this run writes its log; null when it is not known.</summary>
     public string? LogFolder { get; } = logFolder;
+
+    /// <summary>The synthetic job, shown under Diagnostics; set by the shell, as it runs on the Home page's view model.</summary>
+    public HomeViewModel? Diagnostics { get; set; }
 
     /// <summary>The keyboard shortcuts (sprint 2.7), set by the shell, which knows the pages.</summary>
     public IReadOnlyList<Shortcut> Shortcuts { get; set; } = [];
