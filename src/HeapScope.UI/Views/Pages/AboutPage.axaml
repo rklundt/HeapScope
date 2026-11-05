@@ -24,6 +24,7 @@
 -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              xmlns:vm="using:HeapScope.UI.ViewModels"
              x:Class="HeapScope.UI.Views.Pages.AboutPage"
              x:DataType="vm:AboutViewModel">
@@ -37,7 +38,7 @@
     <SelectableTextBlock Margin="0,8,0,0" Text="{Binding WorkerDetails}" TextWrapping="Wrap" />
     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
       <Button Content="Query worker" Command="{Binding RefreshCommand}" />
-      <Button Content="Copy details" Command="{Binding CopyDetailsCommand}"
+      <Button ctl:ButtonIcon.Icon="Copy" Content="Copy details" Command="{Binding CopyDetailsCommand}"
               ToolTip.Tip="Copies the versions, the system and the log folder, for a support request. Nothing is sent anywhere." />
     </StackPanel>
     <TextBlock Margin="0,16,0,0" TextWrapping="Wrap" Classes="subtle"

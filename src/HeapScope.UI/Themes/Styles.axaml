@@ -170,6 +170,24 @@
     <Setter Property="Padding" Value="8,0" />
     <Setter Property="FontSize" Value="12" />
   </Style>
+  <!-- The close button on a rail's row: quiet until the row is hovered, selected or the button has the focus. -->
+  <Style Selector="Button.dismiss">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="3" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover Button.dismiss">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="ListBoxItem:selected Button.dismiss">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Button.dismiss:focus">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
   <!-- A borderless button that reads as a link (the status line's finished jobs). -->
   <Style Selector="Button.link">
     <Setter Property="MinHeight" Value="0" />

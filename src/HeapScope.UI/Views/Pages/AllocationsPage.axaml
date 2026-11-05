@@ -43,7 +43,7 @@
   <DockPanel Margin="4">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
       <TextBlock Classes="pageTitle" Text="Allocations" VerticalAlignment="Center" />
-      <Button Content="Open trace..." Margin="16,0,0,0" Command="{Binding OpenCommand}"
+      <Button ctl:ButtonIcon.Icon="OpenFile" Content="Open trace..." Margin="16,0,0,0" Command="{Binding OpenCommand}"
               ToolTip.Tip="Open an allocations trace (.nettrace) recorded by Record allocations or 'heapscope-cli trace --profile allocations'" />
       <ComboBox Margin="12,0,0,0" MinWidth="320" ItemsSource="{Binding Traces}" SelectedItem="{Binding Selected, Mode=TwoWay}" IsVisible="{Binding !IsEmpty}">
         <ComboBox.ItemTemplate>

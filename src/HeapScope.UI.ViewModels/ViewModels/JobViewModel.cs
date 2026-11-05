@@ -45,6 +45,7 @@ public sealed partial class JobViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyPropertyChangedFor(nameof(IsRunning))]
+    [NotifyPropertyChangedFor(nameof(StatusIcon))]
     private JobStatus _status = JobStatus.Running;
 
     [ObservableProperty]
@@ -62,6 +63,15 @@ public sealed partial class JobViewModel : ObservableObject
 
     /// <summary>Whether the job is still running.</summary>
     public bool IsRunning => Status == JobStatus.Running;
+
+    /// <summary>The icon for how the job ended; none while it runs.</summary>
+    public string? StatusIcon => Status switch
+    {
+        JobStatus.Completed => "Completed",
+        JobStatus.Failed => "Failed",
+        JobStatus.Canceled => "Canceled",
+        _ => null,
+    };
 
     /// <summary>Copies the job's current state into bindable properties.</summary>
     public void Refresh()

@@ -26,10 +26,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HeapScope.UI.ViewModels"
+             xmlns:ctl="using:HeapScope.UI.Controls"
              x:Class="HeapScope.UI.Views.Pages.JobRow"
              x:DataType="vm:JobViewModel">
   <Grid ColumnDefinitions="280,*,240,Auto" Margin="0,2">
-    <TextBlock Grid.Column="0" Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+      <ctl:DuotoneIcon Icon="{Binding StatusIcon}" VerticalAlignment="Center" IsVisible="{Binding !IsRunning}" />
+      <TextBlock Text="{Binding Title}" MaxWidth="256" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+    </StackPanel>
     <ProgressBar Grid.Column="1" Height="6" MinHeight="6" Margin="8,0" Minimum="0" Maximum="100" IsVisible="{Binding IsRunning}"
                  Value="{Binding Percent, Mode=OneWay}" IsIndeterminate="{Binding IsIndeterminate}" />
     <TextBlock Grid.Column="2" Text="{Binding StatusText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />

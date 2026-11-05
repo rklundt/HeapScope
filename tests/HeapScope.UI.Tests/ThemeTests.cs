@@ -110,6 +110,45 @@ public class ThemeTests(UiSession ui)
         dark.ToString().ShouldBe(Brushes("Dark.axaml")["Brush.Text"], StringCompareShould.IgnoreCase);
     }
 
+    /// <summary>ADR-040: an icon named in the markup that does not exist would simply draw nothing.</summary>
+    [Fact]
+    public void Every_icon_named_in_the_views_exists()
+    {
+        var keys = Icons();
+        var views = Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI", "Views");
+        var named = Directory.EnumerateFiles(views, "*.axaml", SearchOption.AllDirectories)
+            .SelectMany(file => System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(file), "(?:ButtonIcon\\.)?Icon=\"([A-Za-z]+)\""))
+            .Select(match => match.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        named.ShouldNotBeEmpty();
+        foreach (var name in named)
+        {
+            keys.ShouldContain($"Icon.{name}.Line");
+        }
+    }
+
+    /// <summary>The sidebar draws each page's icon by its title, and the finished jobs' rows by how they ended.</summary>
+    [Theory]
+    [InlineData("Home")]
+    [InlineData("Snapshots")]
+    [InlineData("Allocations")]
+    [InlineData("Processes")]
+    [InlineData("Live")]
+    [InlineData("Jobs")]
+    [InlineData("About")]
+    [InlineData("Completed")]
+    [InlineData("Failed")]
+    [InlineData("Canceled")]
+    public void Every_page_and_job_state_has_its_icon(string name) =>
+        Icons().ShouldContain($"Icon.{name}.Line");
+
+    private static HashSet<string> Icons()
+    {
+        var path = Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI", "Themes", "Icons.axaml");
+        return [.. XDocument.Load(path).Root!.Elements().Select(e => (string?)e.Attribute(s_x + "Key") ?? string.Empty)];
+    }
+
     /// <summary>A theme file's brushes: key to color (#AARRGGBB).</summary>
     internal static Dictionary<string, string> Brushes(string file)
     {

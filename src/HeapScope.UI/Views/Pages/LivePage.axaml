@@ -45,7 +45,7 @@
             </DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>
-        <Button Content="Refresh" Margin="8,0,0,0" Command="{Binding RefreshCommand}" VerticalAlignment="Center" />
+        <Button ctl:ButtonIcon.Icon="Refresh" Content="Refresh" Margin="8,0,0,0" Command="{Binding RefreshCommand}" VerticalAlignment="Center" />
         <TextBlock Text="Sample every (s)" VerticalAlignment="Center" Margin="16,0,6,0" />
         <TextBox Width="50" Text="{Binding IntervalSeconds, Mode=TwoWay}" VerticalAlignment="Center" />
       </WrapPanel>
@@ -65,8 +65,8 @@
                   ToolTip.Tip="Rules capture gcdumps: the object graph only, much smaller. Each one runs a full garbage collection in the process, which the chart shows." />
         <CheckBox Content="Record allocations" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding RecordAllocations, Mode=TwoWay}"
                   ToolTip.Tip="Record an allocation trace for the whole run (sampled allocations with call stacks), opened on the Allocations page when the run stops." />
-        <Button Content="Start" Margin="16,0,0,0" Padding="16,3" Command="{Binding StartCommand}" VerticalAlignment="Center" />
-        <Button Content="Stop" Margin="8,0,0,0" Padding="16,3" Command="{Binding StopCommand}" VerticalAlignment="Center" />
+        <Button ctl:ButtonIcon.Icon="Start" Content="Start" Margin="16,0,0,0" Padding="16,3" Command="{Binding StartCommand}" VerticalAlignment="Center" />
+        <Button ctl:ButtonIcon.Icon="Stop" Content="Stop" Margin="8,0,0,0" Padding="16,3" Command="{Binding StopCommand}" VerticalAlignment="Center" />
         <Button x:Name="GetSnapshotButton" Content="Get snapshot" Margin="16,0,0,0" Command="{Binding GetSnapshotCommand}" VerticalAlignment="Center"
                 ToolTip.Tip="Capture the monitored process now (the run's kind), as one of the run's snapshots." />
         <Button x:Name="ForceGcButton" Content="Force GC" Margin="8,0,0,0" Command="{Binding ForceGcCommand}" VerticalAlignment="Center"
@@ -83,7 +83,7 @@
         </ComboBox>
         <Button Content="Show" Margin="6,0,0,0" Command="{Binding OpenPastRunCommand}" CommandParameter="{Binding #PastRuns.SelectedItem}" VerticalAlignment="Center"
                 ToolTip.Tip="Show the run's timeline, snapshots and forced collections, read only." />
-        <Button Content="Refresh" Margin="6,0,0,0" Command="{Binding RefreshRunsCommand}" VerticalAlignment="Center" />
+        <Button ctl:ButtonIcon.Icon="Refresh" Content="Refresh" Margin="6,0,0,0" Command="{Binding RefreshRunsCommand}" VerticalAlignment="Center" />
         <Button Content="Open allocations" Margin="16,0,0,0" Command="{Binding OpenTraceCommand}" VerticalAlignment="Center"
                 ToolTip.Tip="Open the run's allocation trace on the Allocations page." />
       </WrapPanel>
@@ -95,8 +95,8 @@
         <SelectableTextBlock Text="{Binding TimelinePath}" VerticalAlignment="Center" Margin="0,0,8,0" />
         <Button Content="Open" Command="{Binding OpenTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0"
                 ToolTip.Tip="Open the timeline in the app for CSV files, such as a spreadsheet." />
-        <Button Content="Show in folder" Command="{Binding ShowTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0" />
-        <Button Content="Delete..." Command="{Binding DeleteTimelineCommand}" VerticalAlignment="Center"
+        <Button ctl:ButtonIcon.Icon="OpenFile" Content="Show in folder" Command="{Binding ShowTimelineCommand}" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <Button ctl:ButtonIcon.Icon="Delete" Content="Delete..." Command="{Binding DeleteTimelineCommand}" VerticalAlignment="Center"
                 ToolTip.Tip="Delete the timeline file. The run's snapshots are kept." />
       </WrapPanel>
       <DockPanel Margin="0,0,0,6">
@@ -125,7 +125,7 @@
               <StackPanel>
                 <TextBlock><Run Text="{Binding Time}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Rule}" /></TextBlock>
                 <TextBlock Text="{Binding Summary}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" Classes="subtle" />
-                <Button Classes="compact" Content="Show in folder" Margin="0,4,0,0" HorizontalAlignment="Left"
+                <Button ctl:ButtonIcon.Icon="OpenFile" Classes="compact" Content="Show in folder" Margin="0,4,0,0" HorizontalAlignment="Left"
                         IsVisible="{Binding Path, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                         Command="{Binding $parent[ItemsControl].((vm:LiveViewModel)DataContext).ShowSnapshotCommand}" CommandParameter="{Binding}" />
               </StackPanel>

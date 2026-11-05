@@ -110,6 +110,7 @@ public sealed class ShellViewModelTests : IDisposable
         await failed;
 
         _shell.FinishedJobsText.ShouldBe("1 job finished, 1 failed");
+        _shell.Jobs.ShouldHaveSingleItem().StatusIcon.ShouldBe("Failed");
         _shell.IsJobsPanelVisible.ShouldBeFalse();
 
         _shell.JobsPage.ClearFinishedCommand.Execute(null);

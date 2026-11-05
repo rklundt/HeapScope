@@ -32,9 +32,9 @@
   <DockPanel Margin="4">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
       <TextBlock Classes="pageTitle" Text="Snapshots" VerticalAlignment="Center" />
-      <Button Classes="primary" Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}" />
+      <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}" />
       <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
-      <Button Content="Close and delete..." Margin="8,0,0,0" Command="{Binding CloseAndDeleteCommand}" CommandParameter="{Binding Selected}"
+      <Button ctl:ButtonIcon.Icon="Delete" Content="Close and delete..." Margin="8,0,0,0" Command="{Binding CloseAndDeleteCommand}" CommandParameter="{Binding Selected}"
               ToolTip.Tip="Close the snapshot and delete its dump and index caches from its HeapScope session (asks first)." />
       <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" MaxWidth="600" />
     </StackPanel>
@@ -58,10 +58,12 @@
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:AnalysisStep">
             <DockPanel Margin="{Binding Depth, Converter={x:Static ctl:IndentConverter.Instance}}">
-              <Button DockPanel.Dock="Right" Content="x" Padding="4,0" Margin="4,0,0,0" FontSize="11"
+              <Button DockPanel.Dock="Right" Classes="dismiss" Margin="4,0,0,0"
                       IsVisible="{Binding Parent, Converter={x:Static ObjectConverters.IsNotNull}}"
                       Command="{Binding $parent[ListBox].((vm:NavigatorViewModel)DataContext).CloseStepCommand}" CommandParameter="{Binding}"
-                      ToolTip.Tip="Close this step and the steps opened from it" />
+                      ToolTip.Tip="Close this step and the steps opened from it" AutomationProperties.Name="Close this step and the steps opened from it">
+                  <ctl:DuotoneIcon Icon="Dismiss" Width="12" Height="12" />
+                </Button>
               <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
             </DockPanel>
           </DataTemplate>
@@ -86,9 +88,11 @@
                         Background="{Binding ColorKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}"
                         Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).CycleColorCommand}" CommandParameter="{Binding}"
                         ToolTip.Tip="Change the color" AutomationProperties.Name="Change the color" />
-                <Button DockPanel.Dock="Right" Content="x" Padding="4,0" FontSize="11" Margin="4,0,0,0"
+                <Button DockPanel.Dock="Right" Classes="dismiss" Margin="4,0,0,0"
                         Command="{Binding $parent[ListBox].((vm:BookmarksViewModel)DataContext).RemoveCommand}" CommandParameter="{Binding}"
-                        ToolTip.Tip="Remove the bookmark" />
+                        ToolTip.Tip="Remove the bookmark" AutomationProperties.Name="Remove the bookmark">
+                  <ctl:DuotoneIcon Icon="Dismiss" Width="12" Height="12" />
+                </Button>
                 <StackPanel>
                   <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" />
                   <TextBlock Classes="subtle" FontSize="11">
