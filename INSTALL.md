@@ -121,7 +121,7 @@ found, the message says what to do, including downloading it from Microsoft's sy
 Sessions and logs go to `%LOCALAPPDATA%\HeapScope` on Windows and `~/.local/share/HeapScope` on Linux (under
 `$XDG_DATA_HOME` when it is set), or to the folder the `HEAPSCOPE_DATA_FOLDER` environment variable names. Sessions hold
 full dumps, which can contain anything the dumped process held (passwords and keys included). A snapshot's index cache
-goes next to its dump, or into that folder when the dump's folder cannot be written. Logs are described in the README,
+goes next to its dump, or into that folder when the dump's folder cannot be written. Logs are described in the [user guide](docs/USER-GUIDE.md#logs-and-getting-help),
 under "Logs and getting help".
 
 ## Settings

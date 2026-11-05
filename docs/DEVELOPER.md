@@ -214,6 +214,13 @@ dotnet test --solution HeapScope.sln
   (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
   Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
   `Worker:AttachPipeName` for the UI.
+- Screenshots (sprint 3.10): `bash build/demo-data.sh` makes the demo dumps and trace from the LeakyApi fixture in
+  `artifacts/demo` (fixture data only), then `bash build/screenshots.sh [folder] [Release|Debug]` captures every page at
+  twice the size, one run per theme (`--headless --screenshots folder`), into `artifacts/screenshots`. The Live page's
+  picture watches the running fixture under load for 45 s. The Processes page's rows are made up, so that picture stays out
+  of the README. By hand: not in CI, and no test compares pictures. After a change to the look, copy the README's ten
+  pictures to `docs/images/`: `09-inspections` as `inspections`, `08-why-alive-diagram` as `why-alive`, `10-retainers` as
+  `retainers`, `11-compare` as `compare` and `13-live` as `live`, each with `-light` and `-dark`.
 - Live smoke run: `HeapScope --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
   (no process, no timeline file) and exits with the same codes as the other smoke runs.
 - UI smoke run: `HeapScope --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
@@ -404,6 +411,12 @@ of debuggable code) and exit when the process given as parent exits.
 - **Attribution**: the "Powered by HeapScope by Ray Klundt" notice (ADR-022) stays on the main window, unchanged; CLI
   help, version and console startup print it. UI changes are checked against it; a test checks its text, link,
   colors and contrast.
+- **Visual design** (sprint 3.10, ADR-040): a color is a key in both `Themes/Light.axaml` and `Dark.axaml`, never a value
+  in a view or a control, and code reads it when drawing, so it follows a theme change. Text colors meet 4.5:1 on every
+  surface (`ThemeTests`). Reuse the styles in `Themes/Styles.axaml`: `pageTitle`, `primary` (one per page), `compact`,
+  `dismiss`, `link`. A number column sets `CellStyleClasses="number"`, which right-aligns its header too; a star column sets
+  `MinWidth` (`GridLayoutTests`). Icons are in `Themes/Icons.axaml`: `ctl:DuotoneIcon`, or `ctl:ButtonIcon.Icon` on a button.
+  An empty page or grid shows `ctl:EmptyState`, which says what to do next.
 - **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
   anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. A package
   that only arrives as a dependency counts too. The SIL Open Font License is allowed for fonts only (product owner,

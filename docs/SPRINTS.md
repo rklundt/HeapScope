@@ -94,37 +94,41 @@ default settings, an inverted hierarchy and real defects; a mockup of its top ch
     the icicle chart colored by application versus framework code.
 11. README features read "Feature: Problem? Solution!", a marketing tone with claims that hold. Numbers only where measured;
     no competitor named; limits stated plainly (capture on Windows only, macOS not shipped, builds unsigned).
+12. The README's Live picture watches the fixture for real (`--screenshot-live-pid`), not `--smoke-live`'s made-up samples, under
+    decision 8's rule that its pictures are real captures. Decided while building it, 2026-11-04.
+13. A dump's process name was the first module ClrMD listed, which the demo dump showed as an ASP.NET library. Found by the
+    captures and fixed here (loader version 4, so caches are rebuilt). Decided while building it, 2026-11-04.
 
 **Task breakdown**:
-1. [ ] The screenshot mode: `--screenshots` (one theme per run, 2x), `build/screenshots.sh` and the demo data script. Proof:
+1. [x] The screenshot mode: `--screenshots` (one theme per run, 2x), `build/screenshots.sh` and the demo data script. Proof:
    it captures every page in both themes; UI tests stay green.
-2. [ ] ADR-040 and tokens: the visual design, the OFL exception in DEVELOPER.md 4, the new theme tokens and chart palette.
+2. [x] ADR-040 and tokens: the visual design, the OFL exception in DEVELOPER.md 4, the new theme tokens and chart palette.
    Proof: the theme key test; a new test that text on the surfaces and on selection meets 4.5:1 in both themes.
-3. [ ] Inter: shipped with its license (THIRD-PARTY-NOTICES, `licenses/`), tabular figures on number cells. Proof:
+3. [x] Inter: shipped with its license (THIRD-PARTY-NOTICES, `licenses/`), tabular figures on number cells. Proof:
    `build/check-package.sh` finds its license; a smoke run measures the budget and the cold start.
-4. [ ] Type and controls: 13 px grids and tabs, 18 px SemiBold titles, 28 px controls, neutral buttons with one primary,
+4. [x] Type and controls: 13 px grids and tabs, 18 px SemiBold titles, 28 px controls, neutral buttons with one primary,
    tinted selection, one row rhythm (grids, trees, lists). Proof: captures; UI tests fail on any binding error.
-5. [ ] The shell: wordmark, sidebar and rail colors, the Jobs panel only while a job runs (finished jobs on the Jobs page and
+5. [x] The shell: wordmark, sidebar and rail colors, the Jobs panel only while a job runs (finished jobs on the Jobs page and
    as a status line), the compact stat strip, the snapshot rail's wasted space. Proof: view model tests for the jobs state;
    the attribution test; captures.
-6. [ ] Logo and icons: logo A as the window and executable icon, the options kept, about 25 Duotone icons in
+6. [x] Logo and icons: logo A as the window and executable icon, the options kept, about 25 Duotone icons in
    `Themes/Icons.axaml`, the literal "x" buttons replaced. Proof: a test that every navigation item has its icon; captures at
    100 percent reviewed by the owner.
-7. [ ] Grid defects: name columns keep a minimum width (Compare, Allocations, Inspections), right-aligned numeric headers,
+7. [x] Grid defects: name columns keep a minimum width (Compare, Allocations, Inspections), right-aligned numeric headers,
    no clipped headers or values, one percent format, the zero delta not red, LOH and POH column headers. Proof: unit tests of
    the column building and formats; captures at 1440 wide.
-8. [ ] Charts follow the theme: the icicle chart, key path diagram and both timelines redraw on a theme change, the brush
+8. [x] Charts follow the theme: the icicle chart, key path diagram and both timelines redraw on a theme change, the brush
    converters replaced. Proof: UI tests that switch the theme and check the resolved colors (Backlog L13, L14).
-9. [ ] Home and empty states: three start actions, no diagnostics on Home, a labeled cleanup, grids that say what to do when
+9. [x] Home and empty states: three start actions, no diagnostics on Home, a labeled cleanup, grids that say what to do when
    empty. Proof: view tests; captures.
-10. [ ] The retention diagram: thin edges, labels that stay readable, the target visible, Fit to width. Proof: geometry unit
+10. [x] The retention diagram: thin edges, labels that stay readable, the target visible, Fit to width. Proof: geometry unit
     tests of the edge widths and labels; captures.
-11. [ ] The Live page: chart gridlines and a time axis, grouped actions, no empty column. Proof: geometry unit tests; captures.
-12. [ ] Page polish: Allocations layout, Inspections list (its heading outside the selection, zero-found rows compact),
+11. [x] The Live page: chart gridlines and a time axis, grouped actions, no empty column. Proof: geometry unit tests; captures.
+12. [x] Page polish: Allocations layout, Inspections list (its heading outside the selection, zero-found rows compact),
     the small sweep (stray punctuation, the breadcrumb, gutters, title positions). Proof: captures and view tests.
-13. [ ] README and guide: the new README, `docs/USER-GUIDE.md` holding the old detail, images in `docs/images/`. Proof: every
+13. [x] README and guide: the new README, `docs/USER-GUIDE.md` holding the old detail, images in `docs/images/`. Proof: every
     relative link resolves; each claim checked against the app; no em or en dashes.
-14. [ ] Docs: ARCHITECTURE.md and its pages, DEVELOPER.md (screenshots, the design tokens), Backlog items from decision 10.
+14. [x] Docs: ARCHITECTURE.md and its pages, DEVELOPER.md (screenshots, the design tokens), Backlog items from decision 10.
     Proof: the Markdown sweep.
 
 **Review summary**: to be filled by /wrap-sprint.

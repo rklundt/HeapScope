@@ -121,7 +121,8 @@ HeapScope.sln
 build/                         Shared MSBuild targets (worker deployment next to UI and CLI); the gate, test, fixture
                                dump, publish, license, package and SkiaSharp native scripts shared by CI and the local
                                gate (sprint 3.6, ADR-038); release archives, the CLI's dotnet tool and the checks that
-                               run them as a user would (sprint 3.9, ADR-039)
+                               run them as a user would (sprint 3.9, ADR-039); the demo data, screenshots and the
+                               app's icon, by hand (sprint 3.10, ADR-040)
 src/
   HeapScope.Core               Domain model: snapshot abstraction, capability model, compact graph,
                                type table, root model, string table. No dependencies at all.

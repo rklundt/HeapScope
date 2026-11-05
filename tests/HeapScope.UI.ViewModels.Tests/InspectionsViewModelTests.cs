@@ -323,7 +323,7 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Theory]
-    [InlineData("Size", 84)]
+    [InlineData("Size", 92)]
     [InlineData("Null slots", 94)]
     [InlineData("Pinned objects bytes", 164)]
     public void A_generated_number_column_is_as_wide_as_its_header_needs(string header, double width) =>

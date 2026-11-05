@@ -170,7 +170,7 @@ public sealed class KeyPathDiagramView : Control
             var nodeText = node.Kind == DiagramNodeKind.Target ? targetText : text;
             var name = Label(node.Label, 12, nodeText, w - 14);
             context.DrawText(name, new Point(rect.X + 8, rect.Y + 5));
-            var count = Label(string.Create(CultureInfo.CurrentCulture, $"{node.Objects:N0} objects"), 11, node.Kind == DiagramNodeKind.Type ? subtle : nodeText, w - 14);
+            var count = Label((node.Objects == 1 ? "1 object" : string.Create(CultureInfo.CurrentCulture, $"{node.Objects:N0} objects")), 11, node.Kind == DiagramNodeKind.Type ? subtle : nodeText, w - 14);
             context.DrawText(count, new Point(rect.X + 8, rect.Bottom - count.Height - 5));
         }
     }

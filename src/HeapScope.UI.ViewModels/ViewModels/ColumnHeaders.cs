@@ -31,7 +31,7 @@ public static class ColumnHeaders
     public static double NumberWidth(string header)
     {
         ArgumentNullException.ThrowIfNull(header);
-        return Math.Max(84, (header.Length * 7) + 24);
+        return Math.Max(92, (header.Length * 7) + 24);
     }
 
     /// <summary>

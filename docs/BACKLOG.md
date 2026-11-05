@@ -28,6 +28,9 @@ Swept 2026-10-31:
 - Pinned objects per heap: built in 1.6 (the `fragmentation` inspection).
 - A generic `VirtualRowList` and sorting by column name (`TypeSummarySort` retired): built in 1.4.
 
+Sprint 3.10:
+- Charts and data-named colors redrawn on a theme change (the 3.2 review's L14): built (ADR-040, `ThemeChangeTests`).
+
 ## Open
 
 Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
@@ -131,8 +134,7 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   every front end disables it the same way (M6); the reverse index info on `SimilarRetentionResult` (M12); a test that a
   weak-handle-only referrer is not a retainer (M8); a reservation around `KeyPaths.ForTypes` and `ForMembers` (from 2.2);
   interfaces kept in a sidecar so a reopen does not read them again (L16); a dependent-handle marker on path steps (L1);
-  interface rows keyed by name and module (L3); the diagram cached, its back edges inside its bounds and redrawn on a
-  theme change (L13, L14); a request with both a type and a set refused (L15); the `MaxReferrers` constants tied by a
+  interface rows keyed by name and module (L3); the diagram cached and its back edges inside its bounds (L13); a request with both a type and a set refused (L15); the `MaxReferrers` constants tied by a
   test (L12); diagram toggles logged (L5); from the re-review: an exact back pointer test (the member dominates the
   referrer, or entry and exit numbers over the shortest-path tree) instead of the 256-step climb (M13); module metadata
   released after the interface table is built (L20); the (group, type) set in the reservation (L22); a cheap check
@@ -269,6 +271,8 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   summary output (L6, L7).
 
 **Low**
+- Visual design, left out of sprint 3.10 (product owner, 2026-11-04; ADR-040): inline data bars in grids, dimmed namespaces
+  in type names, a collapsible snapshot rail, the icicle chart colored by application versus framework code.
 - UI cold start: measure the Avalonia app's first window and first Compare tab again (the 1.2 and 1.4 numbers were
   WPF's); template preloading and deferring startup work remain options (from 0.3).
 - WinForms specific leak inspections.

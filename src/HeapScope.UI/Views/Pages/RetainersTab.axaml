@@ -119,13 +119,13 @@
         <DataGridTemplateColumn Header="Retainer" Width="*" MinWidth="240">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate x:DataType="vm:DominatorRowItem">
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Border Width="{Binding Indent}" />
-                <Button Classes="toggle" Content="{Binding Glyph}" IsVisible="{Binding CanExpand}"
+              <DockPanel VerticalAlignment="Center">
+                <Border DockPanel.Dock="Left" Width="{Binding Indent}" />
+                <Button DockPanel.Dock="Left" Classes="toggle" Content="{Binding Glyph}" IsVisible="{Binding CanExpand}"
                         Command="{Binding $parent[DataGrid].((vm:RetainersViewModel)DataContext).ToggleCommand}" CommandParameter="{Binding}" />
-                <Border Width="16" IsVisible="{Binding !CanExpand}" />
+                <Border DockPanel.Dock="Left" Width="16" IsVisible="{Binding !CanExpand}" />
                 <TextBlock Text="{Binding Name}" Margin="2,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
-              </StackPanel>
+              </DockPanel>
             </DataTemplate>
           </DataGridTemplateColumn.CellTemplate>
         </DataGridTemplateColumn>

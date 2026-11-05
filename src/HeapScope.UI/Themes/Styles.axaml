@@ -77,6 +77,10 @@
     <Setter Property="MinHeight" Value="22" />
     <Setter Property="Padding" Value="4,0" />
   </Style>
+  <!-- A text cell lines up with its header. Fluent's own 12 px margins would also clip numbers in a narrow column. -->
+  <Style Selector="DataGridCell > TextBlock">
+    <Setter Property="Margin" Value="2,0" />
+  </Style>
   <!-- Numbers are right aligned (DataGridColumn.CellStyleClasses="number"). -->
   <Style Selector="DataGridCell.number">
     <Setter Property="HorizontalContentAlignment" Value="Right" />

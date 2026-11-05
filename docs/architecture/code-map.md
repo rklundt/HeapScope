@@ -262,8 +262,11 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   never copies or walks the list; whole-list walks are counted in `VirtualCollectionViews.Enumerations`, which the UI
   tests keep at zero), `HighlightedText`, `ProportionalPanel` (the heap kinds bar), `TimelineChart`, converters.
   `Services/`: `AvaloniaUiDispatcher`, `AvaloniaUserInteraction` (the system file picker), `DispatcherWatchdog`,
-  `ThemeChooser`, `NativeMethods` (Windows only). `Themes/`: `Light.axaml` and `Dark.axaml` (theme dictionaries with
-  the same keys) and `Styles.axaml`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9, 2.3.6]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
+  `ThemeChooser`, `AppFonts`, `NativeMethods` (Windows only). `Themes/`: `Light.axaml` and `Dark.axaml` (theme dictionaries with
+  the same keys), `Styles.axaml` and `Icons.axaml` (ADR-040). `Controls/` since 3.10: `DuotoneIcon`, `ButtonIcon`, `EmptyState`,
+  `ThemeBrush` (a background named by a data row, which follows the theme), `NumberHeaders`, `SignConverters`.
+  `Assets/heapscope.ico`: the app's icon, from `build/make-icon.cs`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9,
+  2.3.6]; `Smoke/ScreenshotRunner`: every page as PNG files [3.10]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
   Retainers tab (`RetainersTab`), `Controls/IcicleChart` (drawn in one pass, geometry from the view models),
   `Controls/NoteText` (a status or note line that takes no space when empty), and `GridBehaviors`' `VisibleColumnGroups`,
   `ExpandCommand`, `CollapseCommand` and `ScrollToSelection`. Sprint 2.7: `Controls/GridExports` (every grid's

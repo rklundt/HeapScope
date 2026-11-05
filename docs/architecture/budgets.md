@@ -115,3 +115,12 @@ Whole-trace queries take 2 to 13 ms (types 244 ms on the first call, JIT include
 allocations step (Release, the 150 s trace, after the Small-sized dump's phases): the cold first show 3.0 s with a
 maximum lag of 74 ms; the whole run's longest dispatcher operation 66 ms, exit 0. TraceEvent's conversion cannot be canceled; it took under
 2 s on these traces, and a much longer, busier trace would hold its reservation longer (Backlog: a streaming reader).
+
+Measured in sprint 3.10 (the visual design with Inter, ADR-040) against the build before it, as published ReadyToRun builds,
+win-x64, the open and compare smoke run on two small demo dumps, four runs each (the first run after a build is left out, as the
+system scans the new files): first window 495 to 510 ms before, 523 to 544 ms after; maximum dispatcher lag 161 to 180 ms before,
+169 to 184 ms after, under its 200 ms gate; longest dispatcher operation at most 82 to 132 ms before, 89 to 131 ms after. Those
+are first shows of a page, which the run logs; every checked phase stayed inside the budget, and every run exited 0. The cold
+first shows over 100 ms went from 3 to 7 per run to 5 to 13. Inter and its tabular figures account for little of that: with
+neither, an unpublished build still showed more of them than the build before, so the cost is mostly the new styles and templates
+compiling on first use. The published folder grew from 352 MB to 359 MB, the font and the license folder included.

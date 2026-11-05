@@ -1,73 +1,143 @@
+<p align="center"><img src="docs/images/logo.png" width="88" alt="HeapScope logo: a lens over stacked blocks"></p>
+
 # HeapScope
+
+**See what is filling your .NET heap, why it is still there, and what grew.**
 
 Powered by [HeapScope](https://github.com/rklundt/HeapScope) by Ray Klundt.
 
-HeapScope is a desktop memory profiler for .NET applications (.NET 5 and later) on Windows and Linux (macOS from
-source, untested), built on .NET 10. It opens memory snapshots (and captures them on Windows), shows what is on the heap
-and what grew between two snapshots, and explains why objects are retained, through a desktop app or an equivalent
-command line (`heapscope-cli`). Snapshots never leave the machine.
+A free, open source memory profiler for .NET 5 and later, as a desktop app and a command line tool. It runs on Windows and
+Linux, and your memory dumps never leave your machine.
 
-**Install**: download a release for Windows or Linux (no .NET needed), or the CLI as a `dotnet tool`; see
-[INSTALL.md](INSTALL.md).
+[Install it](INSTALL.md) | [User guide](docs/USER-GUIDE.md) | [Release notes](RELEASE-NOTES.md)
 
-From source:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/inspections-dark.png">
+  <img src="docs/images/inspections-light.png" alt="The Inspections tab: leak detectors listed on the left with what each found, and the selected one with its cause, fix and rows on the right">
+</picture>
+
+<sub>The pictures here are real captures of HeapScope. The app in them is its test fixture, a small service that leaks on
+purpose.</sub>
+
+## What it does
+
+### Leak detectors: memory keeps climbing, and you don't know why?
+
+Open a dump and read the list. HeapScope looks for event handler leaks, timers, disposed objects still referenced, growing
+static collections, undisposed service scopes, piles of `HttpClient`, async methods that never complete and a finalizer
+backlog.
+
+It checks for waste too: duplicate strings, oversized collections, sparse arrays and fragmentation. Each finding gives you
+the likely cause and a fix, then opens exactly the objects it counted. A finding is a lead to check, not a verdict, and it
+says so where a pattern can also be normal.
+
+### Why alive: this object should be gone, so who is holding it?
+
+Follow the chain from the GC roots down to any object or type, as a list or as one merged diagram. Framework steps fold
+away, so your own types stand out.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/why-alive-dark.png">
+  <img src="docs/images/why-alive-light.png" alt="The retention diagram: GC roots at the top, the types that hold on to the objects in the middle, and the target type at the bottom">
+</picture>
+
+### Retainers: which objects are really holding the memory?
+
+The biggest type is not always the culprit. The dominator tree ranks the objects that alone keep the most memory alive, and
+the icicle chart shows the shape of it at a glance. Click down until you reach the one reference worth removing.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/retainers-dark.png">
+  <img src="docs/images/retainers-light.png" alt="The Retainers tab: an icicle chart of what holds the memory, over a tree of the biggest retainers with their retained bytes">
+</picture>
+
+### Compare: what grew between this morning and now?
+
+Put two dumps side by side and sort by growth, per type, in objects and bytes, retained bytes or generation. Two dumps of
+the same process also match objects by address, so you can open what is new, what died and what survived. Trend view lines
+up any number of snapshots and shows how often each type grew.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/compare-dark.png">
+  <img src="docs/images/compare-light.png" alt="The Compare tab: two dumps side by side, with each type's growth in objects and bytes">
+</picture>
+
+### Allocations: which code is creating all this?
+
+Record a trace while your app runs, then see the top types and their call stacks. Drag across the timeline to look at just
+the moment that matters. Byte counts are estimated from allocation samples, and the page says so.
+
+### Live: the leak only shows up after hours?
+
+Watch a process's heap by generation, and let rules catch it for you: capture a dump on a schedule, when the heap passes a
+size, or when it has grown by a set amount. Come back to dumps from before and after, ready to compare.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png">
+  <img src="docs/images/live-light.png" alt="The Live page: a chart of a running process's heap by generation, growing over 45 seconds">
+</picture>
+
+### Command line: want memory checks in CI?
+
+`heapscope-cli` does the analysis without a window, with table, CSV and JSON output. Fail a build when a dump grows too much:
+
+```bash
+heapscope-cli diff before.dmp after.dmp --fail-on-growth 50MB
+```
+
+It exits with code 2 when the growth is over your limit, and 0 when it is not.
+
+### Private by design: dumps are full of secrets?
+
+A dump holds everything the process had in memory, passwords included, so HeapScope never uploads one. Analysis runs on your
+machine, and the logs never hold values from a dump. The one thing it can fetch is a runtime component a dump needs, from
+Microsoft's symbol server, and only if you allow it. That request sends module identifiers, never dump contents.
+
+### Built for big dumps: tired of your profiler freezing?
+
+Analysis runs in a separate worker process, so the window keeps responding, and if the worker crashes you can restart it
+from a banner. Measured on a 24-core machine with 32 GB of RAM:
+
+| Dump | First load | Reopen | Worker's peak memory |
+|---|---|---|---|
+| 4.0 GB, 57.5 million objects | 15.8 s | 0.6 s | 2.4 GB |
+| 4.4 GB, 54 million objects, as densely linked as a real application | about 1 minute | 1.0 s | 2.6 GB |
+
+### Results you can check: someone doubts a number?
+
+The log records why each result was produced, with no values from the dump in it, so a finding can be backed up later. The
+test suite checks results against fixture dumps whose answers are known.
+
+## What to expect
+
+HeapScope is in pre-release. Plainly:
+
+- **Windows for live work.** Capturing a dump, recording allocations and the Live page need Windows. On Linux, HeapScope
+  opens dumps taken with `dotnet-dump`.
+- **No macOS builds.** You can build it from source there, but it is untested.
+- **Unsigned builds.** Windows SmartScreen will warn you. [INSTALL.md](INSTALL.md) shows how to check a download against its
+  checksums and build provenance.
+- **Modern .NET only.** It analyzes .NET 5 and later, not .NET Framework.
+- **A size limit.** It is built and tested for dumps up to about 8 GB and 50 million objects. Larger ones are not a target yet.
+
+## Get started
+
+Download a release for Windows or Linux, with no .NET needed, or get the CLI as a `dotnet tool`. [INSTALL.md](INSTALL.md)
+takes you from download to your first snapshot.
+
+Or build it from source:
+
 - Build: `dotnet build HeapScope.sln`
 - Test: `dotnet test --solution HeapScope.sln`
 - UI: `dotnet run --project src/HeapScope.UI`
 - CLI: `dotnet run --project src/HeapScope.Cli -- --help`
 
-Developer documentation: [docs/DEVELOPER.md](docs/DEVELOPER.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Documentation
 
-## Finding your way
-
-- **Analysis path.** Each open snapshot keeps the steps you took (types, a type's objects, an object, referrers,
-  retention, links into the Retainers tab) in the Snapshots page's left column. Opening something from an earlier step
-  starts a branch; the later steps stay. Back and Forward (Alt+Left, Alt+Right, the mouse buttons) move along it.
-- **Bookmarks.** Ctrl+D (Cmd+D on macOS) marks the shown object, or the selected row's object, with a color. Bookmarks
-  of every open snapshot are listed together and come back when the same dump is opened again.
-- **Object sets.** Select several types (Ctrl or Shift and click, or Shift+Down) and press Ctrl+Shift+O (Cmd+Shift+O), or
-  open a namespace or assembly row, a Compare row, an inspection row, your bookmarks or what a set retains: the set
-  gets its own step with Types, Instances, Generations, Dominators, Paths and Similar Retention views and "Objects
-  retained by this set". A leak detector's row opens exactly the objects it counted. The CLI's `set` command shows the
-  same views.
-- **Retention views.** Similar Retention groups a set's objects by how they are retained (the paths of all their direct
-  holders, not only the shortest one), each group with its most different paths; a group opens as a set of its own.
-  Key retention paths can be shown as a diagram, the paths merged into one graph from the roots down. A type's "Why
-  alive" page has a Similar retention button.
-- **Comparison depth.** Compare can show each type's New and Dead objects, matched by address for two dumps of one
-  process (an object a compacting GC moved counts as dead and new), and open a row's new, dead or survived objects as a
-  set; each type's retained bytes in both snapshots; and the change per generation. "Trend across snapshots" puts the
-  objects and bytes of any number of ticked snapshots side by side, with how often each type grew. The CLI's `diff`
-  matches objects (`--match-objects`), adds retained bytes (`--retained`), and gates on one heap kind's growth
-  (`--fail-on-growth 50MB --growth-of gen2`) or on each row (`--fail-on-growth-per-row`); `trend` compares several
-  dumps.
-- **Live workflow.** The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
-  garbage collection (Force GC, a dotted line on the chart), records an allocation trace for the whole run when asked,
-  and lists the session's past runs to reopen their timelines and snapshots. One capture per process runs at a time,
-  from any page or rule. Snapshots can be closed and deleted with their caches, sessions deleted, and old sessions
-  cleaned up from the Home page; each asks first.
-- **Runtime leaks.** Detectors for async methods that never complete (their state machines waiting by the thousand), a
-  finalizer backlog behind a blocked or slow finalizer thread, and, against a baseline, the application's types that
-  keep growing. The objects no root reaches open as a set from a full dump's Types view (`set --unreachable`).
-- **Group by interface.** The types grid and Compare group by interface on full dumps: a type counts under each
-  interface it implements, so the rows overlap. An interface row opens as a set.
-- **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;
-  `module:name` (or `m:name`) matches the module. Each term is a substring, CamelHumps with capitals (`SCE` finds
-  `StaticCacheEntry`), or uses `*` for anything.
-- **CSV export.** Every grid has "Export to CSV..." in its context menu (Ctrl+E or Cmd+E). It writes all rows, not only
-  those on screen. String text and field values are left out unless you say yes for that export.
-- **Keyboard.** F1 lists every shortcut on the About page: Ctrl+1 to 7 for the pages, Alt+1 to 4 for the Snapshots
-  tabs, Ctrl+F for the filter, Ctrl+L for the analysis path, F5 to refresh.
-
-## Logs and getting help
-
-HeapScope writes a log file per run, which records the versions, the snapshots opened and why each result was produced
-(never values from a dump): `%LOCALAPPDATA%\HeapScope\logs` on Windows, `~/.local/share/HeapScope/logs` on Linux and
-`~/Library/Application Support/HeapScope/logs` on macOS (under the folder `HEAPSCOPE_DATA_FOLDER` names, when set).
-The About page shows the folder and copies the version details for a support request. For more detail in one run,
-start the app with `--Logging:File:MinimumLevel Debug`, or set the environment variable
-`Logging__File__MinimumLevel=Debug` (the CLI reads settings from the environment, not from its arguments). Logs are kept 14 days. They hold file paths and type
-names, so share them only with someone you trust.
+- [User guide](docs/USER-GUIDE.md): how each part works, every shortcut and filter, logs and getting help.
+- [Install](INSTALL.md) and [release notes](RELEASE-NOTES.md).
+- [Developer guide](docs/DEVELOPER.md), [architecture](docs/ARCHITECTURE.md) and [how to contribute](CONTRIBUTING.md).
+- [Security policy](SECURITY.md).
 
 ## License
 
