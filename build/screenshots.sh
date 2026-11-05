@@ -28,9 +28,10 @@
 # Usage: screenshots.sh [output folder, default artifacts/screenshots] [Release|Debug]
 set -uo pipefail
 # A folder given is read from where the script was called, and only this script's own picture names are removed from it.
-if [ $# -ge 1 ]; then
+out=
+if [ -n "${1:-}" ]; then
   mkdir -p "$1" || exit 1
-  out="$(cd "$1" && pwd)"
+  out="$(CDPATH= cd -- "$1" && pwd)" || exit 1
 fi
 configuration="${2:-Release}"
 cd "$(dirname "$0")/.."

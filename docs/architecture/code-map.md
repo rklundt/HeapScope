@@ -202,7 +202,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
   and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2]; a diff's `matchObjects` and `includeRetained`,
-  `QueryTypeTrendAsync` over any number of snapshots (`UseManyAsync`), and `ObjectSetQuery.Baseline` as a compared set's
+  `QueryTypeTrendAsync` over up to 20 snapshots (`UseManyAsync`), and `ObjectSetQuery.Baseline` as a compared set's
   other snapshot [3.3].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). Since 3.8 every query runs through
   `QueryRunner` (its activity, progress, and a refusal logged as shown; grids through `GridQueryViewModel`) [P8]. `Services/`: `IUiDispatcher` (post to the UI

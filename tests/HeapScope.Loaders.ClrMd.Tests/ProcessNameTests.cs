@@ -34,11 +34,34 @@ public class ProcessNameTests
     [InlineData(new[] { "/usr/lib/libc.so.6", "/app/libcoreclr.so", "/app/Orders.Core.dll", "/app/Orders.Api" }, "Orders.Api")]
     [InlineData(new[] { "/usr/local/share/dotnet/libhostfxr.dylib", "/usr/local/share/dotnet/dotnet" }, "dotnet")]
     [InlineData(new[] { "", "/app/Orders.Api" }, "Orders.Api")]
+    [InlineData(new[] { "/app/Orders.Api", "/app/libcoreclr.so" }, "Orders.Api")]
+    [InlineData(new[] { "/app/libfoo.so (deleted)", "/app/Orders.Api (deleted)" }, "Orders.Api")]
     [InlineData(new[] { @"C:\app\Orders.Core.dll", "/usr/lib/libc.so.6" }, null)]
     [InlineData(new[] { "" }, null)]
     [InlineData(new string[0], null)]
     public void The_process_is_the_executable_wherever_it_is_listed(string[] modules, string? name) =>
         ClrMdDumpLoader.ProcessNameOf(modules).Name.ShouldBe(name);
+
+    [Theory]
+    [InlineData(@"C:\Program Files\dotnet\dotnet.exe", "dotnet")]
+    [InlineData("/usr/share/dotnet/dotnet", "dotnet")]
+    [InlineData("/app/Orders.Api", "Orders.Api")]
+    public void The_path_the_dump_records_settles_it(string imagePath, string name)
+    {
+        var choice = ClrMdDumpLoader.ProcessNameOf(["/app/libcoreclr.so", @"C:\app\Other.exe"], imagePath, windows: false);
+        choice.Name.ShouldBe(name);
+        choice.Source.ShouldBe("the executable's path the dump records");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Without_a_recorded_path_the_modules_decide(string? imagePath) =>
+        ClrMdDumpLoader.ProcessNameOf(["/app/libcoreclr.so", "/app/Orders.Api"], imagePath, windows: false).Name.ShouldBe("Orders.Api");
+
+    [Fact]
+    public void An_exe_mapped_on_another_system_is_not_the_executable() =>
+        ClrMdDumpLoader.ProcessNameOf(["/app/Plugin.exe", "/app/Orders.Api"], windows: false).Name.ShouldBe("Orders.Api");
 
     [Theory]
     [InlineData(new[] { @"C:\app\Orders.exe", @"C:\app\Orders.Core.dll" }, "the only .exe of 2 modules")]

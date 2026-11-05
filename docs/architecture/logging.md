@@ -44,9 +44,10 @@ references such as "ARCHITECTURE.md 11" still name the right section.
     carry their trace id.
   - Monitoring logs each run's rules and, when a rule fires, the metric and its source, the threshold after steps, the
     baseline and the rearm mode (`RuleDecision`); the CLI logs its growth gate's decision.
-- **A dump's process name (sprint 3.10)**: loading a full dump logs `Process name of {Path}: {ProcessName}, {Source}`, where the
-  source is the rule that chose it (the only .exe, the first of several, the first module that is not a library, or unknown). The
-  name is cached, so a cached open logs only the name; opening with a rebuild logs the rule again.
+- **A dump's process name (sprint 3.10)**: the snapshot's identity line says `process {Process} ({Pid}; name: {Source})`, where the
+  source is the rule that chose the name: the executable's path the dump records, else the only .exe, the first of several, the
+  first module not named like a library, or unknown. Kept in the cache metadata, so a reopen still says it; a cache written by
+  an earlier build of 3.10 says "not recorded".
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
   sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
   and never the user's filter text (logged by its shape: length and term counts): `Provenance` writes any other text by its length only, and

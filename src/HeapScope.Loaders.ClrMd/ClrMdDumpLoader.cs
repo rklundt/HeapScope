@@ -29,6 +29,7 @@ using HeapScope.Core;
 using HeapScope.Core.Graph;
 using HeapScope.Core.Loading;
 using Microsoft.Diagnostics.Runtime;
+using Microsoft.Diagnostics.Runtime.DataReaders.Implementation;
 
 namespace HeapScope.Loaders.ClrMd;
 
@@ -584,20 +585,44 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
     }
 
     private static ProcessNameChoice ProcessName(DataTarget target) =>
-        ProcessNameOf(target.EnumerateModules().Select(static module => module.FileName ?? string.Empty));
+        ProcessNameOf(
+            target.EnumerateModules().Select(static module => module.FileName ?? string.Empty),
+            ImagePath(target.DataReader),
+            target.DataReader.TargetPlatform == OSPlatform.Windows);
+
+    /// <summary>The executable's path as the dump records it. Not every reader has it, and a name must not fail a load.</summary>
+    private static string? ImagePath(IDataReader reader)
+    {
+        try
+        {
+            return reader is IProcessInfoProvider provider ? provider.GetProcessInfo().ImagePath : null;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException or IndexOutOfRangeException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>A dump's process name and which rule chose it, for the log (sprint 3.10 review H2).</summary>
     internal readonly record struct ProcessNameChoice(string? Name, string Source);
 
     /// <summary>
-    /// The process's name from its modules. The reader sorts them by base address, not load order, so the first may be any
-    /// library. A Windows dump's executable is its .exe (the first, if the process mapped another). A core file's modules have
-    /// no such mark: an executable usually sits below its libraries, so the name is the first module that does not look like a
-    /// library, with its dots kept (Orders.Api). This is still a judgment: `ulimit -s unlimited` can put libraries first, though
-    /// they are then skipped by name. With no such module the name is unknown, not a library's.
+    /// The process's name. The executable's path the dump records settles it (Windows dumps and Linux core files record one).
+    /// Without it the modules are all there is, and the reader sorts them by base address, not load order, so the first may be
+    /// any library. A Windows dump's executable is its .exe (the first, if the process mapped another). A core file's modules
+    /// have no such mark: an executable usually sits below its libraries, so the name is the first module not named like a
+    /// library, with its dots kept (Orders.Api). That is a judgment, not proof: under `ulimit -s unlimited` a mapped data file
+    /// could sort first, and the log states the rule used. With no such module the name is unknown, not a library's.
     /// </summary>
-    internal static ProcessNameChoice ProcessNameOf(IEnumerable<string> modules)
+    internal static ProcessNameChoice ProcessNameOf(IEnumerable<string> modules, string? imagePath = null, bool windows = true)
     {
+        if (!string.IsNullOrEmpty(imagePath) && RecordedPath.FileName(imagePath) is { Length: > 0 } image)
+        {
+            return new ProcessNameChoice(
+                image.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? image[..^".exe".Length] : image,
+                "the executable's path the dump records");
+        }
+
         var named = 0;
         var executables = 0;
         string? executable = null;
@@ -605,18 +630,26 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         foreach (var module in modules)
         {
             var name = RecordedPath.FileName(module);
+
+            // A core file marks a file replaced or removed since it was mapped.
+            if (name.EndsWith(" (deleted)", StringComparison.Ordinal))
+            {
+                name = name[..^" (deleted)".Length];
+            }
+
             if (string.IsNullOrEmpty(name))
             {
                 continue;
             }
 
             named++;
-            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            var isExe = name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+            if (isExe && windows)
             {
                 executables++;
                 executable ??= name;
             }
-            else if (candidate is null && !LooksLikeLibrary(name))
+            else if (candidate is null && !isExe && !LooksLikeLibrary(name))
             {
                 candidate = name;
             }

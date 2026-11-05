@@ -337,7 +337,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         var recorded = info.Kind != SnapshotKind.FullDump || metadata.Dac is not null;
         string Recorded(long value) => recorded ? value.ToString(CultureInfo.InvariantCulture) : "not recorded";
         logger.LogInformation(
-            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); unavailable features {Unavailable}; notes: {Notes}",
+            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}; name: {ProcessNameSource}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); unavailable features {Unavailable}; notes: {Notes}",
             descriptor.SnapshotId,
             descriptor.OpenSeconds,
             descriptor.Path,
@@ -349,6 +349,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             info.Facts,
             info.ProcessName,
             info.ProcessId,
+            metadata.ProcessNameSource ?? (info.Kind == SnapshotKind.FullDump ? "not recorded" : "-"),
             info.RuntimeVersion,
             info.CapturedAtUtc,
             info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile) ? " (the file's time)" : string.Empty,
@@ -461,13 +462,9 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             loader.Version,
             diagnostics.StaticFieldRoots,
             diagnostics.IncompleteSegments,
-            diagnostics.Dac);
+            diagnostics.Dac,
+            diagnostics.ProcessNameSource);
         var timings = loaded.Timings;
-        if (diagnostics.ProcessNameSource is { } nameSource)
-        {
-            logger.LogInformation("Process name of {Path}: {ProcessName}, {Source}", path, loaded.Info.ProcessName ?? "unknown", nameSource);
-        }
-
         logger.LogInformation(
             "Loaded {Path} from the dump in {Seconds:N1} s: open {OpenSeconds:N1} s, objects {ObjectsSeconds:N1} s, references {ReferencesSeconds:N1} s, roots {RootsSeconds:N1} s, build {BuildSeconds:N1} s; unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}, debuggable modules {Debuggable}",
             path,

@@ -28,8 +28,8 @@ static collections, undisposed service scopes, piles of `HttpClient`, async meth
 backlog.
 
 It checks for waste too: duplicate strings, oversized collections, sparse arrays and fragmentation. Each finding gives you
-the likely cause and a fix, and a leak detector's row opens exactly the objects it counted. A finding is a lead to check, not
-a verdict, and it says so where a pattern can also be normal.
+the likely cause and a fix, and a leak detector's row opens the objects behind it (for a growing collection, the collection
+itself, not its elements). A finding is a lead to check, not a verdict, and it says so where a pattern can also be normal.
 
 ### Why alive: this object should be gone, so who is holding it?
 
