@@ -55,6 +55,7 @@ public sealed class IcicleChart : Control
         AvaloniaProperty.Register<IcicleChart, double>(nameof(RowHeight), 22);
 
     private IReadOnlyList<IcicleBar> _bars = [];
+    private IcicleSegmentDto? _hovered;
 
     static IcicleChart()
     {
@@ -103,6 +104,26 @@ public sealed class IcicleChart : Control
 
     protected override Size MeasureOverride(Size availableSize) =>
         new(double.IsInfinity(availableSize.Width) ? 0 : availableSize.Width, IcicleGeometry.Height(Segments, RowHeight));
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        base.OnPointerMoved(e);
+        var point = e.GetPosition(this);
+        var segment = IcicleGeometry.HitTest(_bars, point.X, point.Y);
+        if (!ReferenceEquals(segment, _hovered))
+        {
+            _hovered = segment;
+            ToolTip.SetTip(this, segment is null ? null : IcicleGeometry.Describe(segment, Total));
+        }
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        _hovered = null;
+        ToolTip.SetTip(this, null);
+    }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {

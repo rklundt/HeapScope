@@ -6,7 +6,7 @@ the SkiaSharp workflow made manual, two test flake fixes). Four perspectives, ru
 `.claude/agents/`: solution-architect, senior-dev, gc-specialist and support-engineer. None had a shell; each read the files
 on `sprint/3.10`. Moderates are the product owner's to decide (no autonomy for this sprint).
 
-Totals after dedupe: 6 High, 41 Moderate, 39 Low, counting what the confirmation rounds and the review of the Moderate fixes found. A finding raised by more than one reviewer is merged and keeps the highest
+Totals after dedupe: 6 High, 44 Moderate, 41 Low, counting what the confirmation rounds and the review of the Moderate fixes found. A finding raised by more than one reviewer is merged and keeps the highest
 severity.
 
 ## High / Urgent
@@ -173,6 +173,21 @@ H6, and M28 and M32 to M34 have only their tests. The owner decided on 2026-11-0
   nothing was. Status: Fixed; "No allocation trace: it stopped n s in, before the trace session had started.", in the run's status and record, added
   to an early stop's note, with tests of both.
 
+### The owner's own test
+
+The product owner ran the app before the merge (2026-11-05) and found what neither the tests nor the reviewers had. These are not 3.10
+regressions as far as the code shows (`CounterMonitor` last changed in 3.6), though 3.9 was not run to compare. Reproduced on the real page with the same processes.
+
+- **M42 A refused Live run was easy to miss, and spoke of dumping**. `LivePage.axaml`, `ElevationProbe.cs`. An elevated target is refused within about 30 ms, so Start and
+  Stop only flash. The reason was plain text like any status, under "Choose a process and press Start", and its log line gave no reason. The owner saw no warning; in the
+  reproduction the text was there, so whether it can go missing is not settled. Status: Fixed; a banner that stays, wording about monitoring, no prompt under it, the reason logged. Tested.
+- **M43 A process that sends no samples looked like a dead page**. A process can set `System.Diagnostics.Tracing.EventSource.IsSupported` to false, as `CrossDeviceService` does, and then a run
+  shows nothing for as long as it lasts. Status: Fixed; a warning after 10 s or three intervals, logged, and cleared by the first sample. Tested.
+- **M44 The Retainers chart could not be read**. `IcicleChart.cs`, `RetainersTab.axaml`. Bars under 40 px have no label and no hover text, and nothing said what the chart means. Status:
+  Fixed; hover text per bar and a caption. Tested. Grouping the narrowest bars moved to sprint 3.11 (owner).
+
+senior-dev reviewed these three fixes: no High, three Moderates, fixed before the merge and tested, not reviewed again. The no-sample warning outlived its run, claiming Get snapshot still worked after a Stop; a refused run that also asked for a trace still said "cannot dump it" and "the run goes on"; and tests could not see the wording reach the real site, the delayed check after a Stop or a restart, or the notifications. Whether a tooltip popup appears, and the caption's hiding on an empty chart, have no test; the caption's showing was seen on the real page.
+
 ## Low / Trivial
 
 Listed only (the skill: not fixed, not raised).
@@ -230,6 +245,9 @@ From the review of the Moderate fixes:
 - L38 A long job status can clip.
 - L39 After an early stop before the session started, Live shows "what it recorded is kept" until the run ends; the final status and the record are
   right. Only the low disk check can reach it, with under 1 GB free while the session is starting (solution-architect, confirming M41).
+
+- L41 `_hovered` goes stale when the chart's segments change under a still pointer, until the next move; `OnPointerExited` has no test; the caption does not explain the gap at a parent's right (own bytes and small children).
+- L40 Each refused Live start leaves an empty `counters-*.csv` and a run record of milliseconds in the session (the owner's test left nine).
 
 Fixed in passing, since a change or the sweep touched them: L3, L17, L20, L22, L27 (the `.exe` point) and part of L28.
 

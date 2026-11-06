@@ -31,7 +31,12 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   gcdumps, since a full dump counts garbage not yet collected. That GC moves objects, so skip it when you match them by
   address. `--growth-of` a heap kind needs full dumps, since a gcdump records no generations. `trend` compares several
   dumps.
-- **Live workflow.** The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
+- **Reading the Retainers chart.** Each bar is what the bar above it keeps alive, and its width is how much. The two band
+  colors only separate the levels; a selected bar and its path turn amber. Most bars are too narrow for a label, so hover
+  for a bar's name and size. Click selects a bar, and a double-click shows the tree below it.
+- **Live workflow.** When a process cannot be monitored, a warning says why: it runs elevated or as another user, so
+  run HeapScope as administrator. A warning also appears when no samples arrive after about 10 seconds (or three
+  intervals, if longer), since a process can turn off the runtime events Live reads; Get snapshot still works then. The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full
   garbage collection (Force GC, a dotted line on the chart). Under "Snapshot rules" it captures on a schedule, when the heap has grown by an amount you set, or when the
   heap passes a size, and records an allocation trace for the whole run when asked; "Past runs of this session" reopens
   earlier timelines and snapshots. One capture per process runs at a time, from any page or rule. Snapshots can be closed

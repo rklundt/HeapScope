@@ -938,7 +938,7 @@ default settings, an inverted hierarchy and real defects; a mockup of its top ch
 14. [x] Docs: ARCHITECTURE.md and its pages, DEVELOPER.md (screenshots, the design tokens), Backlog items from decision 10.
     Proof: the Markdown sweep.
 
-**Review summary** ([docs/reviews/sprint-3.10.md](../reviews/sprint-3.10.md)): 6 High, 41 Moderate, 39 Low after dedupe, counting what the
+**Review summary** ([docs/reviews/sprint-3.10.md](../reviews/sprint-3.10.md)): 6 High, 44 Moderate, 41 Low after dedupe, counting what the
 confirmation rounds and the review of the Moderate fixes found. Highs fixed and confirmed: the screenshot script deleting the folder it was given; a dump's process name,
 now from the path the dump records and logged with its rule; three README and guide claims that did not hold (tested to 8 GB, what a row
 opens, any number of snapshots); H6, a false "rebuilt" note on a reopen, went with the older cache fallback. Moderates (product owner):

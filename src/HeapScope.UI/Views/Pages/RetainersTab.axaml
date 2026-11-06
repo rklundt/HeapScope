@@ -69,10 +69,12 @@
     </ItemsControl>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Note}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
+    <TextBlock x:Name="IcicleCaption" DockPanel.Dock="Top" Classes="subtle" TextWrapping="Wrap" Margin="0,0,8,4"
+               IsVisible="{Binding IcicleSegments.Count, Converter={x:Static ctl:SignConverters.HasItems}}"
+               Text="How to read this chart: each bar is what the bar above it keeps alive, and its width is how much. The two band colors only separate the levels; a bar and its path turn amber when selected. Hover for a bar's name and size, click to select it, double-click to show the tree below it." />
     <ScrollViewer DockPanel.Dock="Top" MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,8,6">
       <ctl:IcicleChart x:Name="Icicle" Segments="{Binding IcicleSegments}" Total="{Binding IcicleTotal}"
-                       SelectedSegment="{Binding SelectedSegment, Mode=TwoWay}" FocusCommand="{Binding FocusSegmentCommand}"
-                       ToolTip.Tip="Each bar is as wide as what it alone keeps alive. Click selects; double-click shows the tree below it." />
+                       SelectedSegment="{Binding SelectedSegment, Mode=TwoWay}" FocusCommand="{Binding FocusSegmentCommand}" />
     </ScrollViewer>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IcicleStatus}" Margin="0,0,0,4" Classes="subtle" />
 

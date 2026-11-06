@@ -77,6 +77,9 @@ from 3 to 7 per run to 5 to 13, exempt from the gate, with the worst dispatcher 
 - To consider pulling in: the Backlog's slower first load (the object pass), and the tests that fail only under full load.
 - Required, whatever else is settled (product owner, 2026-11-05; 3.10 review M40): the Snapshots page refreshes when the user opens a dump
   again after a refused reopen. Today the handle stays the same, so the row keeps "Open it again" and the old notes.
+- The Retainers chart's narrowest bars, from the owner's test of 3.10 (2026-11-05; M44): group them into one "+N smaller" bar, so the chart is not
+  slivers with no text. 3.10 added the hover text and a caption.
+- The key file's read outside its lock (Backlog, "Tests that failed now and then"): a small fix with its cause known.
 - The older cache fallback, moved from 3.10 by the product owner (2026-11-05; 3.10 review M14, M29 to M31, M37, M40). After a loader update,
   a dump whose DAC is gone or not trusted cannot rebuild its cache, so it does not open. Open the older cache instead, with a note. It must
   cover every way a rebuild can lack the DAC (a symbol server failure, an untrusted DAC after a "no"), set the oldest loader version it accepts,

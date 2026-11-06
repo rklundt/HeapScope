@@ -176,7 +176,7 @@ internal sealed class SmokeRunner(IServiceProvider services)
             count,
             stopwatch.Elapsed.TotalSeconds,
             live.Samples.Count,
-            live.Status ?? "ok",
+            live.RunWarning ?? live.Status ?? "ok",
             lag.TotalMilliseconds,
             operation.TotalMilliseconds);
         return SmokeVerdict.Phase(completed, operation, lag);

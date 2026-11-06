@@ -90,6 +90,9 @@
                 ToolTip.Tip="Open the run's allocation trace on the Allocations page." />
         </WrapPanel>
       </Expander>
+      <Border Classes="info" IsVisible="{Binding RunWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <SelectableTextBlock x:Name="RunWarningText" TextWrapping="Wrap" Text="{Binding RunWarning}" />
+      </Border>
       <ctl:NoteText Text="{Binding PastRunShown}" TextWrapping="Wrap" Margin="0,0,0,4" Classes="subtle" />
       <ctl:NoteText Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
       <WrapPanel Margin="0,0,0,6" IsVisible="{Binding HasTimeline}">
@@ -140,7 +143,7 @@
     </ScrollViewer>
     <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="4" Padding="4">
       <Grid>
-        <ctl:EmptyState Icon="Live" Text="{x:Static vm:PlatformHints.LiveEmpty}" IsVisible="{Binding !HasSamples}" />
+        <ctl:EmptyState Icon="Live" Text="{Binding EmptyText}" IsVisible="{Binding ShowEmptyState}" />
         <ctl:TimelineChart x:Name="Chart" Samples="{Binding Samples}" RunStart="{Binding ChartStart}" Markers="{Binding Markers}" GcMarkers="{Binding GcMarkers}" Version="{Binding ChartVersion}" />
       </Grid>
     </Border>

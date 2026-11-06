@@ -20,6 +20,7 @@
 // <https://www.gnu.org/licenses/>.
 //
 // Commercial licenses are available. See COMMERCIAL.md.
+using System.Globalization;
 using HeapScope.Contracts;
 
 namespace HeapScope.UI.ViewModels;
@@ -54,6 +55,14 @@ public static class IcicleGeometry
         }
 
         return bars;
+    }
+
+    /// <summary>What a bar stands for, in words: most bars are too narrow to carry a label.</summary>
+    public static string Describe(IcicleSegmentDto segment, long total)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
+        var share = total > 0 ? (double)segment.Width / total : 0;
+        return string.Create(CultureInfo.CurrentCulture, $"{segment.Name}\nKeeps {Format.Bytes(segment.Width)} alive, {share:P1} of this chart");
     }
 
     /// <summary>The height that shows every level.</summary>

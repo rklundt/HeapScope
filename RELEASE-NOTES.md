@@ -29,6 +29,9 @@ Everything else was built on `develop` and first shipped in the next release abo
 - **A new README and a user guide**: the README shows real captures in your GitHub theme, and `docs/USER-GUIDE.md` holds the detail.
 - **macOS packages, untested**: releases attach `osx-arm64` and `osx-x64` packages. They are built on Linux, not on a Mac, and have
   not been run. INSTALL.md says how to build on a Mac with `build/publish.sh`.
+- **Live says when it cannot help**: a process it may not monitor gets a warning that stays, with what to do, and a process that sends
+  no samples gets one after about 10 seconds, since some trimmed apps turn off the runtime events Live reads.
+- **A chart you can read**: hover over any bar in the Retainers chart for its name and size, and a line above the chart says how to read it.
 - **Allocation traces say why there is none**: stopping a run while its trace is still starting no longer reports a failure. The
   run says there is no trace and how long it had been waiting.
 

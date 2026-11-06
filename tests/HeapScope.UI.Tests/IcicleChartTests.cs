@@ -43,6 +43,41 @@ public sealed class IcicleChartTests(UiSession ui)
         new(2, 0, 500, "o:30", "App.Entry", 0x30),
     ];
 
+    /// <summary>Most bars are slivers with no room for a label, so hovering is how a user learns what one is (3.10, the owner's own test).</summary>
+    [Fact]
+    public async Task Hovering_a_bar_says_what_it_is_and_moving_off_it_clears_that()
+    {
+        await ui.RunAsync(() =>
+        {
+            var chart = new IcicleChart { Segments = s_segments, Total = 1000, Width = 400 };
+            var window = new Window { Width = 400, Height = 200, Content = new StackPanel { Children = { chart } } };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            try
+            {
+                window.CaptureRenderedFrame().ShouldNotBeNull();
+                window.MouseMove(chart.TranslatePoint(new Point(350, 1.5 * chart.RowHeight), window)!.Value);
+                Dispatcher.UIThread.RunJobs();
+                ToolTip.GetTip(chart).ShouldBeOfType<string>().ShouldStartWith("App.Other\nKeeps ");
+
+                window.MouseMove(chart.TranslatePoint(new Point(100, 2.5 * chart.RowHeight), window)!.Value);
+                Dispatcher.UIThread.RunJobs();
+                ToolTip.GetTip(chart).ShouldBeOfType<string>().ShouldStartWith("App.Entry\nKeeps ");
+
+                // Past the entry's end, on its level: no bar.
+                window.MouseMove(chart.TranslatePoint(new Point(350, 2.5 * chart.RowHeight), window)!.Value);
+                Dispatcher.UIThread.RunJobs();
+                ToolTip.GetTip(chart).ShouldBeNull();
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
     [Fact]
     public async Task A_click_selects_a_bar_and_a_double_click_focuses_it()
     {

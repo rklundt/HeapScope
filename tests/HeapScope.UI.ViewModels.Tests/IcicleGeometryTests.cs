@@ -54,6 +54,17 @@ public sealed class IcicleGeometryTests
     }
 
     [Fact]
+    public void A_bar_describes_itself_in_words()
+    {
+        var text = IcicleGeometry.Describe(new IcicleSegmentDto(1, 0, 256 * 1024, "o:10", "App.Cache", 0x10), 1024 * 1024);
+
+        text.ShouldStartWith("App.Cache\nKeeps ");
+        text.ShouldContain(Format.Bytes(256 * 1024));
+        text.ShouldContain((0.25).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
+        IcicleGeometry.Describe(new IcicleSegmentDto(0, 0, 0, string.Empty, "Nothing", 0), 0).ShouldContain((0.0).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
+    }
+
+    [Fact]
     public void A_point_hits_the_bar_under_it_and_the_path_to_a_bar_is_its_ancestors()
     {
         var bars = IcicleGeometry.Bars(s_segments, 1000, 400, 20);
