@@ -51,6 +51,50 @@ public sealed class SnapshotsViewModelTests : IDisposable
         _worker.Service.Rows.Add(["System.Byte[]", "400", "12000"]);
     }
 
+    /// <summary>The only way back from a refused reopen is opening the dump again, so that has to work on the page (3.10 review M40).</summary>
+    [Fact]
+    public async Task Opening_a_dump_again_after_a_refused_reopen_shows_it_afresh()
+    {
+        var dump = Dump("app.dmp", 1024);
+        _worker.Service.CacheIdentity = 0x8000_0000_0000_0001;
+        await _snapshots.OpenPathAsync(dump);
+        await _snapshots.Types.QueryTask;
+        var before = _snapshots.Selected.ShouldNotBeNull();
+
+        // The worker restarted, and the cache is not the one this snapshot was opened from: the reopen is refused.
+        _worker.Service.CacheIdentity = 0x8000_0000_0000_0002;
+        _worker.NewGeneration();
+        _snapshots.Types.Show(before.Handle);
+        await _snapshots.Types.QueryTask;
+        _snapshots.Types.Status.ShouldNotBeNull().ShouldContain("was rebuilt");
+
+        _worker.Service.OpenNotes = ["A newer note."];
+        await _snapshots.OpenPathAsync(dump);
+        await _snapshots.Types.QueryTask;
+
+        var after = _snapshots.Selected.ShouldNotBeNull();
+        after.ShouldNotBeSameAs(before);
+        after.Handle.ShouldBeSameAs(before.Handle);
+        after.Notes.ShouldBe(["A newer note."]);
+        _snapshots.Snapshots.ShouldHaveSingleItem().ShouldBeSameAs(after);
+        _snapshots.Types.Status.ShouldBeNull();
+        _snapshots.Types.Rows.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Opening_a_dump_that_is_already_open_changes_nothing()
+    {
+        var dump = Dump("app.dmp", 1024);
+        await _snapshots.OpenPathAsync(dump);
+        await _snapshots.Types.QueryTask;
+        var before = _snapshots.Selected.ShouldNotBeNull();
+
+        _worker.Service.NextSnapshotId = before.Handle.Descriptor.SnapshotId;
+        await _snapshots.OpenPathAsync(dump);
+
+        _snapshots.Selected.ShouldBeSameAs(before);
+    }
+
     [Fact]
     public async Task Opening_a_dump_lists_and_selects_it_and_loads_its_largest_types()
     {

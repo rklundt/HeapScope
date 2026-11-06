@@ -56,12 +56,103 @@ public sealed class IcicleGeometryTests
     [Fact]
     public void A_bar_describes_itself_in_words()
     {
-        var text = IcicleGeometry.Describe(new IcicleSegmentDto(1, 0, 256 * 1024, "o:10", "App.Cache", 0x10), 1024 * 1024);
+        static IcicleBar Bar(IcicleSegmentDto segment, int count = 1) => new(segment, 0, 0, 1, 1, count);
+        var text = IcicleGeometry.Describe(Bar(new IcicleSegmentDto(1, 0, 256 * 1024, "o:10", "App.Cache", 0x10)), 1024 * 1024);
 
         text.ShouldStartWith("App.Cache\nKeeps ");
         text.ShouldContain(Format.Bytes(256 * 1024));
         text.ShouldContain((0.25).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
-        IcicleGeometry.Describe(new IcicleSegmentDto(0, 0, 0, string.Empty, "Nothing", 0), 0).ShouldContain((0.0).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
+        text.ShouldNotContain("Double-click");
+        IcicleGeometry.Describe(Bar(new IcicleSegmentDto(0, 0, 0, string.Empty, "Nothing", 0)), 0).ShouldContain((0.0).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
+        IcicleGeometry.Describe(Bar(new IcicleSegmentDto(1, 0, 10, "g", "+2 smaller", 0), count: 2), 100).ShouldEndWith("Double-click the bar above them to see them.");
+    }
+
+    /// <summary>A parent, one wide child, and five children of 1 percent: at 200 pixels each is 2 pixels, too thin to point at.</summary>
+    private static readonly IcicleSegmentDto[] s_slivers =
+    [
+        new(0, 0, 1000, string.Empty, "All", 0),
+        new(1, 0, 800, "o:1", "App.Wide", 1),
+        new(1, 800, 10, "o:2", "App.A", 2),
+        new(1, 810, 10, "o:3", "App.B", 3),
+        new(1, 820, 10, "o:4", "App.C", 4),
+        new(1, 830, 10, "o:5", "App.D", 5),
+        new(1, 840, 10, "o:6", "App.E", 6),
+        new(2, 800, 5, "o:7", "App.Under", 7),
+        new(2, 0, 400, "o:8", "App.Child", 8),
+    ];
+
+    [Fact]
+    public void Narrow_neighbors_become_one_bar_that_says_how_many_and_hides_what_is_below_them()
+    {
+        var bars = IcicleGeometry.Bars(s_slivers, 1000, width: 200, rowHeight: 20);
+
+        var group = bars.Single(static b => b.IsGroup);
+        (group.Count, group.Segment.Name, group.Segment.Level, group.Segment.Offset, group.Segment.Width).ShouldBe((5, "+5 smaller", 1, 800L, 50L));
+        group.Width.ShouldBe(10, 0.001);
+        bars.Select(static b => b.Segment.Key).ShouldNotContain("o:7", "what lies below a group is hidden with it");
+        bars.Select(static b => b.Segment.Key).ShouldContain("o:8");
+        bars.Where(static b => b.Segment.Level == 1).Sum(static b => b.Segment.Width).ShouldBe(850, "the row still adds up");
+    }
+
+    [Theory]
+    [InlineData(20, null)]
+    [InlineData(30, "+12")]
+    [InlineData(109, "+12")]
+    public void A_narrow_group_shows_its_count_or_nothing(double width, string? label)
+    {
+        var bar = new IcicleBar(new IcicleSegmentDto(1, 0, 100, "g", "+12 smaller", 0), 0, 0, width, 20, 12);
+
+        IcicleGeometry.Label(bar).ShouldBe(label);
+    }
+
+    [Fact]
+    public void A_wide_group_and_a_plain_bar_show_their_name_and_size()
+    {
+        var segment = new IcicleSegmentDto(1, 0, 100, "g", "+12 smaller", 0);
+
+        IcicleGeometry.Label(new IcicleBar(segment, 0, 0, 110, 20, 12)).ShouldNotBeNull().ShouldStartWith("+12 smaller (");
+        IcicleGeometry.Label(new IcicleBar(segment with { Name = "App.Cache" }, 0, 0, 40, 20)).ShouldNotBeNull().ShouldStartWith("App.Cache (");
+        IcicleGeometry.Label(new IcicleBar(segment with { Name = "App.Cache" }, 0, 0, 39, 20)).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Given_room_the_same_bars_stand_alone()
+    {
+        var bars = IcicleGeometry.Bars(s_slivers, 1000, width: 2000, rowHeight: 20);
+
+        bars.ShouldNotContain(static b => b.IsGroup);
+        bars.Count.ShouldBe(s_slivers.Length);
+    }
+
+    [Fact]
+    public void A_lone_narrow_bar_stays_itself_and_bars_of_two_parents_do_not_mix()
+    {
+        IcicleSegmentDto[] segments =
+        [
+            new(0, 0, 500, "p:1", "Left", 1),
+            new(0, 500, 500, "p:2", "Right", 2),
+            new(1, 490, 10, "o:1", "App.LastOfLeft", 3),
+            new(1, 500, 10, "o:2", "App.FirstOfRight", 4),
+            new(1, 600, 300, "o:3", "App.Wide", 5),
+            new(1, 900, 10, "o:4", "App.Alone", 6),
+        ];
+
+        var bars = IcicleGeometry.Bars(segments, 1000, width: 200, rowHeight: 20);
+
+        bars.ShouldNotContain(static b => b.IsGroup);
+        bars.Select(static b => b.Segment.Key).ShouldContain("o:1");
+        bars.Select(static b => b.Segment.Key).ShouldContain("o:2");
+        bars.Select(static b => b.Segment.Key).ShouldContain("o:4");
+    }
+
+    [Fact]
+    public void A_group_selects_nothing_but_has_something_to_say()
+    {
+        var bars = IcicleGeometry.Bars(s_slivers, 1000, width: 200, rowHeight: 20);
+
+        IcicleGeometry.HitTest(bars, 165, 25).ShouldBeNull();
+        IcicleGeometry.BarAt(bars, 165, 25).ShouldNotBeNull().IsGroup.ShouldBeTrue();
+        IcicleGeometry.HitTest(bars, 50, 25).ShouldNotBeNull().Key.ShouldBe("o:1");
     }
 
     [Fact]

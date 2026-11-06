@@ -78,6 +78,46 @@ public sealed class IcicleChartTests(UiSession ui)
         });
     }
 
+    /// <summary>Slivers are one bar that says how many, and a click on it selects nothing (3.10 review M44).</summary>
+    [Fact]
+    public async Task A_group_of_narrow_bars_says_what_it_holds_and_a_click_selects_nothing()
+    {
+        await ui.RunAsync(() =>
+        {
+            IcicleSegmentDto[] segments =
+            [
+                new(0, 0, 1000, string.Empty, "All reachable objects", 0),
+                new(1, 0, 900, "o:10", "App.Cache", 0x10),
+                new(1, 900, 5, "o:20", "App.A", 0x20),
+                new(1, 905, 5, "o:30", "App.B", 0x30),
+                new(1, 910, 5, "o:40", "App.C", 0x40),
+            ];
+            var chart = new IcicleChart { Segments = segments, Total = 1000, Width = 400 };
+            var window = new Window { Width = 400, Height = 200, Content = new StackPanel { Children = { chart } } };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            try
+            {
+                window.CaptureRenderedFrame().ShouldNotBeNull();
+                var group = chart.TranslatePoint(new Point(365, 1.5 * chart.RowHeight), window)!.Value;
+                window.MouseMove(group);
+                Dispatcher.UIThread.RunJobs();
+                ToolTip.GetTip(chart).ShouldBeOfType<string>().ShouldStartWith("+3 smaller\nKeeps ");
+
+                window.MouseDown(group, MouseButton.Left);
+                window.MouseUp(group, MouseButton.Left);
+                Dispatcher.UIThread.RunJobs();
+                chart.SelectedSegment.ShouldBeNull();
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
     [Fact]
     public async Task A_click_selects_a_bar_and_a_double_click_focuses_it()
     {

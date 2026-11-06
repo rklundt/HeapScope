@@ -38,7 +38,7 @@ Everything else was built on `develop` and first shipped in the next release abo
 Limited:
 - **Each full dump's index cache is rebuilt once after upgrading**, so its first open takes as long as a first load. The process name
   fix changed what the loader records (loader version 4): the name and the rule that chose it.
-- **That rebuild needs the dump's DAC.** Until sprint 3.11, a dump whose DAC is gone, or which you declined to trust, does not open
+- **That rebuild needs the dump's DAC.** Until sprint 3.12, a dump whose DAC is gone, or which you declined to trust, does not open
   when its cache is from an older version, and the error says what is missing. This qualifies 3.6.0's "After a "no", a dump with
   an index cache still opens": that holds for a cache written by this version.
 - After a reopen is refused, opening the dump again works, but the Snapshots page can keep showing "Open it again" and the old

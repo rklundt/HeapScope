@@ -76,7 +76,7 @@ public sealed class CacheRebuildTests : IDisposable
     [Fact]
     public async Task An_older_cache_whose_rebuild_lacks_the_DAC_says_what_is_missing()
     {
-        // Opening the older cache instead is planned for sprint 3.11 (the 3.10 review M14).
+        // Opening the older cache instead is planned for sprint 3.12 (the 3.10 review M14).
         WriteCache(ClrMdDumpLoader.CurrentVersion - 1);
         using var store = Store();
 

@@ -42,6 +42,9 @@ public sealed class SnapshotItemViewModel(SnapshotHandle handle)
 {
     public SnapshotHandle Handle { get; } = handle ?? throw new ArgumentNullException(nameof(handle));
 
+    /// <summary>The worker's snapshot this item describes: the handle outlives it when the dump is opened again.</summary>
+    public Guid ShownSnapshotId { get; } = handle.Descriptor.SnapshotId;
+
     public string Title => System.IO.Path.GetFileName(Handle.Path);
 
     public string Path => Handle.Path;
@@ -268,8 +271,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
                         return;
                     }
 
-                    Refresh();
-                    Selected = Snapshots.FirstOrDefault(s => s.Handle == handle);
+                    ShowOpened(handle);
                     Status = "Opened from its index cache without the DAC: field values and strings are not shown. To trust the DAC, close the snapshot and open it again.";
                     return;
                 }
@@ -288,8 +290,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
                 handle = await _session.StartOpen(path).Result;
             }
 
-            Refresh();
-            Selected = Snapshots.FirstOrDefault(s => s.Handle == handle);
+            ShowOpened(handle);
             Status = null;
         }
         catch (OperationCanceledException)
@@ -304,6 +305,26 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         {
             IsOpening = false;
         }
+    }
+
+    /// <summary>
+    /// Lists and selects what was just opened. Opening a dump again after a refused reopen keeps its handle, so the selection would not
+    /// change and the page would keep the refusal and the old notes (3.10 review M40): an item that describes an earlier worker
+    /// snapshot is replaced, and selecting the new one shows it afresh. A dump that was already open gets its item back unchanged.
+    /// </summary>
+    private void ShowOpened(SnapshotHandle handle)
+    {
+        Refresh();
+        var item = Snapshots.FirstOrDefault(s => s.Handle == handle);
+        if (item is not null && item.ShownSnapshotId != handle.Descriptor.SnapshotId)
+        {
+            _logger?.LogInformation("Snapshot {Path} was opened again as worker snapshot {Id}: its page is shown afresh", handle.Path, handle.Descriptor.SnapshotId);
+            var index = Snapshots.IndexOf(item);
+            item = new SnapshotItemViewModel(handle);
+            Snapshots[index] = item;
+        }
+
+        Selected = item;
     }
 
     /// <summary>The question asked before a DAC that came with a dump is loaded (sprint 3.6).</summary>

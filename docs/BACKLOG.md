@@ -58,7 +58,7 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   most 159 ms as a job ended, 17 ms alone), and all 12 `AllocationTraceTests` (their fixture's setup canceled). `DiffTests` has
   now recurred. `SignedCacheTests.Processes_creating_the_key_at_once_end_with_one_key` twice on the same sprint (2026-11-05). The second time gave the cause, a
   real if tiny bug: `IndexCacheKey.LoadOrCreate` first reads the key outside its lock, so a read while another process moves the key into place
-  throws a sharing violation. Fix: on an `IOException` there, go on to the lock and read again. On 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` measured growth of types the framework also uses, whose own objects in the first dump
+  throws a sharing violation. Fixed in 3.11: an `IOException` there goes on to the lock and reads again. On 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` measured growth of types the framework also uses, whose own objects in the first dump
   can die before the second. A GC before each dump did not cure it: CI still came up 1 to 4 short of thousands. This cause fits the numbers but
   was not traced to the objects. They now check each dump's count, which a leak that frees nothing must reach, so the framework's objects cannot
   fail them. `LiveWorkflowTests`' allocation trace was stopped while its session was still starting, reported as a failure (a product fix; the

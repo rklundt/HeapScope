@@ -110,11 +110,11 @@ public sealed class IcicleChart : Control
         ArgumentNullException.ThrowIfNull(e);
         base.OnPointerMoved(e);
         var point = e.GetPosition(this);
-        var segment = IcicleGeometry.HitTest(_bars, point.X, point.Y);
-        if (!ReferenceEquals(segment, _hovered))
+        var bar = IcicleGeometry.BarAt(_bars, point.X, point.Y);
+        if (bar?.Segment != _hovered)
         {
-            _hovered = segment;
-            ToolTip.SetTip(this, segment is null ? null : IcicleGeometry.Describe(segment, Total));
+            _hovered = bar?.Segment;
+            ToolTip.SetTip(this, bar is null ? null : IcicleGeometry.Describe(bar, Total));
         }
     }
 
@@ -167,10 +167,10 @@ public sealed class IcicleChart : Control
             var onPath = IcicleGeometry.IsOnPath(bar.Segment, selected);
             var fill = onPath ? path : bars[bar.Segment.Level % 2] ?? Brushes.LightBlue;
             context.DrawRectangle(fill, border, rect);
-            if (bar.Width >= 40)
+            if (IcicleGeometry.Label(bar) is { } words)
             {
                 var label = new FormattedText(
-                    string.Create(CultureInfo.CurrentCulture, $"{bar.Segment.Name} ({Format.Bytes(bar.Segment.Width)})"),
+                    words,
                     CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, onPath ? pathText : text)
                 {
                     MaxTextWidth = Math.Max(1, bar.Width - 6),
