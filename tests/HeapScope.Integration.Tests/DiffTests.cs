@@ -53,9 +53,15 @@ public sealed class LeakyApiPair : IAsyncLifetime
         Current = _folder.File("current.dmp");
         using var api = await FixtureProcess.StartApiAsync(
             "--Leaks:Enabled=all", $"--Leaks:ItemsPerRequest={ItemsPerRequest}", "--Leaks:PayloadBytes=32", "--Leaks:Publishers=64");
+
+        // A full dump holds garbage not yet collected, and a GC between the dumps takes the first one's away, which makes a shared
+        // type's growth look short of the leak under load. A GC before each dump keeps the difference the leak's. Nothing here matches
+        // objects by address, which such a GC would disturb (ADR-032).
         await api.PostWorkAsync(FirstRequests, ct);
+        await api.CollectGarbageAsync(ct);
         api.CaptureDump(Baseline);
         await api.PostWorkAsync(MoreRequests, ct);
+        await api.CollectGarbageAsync(ct);
         api.CaptureDump(Current);
     }
 

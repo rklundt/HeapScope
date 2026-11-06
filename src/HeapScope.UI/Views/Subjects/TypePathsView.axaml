@@ -43,7 +43,9 @@
       <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
-    <ScrollViewer IsVisible="{Binding ShowDiagram}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+    <!-- One cell for both: docked beside a last child, the viewer took its content's width, and a fitted diagram could only shrink. -->
+    <Panel>
+    <ScrollViewer x:Name="PathsDiagramViewer" IsVisible="{Binding ShowDiagram}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
       <ctl:KeyPathDiagramView x:Name="PathsDiagram" Diagram="{Binding Diagram}" FitWidth="{Binding FitDiagram}" AutomationProperties.Name="Key retention paths diagram" />
     </ScrollViewer>
     <DataGrid x:Name="TypePathsGrid" IsVisible="{Binding !ShowDiagram}" ctl:GridExports.ExportName="RetentionPaths" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
@@ -56,5 +58,6 @@
         <DataGridTextColumn Header="Path from the root" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" MinWidth="240" />
       </DataGrid.Columns>
     </DataGrid>
+    </Panel>
   </DockPanel>
 </UserControl>

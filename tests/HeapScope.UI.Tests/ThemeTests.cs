@@ -208,8 +208,8 @@ public partial class ThemeTests(UiSession ui)
     public void Views_and_controls_state_no_color()
     {
         var ui = Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI");
-        var files = Directory.EnumerateFiles(Path.Combine(ui, "Views"), "*.axaml", SearchOption.AllDirectories)
-            .Concat(Directory.EnumerateFiles(Path.Combine(ui, "Controls"), "*.cs", SearchOption.AllDirectories));
+        var files = new[] { "Views", "Controls" }.SelectMany(folder => Directory.EnumerateFiles(Path.Combine(ui, folder), "*", SearchOption.AllDirectories))
+            .Where(static file => Path.GetExtension(file) is ".axaml" or ".cs");
         foreach (var file in files)
         {
             // The license header has no color; the pattern is for values, in XAML and in code.
@@ -227,7 +227,8 @@ public partial class ThemeTests(UiSession ui)
         ((string)accent.Attribute("Accent")!).ShouldBe(Brushes(theme)["Brush.Accent"]);
     }
 
-    [GeneratedRegex(@"#[0-9A-Fa-f]{6,8}\b|Color\.From(?:Argb|Rgb)\(|Color\.Parse\(")]
+    // Transparent is the absence of a color, and a brush fallback (Brushes.X) only draws if a key is missing (ADR-040).
+    [GeneratedRegex(@"#[0-9A-Fa-f]{3,8}\b|\bColors\.[A-Z]|\bnew Color\(|\bColor\.From[A-Z]|\bColor\.(?:Try)?Parse\(|\b(?:Foreground|Background|BorderBrush|Fill|Stroke|Color)=""(?!Transparent"")[A-Za-z]+""")]
     private static partial Regex ColorLiteral();
 
     [GeneratedRegex(@"<x:Double x:Key=""(?<key>DataGridRowSelected\w*Opacity)"">(?<value>[^<]+)</x:Double>")]

@@ -43,9 +43,12 @@ public sealed class LeakyApiGrowthTests
         using var api = await FixtureProcess.StartApiAsync(
             "--Leaks:Enabled=all", $"--Leaks:ItemsPerRequest={ItemsPerRequest}", "--Leaks:PayloadBytes=32", "--Leaks:Publishers=64");
 
+        // A GC before each dump: garbage in the first, collected before the second, would make a shared type's growth look short.
         await api.PostWorkAsync(5, ct);
+        await api.CollectGarbageAsync(ct);
         api.CaptureDump(folder.File("first.dmp"));
         await api.PostWorkAsync(10, ct);
+        await api.CollectGarbageAsync(ct);
         api.CaptureDump(folder.File("second.dmp"));
 
         var census = LeakCatalog.All.SelectMany(l => KnownAnswer.Load(l.Name).Census!.Select(c => (Leak: l.Name, Entry: c))).ToList();

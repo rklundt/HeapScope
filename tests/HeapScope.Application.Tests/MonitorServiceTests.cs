@@ -44,6 +44,52 @@ public sealed class MonitorServiceTests : IDisposable
         _capture = new RecordingCaptureService(_root, new JobTracker(TimeProvider.System));
     }
 
+    /// <summary>On a busy machine a Stop can arrive while the session is still starting: no trace, no false failure, and it says so.</summary>
+    [Fact]
+    public async Task A_stop_while_the_trace_is_still_starting_says_there_is_no_trace_and_why()
+    {
+        static async Task<TraceResult> Recorder(int pid, string path, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("The recorder only ends by being canceled.");
+        }
+
+        var service = new MonitorService(_capture, _feed, allocations: Recorder);
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, RecordAllocations: true, ProcessName: "app"));
+
+        run.Stop();
+        await run.Completion;
+
+        run.TracePath.ShouldBeNull();
+        run.TraceError.ShouldNotBeNull().ShouldStartWith("No allocation trace: it stopped ");
+        run.TraceError!.ShouldEndWith("before the trace session had started.");
+        run.TraceError!.ShouldNotContain("failed");
+        SessionLibrary.TryRead(run.SessionFolder!)!.Document.Runs!.Single().TraceNote.ShouldBe(run.TraceError);
+    }
+
+    /// <summary>An early stop says "what it recorded is kept": when the session had not started, nothing was, and the record must say so.</summary>
+    [Fact]
+    public async Task An_early_stop_before_the_session_started_corrects_what_it_said_was_kept()
+    {
+        static async Task<TraceResult> Recorder(int pid, string path, CancellationToken ct)
+        {
+            await File.WriteAllBytesAsync(HeapScope.Capture.TraceRecorder.PartialName(path), new byte[4096], CancellationToken.None);
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("The recorder only ends by being canceled.");
+        }
+
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new MonitorService(_capture, _feed, allocations: Recorder);
+        var run = service.Start(42, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, RecordAllocations: true, TraceLimitBytes: 1024), r => r.TraceStopped += (_, m) => stopped.TrySetResult(m));
+
+        (await stopped.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct)).ShouldContain("what it recorded is kept");
+        run.Stop();
+        await run.Completion;
+
+        run.TracePath.ShouldBeNull();
+        run.TraceError.ShouldNotBeNull().ShouldContain("No allocation trace");
+    }
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]

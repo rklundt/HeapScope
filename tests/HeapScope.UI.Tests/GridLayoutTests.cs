@@ -161,6 +161,61 @@ public partial class GridLayoutTests(UiSession ui)
         });
     }
 
+    /// <summary>On the page itself the viewer must take the page's width, or a fitted diagram only ever shrinks (3.10 review M28).</summary>
+    [Fact]
+    public async Task A_fitted_diagram_on_the_page_follows_the_page_both_ways()
+    {
+        await ui.RunAsync(async () =>
+        {
+            var paths = Enumerable.Range(0, 4).Select(static i => new KeyPathDto(
+                new PathRootDto(RootKindDto.StaticField, false, "static field s_" + i.ToString(CultureInfo.InvariantCulture)),
+                [new PathStepDto("App.Step" + i.ToString(CultureInfo.InvariantCulture), false)],
+                "App.Item",
+                10,
+                100,
+                0x1000)).ToList();
+            var diagram = KeyPathDiagram.Build(paths, showFramework: false);
+            var page = new global::HeapScope.UI.Views.Subjects.TypePathsView();
+            var window = new Window { Width = diagram.Width + 200, Height = 600, Content = page };
+            window.Show();
+            try
+            {
+                var view = page.FindControl<KeyPathDiagramView>("PathsDiagram").ShouldNotBeNull();
+                var viewer = page.FindControl<ScrollViewer>("PathsDiagramViewer").ShouldNotBeNull();
+                view.Diagram = diagram;
+                view.FitWidth = true;
+
+                void Settle()
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    window.CaptureRenderedFrame()?.Dispose();
+                    Dispatcher.UIThread.RunJobs();
+                }
+
+                Settle();
+                viewer.Bounds.Width.ShouldBe(window.Bounds.Width, 16, "the viewer takes the page's width");
+                var wide = view.Bounds.Width;
+
+                // Narrower than the diagram, yet wide enough at the smallest scale: it scales down and fits.
+                window.Width = (diagram.Width * KeyPathDiagram.MinFitScale) + 100;
+                Settle();
+                view.Bounds.Width.ShouldBeLessThan(wide);
+                viewer.Extent.Width.ShouldBeLessThanOrEqualTo(viewer.Viewport.Width + 1);
+
+                // And back: the old layout kept the small size here.
+                window.Width = diagram.Width + 200;
+                Settle();
+                view.Bounds.Width.ShouldBe(wide, 1);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
     [GeneratedRegex(@"<DataGrid(?:Text|Template)Column\s[^>]*Width=""[0-9.]*\*""[^>]*>")]
     private static partial Regex StarColumn();
 }

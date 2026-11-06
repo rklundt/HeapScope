@@ -201,6 +201,9 @@ public sealed class InspectionsViewModelTests : IDisposable
         Inspections.Rows.GetRow(0);
         await Inspections.Rows.WhenLoadedAsync();
 
+        // What opens as a set can also be asked what it retains (M32).
+        Inspections.RetainedBySetCommand.CanExecute(Inspections.Rows.GetRow(0)).ShouldBeTrue();
+
         Inspections.OpenRowCommand.Execute(Inspections.Rows.GetRow(0));
 
         var set = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();

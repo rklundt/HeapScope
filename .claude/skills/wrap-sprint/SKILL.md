@@ -1,6 +1,6 @@
 ---
 name: wrap-sprint
-description: Wrap up the active HeapScope sprint. Builds and tests, runs the solution-architect, senior-dev, gc-specialist and support-engineer reviewers in parallel, writes docs/reviews/sprint-X.Y.md, fixes High findings, gets Moderate findings decided, then sweeps every tracked Markdown file so the docs match what was built, and sets the sprint to Wrapping.
+description: Wrap up the active HeapScope sprint. Builds and tests, runs the solution-architect, senior-dev, gc-specialist and support-engineer reviewers in parallel, writes docs/reviews/sprint-X.Y.md, fixes High findings, gets Moderate findings decided and their fixes reviewed, then sweeps every tracked Markdown file so the docs match what was built, and sets the sprint to Wrapping.
 ---
 
 # /wrap-sprint
@@ -23,7 +23,10 @@ Follow these steps exactly.
    confirmation in the review file. Repeat until confirmed.
 6. **Moderate.** Present them to the human as a numbered list, each with a one-line recommendation (fix now,
    defer to backlog, won't fix). Wait for decisions. Implement "fix now" items, add deferred items to the
-   Backlog (`docs/BACKLOG.md`), record every decision in the review file.
+   Backlog (`docs/BACKLOG.md`), record every decision in the review file. Then send the fixes back for review as in step 5:
+   each to the reviewer that raised it, or a new instance of the same type, with the finding and the diff, and record the
+   result in the review file. What this finds is a finding like any other: a High is fixed and confirmed, a Moderate goes to
+   the human.
 7. **Low / Trivial.** List them in the review file only. Do not fix them and do not raise them.
 8. **Docs.** Update ARCHITECTURE.md and its pages under `docs/architecture/` and `docs/adr/`, DEVELOPER.md, SPRINTS.md (including the sprint's Review summary: counts by
    severity, what was fixed, what was deferred, measured numbers) and CLAUDE.md so they match what was built.

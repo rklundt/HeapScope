@@ -6,7 +6,7 @@ the SkiaSharp workflow made manual, two test flake fixes). Four perspectives, ru
 `.claude/agents/`: solution-architect, senior-dev, gc-specialist and support-engineer. None had a shell; each read the files
 on `sprint/3.10`. Moderates are the product owner's to decide (no autonomy for this sprint).
 
-Totals after dedupe: 5 High, 27 Moderate, 28 Low, counting what the confirmation rounds found. A finding raised by more than one reviewer is merged and keeps the highest
+Totals after dedupe: 6 High, 41 Moderate, 39 Low, counting what the confirmation rounds and the review of the Moderate fixes found. A finding raised by more than one reviewer is merged and keeps the highest
 severity.
 
 ## High / Urgent
@@ -42,6 +42,13 @@ severity.
 - **H5 "Any number of snapshots" was not true** (support-engineer). `README.md:57`, `docs/USER-GUIDE.md:25`. A trend takes at
   most 20 (`SummaryDtos.cs:275`), and the app says so. Fix: "up to 20" in both, and in `code-map.md`. Status: Fixed; confirmed by
   support-engineer.
+
+- **H6 A reopen after a worker restart said an older cache had been rebuilt** (solution-architect, support-engineer, gc-specialist; senior-dev
+  Moderate), found by the review of the Moderate fixes. `SnapshotStore.cs`, M14's fix. The reopen path opened the older cache but kept the
+  "rebuilt" note and logged no warning, and could swap a current graph, whose cache could not be written, for the older one. Its test
+  checked only `FromCache`. Fix: the reopen path is gone, so such a reopen is refused and asks the user to open the dump again, and the
+  "rebuilt" note is added only after a load that wrote its cache. The first confirmation found more wrong with the fallback (M38 to M41), and
+  the owner moved the fallback to sprint 3.11, so the code H6 was in is gone. Status: Fixed; confirmed by solution-architect, reading the code, with M39 and M41.
 
 ## Moderate
 
@@ -92,7 +99,7 @@ The product owner decided all of them on 2026-11-05, having 22 to 27 rechecked a
   can fail or pass a build; the advice exists only in DEVELOPER.md. Suggested: one sentence in both. Status: Fix now. Fixed in both files.
 - **M14 A cache rebuild can block a dump whose DAC is gone** (gc-specialist). `SnapshotStore.cs:419-426`. A stale cache is rejected
   before the dump is known to load, so a `dotnet-dump` dump can stop opening after a runtime update, for a name change. Nothing is
-  lost: the old cache stays. Suggested: fall back to the stale cache with a note, or accept while in pre-release. Status: Fix now (owner, 2026-11-05). Fixed: when a rebuild fails on a missing DAC, the older cache opens with a note and a warning in the log, also on a reopen after a worker restart. An explicit Rebuild still fails. Tested in `tests/HeapScope.Worker.Tests/OlderCacheTests.cs`, with a stand-in loader.
+  lost: the old cache stays. Suggested: fall back to the stale cache with a note, or accept while in pre-release. Status: Fix now (owner, 2026-11-05), then moved to sprint 3.11 (owner, same day): the fix caused H6 and most of the findings on the Moderate fixes. For now a rebuild that lacks the DAC fails and says what is missing, as it did before, and the 3.10 release notes state the limit. Tested in `tests/HeapScope.Worker.Tests/CacheRebuildTests.cs`, with a stand-in loader.
 - **M15 No test drives the cache rebuild** (gc-specialist). `SnapshotStore.cs:419-426`. Decision 13's "caches are rebuilt" has no
   proof. Suggested: an integration test in both memory modes. Status: Fix now. Fixed: `SnapshotTests.A_cache_from_an_older_loader_is_rebuilt_with_a_note`, in both memory modes. Sidecars are not asserted there; their identity check has its own tests.
 - **M16 Cold first-show blips doubled, cause not established** (gc-specialist; senior-dev Low). `budgets.md:119-126`. From 3 to 7
@@ -130,6 +137,41 @@ The product owner decided all of them on 2026-11-05, having 22 to 27 rechecked a
   explanation. Suggested: open the set for any detector row whose table has members. Status: Still relevant. Fixed: double-click or Enter opens such a row as a set, with a test.
 - **M27 The CLI's help still says "the objects that row counted"** (support-engineer, confirmation round). `SetCommand.cs:54`. Suggested: "the
   objects behind that row". Status: Still relevant. Fixed: "the objects behind that row".
+
+### Review of the Moderate fixes
+
+The skill sends only High fixes back to a reviewer, so these fixes had not been reviewed. The owner asked for it on 2026-11-05 and decided
+what follows the same day: move the fallback to sprint 3.11, and take the recommendation on the rest. All four reviewers read the fixes; a
+further round read the fixes for H6 and the local gate. The fixes below were not all reviewed in turn: solution-architect confirmed M39 and M41 with
+H6, and M28 and M32 to M34 have only their tests. The owner decided on 2026-11-05 that `/wrap-sprint` reviews Moderate fixes from now on. Nearly all of these are in code written during this sprint, most in M14's fallback.
+
+- **M28 Fit to width only shrank on the real page** (M2's fix). `TypePathsView.axaml`. The viewer was docked beside the last child, so it took its
+  content's width, and M2's test built its own window. Status: Fixed; both in one cell, and a test through the real view that resizes both ways.
+- **M29 The fallback covered too few failures** (M14's fix). `ClrMdDump.cs:91-114`. A symbol server failure and `UntrustedDacException` still blocked
+  the dump, which breaks a promise of the 3.6 release notes after a loader update. Status: Moved to 3.11 with the fallback; the 3.10 notes state the limit.
+- **M30 No oldest accepted loader version** (M14's fix). Any older cache could open, however old. Status: Moved to 3.11.
+- **M31 No collection between the two cache reads** (M14's fix). Status: Moved to 3.11.
+- **M32 "Objects retained by this set" was disabled on M26's rows** (M26's fix). `InspectionsViewModel.cs`. Status: Fixed, with a test.
+- **M33 The guide overstated survivors and packed several rules into one sentence** (`docs/USER-GUIDE.md`, against ADR-032). "Reliable" hid that a new
+  object at a dead one's address counts as survived, and the gate's advice read as if gcdumps worked with `--growth-of` a heap kind.
+  Status: Fixed; split up and stated.
+- **M34 The theme test scanned less than ADR-040 promises** (`ThemeTests`). It missed named colors, `#RGB`, `Colors.X`, `new Color`, `FromUInt32` and code
+  files under `Views`. Status: Fixed; the scan covers them and found nothing but `Transparent`, which it allows.
+- **M35 Notes point to release notes that did not exist yet** (M18's fix). Status: Fixed with the close; the 3.10.0 section is written.
+- **M36 `PlatformHints` is a second source of truth for what a system can capture** (M-series next steps). Status: Deferred to the 3.11 refactor analysis.
+- **M37 References, referrers and paths are refused with no DAC** (M14's fix would have reached them from an older cache: `ReferencesSource.cs:70`,
+  `ReferrersSource.cs:139`, `RetentionMapping.cs:303`). Status: Moved to 3.11 with the fallback.
+- **M38 The fallback's note was false while the snapshot stayed open** (H6's fix). "Open the dump again and the cache is rebuilt" returned the open
+  snapshot and rebuilt nothing. Status: Gone with the fallback.
+- **M39 "The index cache was rebuilt" came before the load** (older code; H6's sentence overstated the fix). `SnapshotStore.cs`. For a damaged, foreign or untrusted
+  cache a failed write showed "rebuilt" and "could not be written" together. Status: Fixed; the reason waits for the load, says "not used" when the write failed,
+  and `CacheRebuildTests` covers both.
+- **M40 The Snapshots page did not refresh after opening a dump again** (older code, which the refused reopen leans on). `SnapshotsViewModel.cs:292,406`. Opening again
+  keeps the handle, so `Selected` does not change and the row keeps "Open it again". Status: Moved to 3.11 with the fallback.
+- **M41 A Stop during the trace's start was silent** (the gate fix for `LiveWorkflowTests`). `AllocationRecording.cs`. It replaced a false failure with no word at all: a user who asked
+  for a trace got none, a session that never started looked like a quick Stop, and after an early stop the run said what it recorded was kept when
+  nothing was. Status: Fixed; "No allocation trace: it stopped n s in, before the trace session had started.", in the run's status and record, added
+  to an early stop's note, with tests of both.
 
 ## Low / Trivial
 
@@ -173,6 +215,21 @@ Listed only (the skill: not fixed, not raised).
   an exec through `/proc/self/exe` shows as `exe` (gc-specialist, confirmation round).
 - L28 Comments and `code-map.md:53` still say "the objects the row counted": `ObjectSetResolver.cs:389`, `Inspection.cs:205`,
   `InspectionsViewModel.cs:231`, `DetectorTypeRow.cs:34` (support-engineer, confirmation round).
+
+From the review of the Moderate fixes:
+
+- L29 `RunStart` is not in the timeline's `AffectsRender`.
+- L30 `release.yml`'s note links to a branch: use `blob/${{ env.TAG }}`.
+- L31 The recorded path is uncapped and can hold control characters; a path with no file name gives no reason.
+- L32 The wording ".exe modules ... on this system"; the Fluent key check is a substring scan.
+- L33 Test gaps: the after-load test calls `ApplyAfterLayout` itself, `mustDiffer` is dead in `ThemeChangeTests`, no translucent Ratio test.
+- L34 `budgets.md`: the scope of "All budgets met", and row 18.
+- L35 README: "dumps of this size" in the retained sentence; "24-core" against logical cores.
+- L36 Small points in `INSTALL.md`, `DEVELOPER.md:285` and `logging.md`'s warning line.
+- L37 Comments that still say "counted" (with L28).
+- L38 A long job status can clip.
+- L39 After an early stop before the session started, Live shows "what it recorded is kept" until the run ends; the final status and the record are
+  right. Only the low disk check can reach it, with under 1 GB free while the session is starting (solution-architect, confirming M41).
 
 Fixed in passing, since a change or the sweep touched them: L3, L17, L20, L22, L27 (the `.exe` point) and part of L28.
 

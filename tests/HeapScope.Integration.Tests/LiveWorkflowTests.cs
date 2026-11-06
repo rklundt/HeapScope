@@ -117,7 +117,10 @@ public sealed class LiveWorkflowTests
         var capture = new CaptureService(new ProcessDiscovery(), new DumpCapturer(), new SessionLibrary(folder.Path), new JobTracker(TimeProvider.System));
         await using var run = new MonitorService(capture).Start(api.ProcessId, new MonitorOptions(TimeSpan.FromSeconds(1), MonitorRules.None, RecordAllocations: true));
         await api.PostWorkAsync(20, Ct);
-        await Task.Delay(TimeSpan.FromSeconds(2), Ct);
+
+        // Until the session has started there is nothing to stop but the start (MonitorServiceTests), so wait for bytes, not for time.
+        var folderOfRun = run.SessionFolder.ShouldNotBeNull();
+        await WaitUntilAsync(() => new DirectoryInfo(folderOfRun).EnumerateFiles("*.partial").Any(static f => new FileInfo(f.FullName).Length > 0));
         run.Stop();
         await run.Completion;
 

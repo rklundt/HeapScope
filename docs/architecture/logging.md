@@ -47,7 +47,7 @@ references such as "ARCHITECTURE.md 11" still name the right section.
 - **A dump's process name (sprint 3.10)**: the snapshot's identity line says `process {Process} ({Pid}; name: {Source})`, where the
   source is the rule that chose the name: the executable's path the dump records (with the path), else the only .exe, the first of
   several, the first module not named like a library, or unknown, each with why the path was not used. Kept in the cache metadata, so a reopen still says it; a cache written before the
-  rule was kept, by an earlier build or an older version whose rebuild lacked the DAC, says "not recorded".
+  rule was kept, by an earlier build of 3.10, says "not recorded".
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
   sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
   and never the user's filter text (logged by its shape: length and term counts): `Provenance` writes any other text by its length only, and

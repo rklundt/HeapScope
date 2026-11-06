@@ -7,7 +7,7 @@
 - Decision: "a quiet instrument panel".
   - Color: slate neutrals, one indigo accent. Color appears only for selection, the primary action and data. The values
     are the theme files' (`src/HeapScope.UI/Themes/Light.axaml`, `Dark.axaml`), and no view or control states a color
-    (`ThemeTests` scans them): charts and converters read the theme's keys, and follow a theme change. A control's plain
+    (`ThemeTests` scans their code and markup): charts and converters read the theme's keys, and follow a theme change. A control's plain
     fallback only draws if a key is missing, and `Icons.axaml`'s logo keeps its fixed colors. `App.axaml` repeats the accent
     for Fluent's palette, and the theme files repeat tokens under Fluent's own key names; tests hold both to the tokens and
     check those names still exist in Fluent.

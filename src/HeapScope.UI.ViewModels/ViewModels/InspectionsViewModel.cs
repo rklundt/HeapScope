@@ -310,7 +310,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
         }
     }
 
-    private static bool HasObjects(CellRowItem? row) => row is { IsLoaded: true } && TargetOf(row) is not null;
+    // A detector's row with no type or address still has members, as opening it does (3.10 review M26, M32).
+    private bool HasObjects(CellRowItem? row) => row is { IsLoaded: true } && (TargetOf(row) is not null || Selected is { IsDetector: true });
 
     /// <summary>What a row opens: its hidden type, module and scope, or its address alone (ADR-020).</summary>
     public static InspectionTarget? TargetOf(CellRowItem row)

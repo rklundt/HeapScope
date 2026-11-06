@@ -116,7 +116,7 @@ public sealed class SnapshotTests : IClassFixture<StaticCacheDump>, IAsyncDispos
 
         rebuilt.FromCache.ShouldBeFalse();
         rebuilt.ProcessName.ShouldBe("LeakyConsole");
-        rebuilt.Notes.ShouldContain(n => n.StartsWith("The index cache was rebuilt", StringComparison.Ordinal));
+        rebuilt.Notes.ShouldContain(n => n.StartsWith("The index cache was rebuilt: it was written by an older version", StringComparison.Ordinal));
         await _host.RestartAsync(Ct);
         var again = (await _session.StartOpen(_dump, mode: mode).Result).Descriptor;
         again.FromCache.ShouldBeTrue("the rebuilt cache is current");

@@ -29,7 +29,6 @@ using HeapScope.Contracts;
 using HeapScope.Core;
 using HeapScope.Core.Graph;
 using HeapScope.Core.Loading;
-using HeapScope.Loaders.ClrMd;
 using HeapScope.Storage;
 using HeapScope.Worker.Rpc;
 using Microsoft.Extensions.Logging;
@@ -231,7 +230,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             var fingerprint = SnapshotFingerprint.Compute(path);
             var cachePath = locator.GetCachePath(path);
             IndexCacheOpenResult? cached = null;
-            var olderLoader = false;
+            string? rebuildReason = null;
             if (!request.Rebuild)
             {
                 // A full dump about to open from a valid cache loads no DAC now, but its field reader will: only now can
@@ -243,20 +242,14 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
                     _kinds.For(kind).CheckBeforeCacheOpen(path);
                 }
 
-                cached = TryOpenCache(cachePath, fingerprint, forced, notes, out olderLoader, cancellationToken);
-            }
-
-            // A reopen after a worker restart of a snapshot that had to stay on its older cache (below).
-            if (cached is null && olderLoader && request.RequireCache)
-            {
-                cached = TryOpenCache(cachePath, fingerprint, forced, notes, out _, cancellationToken, acceptOlderLoader: true);
+                cached = TryOpenCache(cachePath, fingerprint, forced, out rebuildReason, cancellationToken);
             }
 
             if (cached is null && request.RequireCache)
             {
                 collect = false;
                 throw new SnapshotChangedException(
-                    $"{path} changed since it was opened, or its index cache is gone, so it was not reopened automatically. Open it again to load the dump.");
+                    $"{path} changed since it was opened, or its index cache is gone or out of date, so it was not reopened automatically. Open it again to load the dump.");
             }
 
             collect = cached is null;
@@ -276,32 +269,16 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             }
             else
             {
-                try
-                {
-                    (graph, metadata, mode, writtenCache, identity) = LoadDump(path, cachePath, fingerprint, forced, notes, throttled, cancellationToken);
+                (graph, metadata, mode, writtenCache, identity) = LoadDump(path, cachePath, fingerprint, forced, notes, rebuildReason is not null, throttled, cancellationToken);
 
-                    // LoadDump collected before choosing the mode (and again in the mapped transition).
-                    collect = false;
-                }
-                catch (RuntimeComponentMissingException missing) when (olderLoader)
+                // Only now is it known: "rebuilt" is true only when the load wrote its cache (3.10 review M39).
+                if (rebuildReason is not null)
                 {
-                    // Rebuilding needs the dump's DAC, which may be gone since the cache was written. The older cache is still
-                    // this dump's, so it opens, and says so, rather than a loader update costing the user the dump (3.10 review M14).
-                    var older = TryOpenCache(cachePath, fingerprint, forced, notes, out _, cancellationToken, acceptOlderLoader: true);
-                    if (older is null)
-                    {
-                        throw;
-                    }
-
-                    logger.LogWarning("Index cache {Path} kept from loader version {Old}: rebuilding needs a DAC that is missing ({Reason})", cachePath, older.Metadata!.LoaderVersion, missing.Message);
-                    notes.RemoveAll(static n => n.StartsWith("The index cache was rebuilt", StringComparison.Ordinal));
-                    notes.Add("This snapshot uses an index cache from an older version of HeapScope, because rebuilding it needs a runtime component that is missing. What that version recorded differently stays as it was: the release notes say what changed. " + missing.Message);
-                    graph = older.Graph!;
-                    metadata = older.Metadata!;
-                    mode = older.Mode;
-                    identity = older.Identity;
-                    fromCache = true;
+                    notes.Add((writtenCache is not null ? "The index cache was rebuilt: " : "The index cache was not used: ") + rebuildReason);
                 }
+
+                // LoadDump collected before choosing the mode (and again in the mapped transition).
+                collect = false;
             }
 
             ISnapshot snapshot;
@@ -430,9 +407,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         }
     }
 
-    private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, List<string> notes, out bool olderLoader, CancellationToken cancellationToken, bool acceptOlderLoader = false)
+    /// <summary>The usable cache, or null; <paramref name="rebuildReason"/> says why one that exists was not used.</summary>
+    private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, out string? rebuildReason, CancellationToken cancellationToken)
     {
-        olderLoader = false;
+        rebuildReason = null;
         var required = IndexCacheReader.GetInMemoryBytes(cachePath, _signer, out var unusable);
         if (required is null)
         {
@@ -440,7 +418,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             if (unusable is { Reason: not IndexCacheInvalidReason.Missing })
             {
                 logger.LogInformation("Index cache {Path} not used: {Reason} ({Detail})", cachePath, unusable.Reason, unusable.Detail);
-                notes.Add($"The index cache was rebuilt: {unusable.Detail}");
+                rebuildReason = unusable.Detail;
             }
 
             return null;
@@ -448,13 +426,12 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
 
         var mode = MemoryModeSelector.Select(required.Value, MemoryBudget.Current(forced: forced));
         var result = IndexCacheReader.Open(cachePath, _signer, fingerprint, mode, cancellationToken);
-        if (result.Success && !acceptOlderLoader && result.Metadata!.LoaderVersion < _kinds.For(result.Metadata.Info.Kind).LoaderVersion)
+        if (result.Success && result.Metadata!.LoaderVersion < _kinds.For(result.Metadata.Info.Kind).LoaderVersion)
         {
             // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
-            olderLoader = true;
             result.Graph!.Dispose();
             logger.LogInformation("Index cache {Path} not used: loader version {Old}, current {New}", cachePath, result.Metadata.LoaderVersion, _kinds.For(result.Metadata.Info.Kind).LoaderVersion);
-            notes.Add("The index cache was rebuilt: it was written by an older version of HeapScope, so this open took longer. The release notes say what changed.");
+            rebuildReason = "it was written by an older version of HeapScope, so this open took longer. The release notes say what changed.";
             return null;
         }
 
@@ -466,7 +443,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         if (result.Reason != IndexCacheInvalidReason.Missing)
         {
             logger.LogInformation("Index cache {Path} not used: {Reason} ({Detail})", cachePath, result.Reason, result.Detail);
-            notes.Add($"The index cache was rebuilt: {result.Detail}");
+            rebuildReason = result.Detail;
         }
 
         return null;
@@ -478,11 +455,12 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         SnapshotFingerprint fingerprint,
         MemoryMode? forced,
         List<string> notes,
+        bool rebuilding,
         Rpc.ThrottledProgress<JobProgress> progress,
         CancellationToken cancellationToken)
     {
         var loader = LoaderForTests?.Invoke(path) ?? _kinds.ForFile(path).CreateLoader();
-        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress, notes.Exists(static n => n.StartsWith("The index cache was rebuilt", StringComparison.Ordinal))), cancellationToken);
+        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress, rebuilding), cancellationToken);
         HeapGraph? graph = loaded.Graph;
         var diagnostics = loaded.Diagnostics;
         var metadata = new IndexCacheMetadata(
