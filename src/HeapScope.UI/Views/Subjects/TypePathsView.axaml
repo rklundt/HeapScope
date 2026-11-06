@@ -36,13 +36,17 @@
                 ToolTip.Tip="Groups the objects by how they are retained, each group with its most different paths." />
         <CheckBox x:Name="DiagramToggle" Content="Diagram" IsChecked="{Binding ShowDiagram, Mode=TwoWay}" VerticalAlignment="Center"
                   ToolTip.Tip="The paths merged into one graph: roots at the top, the objects at the bottom." />
+        <CheckBox Content="Fit to width" IsChecked="{Binding FitDiagram, Mode=TwoWay}" IsVisible="{Binding ShowDiagram}" VerticalAlignment="Center"
+                  ToolTip.Tip="Scale the diagram down toward the page's width, as far as its labels stay readable." />
         <CheckBox Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
       </StackPanel>
       <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
-    <ScrollViewer IsVisible="{Binding ShowDiagram}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-      <ctl:KeyPathDiagramView x:Name="PathsDiagram" Diagram="{Binding Diagram}" AutomationProperties.Name="Key retention paths diagram" />
+    <!-- One cell for both: docked beside a last child, the viewer took its content's width, and a fitted diagram could only shrink. -->
+    <Panel>
+    <ScrollViewer x:Name="PathsDiagramViewer" IsVisible="{Binding ShowDiagram}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+      <ctl:KeyPathDiagramView x:Name="PathsDiagram" Diagram="{Binding Diagram}" FitWidth="{Binding FitDiagram}" AutomationProperties.Name="Key retention paths diagram" />
     </ScrollViewer>
     <DataGrid x:Name="TypePathsGrid" IsVisible="{Binding !ShowDiagram}" ctl:GridExports.ExportName="RetentionPaths" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
@@ -50,9 +54,10 @@
       <DataGrid.Columns>
         <DataGridTextColumn Header="Objects" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes" x:DataType="vm:KeyPathItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
-        <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" />
-        <DataGridTextColumn Header="Path from the root" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
+        <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />
+        <DataGridTextColumn Header="Path from the root" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" MinWidth="240" />
       </DataGrid.Columns>
     </DataGrid>
+    </Panel>
   </DockPanel>
 </UserControl>

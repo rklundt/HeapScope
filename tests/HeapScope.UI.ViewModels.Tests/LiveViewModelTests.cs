@@ -42,12 +42,40 @@ public sealed class LiveViewModelTests : IAsyncDisposable
     private readonly FakeCaptureService _capture;
     private readonly FakeUserInteraction _interaction = new();
     private readonly LiveViewModel _live;
+    private readonly List<(TimeSpan Wait, TaskCompletionSource Done)> _delays = [];
 
     public LiveViewModelTests()
     {
         _capture = new FakeCaptureService(_root, new JobTracker(TimeProvider.System));
         _capture.Processes.Add(new ProcessEntry(42, "app", null, "10.0.0", ProcessElevation.NotElevated, false, null, null));
-        _live = new LiveViewModel(new MonitorService(_capture, _feed), _capture, new ImmediateUiDispatcher(), interaction: _interaction);
+        _live = new LiveViewModel(new MonitorService(_capture, _feed), _capture, new ImmediateUiDispatcher(), interaction: _interaction)
+        {
+            NoSampleDelay = wait =>
+            {
+                var done = new TaskCompletionSource();
+                _delays.Add((wait, done));
+                return done.Task;
+            },
+        };
+    }
+
+    private async Task StartLiveAsync()
+    {
+        if (_live.SelectedProcess is null)
+        {
+            await _live.RefreshCommand.ExecuteAsync(null);
+            _live.SelectedProcess = _live.Processes.Single();
+        }
+
+        await _live.StartCommand.ExecuteAsync(null);
+        _live.IsRunning.ShouldBeTrue();
+    }
+
+    private async Task StopLiveAsync()
+    {
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
     }
 
     [Fact]
@@ -142,6 +170,136 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         _live.StopCommand.Execute(null);
 
         _capture.Kinds.ShouldBe([SnapshotKindDto.GcDump]);
+    }
+
+    /// <summary>A refused run lasts milliseconds: what stays is a warning that says why, and no "choose a process" under it.</summary>
+    [Fact]
+    public async Task A_refused_run_leaves_a_warning_that_says_why_and_no_prompt()
+    {
+        await using var live = new LiveViewModel(new MonitorService(_capture, new RefusingSource()), _capture, new ImmediateUiDispatcher(), interaction: _interaction);
+        await live.RefreshCommand.ExecuteAsync(null);
+        live.SelectedProcess = live.Processes.Single();
+
+        await live.StartCommand.ExecuteAsync(null);
+        await WaitUntilAsync(() => !live.IsRunning);
+
+        live.RunWarning.ShouldNotBeNull().ShouldContain("cannot monitor it");
+        live.RunWarning!.ShouldContain("Run HeapScope as administrator");
+        live.RunWarning!.ShouldNotContain("dump");
+        live.Status.ShouldBeNull("the warning says it; a second line would repeat it");
+        live.ShowEmptyState.ShouldBeFalse();
+    }
+
+    /// <summary>The trace is refused too then, and "the run goes on without it" would be false under a run that was refused.</summary>
+    [Fact]
+    public async Task A_refused_run_that_also_asked_for_a_trace_shows_only_the_refusal()
+    {
+        static Task<TraceResult> Refused(int pid, string path, CancellationToken ct) =>
+            Task.FromException<TraceResult>(new CaptureFailedException(CaptureFailure.NeedsAdministrator, "cannot record its allocations", null));
+
+        await using var live = new LiveViewModel(new MonitorService(_capture, new RefusingSource(), allocations: Refused), _capture, new ImmediateUiDispatcher(), interaction: _interaction);
+        await live.RefreshCommand.ExecuteAsync(null);
+        live.SelectedProcess = live.Processes.Single();
+        live.RecordAllocations = true;
+
+        await live.StartCommand.ExecuteAsync(null);
+        await WaitUntilAsync(() => !live.IsRunning);
+
+        live.RunWarning.ShouldNotBeNull().ShouldContain("cannot monitor it");
+        live.Status.ShouldBeNull();
+    }
+
+    /// <summary>A process can turn off the events the counters come from: the page says so instead of waiting in silence.</summary>
+    [Fact]
+    public async Task A_run_with_no_samples_says_so_and_the_first_sample_clears_it()
+    {
+        _live.EmptyText.ShouldBe(PlatformHints.LiveEmpty);
+        var raised = new List<string?>();
+        _live.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        await StartLiveAsync();
+        _live.EmptyText.ShouldBe("Waiting for the first sample.");
+        _live.ShowEmptyState.ShouldBeTrue();
+        raised.ShouldContain(nameof(LiveViewModel.EmptyText), "or the page would keep saying choose a process");
+        raised.Clear();
+        _delays.ShouldHaveSingleItem().Wait.ShouldBe(TimeSpan.FromSeconds(10));
+        _live.RunWarning.ShouldBeNull();
+        _delays[0].Done.SetResult();
+
+        _live.RunWarning!.ShouldStartWith("No samples from app after 10 s");
+        _live.RunWarning!.ShouldContain("Get snapshot still works");
+        raised.ShouldContain(nameof(LiveViewModel.ShowEmptyState));
+        _live.ShowEmptyState.ShouldBeFalse();
+        _live.IsRunning.ShouldBeTrue();
+
+        await _feed.SendAsync(100 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.RunWarning is null);
+        _live.HasSamples.ShouldBeTrue();
+
+        await StopLiveAsync();
+        _live.EmptyText.ShouldBe(PlatformHints.LiveEmpty);
+    }
+
+    [Fact]
+    public async Task A_long_interval_waits_three_intervals_before_it_warns()
+    {
+        _live.IntervalSeconds = 20;
+
+        await StartLiveAsync();
+
+        _delays.ShouldHaveSingleItem().Wait.ShouldBe(TimeSpan.FromSeconds(60));
+        await StopLiveAsync();
+    }
+
+    /// <summary>"Nothing to chart yet" and "Get snapshot still works" are about a run still going.</summary>
+    [Fact]
+    public async Task Stopping_ends_the_no_sample_warning()
+    {
+        await StartLiveAsync();
+        _delays[0].Done.SetResult();
+        _live.RunWarning.ShouldNotBeNull();
+
+        await StopLiveAsync();
+
+        _live.RunWarning.ShouldBeNull();
+        _live.Status!.ShouldStartWith("Stopped after 0 samples");
+        _live.ShowEmptyState.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_wait_of_a_run_that_ended_warns_about_nothing()
+    {
+        await StartLiveAsync();
+        await StopLiveAsync();
+        _delays[0].Done.SetResult();
+        _live.RunWarning.ShouldBeNull("the run stopped");
+
+        await StartLiveAsync();
+        _delays.Count.ShouldBe(2);
+        await StopLiveAsync();
+        await StartLiveAsync();
+        _delays[1].Done.SetResult();
+        _live.RunWarning.ShouldBeNull("that wait was another run's");
+
+        _delays[2].Done.SetResult();
+        _live.RunWarning.ShouldNotBeNull("this run's own wait");
+        await StopLiveAsync();
+    }
+
+    [Fact]
+    public async Task A_press_that_cannot_start_clears_the_last_warning()
+    {
+        await StartLiveAsync();
+        _delays[0].Done.SetResult();
+        _live.RunWarning.ShouldNotBeNull();
+        await StopLiveAsync();
+        _live.RunWarning = "From the last run.";
+        _live.Above = "lots";
+
+        await _live.StartCommand.ExecuteAsync(null);
+
+        _live.RunWarning.ShouldBeNull();
+        _live.Status!.ShouldStartWith("Above:");
     }
 
     [Fact]
@@ -293,6 +451,12 @@ public sealed class LiveViewModelTests : IAsyncDisposable
         }
     }
 
+    private sealed class RefusingSource : ICounterSource
+    {
+        public Task RunAsync(int processId, TimeSpan interval, Action<HeapSample> onSample, CancellationToken cancellationToken) =>
+            Task.FromException(global::HeapScope.Capture.ElevationRequiredException.ForMonitoring(processId, "app"));
+    }
+
     /// <summary>Samples sent by the test, handed out on the source's own thread like EventPipe's.</summary>
     private sealed class FeedSource : ICounterSource
     {
@@ -323,5 +487,67 @@ public sealed class LiveViewModelTests : IAsyncDisposable
                 // Stopped.
             }
         }
+    }
+
+    [Theory]
+    [InlineData(941L * 1024 * 1024, new long[] { 200, 400, 600, 800 })]
+    [InlineData(50L * 1024 * 1024, new long[] { 20, 40 })]
+    [InlineData(3L * 1024 * 1024, new long[] { 1, 2, 3 })]
+    [InlineData(0L, new long[0])]
+    public void The_chart_has_a_few_round_gridlines(long maxBytes, long[] megabytes) =>
+        TimelineLayout.ByteTicks(maxBytes).ShouldBe(megabytes.Select(m => m * 1024 * 1024));
+
+    [Fact]
+    public async Task The_empty_state_hides_when_samples_arrive_and_returns_when_a_new_run_clears_them()
+    {
+        var raised = new List<string?>();
+        _live.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        _live.HasSamples.ShouldBeFalse();
+        await _live.RefreshCommand.ExecuteAsync(null);
+        _live.SelectedProcess = _live.Processes.Single();
+
+        await _live.StartCommand.ExecuteAsync(null);
+        await _feed.SendAsync(100 * Mb, timeInGc: 2);
+        await WaitUntilAsync(() => _live.Samples.Count == 1);
+
+        _live.HasSamples.ShouldBeTrue();
+        raised.ShouldContain(nameof(LiveViewModel.HasSamples), "a list does not notify, so this must");
+        _live.ChartStart.ShouldBe(_live.Samples[0].At);
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+
+        await _live.StartCommand.ExecuteAsync(null);
+        _live.HasSamples.ShouldBeFalse("a new run starts empty");
+        _live.ChartStart.ShouldBeNull();
+        _live.StopCommand.Execute(null);
+        await _live.Run!.Completion;
+        await WaitUntilAsync(() => !_live.IsRunning);
+    }
+
+    [Fact]
+    public void The_time_axis_counts_from_the_run_s_start_once_the_window_has_slid()
+    {
+        var at = new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.Zero);
+        HeapSample Sample(int seconds) => new(at.AddSeconds(seconds), 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        var ticks = TimelineLayout.TimeTicks([Sample(630), Sample(930)], 600, at);
+
+        ticks.Select(t => t.Label).ShouldBe(["11:00", "12:00", "13:00", "14:00", "15:00"]);
+        ticks[0].X.ShouldBe(60, "30 s into the window");
+        TimelineLayout.TimeTicks([Sample(0), Sample(300)], 600, at).Select(t => t.Label).First().ShouldBe("0:00");
+    }
+
+    [Fact]
+    public void The_time_axis_labels_elapsed_time_at_round_steps()
+    {
+        var at = new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.Zero);
+        HeapSample Sample(int seconds) => new(at.AddSeconds(seconds), 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        var ticks = TimelineLayout.TimeTicks([Sample(0), Sample(300)], 600);
+        ticks.Select(t => t.Label).ShouldBe(["0:00", "1:00", "2:00", "3:00", "4:00", "5:00"]);
+        ticks[1].X.ShouldBe(120);
+        TimelineLayout.TimeTicks([Sample(0), Sample(7200)], 600).Select(t => t.Label).ShouldContain("1:00:00");
+        TimelineLayout.TimeTicks([Sample(0)], 600).ShouldBeEmpty();
     }
 }

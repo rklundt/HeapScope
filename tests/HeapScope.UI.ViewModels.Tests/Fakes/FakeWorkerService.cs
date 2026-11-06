@@ -42,6 +42,8 @@ internal sealed partial class FakeWorkerService : IWorkerService
     public void CompleteSynthetic(int objects) => _synthetic.TrySetResult(new SyntheticJobResult(
         objects, objects * 3, (ulong)objects * 48, objects * 34L, 0.5, new ResultSetInfo(Guid.NewGuid(), 1, [])));
 
+    public void FailSynthetic(Exception error) => _synthetic.TrySetException(error);
+
     public List<OpenSnapshotRequest> Opened { get; } = [];
 
     public List<Guid> Closed { get; } = [];

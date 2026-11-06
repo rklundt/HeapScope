@@ -38,6 +38,8 @@ trap 'rm -rf "$work"' EXIT
 "$cli" paths "$dump" --type Fixtures.Leaks.StaticCacheEntry --format json > "$work/paths.json"
 
 grep -q "^Process: .*\.NET [1-9][0-9]*\." "$work/open.txt" || { echo "No runtime version in the open output"; exit 1; }
+# fixture-dump.sh runs the fixture through the dotnet host, on every system. What ProcessNameOf reads from a real core file.
+grep -Eq "^Process: +dotnet \(pid" "$work/open.txt" || { echo "Known answer failed: the process is dotnet"; exit 1; }
 if grep -q "Note: Parts of the managed heap could not be read" "$work/open.txt"; then echo "The dump was read as incomplete"; exit 1; fi
 for leak in StaticCacheEntry SessionRecord LeakySubscriber UndisposedResource CapturedState; do
   jq -e --arg t "Fixtures.Leaks.$leak" '[.Rows[] | select(.Name == $t)] | length == 1 and .[0].Objects == 2000' "$work/summary.json" > /dev/null \

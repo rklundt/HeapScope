@@ -228,9 +228,10 @@ public sealed partial class InspectionsViewModel : ObservableObject
             return;
         }
 
-        // A leak detector's row of a type opens exactly the objects it counted, as a set (sprint 3.1, 2.6 review M24); a
-        // row that names one object (a growing collection) still opens that object (the 3.1 review).
-        if (Selected is { IsDetector: true } && TargetOf(row) is { TypeName: not null } && SetOf(row) is { } set)
+        // A leak detector's row of a type opens the objects behind it, as a set (sprint 3.1, 2.6 review M24), and so does one
+        // with no type or address (a timer's static method, the finalizer backlog's other types: 3.10 review M26). A row that
+        // names one object (a growing collection) still opens that object (the 3.1 review).
+        if (Selected is { IsDetector: true } && TargetOf(row) is null or { TypeName: not null } && SetOf(row) is { } set)
         {
             _navigator?.Navigate(NavigationTarget.ObjectSet(snapshot, set.Query, set.Title));
             return;
@@ -309,7 +310,8 @@ public sealed partial class InspectionsViewModel : ObservableObject
         }
     }
 
-    private static bool HasObjects(CellRowItem? row) => row is { IsLoaded: true } && TargetOf(row) is not null;
+    // A detector's row with no type or address still has members, as opening it does (3.10 review M26, M32).
+    private bool HasObjects(CellRowItem? row) => row is { IsLoaded: true } && (TargetOf(row) is not null || Selected is { IsDetector: true });
 
     /// <summary>What a row opens: its hidden type, module and scope, or its address alone (ADR-020).</summary>
     public static InspectionTarget? TargetOf(CellRowItem row)

@@ -57,6 +57,35 @@ public sealed class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_failed_job_keeps_its_whole_reason_apart_from_its_status()
+    {
+        var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
+        var row = _shell.Jobs.ShouldHaveSingleItem();
+        row.Failure.ShouldBeNull();
+
+        _worker.Service.FailSynthetic(new InvalidOperationException("It could not be read. Next step: install the runtime."));
+        await Should.ThrowAsync<InvalidOperationException>(run);
+
+        row.StatusText.ShouldBe("Failed");
+        row.Failure!.ShouldEndWith("Next step: install the runtime.");
+    }
+
+    [Theory]
+    [InlineData(true, "Processes page", "Start", "Record allocations")]
+    [InlineData(false, "dotnet-dump", "needs Windows", "needs Windows")]
+    public void Empty_pages_name_a_next_step_this_system_has(bool canCapture, string snapshot, string live, string allocations)
+    {
+        PlatformHints.SnapshotEmptyOn(canCapture).ShouldContain(snapshot);
+        PlatformHints.LiveEmptyOn(canCapture).ShouldContain(live);
+        PlatformHints.AllocationsEmptyOn(canCapture).ShouldContain(allocations);
+        if (!canCapture)
+        {
+            PlatformHints.SnapshotEmptyOn(canCapture).ShouldNotContain("Processes page");
+            PlatformHints.AllocationsEmptyOn(canCapture).ShouldNotContain("Processes page");
+        }
+    }
+
+    [Fact]
     public async Task Starting_a_job_adds_it_to_the_jobs_panel_and_progress_updates_it()
     {
         var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
@@ -76,6 +105,55 @@ public sealed class ShellViewModelTests : IDisposable
         _shell.Home.LastResult!.ShouldContain("1,000 objects");
         _worker.Service.Released.ShouldHaveSingleItem();
         _shell.JobsPage.Jobs.ShouldBeSameAs(_shell.Jobs);
+    }
+
+    [Fact]
+    public void Home_s_start_actions_show_their_pages_and_About_holds_the_diagnostics()
+    {
+        _shell.ShowProcessesCommand.Execute(null);
+        _shell.SelectedItem.Title.ShouldBe("Processes");
+        // This shell has no Live page, so the action has nowhere to go.
+        _shell.ShowLiveCommand.CanExecute(null).ShouldBeFalse();
+        _shell.About.Diagnostics.ShouldBeSameAs(_shell.Home);
+    }
+
+    [Fact]
+    public async Task The_jobs_panel_shows_only_while_a_job_runs_and_finished_jobs_move_to_the_status_line()
+    {
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+        _shell.FinishedJobsText.ShouldBeEmpty();
+
+        var run = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
+        _shell.IsJobsPanelVisible.ShouldBeTrue();
+        _shell.Jobs.ShouldHaveSingleItem().IsRunning.ShouldBeTrue();
+        _shell.FinishedJobsText.ShouldBeEmpty();
+
+        // The Jobs page lists the jobs itself, so the panel steps aside there.
+        _shell.ShowJobsCommand.Execute(null);
+        _shell.SelectedItem.Page.ShouldBeSameAs(_shell.JobsPage);
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+        _shell.SelectedItem = _shell.NavigationItems[0];
+        _shell.IsJobsPanelVisible.ShouldBeTrue();
+
+        _worker.Service.CompleteSynthetic(1000);
+        await run;
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+        _shell.FinishedJobsText.ShouldBe("1 job finished");
+    }
+
+    [Fact]
+    public async Task The_status_line_says_how_many_jobs_failed()
+    {
+        var failed = _shell.Home.RunSyntheticCommand.ExecuteAsync(null);
+        _worker.Service.FailSynthetic(new WorkerCrashedException("The worker stopped."));
+        await failed;
+
+        _shell.FinishedJobsText.ShouldBe("1 job finished, 1 failed");
+        _shell.Jobs.ShouldHaveSingleItem().StatusIcon.ShouldBe("Failed");
+        _shell.IsJobsPanelVisible.ShouldBeFalse();
+
+        _shell.JobsPage.ClearFinishedCommand.Execute(null);
+        _shell.FinishedJobsText.ShouldBeEmpty();
     }
 
     [Fact]

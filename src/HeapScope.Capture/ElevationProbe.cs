@@ -101,7 +101,7 @@ public sealed partial class WindowsElevationProbe : IElevationProbe
     private static partial bool CloseHandle(IntPtr handle);
 }
 
-/// <summary>A dump needs an elevated HeapScope (ADR-014).</summary>
+/// <summary>The target needs an elevated HeapScope (ADR-014), for a dump, for monitoring or for a trace.</summary>
 public sealed class ElevationRequiredException : Exception
 {
     public ElevationRequiredException()
@@ -118,10 +118,21 @@ public sealed class ElevationRequiredException : Exception
     {
     }
 
-    public static ElevationRequiredException For(int processId, string? name, Exception? inner = null)
+    public static ElevationRequiredException For(int processId, string? name, Exception? inner = null) =>
+        Refusal(processId, name, "dump it", "capture again", inner);
+
+    /// <summary>The same refusal for watching a process's counters, where nothing is dumped or captured.</summary>
+    public static ElevationRequiredException ForMonitoring(int processId, string? name, Exception? inner = null) =>
+        Refusal(processId, name, "monitor it", "start again", inner);
+
+    /// <summary>The same refusal for an allocation trace.</summary>
+    public static ElevationRequiredException ForTrace(int processId, string? name, Exception? inner = null) =>
+        Refusal(processId, name, "record its allocations", "record again", inner);
+
+    private static ElevationRequiredException Refusal(int processId, string? name, string cannot, string again, Exception? inner)
     {
-        var message = $"{name ?? "The process"} (pid {processId}) runs elevated or as another user, so HeapScope cannot dump it. " +
-            "Run HeapScope as administrator (right-click, Run as administrator) and capture again.";
+        var message = $"{name ?? "The process"} (pid {processId}) runs elevated or as another user, so HeapScope cannot {cannot}. " +
+            $"Run HeapScope as administrator (right-click, Run as administrator) and {again}.";
         return inner is null ? new ElevationRequiredException(message) : new ElevationRequiredException(message, inner);
     }
 }

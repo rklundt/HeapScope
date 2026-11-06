@@ -25,6 +25,20 @@
 <!-- HeapScope's styles over the Fluent theme (sprint 2.3.6): the theme colors on standard controls, number cells, tiles. -->
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <!-- Fluent's own sizes (ADR-040): the selection is opaque, rows and tabs are compact. -->
+    <x:Double x:Key="DataGridRowSelectedBackgroundOpacity">1</x:Double>
+    <x:Double x:Key="DataGridRowSelectedHoveredBackgroundOpacity">1</x:Double>
+    <x:Double x:Key="DataGridRowSelectedUnfocusedBackgroundOpacity">1</x:Double>
+    <x:Double x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundOpacity">1</x:Double>
+    <x:Double x:Key="DataGridSortIconMinWidth">12</x:Double>
+    <x:Double x:Key="TabItemHeaderFontSize">13</x:Double>
+    <x:Double x:Key="TabItemMinHeight">32</x:Double>
+    <x:Double x:Key="TreeViewItemMinHeight">22</x:Double>
+    <x:Double x:Key="ExpanderMinHeight">32</x:Double>
+    <Thickness x:Key="ListBoxItemPadding">8,4</Thickness>
+  </Styles.Resources>
+
   <Style Selector="Window">
     <Setter Property="Background" Value="{DynamicResource Brush.Window}" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
@@ -45,42 +59,75 @@
     <Setter Property="SelectionMode" Value="Single" />
     <Setter Property="CanUserReorderColumns" Value="False" />
     <Setter Property="RowHeight" Value="22" />
+    <Setter Property="CornerRadius" Value="6" />
   </Style>
   <Style Selector="DataGridRow:nth-child(2n)">
     <Setter Property="Background" Value="{DynamicResource Brush.AltRow}" />
   </Style>
   <Style Selector="DataGridColumnHeader">
     <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.Header}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Padding" Value="6,3" />
     <Setter Property="MinHeight" Value="26" />
   </Style>
   <Style Selector="DataGridCell">
+    <Setter Property="FontSize" Value="13" />
     <Setter Property="MinHeight" Value="22" />
     <Setter Property="Padding" Value="4,0" />
+  </Style>
+  <!-- A text cell lines up with its header. Fluent's own 12 px margins would also clip numbers in a narrow column. -->
+  <Style Selector="DataGridCell > TextBlock">
+    <Setter Property="Margin" Value="2,0" />
   </Style>
   <!-- Numbers are right aligned (DataGridColumn.CellStyleClasses="number"). -->
   <Style Selector="DataGridCell.number">
     <Setter Property="HorizontalContentAlignment" Value="Right" />
+    <Setter Property="FontFeatures" Value="+tnum" />
   </Style>
   <Style Selector="DataGridCell.address">
     <Setter Property="FontFamily" Value="Consolas, Menlo, DejaVu Sans Mono, monospace" />
+    <Setter Property="FontSize" Value="12" />
   </Style>
 
   <Style Selector="TextBlock.subtle">
     <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
   </Style>
+  <Style Selector="TextBlock.growth">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Growth}" />
+  </Style>
+  <Style Selector="TextBlock.shrink">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Shrink}" />
+  </Style>
   <Style Selector="TextBlock.number">
+    <Setter Property="FontFeatures" Value="+tnum" />
     <Setter Property="HorizontalAlignment" Value="Right" />
     <Setter Property="Margin" Value="4,0" />
   </Style>
 
+  <!-- The last value of a stat strip needs no divider after it. -->
+  <Style Selector="WrapPanel > Border.tile:nth-last-child(1)">
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <!-- A page's title: one size and weight everywhere. -->
+  <Style Selector="TextBlock.pageTitle">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LineHeight" Value="28" />
+  </Style>
+  <!-- The breadcrumb: the first step has no separator before it. -->
+  <Style Selector="ItemsControl.trail ContentPresenter:nth-child(1) TextBlock.separator">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <!-- The stat strip: a label over its value, thin dividers, no boxes. -->
   <Style Selector="Border.tile">
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="4" />
-    <Setter Property="Padding" Value="12,8" />
-    <Setter Property="Margin" Value="0,0,8,8" />
-    <Setter Property="MinWidth" Value="130" />
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
+    <Setter Property="Padding" Value="0,0,18,0" />
+    <Setter Property="Margin" Value="0,0,18,8" />
   </Style>
   <Style Selector="Border.note">
     <Setter Property="Background" Value="{DynamicResource Brush.Note.Background}" />
@@ -100,9 +147,136 @@
   </Style>
 
   <Style Selector="Button">
-    <Setter Property="Padding" Value="10,3" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.AltRow}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+  </Style>
+  <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.Selection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+  </Style>
+  <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+  </Style>
+  <!-- The one main action of a page. -->
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource Brush.Accent}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.OnAccent}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.Accent}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.OnAccent}" />
+    <Setter Property="Opacity" Value="0.9" />
+  </Style>
+  <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.Accent}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.OnAccent}" />
+    <Setter Property="Opacity" Value="0.8" />
+  </Style>
+  <!-- A button inside a row or a status line. -->
+  <Style Selector="Button.compact">
+    <Setter Property="MinHeight" Value="20" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <!-- The close button on a rail's row: quiet until the row is hovered, selected or the button has the focus. -->
+  <Style Selector="Button.dismiss">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="3" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover Button.dismiss">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="ListBoxItem:selected Button.dismiss">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Button.dismiss:focus">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <!-- A borderless button that reads as a link (the status line's finished jobs). -->
+  <Style Selector="Button.link">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
   </Style>
   <Style Selector="TextBox">
     <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,3" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,3" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <Style Selector="NumericUpDown">
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+
+  <!-- Tabs: body size, one weight up when selected, an accent pipe. -->
+  <Style Selector="TabItem">
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Padding" Value="0,0,20,0" />
+  </Style>
+  <Style Selector="TabItem:selected">
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- Selection is a quiet tint, so the text on it stays readable. -->
+  <Style Selector="ListBox">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBoxItem">
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.AltRow}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.Selection}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Brush.Selection}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+  </Style>
+  <!-- The sidebar: the current page also has an accent bar, so it shows without relying on the tint. -->
+  <Style Selector="ListBox.nav ListBoxItem">
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="Margin" Value="6,1" />
+  </Style>
+  <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent}" />
+    <Setter Property="BorderThickness" Value="3,0,0,0" />
+  </Style>
+  <Style Selector="ProgressBar">
+    <Setter Property="CornerRadius" Value="3" />
   </Style>
 </Styles>

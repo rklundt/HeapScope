@@ -35,7 +35,7 @@
       <Button DockPanel.Dock="Right" Content="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" VerticalAlignment="Top"
               ToolTip.Tip="What this object alone keeps alive, and what keeps it alive, on the Retainers tab" />
       <!-- Sprint 2.7: the Snapshots page holds the bookmarks of every open snapshot. -->
-      <Button x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
+      <Button ctl:ButtonIcon.Icon="Bookmark" x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
               Command="{Binding $parent[pages:SnapshotsPage].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
               ToolTip.Tip="Mark this object, or remove its mark (Ctrl+D or Cmd+D). Bookmarks are listed on the left and kept for the next time the snapshot is opened." />
       <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
@@ -80,7 +80,7 @@
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Field" x:DataType="vm:ReferenceRowItem" Binding="{Binding Field}" Width="140" />
                 <DataGridTextColumn Header="Address" x:DataType="vm:ReferenceRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
-                <DataGridTextColumn Header="Type" x:DataType="vm:ReferenceRowItem" Binding="{Binding Type}" Width="*" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:ReferenceRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferenceRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
               </DataGrid.Columns>
             </DataGrid>
@@ -96,7 +96,7 @@
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Field" x:DataType="vm:ReferrerRowItem" Binding="{Binding Field}" Width="140" />
                 <DataGridTextColumn Header="Address" x:DataType="vm:ReferrerRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
-                <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Refs" x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
               </DataGrid.Columns>
@@ -123,8 +123,8 @@
                       ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Roots" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
-                <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" />
-                <DataGridTextColumn Header="Path" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" />
+                <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />
+                <DataGridTextColumn Header="Path" x:DataType="vm:KeyPathItem" Binding="{Binding PathText}" Width="2*" MinWidth="240" />
               </DataGrid.Columns>
             </DataGrid>
             <TreeView x:Name="RetentionTree" ItemsSource="{Binding RetentionTree}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">

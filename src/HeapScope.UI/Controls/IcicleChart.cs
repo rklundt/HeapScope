@@ -55,6 +55,7 @@ public sealed class IcicleChart : Control
         AvaloniaProperty.Register<IcicleChart, double>(nameof(RowHeight), 22);
 
     private IReadOnlyList<IcicleBar> _bars = [];
+    private IcicleSegmentDto? _hovered;
 
     static IcicleChart()
     {
@@ -64,6 +65,7 @@ public sealed class IcicleChart : Control
 
     public IcicleChart()
     {
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
         ClipToBounds = true;
         Focusable = true;
     }
@@ -103,6 +105,26 @@ public sealed class IcicleChart : Control
     protected override Size MeasureOverride(Size availableSize) =>
         new(double.IsInfinity(availableSize.Width) ? 0 : availableSize.Width, IcicleGeometry.Height(Segments, RowHeight));
 
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        base.OnPointerMoved(e);
+        var point = e.GetPosition(this);
+        var segment = IcicleGeometry.HitTest(_bars, point.X, point.Y);
+        if (!ReferenceEquals(segment, _hovered))
+        {
+            _hovered = segment;
+            ToolTip.SetTip(this, segment is null ? null : IcicleGeometry.Describe(segment, Total));
+        }
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        _hovered = null;
+        ToolTip.SetTip(this, null);
+    }
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
@@ -136,18 +158,20 @@ public sealed class IcicleChart : Control
         var bars = new[] { Brush("Icicle.Bar1"), Brush("Icicle.Bar2") };
         var path = Brush("Icicle.Path") ?? Brushes.Orange;
         var text = Brush("Brush.Text") ?? Brushes.Black;
+        var pathText = Brush("Icicle.PathText") ?? Brushes.Black;
         var border = new Pen(Brush("Brush.Surface") ?? Brushes.White, 1);
         var selected = SelectedSegment;
         foreach (var bar in _bars)
         {
             var rect = new Rect(bar.X, bar.Y, bar.Width, bar.Height - 1);
-            var fill = IcicleGeometry.IsOnPath(bar.Segment, selected) ? path : bars[bar.Segment.Level % 2] ?? Brushes.LightBlue;
+            var onPath = IcicleGeometry.IsOnPath(bar.Segment, selected);
+            var fill = onPath ? path : bars[bar.Segment.Level % 2] ?? Brushes.LightBlue;
             context.DrawRectangle(fill, border, rect);
             if (bar.Width >= 40)
             {
                 var label = new FormattedText(
                     string.Create(CultureInfo.CurrentCulture, $"{bar.Segment.Name} ({Format.Bytes(bar.Segment.Width)})"),
-                    CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, text)
+                    CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, onPath ? pathText : text)
                 {
                     MaxTextWidth = Math.Max(1, bar.Width - 6),
                     MaxLineCount = 1,

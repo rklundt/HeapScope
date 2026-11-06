@@ -391,6 +391,31 @@ public sealed class ViewTests(UiSession ui) : IDisposable
         });
     }
 
+    /// <summary>A refused run lasts milliseconds: the page must keep saying why, with no prompt to choose a process under it.</summary>
+    [Fact]
+    public async Task The_live_page_shows_a_warning_in_place_of_the_empty_prompt()
+    {
+        await ui.RunAsync(() =>
+        {
+            var capture = new FakeCaptureService(_folder, new JobTracker(TimeProvider.System));
+            var live = new LiveViewModel(new MonitorService(capture, new SyntheticCounterSource(0, perSecond: 1)), capture, ImmediateUiDispatcher.Instance);
+            var page = new LivePage { DataContext = live };
+            var window = new Window { Content = page, Width = 1000, Height = 700 };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var warning = page.FindControl<SelectableTextBlock>("RunWarningText").ShouldNotBeNull();
+            var empty = window.GetVisualDescendants().OfType<Controls.EmptyState>().ShouldHaveSingleItem();
+            (warning.IsEffectivelyVisible, empty.IsVisible, empty.Text).ShouldBe((false, true, PlatformHints.LiveEmpty));
+
+            live.RunWarning = "Refused.";
+            Dispatcher.UIThread.RunJobs();
+
+            (warning.IsEffectivelyVisible, warning.Text, empty.IsVisible).ShouldBe((true, "Refused.", false));
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
     [Fact]
     public async Task Where_capture_is_not_available_the_processes_page_says_why()
     {

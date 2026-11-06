@@ -419,7 +419,7 @@ internal sealed class ObjectSetResolver(
                 int[] array => Reserved(snapshotId, graph, () => ObjectSet.OfIndices(graph, array.AsSpan())),
                 _ => Reserved(snapshotId, graph, () => ObjectSet.OfIndices(graph, members)),
             };
-            return (listed, string.Create(CultureInfo.InvariantCulture, $"{rerun}rule v{version}; the {members.Count} objects the row counted"));
+            return (listed, string.Create(CultureInfo.InvariantCulture, $"{rerun}rule v{version}; {members.Count} entries listed for the row"));
         }
 
         var cells = new string?[table.Columns.Count];

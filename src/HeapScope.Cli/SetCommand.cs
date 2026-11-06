@@ -51,7 +51,7 @@ internal static partial class CliCommands
         change.AcceptOnlyFromAmong("new", "dead", "survived");
         var similarGroup = new Option<int>("--similar-group") { Description = "One Similar Retention group of the chosen set, by its number (from 1) as the similar view lists them.", DefaultValueFactory = _ => 0 };
         var addresses = new Option<string[]>("--address") { Description = "An object's address (0x...); repeat for several objects.", AllowMultipleArgumentsPerToken = true };
-        var inspection = new Option<string?>("--inspection") { Description = "An inspection's name; with --row, the objects that row counted." };
+        var inspection = new Option<string?>("--inspection") { Description = "An inspection's name; with --row, the objects behind that row." };
         var row = new Option<int>("--row") { Description = "The inspection row's number, from 0, in the order 'inspect' lists the rows.", DefaultValueFactory = _ => -1 };
         var baseline = new Option<FileInfo?>("--baseline") { Description = "The earlier dump an inspection that compares against one uses." };
         var retained = new Option<bool>("--retained") { Description = "The objects the set keeps alive together instead of its own members." };

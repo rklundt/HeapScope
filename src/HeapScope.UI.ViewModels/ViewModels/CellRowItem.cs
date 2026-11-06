@@ -90,6 +90,6 @@ public sealed class CellRowItem(int index, IReadOnlyList<string> blank) : Observ
         : kind is ResultColumnKind.Integer or ResultColumnKind.Bytes && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
             ? number.ToString("N0", CultureInfo.CurrentCulture)
         : kind == ResultColumnKind.Percent && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var percent)
-            ? percent.ToString("N2", CultureInfo.CurrentCulture) + " %"
+            ? percent.ToString("N1", CultureInfo.CurrentCulture) + " %"
         : text;
 }

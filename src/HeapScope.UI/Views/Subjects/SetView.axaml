@@ -66,7 +66,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:HeapKindShare">
                 <Grid ColumnDefinitions="16,170,130,150,*" Margin="0,2">
-                  <Border Width="10" Height="10" VerticalAlignment="Center" Background="{Binding BrushKey, Converter={x:Static ctl:ResourceKeyToBrushConverter.Instance}}" />
+                  <Border Width="10" Height="10" VerticalAlignment="Center" ctl:ThemeBrush.Background="{Binding BrushKey}" />
                   <TextBlock Grid.Column="1" Text="{Binding Label}" />
                   <TextBlock Grid.Column="2" Text="{Binding Objects, StringFormat='{}{0:N0} objects'}" HorizontalAlignment="Right" />
                   <TextBlock Grid.Column="3" Text="{Binding Bytes, StringFormat='{}{0:N0} bytes'}" HorizontalAlignment="Right" />
@@ -126,8 +126,8 @@
                 <DataGridTextColumn Header="Objects" x:DataType="vm:RetentionGroupItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:RetentionGroupItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathCount, StringFormat='{}{0:N0}'}" Width="70" CellStyleClasses="number" />
-                <DataGridTextColumn Header="Type" x:DataType="vm:RetentionGroupItem" Binding="{Binding TypeText}" Width="*" />
-                <DataGridTextColumn Header="The most different paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathsText}" Width="3*" />
+                <DataGridTextColumn Header="Type" x:DataType="vm:RetentionGroupItem" Binding="{Binding TypeText}" Width="*" MinWidth="240" />
+                <DataGridTextColumn Header="The most different paths" x:DataType="vm:RetentionGroupItem" Binding="{Binding PathsText}" Width="3*" MinWidth="240" />
               </DataGrid.Columns>
             </DataGrid>
             <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" />

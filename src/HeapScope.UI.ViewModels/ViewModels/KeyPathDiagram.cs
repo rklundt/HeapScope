@@ -87,6 +87,24 @@ public sealed class KeyPathDiagram
 
     public static KeyPathDiagram Empty { get; } = new([], []);
 
+    /// <summary>The thinnest edge and the thickest: differences show, without an edge hiding what is around it.</summary>
+    public const double MinEdgeThickness = 1;
+
+    public const double MaxEdgeThickness = 3;
+
+    /// <summary>The smallest scale "fit to width" goes to; below it the labels cannot be read.</summary>
+    public const double MinFitScale = 0.75;
+
+    /// <summary>An edge's thickness by its share of the busiest edge, on a log scale: a path of 10 still shows beside one of 100,000.</summary>
+    public static double EdgeThickness(long objects, long maxObjects) =>
+        maxObjects <= 0 || objects <= 0
+            ? MinEdgeThickness
+            : MinEdgeThickness + ((MaxEdgeThickness - MinEdgeThickness) * Math.Log(1 + Math.Min(objects, maxObjects)) / Math.Log(1 + maxObjects));
+
+    /// <summary>The scale that fits the diagram into <paramref name="availableWidth"/>; never above 1.</summary>
+    public double FitScale(double availableWidth) =>
+        Width <= 0 || double.IsInfinity(availableWidth) ? 1 : Math.Clamp(availableWidth / Width, MinFitScale, 1);
+
     /// <summary>
     /// The diagram of <paramref name="paths"/>; framework steps between others are folded into the edges unless shown.
     /// <paramref name="overlapping"/>: every object has every path (a Similar Retention group), so a node or an edge
@@ -152,13 +170,16 @@ public sealed class KeyPathDiagram
             }
         }
 
+        // Each layer is centered under the widest, so the targets sit in the middle and the edges fan in evenly.
+        var counts = layers.GroupBy(static layer => layer).ToDictionary(static g => g.Key, static g => g.Count());
+        var widest = counts.Count == 0 ? 0 : counts.Values.Max();
         var columns = new Dictionary<int, int>();
         var nodes = new List<DiagramNode>();
         for (var i = 0; i < labels.Count; i++)
         {
             var column = columns.TryGetValue(layers[i], out var used) ? used : 0;
             columns[layers[i]] = column + 1;
-            nodes.Add(new DiagramNode(i, labels[i].Kind, labels[i].Label, objects[i], layers[i], column, column * (NodeWidth + ColumnGap), layers[i] * (NodeHeight + LayerGap)));
+            nodes.Add(new DiagramNode(i, labels[i].Kind, labels[i].Label, objects[i], layers[i], column, (column + ((widest - counts[layers[i]]) / 2.0)) * (NodeWidth + ColumnGap), layers[i] * (NodeHeight + LayerGap)));
         }
 
         return new KeyPathDiagram(nodes, [.. edges.Select(e => new DiagramEdge(e.Key.From, e.Key.To, e.Value.Objects, e.Value.Folded, layers[e.Key.To] <= layers[e.Key.From]))]);

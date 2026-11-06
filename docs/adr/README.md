@@ -44,3 +44,4 @@ section 13 links here).
 - [ADR-037](ADR-037-live-sources.md) Live sources (added in sprint 3.8, amends ADR-023)
 - [ADR-038](ADR-038-skiasharp-native-library-without-the-dng-sdk.md) SkiaSharp's native library without the DNG SDK (added 2026-10-30, outside a sprint)
 - [ADR-039](ADR-039-distribution.md) Distribution (added in sprint 3.9, amends ADR-025)
+- [ADR-040](ADR-040-visual-design.md) Visual design (added in sprint 3.10)

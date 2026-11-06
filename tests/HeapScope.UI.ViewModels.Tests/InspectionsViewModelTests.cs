@@ -189,6 +189,28 @@ public sealed class InspectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_detector_row_with_no_type_or_address_still_opens_its_objects()
+    {
+        // A timer's "(static method)" row: nothing to name, but the worker holds its members (the 3.10 review M26).
+        _worker.Service.Inspections.Insert(0, new InspectionInfo("timer-leaks", "Timer leaks", "Timers.", "Dispose them.", null, InspectionKinds.Leak));
+        _worker.Service.InspectionRows["timer-leaks"] = [["(static method)", "5", "100", string.Empty, null, null]];
+        await _snapshots.OpenPathAsync(Dump("a.dmp"));
+        _snapshots.Tab = SnapshotTabs.Inspections;
+        await Inspections.RunTask;
+        Inspections.Selected = Inspections.Tiles[0];
+        Inspections.Rows.GetRow(0);
+        await Inspections.Rows.WhenLoadedAsync();
+
+        // What opens as a set can also be asked what it retains (M32).
+        Inspections.RetainedBySetCommand.CanExecute(Inspections.Rows.GetRow(0)).ShouldBeTrue();
+
+        Inspections.OpenRowCommand.Execute(Inspections.Rows.GetRow(0));
+
+        var set = _snapshots.Navigator.Current.ShouldBeOfType<SetViewModel>();
+        (set.Set.Spec.Kind, set.Set.Spec.Name, set.Set.Spec.Row).ShouldBe((ObjectSetKind.InspectionRow, "timer-leaks", 0));
+    }
+
+    [Fact]
     public async Task A_row_opens_as_a_set_named_by_its_inspection_and_row()
     {
         // Sprint 3.1: the objects a row stands for, with every set view; the worker resolves the row by its number.
@@ -313,10 +335,22 @@ public sealed class InspectionsViewModelTests : IDisposable
     [InlineData("FreePercent", "Free %")]
     [InlineData("PinnedObjects", "Pinned objects")]
     [InlineData("Value", "Value")]
+    [InlineData("LOHBytes", "LOH bytes")]
+    [InlineData("POHObjects", "POH objects")]
+    [InlineData("LOH", "LOH")]
+    [InlineData("BytesOnLOH", "Bytes on LOH")]
     public void Column_headers_split_names_into_words(string name, string header)
     {
         ColumnHeaders.Header(name).ShouldBe(header);
     }
+
+    [Theory]
+    [InlineData("Share", HeapScope.Contracts.ResultColumnKind.Percent, 92)]
+    [InlineData("Size", HeapScope.Contracts.ResultColumnKind.Bytes, 130)]
+    [InlineData("Objects", HeapScope.Contracts.ResultColumnKind.Integer, 130)]
+    [InlineData("Pinned objects and their bytes", HeapScope.Contracts.ResultColumnKind.Bytes, 234)]
+    public void A_generated_number_column_holds_its_header_and_its_numbers(string header, HeapScope.Contracts.ResultColumnKind kind, double width) =>
+        ColumnHeaders.NumberWidth(header, kind).ShouldBe(width);
 
     public void Dispose()
     {

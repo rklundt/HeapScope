@@ -230,6 +230,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             var fingerprint = SnapshotFingerprint.Compute(path);
             var cachePath = locator.GetCachePath(path);
             IndexCacheOpenResult? cached = null;
+            string? rebuildReason = null;
             if (!request.Rebuild)
             {
                 // A full dump about to open from a valid cache loads no DAC now, but its field reader will: only now can
@@ -241,14 +242,14 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
                     _kinds.For(kind).CheckBeforeCacheOpen(path);
                 }
 
-                cached = TryOpenCache(cachePath, fingerprint, forced, notes, cancellationToken);
+                cached = TryOpenCache(cachePath, fingerprint, forced, out rebuildReason, cancellationToken);
             }
 
             if (cached is null && request.RequireCache)
             {
                 collect = false;
                 throw new SnapshotChangedException(
-                    $"{path} changed since it was opened, or its index cache is gone, so it was not reopened automatically. Open it again to load the dump.");
+                    $"{path} changed since it was opened, or its index cache is gone or out of date, so it was not reopened automatically. Open it again to load the dump.");
             }
 
             collect = cached is null;
@@ -268,7 +269,13 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             }
             else
             {
-                (graph, metadata, mode, writtenCache, identity) = LoadDump(path, cachePath, fingerprint, forced, notes, throttled, cancellationToken);
+                (graph, metadata, mode, writtenCache, identity) = LoadDump(path, cachePath, fingerprint, forced, notes, rebuildReason is not null, throttled, cancellationToken);
+
+                // Only now is it known: "rebuilt" is true only when the load wrote its cache (3.10 review M39).
+                if (rebuildReason is not null)
+                {
+                    notes.Add((writtenCache is not null ? "The index cache was rebuilt: " : "The index cache was not used: ") + rebuildReason);
+                }
 
                 // LoadDump collected before choosing the mode (and again in the mapped transition).
                 collect = false;
@@ -337,7 +344,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         var recorded = info.Kind != SnapshotKind.FullDump || metadata.Dac is not null;
         string Recorded(long value) => recorded ? value.ToString(CultureInfo.InvariantCulture) : "not recorded";
         logger.LogInformation(
-            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); unavailable features {Unavailable}; notes: {Notes}",
+            "Snapshot {Id} opened in {Seconds:N1} s: {Path}; {Bytes} bytes, fingerprint {Fingerprint:x16}, modified {ModifiedUtc:O}; {Kind}, capabilities {Capabilities}, facts {Facts}; process {Process} ({Pid}; name: {ProcessNameSource}), runtime {Runtime}, captured {CapturedUtc:O}{CaptureSource}; from {Source}{Reopen}, {Mode}, cache {CachePath} identity {Identity:x16}, written by {WriterVersion} with loader version {LoaderVersion}; {Objects} objects, {References} references, {Roots} roots, {DroppedReferences} references and {DroppedRoots} roots dropped, unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}; DAC {Dac} ({DacRule}); unavailable features {Unavailable}; notes: {Notes}",
             descriptor.SnapshotId,
             descriptor.OpenSeconds,
             descriptor.Path,
@@ -349,6 +356,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             info.Facts,
             info.ProcessName,
             info.ProcessId,
+            metadata.ProcessNameSource ?? (info.Kind == SnapshotKind.FullDump ? "not recorded" : "-"),
             info.RuntimeVersion,
             info.CapturedAtUtc,
             info.Facts.HasFlag(SnapshotFacts.CaptureTimeFromFile) ? " (the file's time)" : string.Empty,
@@ -399,8 +407,10 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         }
     }
 
-    private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, List<string> notes, CancellationToken cancellationToken)
+    /// <summary>The usable cache, or null; <paramref name="rebuildReason"/> says why one that exists was not used.</summary>
+    private IndexCacheOpenResult? TryOpenCache(string cachePath, SnapshotFingerprint fingerprint, MemoryMode? forced, out string? rebuildReason, CancellationToken cancellationToken)
     {
+        rebuildReason = null;
         var required = IndexCacheReader.GetInMemoryBytes(cachePath, _signer, out var unusable);
         if (required is null)
         {
@@ -408,7 +418,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             if (unusable is { Reason: not IndexCacheInvalidReason.Missing })
             {
                 logger.LogInformation("Index cache {Path} not used: {Reason} ({Detail})", cachePath, unusable.Reason, unusable.Detail);
-                notes.Add($"The index cache was rebuilt: {unusable.Detail}");
+                rebuildReason = unusable.Detail;
             }
 
             return null;
@@ -421,7 +431,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             // Built by an older loader whose answers are now known to be wrong in some cases (review M7).
             result.Graph!.Dispose();
             logger.LogInformation("Index cache {Path} not used: loader version {Old}, current {New}", cachePath, result.Metadata.LoaderVersion, _kinds.For(result.Metadata.Info.Kind).LoaderVersion);
-            notes.Add("The index cache was rebuilt: it was written by an older version of HeapScope, whose results for this snapshot could differ.");
+            rebuildReason = "it was written by an older version of HeapScope, so this open took longer. The release notes say what changed.";
             return null;
         }
 
@@ -433,7 +443,7 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         if (result.Reason != IndexCacheInvalidReason.Missing)
         {
             logger.LogInformation("Index cache {Path} not used: {Reason} ({Detail})", cachePath, result.Reason, result.Detail);
-            notes.Add($"The index cache was rebuilt: {result.Detail}");
+            rebuildReason = result.Detail;
         }
 
         return null;
@@ -445,11 +455,12 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         SnapshotFingerprint fingerprint,
         MemoryMode? forced,
         List<string> notes,
+        bool rebuilding,
         Rpc.ThrottledProgress<JobProgress> progress,
         CancellationToken cancellationToken)
     {
-        var loader = _kinds.ForFile(path).CreateLoader();
-        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress), cancellationToken);
+        var loader = LoaderForTests?.Invoke(path) ?? _kinds.ForFile(path).CreateLoader();
+        LoadResult? loaded = loader.Load(path, new LoadProgressAdapter(progress, rebuilding), cancellationToken);
         HeapGraph? graph = loaded.Graph;
         var diagnostics = loaded.Diagnostics;
         var metadata = new IndexCacheMetadata(
@@ -461,7 +472,8 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
             loader.Version,
             diagnostics.StaticFieldRoots,
             diagnostics.IncompleteSegments,
-            diagnostics.Dac);
+            diagnostics.Dac,
+            diagnostics.ProcessNameSource);
         var timings = loaded.Timings;
         logger.LogInformation(
             "Loaded {Path} from the dump in {Seconds:N1} s: open {OpenSeconds:N1} s, objects {ObjectsSeconds:N1} s, references {ReferencesSeconds:N1} s, roots {RootsSeconds:N1} s, build {BuildSeconds:N1} s; unreadable objects {Unreadable}, incomplete segments {IncompleteSegments}, static field roots {StaticRoots}, debuggable modules {Debuggable}",
@@ -599,8 +611,13 @@ internal sealed partial class SnapshotStore(WorkerOptions options, IndexCacheLoc
         public DerivedData Derived { get; } = new();
     }
 
-    private sealed class LoadProgressAdapter(Rpc.ThrottledProgress<JobProgress> target) : IProgress<LoadProgress>
+    /// <summary>Tests only: a loader that stands in for the file's own, to reach what a real dump cannot be made to do.</summary>
+    internal Func<string, ISnapshotLoader>? LoaderForTests { get; init; }
+
+    private sealed class LoadProgressAdapter(Rpc.ThrottledProgress<JobProgress> target, bool rebuilding) : IProgress<LoadProgress>
     {
-        public void Report(LoadProgress value) => target.Report(new JobProgress(value.Phase, value.Completed, value.Total));
+        // A rebuild's wait says why, while the user waits (sprint 3.10 review M18).
+        public void Report(LoadProgress value) =>
+            target.Report(new JobProgress(rebuilding ? "Rebuilding the index cache: " + value.Phase : value.Phase, value.Completed, value.Total));
     }
 }

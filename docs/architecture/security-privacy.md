@@ -48,7 +48,8 @@ references such as "ARCHITECTURE.md 12" still name the right section.
   commits with no token left in checkouts, Dependabot proposes NuGet and Actions updates, and `SECURITY.md` says how to
   report a vulnerability privately.
 - Releases (sprint 3.7, peer review P17; forms since 3.9, ADR-039): publishing a GitHub release builds its tag for
-  win-x64 (a `.zip`) and linux-x64 (a `.tar.gz`) and packs the CLI's dotnet tool, installs that tool file on Windows and
+  win-x64 (a `.zip`), linux-x64 and both macOS runtimes (each a `.tar.gz`; the macOS ones are built on Linux and marked untested
+  on the release) and packs the CLI's dotnet tool, installs that tool file on Windows and
   Linux, and attaches them, an SBOM (CycloneDX) of the app, the CLI and the worker, and `SHA256SUMS`, all with build
   provenance attestations in GitHub's attestation store (`release.yml`; the builds hold read access only, one job that
   builds nothing attests and attaches; a manual run is a dry run by default); CI and release builds are deterministic

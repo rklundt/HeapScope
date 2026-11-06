@@ -38,6 +38,7 @@ public sealed class LeakyApiPair : IAsyncLifetime
     public const int ItemsPerRequest = 100;
     public const int FirstRequests = 5;
     public const int MoreRequests = 10;
+    public const int FirstItems = FirstRequests * ItemsPerRequest;
     public const int Growth = MoreRequests * ItemsPerRequest;
 
     private readonly TempFolder _folder = new();
@@ -91,12 +92,19 @@ public sealed class DiffTests(LeakyApiPair pair) : IClassFixture<LeakyApiPair>, 
         var mismatches = new List<string>();
         foreach (var group in census.GroupBy(c => c.Entry.Type))
         {
-            var expected = (long)LeakyApiPair.Growth * group.Sum(c => c.Entry.PerItem);
-            var delta = rows.TryGetValue(group.Key, out var row) ? long.Parse(row[4]!, CultureInfo.InvariantCulture) : 0;
-            var ok = group.All(c => c.Entry.Exact) ? delta == expected : delta >= expected;
+            var perItem = group.Sum(c => c.Entry.PerItem);
+            var expected = (long)LeakyApiPair.Growth * perItem;
+            var (before, after, delta) = rows.TryGetValue(group.Key, out var row)
+                ? (long.Parse(row[2]!, CultureInfo.InvariantCulture), long.Parse(row[3]!, CultureInfo.InvariantCulture), long.Parse(row[4]!, CultureInfo.InvariantCulture))
+                : (0L, 0L, 0L);
+
+            // For a type the framework also uses, the delta can look short of an intact leak: its own objects in the baseline can die
+            // before the current dump. A leak frees nothing, so each dump holds at least the items of its requests.
+            var firstItems = (long)LeakyApiPair.FirstItems * perItem;
+            var ok = group.All(c => c.Entry.Exact) ? delta == expected : before >= firstItems && after >= firstItems + expected && delta == after - before;
             if (!ok)
             {
-                mismatches.Add($"{group.Key}: delta {delta}, expected {expected}");
+                mismatches.Add($"{group.Key}: baseline {before}, current {after}, delta {delta}, expected growth {expected}");
             }
         }
 

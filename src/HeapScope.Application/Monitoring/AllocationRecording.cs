@@ -46,8 +46,10 @@ internal sealed class AllocationRecording : IAsyncDisposable
     private readonly TimeProvider _time;
     private readonly Func<Task[]> _pendingCaptures;
     private readonly Action<string, Exception?> _problem;
+    private readonly long _startedAt;
     private Task<TraceResult>? _trace;
     private Task _watch = Task.CompletedTask;
+    private long _endedAt;
 
     private AllocationRecording(Guid runId, int processId, long limitBytes, TimeProvider time, ILogger logger, Func<Task[]> pendingCaptures, Action<string, Exception?> problem)
     {
@@ -58,6 +60,7 @@ internal sealed class AllocationRecording : IAsyncDisposable
         _logger = logger;
         _pendingCaptures = pendingCaptures;
         _problem = problem;
+        _startedAt = time.GetTimestamp();
     }
 
     /// <summary>The trace file being written, once started.</summary>
@@ -115,6 +118,16 @@ internal sealed class AllocationRecording : IAsyncDisposable
             _logger.LogInformation("Monitoring run {RunId} (pid {Pid}): allocation trace {Path}, {Bytes} bytes over {Seconds:N0} s", _runId, _processId, written.Path, written.Bytes, written.Duration.TotalSeconds);
             return written;
         }
+        catch (OperationCanceledException ex) when (_stop.IsCancellationRequested)
+        {
+            // Stopped while the session was still starting: nothing was recorded. The user asked for a trace, so they hear why there
+            // is none, and the time tells a quick Stop from a session that never started. Passing the exception adds this to an early
+            // stop's "what it recorded is kept", which it corrects.
+            var endedAt = Volatile.Read(ref _endedAt);
+            var seconds = _time.GetElapsedTime(_startedAt, endedAt != 0 ? endedAt : _time.GetTimestamp()).TotalSeconds;
+            _problem(string.Create(CultureInfo.InvariantCulture, $"No allocation trace: it stopped {seconds:N0} s in, before the trace session had started."), ex);
+            return null;
+        }
         catch (Exception ex)
         {
             // A boundary: whatever the recorder threw, the run still closes its timeline and records its end.
@@ -133,6 +146,7 @@ internal sealed class AllocationRecording : IAsyncDisposable
     /// <summary>A trace that ends before the run (refused, failed) is reported at once.</summary>
     private void OnEnded(Task<TraceResult> trace)
     {
+        Volatile.Write(ref _endedAt, _time.GetTimestamp());
         if (trace.IsFaulted && !_stop.IsCancellationRequested)
         {
             var error = trace.Exception!.InnerException ?? trace.Exception;

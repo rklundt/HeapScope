@@ -25,6 +25,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using HeapScope.UI.ViewModels;
 
 namespace HeapScope.UI.Controls;
@@ -39,12 +40,28 @@ public sealed class KeyPathDiagramView : Control
     public static readonly StyledProperty<KeyPathDiagram?> DiagramProperty =
         AvaloniaProperty.Register<KeyPathDiagramView, KeyPathDiagram?>(nameof(Diagram));
 
+    /// <summary>
+    /// Scales the diagram down to the width of the scroll viewer around it, no further than <see cref="KeyPathDiagram.MinFitScale"/>
+    /// to stay readable. A diagram still wider keeps the viewer's horizontal bar, so none of it is out of reach.
+    /// </summary>
+    public static readonly StyledProperty<bool> FitWidthProperty =
+        AvaloniaProperty.Register<KeyPathDiagramView, bool>(nameof(FitWidth));
+
     private const double Inset = 12;
+
+    private double _scale = 1;
+    private ScrollViewer? _viewer;
 
     static KeyPathDiagramView()
     {
-        AffectsRender<KeyPathDiagramView>(DiagramProperty);
-        AffectsMeasure<KeyPathDiagramView>(DiagramProperty);
+        AffectsRender<KeyPathDiagramView>(DiagramProperty, FitWidthProperty);
+        AffectsMeasure<KeyPathDiagramView>(DiagramProperty, FitWidthProperty);
+    }
+
+    public KeyPathDiagramView()
+    {
+        // The colors are the theme's, read when drawing.
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
     }
 
     public KeyPathDiagram? Diagram
@@ -53,8 +70,53 @@ public sealed class KeyPathDiagramView : Control
         set => SetValue(DiagramProperty, value);
     }
 
-    protected override Size MeasureOverride(Size availableSize) =>
-        Diagram is { Nodes.Count: > 0 } diagram ? new Size(diagram.Width + (2 * Inset), diagram.Height + (2 * Inset)) : default;
+    public bool FitWidth
+    {
+        get => GetValue(FitWidthProperty);
+        set => SetValue(FitWidthProperty, value);
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _viewer = this.FindAncestorOfType<ScrollViewer>();
+        if (_viewer is not null)
+        {
+            _viewer.SizeChanged += OnViewerSizeChanged;
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        if (_viewer is not null)
+        {
+            _viewer.SizeChanged -= OnViewerSizeChanged;
+            _viewer = null;
+        }
+
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnViewerSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (FitWidth)
+        {
+            InvalidateMeasure();
+        }
+    }
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        if (Diagram is not { Nodes.Count: > 0 } diagram)
+        {
+            return default;
+        }
+
+        // A viewer with a horizontal bar measures its content at infinite width, so the width to fit is the viewer's own.
+        var width = _viewer is { Bounds.Width: > 0 } viewer ? viewer.Bounds.Width : availableSize.Width;
+        _scale = FitWidth ? diagram.FitScale(width - (2 * Inset)) : 1;
+        return new Size((diagram.Width * _scale) + (2 * Inset), (diagram.Height * _scale) + (2 * Inset));
+    }
 
     public override void Render(DrawingContext context)
     {
@@ -67,17 +129,21 @@ public sealed class KeyPathDiagramView : Control
 
         var text = Brush("Brush.Text") ?? Brushes.Black;
         var subtle = Brush("Brush.Subtle") ?? Brushes.Gray;
-        var line = Brush("Brush.Border") ?? Brushes.Gray;
+        var line = Brush("Brush.BorderStrong") ?? Brushes.Gray;
+        var nodeEdge = Brush("Brush.Border") ?? Brushes.Gray;
+        var accent = Brush("Brush.Accent") ?? Brushes.Blue;
+        var targetText = Brush("Icicle.PathText") ?? Brushes.Black;
         var surface = Brush("Brush.Surface") ?? Brushes.White;
         var root = Brush("Icicle.Bar1") ?? Brushes.LightBlue;
         var target = Brush("Icicle.Path") ?? Brushes.Orange;
         var nodes = diagram.Nodes;
+        using var scaled = context.PushTransform(Matrix.CreateTranslation(-Inset, -Inset) * Matrix.CreateScale(_scale, _scale) * Matrix.CreateTranslation(Inset, Inset));
         const double w = KeyPathDiagram.NodeWidth, h = KeyPathDiagram.NodeHeight;
         foreach (var edge in diagram.Edges)
         {
             var from = nodes[edge.From];
             var to = nodes[edge.To];
-            var thickness = 1 + (5.0 * edge.Objects / Math.Max(1, diagram.MaxEdgeObjects));
+            var thickness = KeyPathDiagram.EdgeThickness(edge.Objects, diagram.MaxEdgeObjects);
             var pen = new Pen(line, thickness) { DashStyle = edge.Folded > 0 ? DashStyle.Dash : null };
             Point start, end;
             var geometry = new StreamGeometry();
@@ -107,10 +173,13 @@ public sealed class KeyPathDiagramView : Control
             context.DrawGeometry(null, pen, geometry);
             var label = Label(
                 string.Create(CultureInfo.CurrentCulture, $"{edge.Objects:N0}") + (edge.Folded > 0 ? string.Create(CultureInfo.CurrentCulture, $" (+{edge.Folded} framework)") : string.Empty),
-                10,
+                11,
                 subtle,
                 KeyPathDiagram.NodeWidth);
-            context.DrawText(label, new Point(((start.X + end.X) / 2) + 4, ((start.Y + end.Y) / 2) - (label.Height / 2)));
+            // On the surface's color, so the edges passing behind it do not cross the digits.
+            var at = new Point(((start.X + end.X) / 2) - (label.Width / 2), ((start.Y + end.Y) / 2) - (label.Height / 2));
+            context.FillRectangle(surface, new Rect(at.X - 3, at.Y, label.Width + 6, label.Height));
+            context.DrawText(label, at);
         }
 
         foreach (var node in nodes)
@@ -122,11 +191,17 @@ public sealed class KeyPathDiagramView : Control
                 DiagramNodeKind.Target => target,
                 _ => surface,
             };
-            context.DrawRectangle(fill, new Pen(line, 1), rect, 4, 4);
-            var name = Label(node.Label, 12, text, w - 10);
-            context.DrawText(name, new Point(rect.X + 5, rect.Y + 4));
-            var count = Label(string.Create(CultureInfo.CurrentCulture, $"{node.Objects:N0} objects"), 10, text, w - 10);
-            context.DrawText(count, new Point(rect.X + 5, rect.Bottom - count.Height - 4));
+            context.DrawRectangle(fill, new Pen(nodeEdge, 1), rect, 4, 4);
+            if (node.Kind == DiagramNodeKind.Root)
+            {
+                context.FillRectangle(accent, new Rect(rect.X, rect.Y, 3, rect.Height));
+            }
+
+            var nodeText = node.Kind == DiagramNodeKind.Target ? targetText : text;
+            var name = Label(node.Label, 12, nodeText, w - 14);
+            context.DrawText(name, new Point(rect.X + 8, rect.Y + 5));
+            var count = Label((node.Objects == 1 ? "1 object" : string.Create(CultureInfo.CurrentCulture, $"{node.Objects:N0} objects")), 11, node.Kind == DiagramNodeKind.Type ? subtle : nodeText, w - 14);
+            context.DrawText(count, new Point(rect.X + 8, rect.Bottom - count.Height - 5));
         }
     }
 

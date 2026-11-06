@@ -76,7 +76,7 @@ dotnet test --solution HeapScope.sln
   ADR-039): a `.zip` for Windows, a `.tar.gz` elsewhere (it keeps the executables' modes); `archive.sh unpack` reverses
   it, and `build/zip.cs` does the zip work without zip or unzip installed. CI uploads the four archives on pushes to
   `develop` and `main` and on manual runs (artifacts `HeapScope-<rid>`, kept 14 days; the download is a zip holding
-  the archive). macOS builds are not shipped (ADR-039). Since 3.6 every build carries `LICENSE`,
+  the archive). Releases attach the macOS builds marked untested: built on Linux, never run (ADR-039). Since 3.6 every build carries `LICENSE`,
   `ADDITIONAL-TERMS.md`, `COMMERCIAL.md`, `THIRD-PARTY-NOTICES.md` and each shipped package's own license and notice
   files under `licenses/` (`build/collect-licenses.cs`, with a README there since 3.9 saying whose licenses they are),
   and leaves out the TraceEvent natives no code uses
@@ -214,6 +214,13 @@ dotnet test --solution HeapScope.sln
   (without `--parent-pid` it does not watch a parent; add `--enable-test-hooks` for the crash and hang hooks).
   Attach a client with `dotnet run --project src/HeapScope.Cli -- worker ping --pipe <name>`, or set
   `Worker:AttachPipeName` for the UI.
+- Screenshots (sprint 3.10): `bash build/demo-data.sh` makes the demo dumps and trace from the LeakyApi fixture in
+  `artifacts/demo` (fixture data only), then `bash build/screenshots.sh [folder] [Release|Debug]` captures every page at
+  twice the size, one run per theme (`--headless --screenshots folder`), into `artifacts/screenshots`. The Live page's
+  picture watches the running fixture under load for 45 s. The Processes page's rows are made up, so that picture stays out
+  of the README. By hand: not in CI, and no test compares pictures. After a change to the look, copy the README's ten
+  pictures to `docs/images/`: `09-inspections` as `inspections`, `08-why-alive-diagram` as `why-alive`, `10-retainers` as
+  `retainers`, `11-compare` as `compare` and `13-live` as `live`, each with `-light` and `-dark`.
 - Live smoke run: `HeapScope --smoke-live 1800` charts 1,800 made-up samples on the Live page as fast as it can
   (no process, no timeline file) and exits with the same codes as the other smoke runs.
 - UI smoke run: `HeapScope --smoke-synthetic 5000000` runs a synthetic job, checks dispatcher lag and exits
@@ -270,12 +277,12 @@ dotnet test --solution HeapScope.sln
   a run's timeline, markers and snapshot cards read only. A capture or Force GC of a process already being captured is
   refused with the reason, from any page; a rule due meanwhile fires at the next free sample. The Snapshots page's
   "Close and delete..." deletes a session snapshot with its index caches; the Home page deletes a session ("Delete...")
-  or the sessions not opened for N days ("Clean up old sessions..."); each lists the files and asks first, only files
+  or the sessions not opened for N days ("Clean up..."); each lists the files and asks first, only files
   inside the session folder go, and the current session and sessions with an open snapshot, a capture or a run are
   kept. The Live smoke run records nothing in the session library (`RecordRuns` off).
 - Inspections (sprint 1.6): the Snapshots page's Inspections tab runs the selected snapshot's inspections the first
-  time it is shown (one at a time, in the worker): a tile per inspection with its finding, cause and fix (or why it is
-  unavailable), fragmentation bars per heap, and the selected inspection's rows; double-click or Enter opens a row's
+  time it is shown (one at a time, in the worker): a list row per inspection with its finding (or why it is
+  unavailable), and for the selected one its cause, fix, fragmentation bars per heap and rows; double-click or Enter opens a row's
   objects (a type in its scope, equal strings, or one object) on the Snapshot tab.
 - Theme: the UI follows the system's light or dark setting (Windows, macOS, the Linux desktop); `--Ui:Theme Light|Dark`
   or the `Ui:Theme` setting overrides it. Colors live in `src/HeapScope.UI/Themes/Light.axaml` and `Dark.axaml` (theme
@@ -404,11 +411,18 @@ of debuggable code) and exit when the process given as parent exits.
 - **Attribution**: the "Powered by HeapScope by Ray Klundt" notice (ADR-022) stays on the main window, unchanged; CLI
   help, version and console startup print it. UI changes are checked against it; a test checks its text, link,
   colors and contrast.
+- **Visual design** (sprint 3.10, ADR-040): a color is a key in both `Themes/Light.axaml` and `Dark.axaml`, never a value
+  in a view or a control, and code reads it when drawing, so it follows a theme change. Text colors meet 4.5:1 on every
+  surface (`ThemeTests`). Reuse the styles in `Themes/Styles.axaml`: `pageTitle`, `primary` (one per page), `compact`,
+  `dismiss`, `link`. A number column sets `CellStyleClasses="number"`, which right-aligns its header too; a star column sets
+  `MinWidth` (`GridLayoutTests`). Icons are in `Themes/Icons.axaml`: `ctl:DuotoneIcon`, or `ctl:ButtonIcon.Icon` on a button.
+  An empty page or grid shows `ctl:EmptyState`, which says what to do next.
 - **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
   anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. A package
-  that only arrives as a dependency counts too: `Avalonia.Fonts.Inter` (the Inter typeface, SIL Open Font License) comes
-  with `Avalonia.Headless` and is kept out of the app's output (`ExcludeAssets="all"`), so it reaches only the tests. Update
-  `THIRD-PARTY-NOTICES.md` whenever a dependency is added, removed or vendored.
+  that only arrives as a dependency counts too. The SIL Open Font License is allowed for fonts only (product owner,
+  2026-11-03): the app ships the Inter typeface (ADR-040), with its license text in `build/licenses/Avalonia.Fonts.Inter`,
+  which `build/check-package.sh` looks for in a published build. Update `THIRD-PARTY-NOTICES.md` whenever a dependency is
+  added, removed or vendored.
 - **Adding a worker area** (sprint 3.8): a contract in Contracts (`I...Service`, methods ending in `Async` with the
   token last, names unique across contracts), listed in `WorkerContracts.All` and in `IWorkerService`'s bases; a handler
   (`...Handler : RpcHandler, I...Service`) registered in `WorkerRpcTargets` with `RpcTarget.For`; a fake partial in
@@ -526,7 +540,8 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
   branches do not drift), then the annotated tag `vX.Y.0` on `main` and a GitHub Release (`gh release create`, marked
   pre-release for now). Only the owner decides when to release.
 - Release builds (sprint 3.7; channels and formats since 3.9, ADR-039): publishing the GitHub release runs `release.yml`,
-  which builds the tag for win-x64 (a `.zip`) and linux-x64 (a `.tar.gz`) and packs the CLI's dotnet tool (its version
+  which builds the tag for win-x64 (a `.zip`), linux-x64, osx-arm64 and osx-x64 (each a `.tar.gz`; the macOS ones on Linux,
+  and its last step puts a note at the top of the release's notes saying they are untested) and packs the CLI's dotnet tool (its version
   must match the tag), installs that tool file on Windows and Linux (`build/check-tool.sh` without a dump), with read
   access only, and then, in one job that builds nothing, attaches the archives, the tool
   package, an SBOM of the app, the CLI and the worker, and `SHA256SUMS`, attesting each in GitHub's attestation store
@@ -577,7 +592,7 @@ and compares against the budget, returning exit code 1 when a budget is missed. 
 2. Implement task by task, tests alongside code, build green at every step.
 3. `/wrap-sprint`: full build and tests, four reviewer subagents (solution-architect, senior-dev,
    gc-specialist, support-engineer; briefs in `.claude/agents/`) in parallel, consolidated review file in
-   `docs/reviews/sprint-X.Y.md`, High findings fixed and confirmed, Moderate findings decided by the human, docs
+   `docs/reviews/sprint-X.Y.md`, High findings fixed and confirmed, Moderate findings decided by the human and their fixes reviewed, docs
    updated, then a sweep of every tracked Markdown file against the corrected code (reviewer briefs and skills
    included; past review files, LICENSE, ADDITIONAL-TERMS.md and COMMERCIAL.md left alone), status Wrapping.
 4. `/close-sprint`: verifies the Definition of Done, sets Closed and the version, commits on `sprint/X.Y`, opens
@@ -594,7 +609,7 @@ owner still apply.
 - Solution builds with zero warnings.
 - All tests pass, including integration tests relevant to the sprint.
 - Acceptance criteria in SPRINTS.md are all met, or explicitly deferred by the human.
-- Review file exists in `docs/reviews/`, with all High findings resolved and every Moderate finding decided.
+- Review file exists in `docs/reviews/`, with all High findings resolved, every Moderate finding decided and its fix, if any, reviewed.
 - ARCHITECTURE.md, DEVELOPER.md, SPRINTS.md and CLAUDE.md reflect what was actually built, and the Markdown sweep
   of `/wrap-sprint` found every other tracked Markdown file current.
 - No layering violations (architecture test passes).

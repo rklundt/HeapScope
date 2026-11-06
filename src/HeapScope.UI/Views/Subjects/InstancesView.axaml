@@ -57,11 +57,11 @@
               ToolTip.Tip="Double-click or Enter opens an object.">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Address" x:DataType="vm:InstanceRowItem" Binding="{Binding AddressText}" Width="150" SortMemberPath="Address" CellStyleClasses="address" />
-        <DataGridTextColumn Header="Type" x:DataType="vm:InstanceRowItem" Binding="{Binding Type}" Width="*" SortMemberPath="Type" />
+        <DataGridTextColumn Header="Type" x:DataType="vm:InstanceRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" SortMemberPath="Type" />
         <DataGridTextColumn Header="Bytes" x:DataType="vm:InstanceRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="110" SortMemberPath="Bytes" CellStyleClasses="number" />
         <DataGridTextColumn Header="Retained" x:DataType="vm:InstanceRowItem" Binding="{Binding Retained, StringFormat='{}{0:N0}'}" Width="120" SortMemberPath="Retained" CellStyleClasses="number" Tag="Retained" IsVisible="False" />
         <DataGridTextColumn Header="Generation" x:DataType="vm:InstanceRowItem" Binding="{Binding Generation}" Width="120" SortMemberPath="Generation" />
-        <DataGridTextColumn Header="Value" x:DataType="vm:InstanceRowItem" Binding="{Binding Value}" Width="2*" SortMemberPath="Value" />
+        <DataGridTextColumn Header="Value" x:DataType="vm:InstanceRowItem" Binding="{Binding Value}" Width="2*" MinWidth="200" SortMemberPath="Value" />
       </DataGrid.Columns>
     </DataGrid>
   </DockPanel>

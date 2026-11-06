@@ -121,7 +121,16 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [NotifyCanExecuteChangedFor(nameof(GetSnapshotCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceGcCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenPastRunCommand))]
+    [NotifyPropertyChangedFor(nameof(EmptyText))]
     private bool _isRunning;
+
+    /// <summary>
+    /// What the user must not miss about the run: why it was refused, or that no samples are arriving. Shown as a banner: a refused
+    /// run lasts milliseconds, and its Start and Stop buttons only flash (3.10, the owner's own test).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    private string? _runWarning;
 
     /// <summary>The last run's timeline file once the run stopped, while it is there; null otherwise.</summary>
     [ObservableProperty]
@@ -140,9 +149,21 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     private bool _highGcPressure;
 
+    private const string WaitingText = "Waiting for the first sample.";
+
+    private static readonly TimeSpan s_noSampleWait = TimeSpan.FromSeconds(10);
+
+    private bool _warnedNoSamples;
+
     /// <summary>Bumped once per sample: the chart redraws when it changes.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSamples))]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
     private int _chartVersion;
+
+    /// <summary>When the run began, so the time axis reads the run's age once the window has slid past its start.</summary>
+    [ObservableProperty]
+    private DateTimeOffset? _chartStart;
 
     public LiveViewModel(MonitorService monitor, ICaptureService capture, IUiDispatcher dispatcher, ILogger<LiveViewModel>? logger = null, IUserInteraction? interaction = null, AllocationsViewModel? allocations = null)
     {
@@ -165,6 +186,18 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>The chart's samples, oldest first (read on the UI thread).</summary>
     public IReadOnlyList<HeapSample> Samples => _samples;
+
+    /// <summary>Whether the chart has anything to show (raised with <see cref="ChartVersion"/>: the list itself does not notify).</summary>
+    public bool HasSamples => _samples.Count > 0;
+
+    /// <summary>Whether the empty chart has something useful to say: a warning says it better.</summary>
+    public bool ShowEmptyState => !HasSamples && RunWarning is null;
+
+    /// <summary>What the empty chart says: once Start is pressed, "choose a process" is wrong.</summary>
+    public string EmptyText => IsRunning ? WaitingText : PlatformHints.LiveEmpty;
+
+    /// <summary>How a run waits before asking whether any sample came: tests hold it to decide when that happens.</summary>
+    public Func<TimeSpan, Task> NoSampleDelay { get; set; } = static wait => Task.Delay(wait);
 
     /// <summary>When rules took snapshots, for the chart's markers.</summary>
     public IReadOnlyList<DateTimeOffset> Markers => _markers;
@@ -226,6 +259,9 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
     {
+        // Whatever this press leads to, the last run's warning is over.
+        RunWarning = null;
+        _warnedNoSamples = false;
         if (SelectedProcess is not { } process)
         {
             Status = "Pick a process to monitor.";
@@ -246,6 +282,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         PastRunShown = null;
         HighGcPressure = false;
         Latest = null;
+        ChartStart = null;
         ChartVersion++;
         var options = new MonitorOptions(
             TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds)),
@@ -274,7 +311,8 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             _logger.LogWarning(ex, "Monitoring pid {Pid} could not start", process.ProcessId);
-            Status = "Monitoring could not start: " + ex.Message;
+            Status = null;
+            RunWarning = "Monitoring could not start: " + ex.Message;
             IsRunning = false;
             return;
         }
@@ -290,6 +328,23 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         }
 
         _ = WatchAsync(run);
+        _ = WarnIfNoSamplesAsync(run, process.Name, options.Interval);
+    }
+
+    private async Task WarnIfNoSamplesAsync(MonitorRun run, string processName, TimeSpan interval)
+    {
+        // A process can turn off the events the counters come from, and then nothing ever arrives. Three intervals, for a long interval.
+        var wait = TimeSpan.FromTicks(Math.Max(s_noSampleWait.Ticks, 3 * interval.Ticks));
+        await NoSampleDelay(wait).ConfigureAwait(false);
+        _dispatcher.Post(() =>
+        {
+            if (ReferenceEquals(run, _run) && IsRunning && _samples.Count == 0)
+            {
+                _logger.LogWarning("Monitoring run {RunId} (pid {Pid}): no samples after {Seconds:N0} s", run.Id, run.ProcessId, wait.TotalSeconds);
+                _warnedNoSamples = true;
+                RunWarning = string.Create(CultureInfo.CurrentCulture, $"No samples from {processName} after {wait.TotalSeconds:N0} s, so there is nothing to chart yet. A process can turn off the runtime events Live reads (EventSource support), as some trimmed apps do. Get snapshot still works.");
+            }
+        });
     }
 
     /// <summary>What a forced collection does to the target, asked before each one (review of 3.4; the ask-first rule).</summary>
@@ -420,6 +475,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             var read = await TimelineFile.ReadAsync(path, CancellationToken.None);
             _samples.Clear();
             _samples.AddRange(read.Samples.TakeLast(WindowSamples));
+            ChartStart = read.Samples.Count > 0 ? read.Samples[0].At : null;
             _markers.Clear();
             _markers.AddRange(read.Events.Where(e => e.Text.StartsWith(MonitorRun.SnapshotEventPrefix, StringComparison.Ordinal)).Select(e => e.At));
             _gcMarkers.Clear();
@@ -442,6 +498,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             }
             PastRunShown = item.Title + (read.SkippedLines > 0 ? string.Create(CultureInfo.CurrentCulture, $" ({read.SkippedLines} unreadable lines left out)") : string.Empty);
             Status = "Showing a past run, read only. Start monitoring to see live data again.";
+            RunWarning = null;
             ChartVersion++;
             _logger.LogInformation(
                 "Reopened monitoring run {RunId} of pid {Pid} from {Timeline}: {Samples} samples ({Shown} shown, {Skipped} unreadable lines), {Events} events, {Snapshots} snapshots",
@@ -603,6 +660,13 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
+        ChartStart ??= sample.Counters.At;
+        if (_warnedNoSamples)
+        {
+            _warnedNoSamples = false;
+            RunWarning = null;
+        }
+
         _samples.Add(sample.Counters);
         if (_samples.Count > WindowSamples)
         {
@@ -657,6 +721,7 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
         }
         catch (CaptureFailedException ex)
         {
+            _logger.LogWarning("Monitoring run {RunId} (pid {Pid}) refused: {Reason}", run.Id, run.ProcessId, ex.Message);
             ended = ex.Message;
         }
         catch (OperationCanceledException)
@@ -677,13 +742,19 @@ public sealed partial class LiveViewModel : ObservableObject, IAsyncDisposable
             }
 
             // The final status first: whoever sees IsRunning turn false (a test on another thread) then reads it.
-            Status = ended ?? string.Create(CultureInfo.CurrentCulture,
+            Status = ended is not null ? null : string.Create(CultureInfo.CurrentCulture,
                 $"Stopped after {_samples.Count:N0} samples and {run.Captures.Count(c => c.Result is not null)} snapshots.");
+
+            // "Nothing to chart yet" and "Get snapshot still works" are about a run that is still going.
+            RunWarning = ended ?? (_warnedNoSamples ? null : RunWarning);
+            _warnedNoSamples = false;
             TimelinePath = run.TimelinePath;
             TracePath = run.TracePath;
-            if (run.TraceError is { } traceError)
+
+            // Not for a refused run: the warning says why, and "the run goes on without it" would be false.
+            if (ended is null && run.TraceError is { } traceError)
             {
-                Status += " " + traceError;
+                Status = string.IsNullOrEmpty(Status) ? traceError : Status + " " + traceError;
             }
 
             IsRunning = false;

@@ -44,10 +44,16 @@ public sealed partial class JobViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    [NotifyPropertyChangedFor(nameof(IsRunning))]
+    [NotifyPropertyChangedFor(nameof(StatusIcon))]
     private JobStatus _status = JobStatus.Running;
 
     [ObservableProperty]
     private string _statusText = "Running";
+
+    /// <summary>Why a failed job failed, in full: a refusal puts its next step last.</summary>
+    [ObservableProperty]
+    private string? _failure;
 
     public JobViewModel(TrackedJob job)
     {
@@ -58,6 +64,18 @@ public sealed partial class JobViewModel : ObservableObject
     public Guid Id => _job.Id;
 
     public string Title => _job.Title;
+
+    /// <summary>Whether the job is still running.</summary>
+    public bool IsRunning => Status == JobStatus.Running;
+
+    /// <summary>The icon for how the job ended; none while it runs.</summary>
+    public string? StatusIcon => Status switch
+    {
+        JobStatus.Completed => "Completed",
+        JobStatus.Failed => "Failed",
+        JobStatus.Canceled => "Canceled",
+        _ => null,
+    };
 
     /// <summary>Copies the job's current state into bindable properties.</summary>
     public void Refresh()
@@ -75,9 +93,10 @@ public sealed partial class JobViewModel : ObservableObject
             JobStatus.Running => IsIndeterminate ? Phase : string.Create(CultureInfo.CurrentCulture, $"{Phase} {Percent:N0}%"),
             JobStatus.Completed => "Completed",
             JobStatus.Canceled => "Canceled",
-            JobStatus.Failed => "Failed: " + _job.Error,
+            JobStatus.Failed => "Failed",
             _ => Status.ToString(),
         };
+        Failure = Status == JobStatus.Failed ? _job.Error : null;
         if (Status != JobStatus.Running)
         {
             IsIndeterminate = false;

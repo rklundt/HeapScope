@@ -627,6 +627,7 @@
           "Avalonia": "[12.1.5, )",
           "Avalonia.Controls.DataGrid": "[12.1.2, )",
           "Avalonia.Desktop": "[12.1.5, )",
+          "Avalonia.Fonts.Inter": "[12.1.5, )",
           "Avalonia.Headless": "[12.1.5, )",
           "Avalonia.Themes.Fluent": "[12.1.5, )",
           "CommunityToolkit.Mvvm": "[8.4.2, )",

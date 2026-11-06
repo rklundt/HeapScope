@@ -31,7 +31,8 @@
         x:DataType="vm:ShellViewModel"
         Title="{Binding Title}"
         Width="1200" Height="800"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Icon="avares://HeapScope/Assets/heapscope.ico">
   <!-- One view per page, chosen by the page's view model type; Jobs rows use the JobViewModel template. -->
   <Window.DataTemplates>
     <DataTemplate DataType="vm:HomeViewModel"><pages:HomePage /></DataTemplate>
@@ -64,32 +65,48 @@
     <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.Surface}" Padding="8,3">
       <DockPanel>
         <TextBlock DockPanel.Dock="Right" Text="F1: keyboard shortcuts" Classes="subtle" Margin="12,0,0,0" />
-        <Button x:Name="CancelExport" DockPanel.Dock="Right" Content="Cancel export" Padding="6,0" Margin="8,0,0,0"
+        <Button DockPanel.Dock="Right" Classes="link" Content="{Binding FinishedJobsText}" Margin="12,0,0,0" Command="{Binding ShowJobsCommand}"
+                IsVisible="{Binding FinishedJobsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" ToolTip.Tip="Show the Jobs page" />
+        <Button x:Name="CancelExport" DockPanel.Dock="Right" Classes="compact" Content="Cancel export" Margin="8,0,0,0"
                 Command="{Binding Exports.CancelCommand}" IsVisible="{Binding Exports.IsExporting}" />
         <TextBlock x:Name="ExportStatus" DockPanel.Dock="Right" Text="{Binding Exports.Status}" Classes="subtle" Margin="12,0,0,0" />
         <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" />
       </DockPanel>
     </Border>
-    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="12,6" MaxHeight="160">
-      <DockPanel>
-        <TextBlock DockPanel.Dock="Top" Text="Jobs" FontWeight="SemiBold" Margin="0,0,0,4" />
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <ItemsControl ItemsSource="{Binding Jobs}" />
-        </ScrollViewer>
-      </DockPanel>
+    <!-- Only the jobs running now; the Jobs page keeps the finished ones. -->
+    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="12,4" MaxHeight="160"
+            IsVisible="{Binding IsJobsPanelVisible}">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Jobs}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:JobViewModel">
+              <pages:JobRow IsVisible="{Binding IsRunning}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
     </Border>
-    <Border DockPanel.Dock="Left" Width="180" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0">
-      <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}" Padding="4,8" Background="Transparent">
-        <ListBox.ItemTemplate>
-          <DataTemplate x:DataType="vm:NavigationItem">
-            <TextBlock Text="{Binding Title}" />
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
+    <Border DockPanel.Dock="Left" Width="168" Background="{DynamicResource Brush.Rail}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="16,12,0,10">
+          <Image Source="{StaticResource Logo.Small}" Width="20" Height="20" VerticalAlignment="Center" />
+          <TextBlock Text="HeapScope" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </StackPanel>
+        <ListBox Classes="nav" ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItem">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <ctl:DuotoneIcon Icon="{Binding Title}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
     </Border>
     <!-- Each page is built when first shown and then kept: switching pages is a visibility change, not a rebuild of
          its grids, and keeps scroll positions and expanded state (sprint 1.5). -->
-    <ItemsControl ItemsSource="{Binding NavigationItems}" Margin="12,8,4,4">
+    <ItemsControl ItemsSource="{Binding NavigationItems}" Margin="12,8,8,4">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate>
           <Grid />

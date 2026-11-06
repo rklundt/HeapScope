@@ -31,21 +31,29 @@
              x:DataType="vm:HomeViewModel">
   <ScrollViewer>
     <StackPanel Margin="4">
-      <TextBlock FontSize="20" Text="Home" Margin="0,0,0,12" />
-      <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Text="Open a full memory dump of a .NET process to see what is on its heap." />
-      <Button Content="Open dump..." HorizontalAlignment="Left" Padding="16,4" Margin="0,0,0,24" Command="{Binding OpenDumpCommand}" />
+      <TextBlock Classes="pageTitle" Text="Home" Margin="0,0,0,4" />
+      <TextBlock TextWrapping="Wrap" Classes="subtle" Margin="0,0,0,12" Text="See what is on a .NET process's heap, why it stays there and what grew." />
+      <WrapPanel Margin="0,0,0,24">
+        <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="0,0,8,0" Command="{Binding OpenDumpCommand}" />
+        <Button ctl:ButtonIcon.Icon="Capture" Content="Capture from a process" Margin="0,0,8,0" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowProcessesCommand}"
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.CaptureTip}" />
+        <Button ctl:ButtonIcon.Icon="Live" Content="Watch live" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowLiveCommand}"
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.LiveTip}" />
+      </WrapPanel>
       <DockPanel Margin="0,0,0,4">
-        <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
-        <Button DockPanel.Dock="Right" Content="Clean up old sessions..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}"
+        <Button ctl:ButtonIcon.Icon="Refresh" DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
+        <Button DockPanel.Dock="Right" Content="Clean up..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}"
                 ToolTip.Tip="Delete the sessions not opened for the days given (asks first; the current session and sessions with an open snapshot are kept)." />
+        <TextBlock DockPanel.Dock="Right" Text="days" Classes="subtle" VerticalAlignment="Center" Margin="0,0,8,0" />
         <NumericUpDown DockPanel.Dock="Right" Width="110" Minimum="1" Maximum="3650" Increment="1" FormatString="0" Value="{Binding CleanupDays, Mode=TwoWay}" Margin="0,0,6,0"
                        ToolTip.Tip="Days a session was not opened" />
+        <TextBlock DockPanel.Dock="Right" Text="Sessions not opened for" Classes="subtle" VerticalAlignment="Center" Margin="0,0,6,0" />
         <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
       </DockPanel>
       <ctl:NoteText Text="{Binding SessionStatus}" Classes="subtle" Margin="0,0,0,4" />
-      <DataGrid x:Name="Sessions" ctl:GridExports.ExportName="Sessions" ItemsSource="{Binding RecentSessions}" MaxHeight="220" Margin="0,0,0,24">
+      <DataGrid x:Name="Sessions" ctl:GridExports.ExportName="Sessions" ItemsSource="{Binding RecentSessions}" MaxHeight="360">
         <DataGrid.Columns>
-          <DataGridTextColumn Header="Session" x:DataType="sessions:SessionSummary" Binding="{Binding Name}" Width="*" />
+          <DataGridTextColumn Header="Session" x:DataType="sessions:SessionSummary" Binding="{Binding Name}" Width="*" MinWidth="240" />
           <DataGridTextColumn Header="Created" x:DataType="sessions:SessionSummary" Binding="{Binding CreatedUtc.LocalDateTime, StringFormat='{}{0:g}'}" Width="140" />
           <DataGridTextColumn Header="Last opened" x:DataType="sessions:SessionSummary" Binding="{Binding LastOpenedUtc.LocalDateTime, StringFormat='{}{0:g}'}" Width="140" />
           <DataGridTextColumn Header="Snapshots" x:DataType="sessions:SessionSummary" Binding="{Binding SnapshotCount}" Width="90" CellStyleClasses="number" />
@@ -54,10 +62,10 @@
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="sessions:SessionSummary">
                 <StackPanel Orientation="Horizontal">
-                  <Button Content="Open" Padding="8,0" Margin="2,1"
+                  <Button Classes="compact" Content="Open" Margin="2,1"
                           Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).OpenSessionCommand}"
                           CommandParameter="{Binding}" />
-                  <Button Content="Delete..." Padding="8,0" Margin="2,1"
+                  <Button ctl:ButtonIcon.Icon="Delete" Classes="compact" Content="Delete..." Margin="2,1"
                           Command="{Binding $parent[DataGrid].((vm:HomeViewModel)DataContext).DeleteSessionCommand}"
                           CommandParameter="{Binding}" />
                 </StackPanel>
@@ -66,15 +74,6 @@
           </DataGridTemplateColumn>
         </DataGrid.Columns>
       </DataGrid>
-      <TextBlock Text="Diagnostics" FontWeight="SemiBold" Margin="0,0,0,4" />
-      <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Classes="subtle"
-                 Text="Run a synthetic graph job to exercise the analysis worker, progress and cancellation." />
-      <StackPanel Orientation="Horizontal">
-        <TextBlock Text="Objects:" VerticalAlignment="Center" Margin="0,0,8,0" />
-        <TextBox Width="140" Text="{Binding ObjectCount}" />
-        <Button Content="Run synthetic job" Margin="8,0,0,0" Command="{Binding RunSyntheticCommand}" />
-      </StackPanel>
-      <TextBlock Margin="0,12,0,0" Text="{Binding LastResult}" TextWrapping="Wrap" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

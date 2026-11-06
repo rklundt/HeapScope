@@ -22,7 +22,6 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
-using System.Globalization;
 using System.Xml.Linq;
 using HeapScope.Contracts;
 
@@ -80,34 +79,8 @@ public class AttributionTests
     {
         var brushes = ThemeTests.Brushes(theme);
 
-        var text = Parse(brushes["Brush.Text"]);
-        var surface = Parse(brushes["Brush.Surface"]);
-
-        text.A.ShouldBe((byte)255);
-        surface.A.ShouldBe((byte)255);
-        Contrast(text, surface).ShouldBeGreaterThanOrEqualTo(4.5);
-    }
-
-    private static (byte A, byte R, byte G, byte B) Parse(string color)
-    {
-        color.Length.ShouldBe(9);
-        var value = uint.Parse(color.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        return ((byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value);
-    }
-
-    // WCAG 2.x contrast ratio.
-    private static double Contrast((byte A, byte R, byte G, byte B) a, (byte A, byte R, byte G, byte B) b)
-    {
-        var (la, lb) = (Luminance(a), Luminance(b));
-        return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
-    }
-
-    private static double Luminance((byte A, byte R, byte G, byte B) c) =>
-        (0.2126 * Channel(c.R)) + (0.7152 * Channel(c.G)) + (0.0722 * Channel(c.B));
-
-    private static double Channel(byte value)
-    {
-        var s = value / 255.0;
-        return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        Contrast.IsOpaque(brushes["Brush.Text"]).ShouldBeTrue();
+        Contrast.IsOpaque(brushes["Brush.Surface"]).ShouldBeTrue();
+        Contrast.Ratio(brushes["Brush.Text"], brushes["Brush.Surface"]).ShouldBeGreaterThanOrEqualTo(4.5);
     }
 }

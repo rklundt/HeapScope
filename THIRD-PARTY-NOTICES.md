@@ -28,6 +28,7 @@ under the MIT License, whose text is below.
 |---|---|---|
 | Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Headless and their platform packages (Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Win32, Avalonia.X11, Avalonia.FreeDesktop, Avalonia.FreeDesktop.AtSpi, Avalonia.Native, Avalonia.Remote.Protocol) | 12.1.5 | The AvaloniaUI Project |
 | Avalonia.Controls.DataGrid | 12.1.2 | The AvaloniaUI Project |
+| Avalonia.Fonts.Inter (the package; the Inter fonts in it are under the SIL Open Font License, below) | 12.1.5 | The AvaloniaUI Project |
 | Azure.Core (via ClrMD) | 1.53.0 | Microsoft Corporation |
 | Azure.Identity (via ClrMD) | 1.21.0 | Microsoft Corporation |
 | CommunityToolkit.Mvvm | 8.4.2 | .NET Foundation and Contributors |
@@ -104,6 +105,15 @@ Windows, Linux and macOS, 2026-10-30; HeapScope's own libSkiaSharp differs only 
 
 HeapScope ships no code under the GPL or the LGPL. This is checked again whenever SkiaSharp or HarfBuzzSharp is updated.
 
+### The Inter typeface inside Avalonia.Fonts.Inter
+
+The package Avalonia.Fonts.Inter 12.1.5 is MIT (The AvaloniaUI Project). The fonts it holds, Inter 3.019, are licensed
+under the SIL Open Font License, Version 1.1: Copyright 2016-2020 The Inter Project Authors,
+https://github.com/rsms/inter. "Inter" is a trademark of Rasmus Andersson. The fonts ship unmodified inside
+`Avalonia.Fonts.Inter.dll`; the full license text is in `licenses/Avalonia.Fonts.Inter.12.1.5/OFL.txt` in a published build
+and in `build/licenses/Avalonia.Fonts.Inter/OFL.txt` in the source. The Open Font License covers the fonts only, not
+HeapScope or anything else in the build.
+
 ### Native binaries inside Microsoft.Diagnostics.Tracing.TraceEvent
 
 The TraceEvent package copies native Microsoft binaries into the build output (`KernelTraceControl.dll` and
@@ -121,7 +131,6 @@ tracing and symbol lookup. Nothing in HeapScope calls them, and since sprint 3.6
 | Shouldly | 4.3.0 | BSD-3-Clause | Jake Ginnivan, Joseph Woodward, Simon Cropp and contributors |
 | Microsoft.CodeAnalysis.CSharp (DenseHeap fixture) | 5.9.0 | MIT | Microsoft Corporation |
 | Avalonia.BuildServices (build time, via Avalonia; its telemetry task is disabled by `Directory.Build.targets`) | 11.3.2 | MIT | The AvaloniaUI Project |
-| Avalonia.Fonts.Inter (via Avalonia.Headless; excluded from the app's output, the tests only) | 12.1.5 | SIL OFL 1.1 (the Inter typeface) | The AvaloniaUI Project |
 
 ## MIT License
 

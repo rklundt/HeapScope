@@ -22,6 +22,7 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
+using System.Globalization;
 using HeapScope.Application.Monitoring;
 
 namespace HeapScope.UI.ViewModels;
@@ -37,6 +38,71 @@ public static class TimelineLayout
     /// (gray), so the top edge is the heap now (review of 1.7).
     /// </summary>
     public static readonly string[] LayerKeys = ["HeapKind.Gen0", "HeapKind.Gen1", "HeapKind.Gen2", "HeapKind.LargeObjectHeap", "HeapKind.PinnedObjectHeap", "HeapKind.Unknown"];
+
+    /// <summary>The height under the plot that holds the time axis's labels.</summary>
+    public const double TimeAxisHeight = 16;
+
+    /// <summary>The largest number of byte gridlines; a chart with more is noise.</summary>
+    public const int MaxByteTicks = 4;
+
+    /// <summary>
+    /// Round sizes for the gridlines, up to <paramref name="maxBytes"/>: at most <see cref="MaxByteTicks"/> of them, each a
+    /// 1, 2 or 5 times a power of ten, in megabytes.
+    /// </summary>
+    public static IReadOnlyList<long> ByteTicks(long maxBytes)
+    {
+        const long Megabyte = 1024 * 1024;
+        if (maxBytes <= 0)
+        {
+            return [];
+        }
+
+        for (var magnitude = 1L; ; magnitude *= 10)
+        {
+            foreach (var factor in new long[] { 1, 2, 5 })
+            {
+                var step = factor * magnitude * Megabyte;
+                if (maxBytes / step <= MaxByteTicks)
+                {
+                    return [.. Enumerable.Range(1, (int)(maxBytes / step)).Select(i => i * step)];
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The labels of the time axis: the time since <paramref name="runStart"/> (the first sample without one) at round steps, at
+    /// most about six across. Only the last samples are kept, so the first in the window may be well into the run.
+    /// </summary>
+    public static IReadOnlyList<(double X, string Label)> TimeTicks(IReadOnlyList<HeapSample> samples, double width, DateTimeOffset? runStart = null)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        if (samples.Count < 2 || width <= 0)
+        {
+            return [];
+        }
+
+        var span = (samples[^1].At - samples[0].At).TotalSeconds;
+        if (span <= 0)
+        {
+            return [];
+        }
+
+        int[] steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400];
+        var step = steps.FirstOrDefault(s => span / s <= 6, steps[^1]);
+        var offset = runStart is { } start ? Math.Max(0, (samples[0].At - start).TotalSeconds) : 0;
+        var ticks = new List<(double X, string Label)>();
+        for (var at = (long)Math.Ceiling(offset / step) * step; at <= offset + span; at += step)
+        {
+            var time = TimeSpan.FromSeconds(at);
+            var label = time.TotalHours >= 1
+                ? string.Create(CultureInfo.InvariantCulture, $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}")
+                : string.Create(CultureInfo.InvariantCulture, $"{time.Minutes}:{time.Seconds:00}");
+            ticks.Add(((at - offset) / span * width, label));
+        }
+
+        return ticks;
+    }
 
     /// <summary>
     /// The top edge of each layer, bottom layer first: x spans the samples' time (left to right), y the stacked bytes

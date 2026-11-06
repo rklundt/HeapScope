@@ -256,7 +256,7 @@ public static class CounterMonitor
         }
     }
 
-    private static Exception Translate(int processId, Exception ex)
+    internal static Exception Translate(int processId, Exception ex)
     {
         string processName;
         try
@@ -270,7 +270,7 @@ public static class CounterMonitor
         }
 
         return ex is UnauthorizedAccessException
-            ? ElevationRequiredException.For(processId, processName, ex)
+            ? ElevationRequiredException.ForMonitoring(processId, processName, ex)
             : new TargetUnavailableException($"{processName} ({processId}) did not answer on its diagnostics port: {ex.Message} Is it a .NET 6 or later process?", ex);
     }
 }

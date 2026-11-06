@@ -64,6 +64,7 @@ public sealed class AllocationTimeline : Control
 
     public AllocationTimeline()
     {
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
         ClipToBounds = true;
         Cursor = new Cursor(StandardCursorType.Cross);
     }
@@ -151,7 +152,7 @@ public sealed class AllocationTimeline : Control
         }
 
         // The selected interval, or the one being dragged.
-        var interval = Brush("Allocation.Interval") ?? new SolidColorBrush(Color.FromArgb(0x55, 0x48, 0xB8, 0x60));
+        var interval = Brush("Allocation.Interval") ?? Brushes.Gray;
         if (_dragStart is { } start)
         {
             context.FillRectangle(interval, new Rect(Math.Min(start, _dragNow), 0, Math.Abs(_dragNow - start), size.Height));
@@ -175,7 +176,7 @@ public sealed class AllocationTimeline : Control
     private double XOf(double seconds) => AllocationTimelineGeometry.XOf(seconds, Bounds.Width, Buckets, BucketSeconds, DurationSeconds);
 
     private static FormattedText Label(string text, IBrush brush) =>
-        new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
+        new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, brush);
 
     private IBrush? Brush(string key) => this.TryFindResource(key, ActualThemeVariant, out var value) ? value as IBrush : null;
 }

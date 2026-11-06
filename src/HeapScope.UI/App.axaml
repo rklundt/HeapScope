@@ -30,6 +30,9 @@
              RequestedThemeVariant="Default">
   <Application.Resources>
     <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://HeapScope/Themes/Icons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
       <!-- Both themes define the same keys; a test checks it (sprint 1.3). The system's choice applies unless Ui:Theme says. -->
       <ResourceDictionary.ThemeDictionaries>
         <ResourceInclude x:Key="Light" Source="avares://HeapScope/Themes/Light.axaml" />
@@ -38,7 +41,12 @@
     </ResourceDictionary>
   </Application.Resources>
   <Application.Styles>
-    <FluentTheme />
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Light" Accent="#FF4F46E5" />
+        <ColorPaletteResources x:Key="Dark" Accent="#FFA5B4FC" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
     <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
     <StyleInclude Source="avares://HeapScope/Themes/Styles.axaml" />
   </Application.Styles>

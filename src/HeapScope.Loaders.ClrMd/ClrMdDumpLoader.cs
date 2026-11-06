@@ -29,6 +29,7 @@ using HeapScope.Core;
 using HeapScope.Core.Graph;
 using HeapScope.Core.Loading;
 using Microsoft.Diagnostics.Runtime;
+using Microsoft.Diagnostics.Runtime.DataReaders.Implementation;
 
 namespace HeapScope.Loaders.ClrMd;
 
@@ -47,9 +48,10 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
     /// <summary>
     /// 2 since sprint 1.8: truncated dumps lose CompleteGraph and ExactCounts, finalizer registrations are a fact. 3 since
     /// sprint 2.3.5: core files get their own truncation check and the runtime version ClrMD reads as 0.0 is named by the
-    /// runtime's folder. Caches written before are rebuilt.
+    /// runtime's folder. 4 since sprint 3.10: the process name is the executable's, not the first module the reader lists.
+    /// Caches written before are rebuilt.
     /// </summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     /// <summary>
     /// Checks, without loading it, that the DAC the dump needs may be loaded (sprint 3.6 review H1), for a dump opened from
@@ -138,10 +140,11 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         var graph = builder.Build(cancellationToken);
         var build = stopwatch.Elapsed - open - objects - references - roots;
 
+        var processName = ProcessName(target);
         var info = new SnapshotInfo(
             SnapshotKind.FullDump,
             fullPath,
-            ProcessName(target),
+            processName.Name,
             ProcessId(target),
             DacLocator.RuntimeVersion(clr.Version, Path.GetDirectoryName(clr.ModuleInfo.FileName)),
             target.DataReader.PointerSize,
@@ -158,7 +161,7 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
             graph,
             info,
             capabilities,
-            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments, dac),
+            new LoadDiagnostics(debuggable, unreadable, staticRoots, incompleteSegments, dac, processName.Source),
             new LoadTimings(open, objects, references, roots, build));
     }
 
@@ -581,16 +584,107 @@ public sealed class ClrMdDumpLoader(ClrMdLoaderOptions? options = null) : ISnaps
         return stream.ReadAtLeast(start, 4, throwOnEndOfStream: false) == 4 && SnapshotFileSignature.IsMinidump(start);
     }
 
-    private static string? ProcessName(DataTarget target)
+    private static ProcessNameChoice ProcessName(DataTarget target)
     {
-        foreach (var module in target.EnumerateModules())
+        var (imagePath, whyNoPath) = ImagePath(target.DataReader);
+        return ProcessNameOf(
+            target.EnumerateModules().Select(static module => module.FileName ?? string.Empty),
+            imagePath,
+            target.DataReader.TargetPlatform == OSPlatform.Windows,
+            whyNoPath);
+    }
+
+    /// <summary>The executable's path as the dump records it, or why there is none. Not every reader has it, and a name must not fail a load.</summary>
+    private static (string? Path, string WhyNot) ImagePath(IDataReader reader)
+    {
+        if (reader is not IProcessInfoProvider provider)
         {
-            // The first module of a process dump is the executable.
-            return Path.GetFileNameWithoutExtension(RecordedPath.FileName(module.FileName ?? string.Empty));
+            return (null, "this kind of dump records no path");
         }
 
-        return null;
+        try
+        {
+            return (provider.GetProcessInfo().ImagePath, "the dump records no path");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException or IndexOutOfRangeException or OverflowException or ClrDiagnosticsException)
+        {
+            return (null, "reading the recorded path failed: " + ex.GetType().Name);
+        }
     }
+
+    /// <summary>A dump's process name and which rule chose it, for the log (sprint 3.10 review H2).</summary>
+    internal readonly record struct ProcessNameChoice(string? Name, string Source);
+
+    /// <summary>
+    /// The process's name. The executable's path the dump records settles it (Windows dumps and Linux core files record one).
+    /// Without it the modules are all there is, and the reader sorts them by base address, not load order, so the first may be
+    /// any library. A Windows dump's executable is its .exe (the first, if the process mapped another). A core file's modules
+    /// have no such mark: an executable usually sits below its libraries, so the name is the first module not named like a
+    /// library, with its dots kept (Orders.Api). That is a judgment, not proof: under `ulimit -s unlimited` a mapped data file
+    /// could sort first, and the log states the rule used. With no such module the name is unknown, not a library's.
+    /// </summary>
+    internal static ProcessNameChoice ProcessNameOf(IEnumerable<string> modules, string? imagePath = null, bool windows = true, string whyNoPath = "the dump records no path")
+    {
+        if (!string.IsNullOrEmpty(imagePath) && RecordedPath.FileName(imagePath) is { Length: > 0 } image)
+        {
+            return new ProcessNameChoice(
+                windows && image.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? image[..^".exe".Length] : image,
+                "the executable's path the dump records: " + imagePath);
+        }
+
+        var named = 0;
+        var executables = 0;
+        string? executable = null;
+        string? candidate = null;
+        foreach (var module in modules)
+        {
+            var name = RecordedPath.FileName(module);
+
+            // A core file marks a file replaced or removed since it was mapped.
+            if (name.EndsWith(" (deleted)", StringComparison.Ordinal))
+            {
+                name = name[..^" (deleted)".Length];
+            }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+
+            named++;
+            var isExe = name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+            if (isExe && windows)
+            {
+                executables++;
+                executable ??= name;
+            }
+            else if (candidate is null && !isExe && !LooksLikeLibrary(name))
+            {
+                candidate = name;
+            }
+        }
+
+        var counted = named.ToString(CultureInfo.InvariantCulture);
+        return executable is not null
+            ? new ProcessNameChoice(
+                executable[..^".exe".Length],
+                executables == 1
+                    ? $"the only .exe of {counted} modules; {whyNoPath}"
+                    : $"the first of {executables.ToString(CultureInfo.InvariantCulture)} .exe modules of {counted}; {whyNoPath}")
+            : candidate is not null
+                ? new ProcessNameChoice(candidate, windows
+                    ? $"the first of {counted} modules not named like a library (no .exe); {whyNoPath}"
+                    : $"the first of {counted} modules not named like a library (.exe modules are not considered on this system); {whyNoPath}")
+                : new ProcessNameChoice(null, windows
+                    ? $"unknown: no .exe or executable among {counted} modules; {whyNoPath}"
+                    : $"unknown: no executable among {counted} modules; {whyNoPath}");
+    }
+
+    private static bool LooksLikeLibrary(string name) =>
+        name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith(".so", StringComparison.Ordinal)
+        || name.Contains(".so.", StringComparison.Ordinal)
+        || name.EndsWith(".dylib", StringComparison.Ordinal);
 
     private static int? ProcessId(DataTarget target) =>
         target.DataReader.ProcessId is var id and > 0 ? id : null;

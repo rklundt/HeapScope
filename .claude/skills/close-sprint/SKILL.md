@@ -13,7 +13,7 @@ Follow these steps exactly.
    - Every acceptance criterion in the sprint's section is met (cite the test or measurement) or explicitly
      deferred by the human (or, in autonomous mode, deferred and recorded as "decided autonomously").
    - `docs/reviews/sprint-X.Y.md` exists; every High finding is Fixed and confirmed; every Moderate finding
-     has a decision.
+     has a decision, and its fix, if any, was reviewed.
    - The docs describe what was built. Check each against the change set (`git diff --stat <last sprint tag>`) and
      update it now if it lags: ARCHITECTURE.md and its pages (`docs/architecture/`: code map, protocol version in
      `process-model.md`, measurements, privacy) and ADRs (`docs/adr/`),

@@ -25,19 +25,24 @@
 <!-- HeapScope dark theme (sprint 1.3, Avalonia since 2.3.6). Both themes define the same keys; a test checks it. -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <SolidColorBrush x:Key="Brush.Window" Color="#FF1E1E1E" />
-  <SolidColorBrush x:Key="Brush.Text" Color="#FFE6EDF3" />
-  <SolidColorBrush x:Key="Brush.Subtle" Color="#FF9DA7B1" />
-  <SolidColorBrush x:Key="Brush.Border" Color="#FF3D444D" />
-  <SolidColorBrush x:Key="Brush.Surface" Color="#FF252526" />
-  <SolidColorBrush x:Key="Brush.AltRow" Color="#FF2B2D30" />
-  <SolidColorBrush x:Key="Brush.Selection" Color="#FF1F3A5F" />
+  <SolidColorBrush x:Key="Brush.Window" Color="#FF14171B" />
+  <SolidColorBrush x:Key="Brush.Text" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="Brush.Subtle" Color="#FF9BA5B1" />
+  <SolidColorBrush x:Key="Brush.Border" Color="#FF2E343C" />
+  <SolidColorBrush x:Key="Brush.Surface" Color="#FF1A1D22" />
+  <SolidColorBrush x:Key="Brush.AltRow" Color="#FF20242A" />
+  <SolidColorBrush x:Key="Brush.Selection" Color="#FF2A2E52" />
   <SolidColorBrush x:Key="Brush.Note.Background" Color="#FF3B3220" />
   <SolidColorBrush x:Key="Brush.Note.Border" Color="#FF9E7B23" />
-  <SolidColorBrush x:Key="Brush.Info.Background" Color="#FF1B2B3D" />
-  <SolidColorBrush x:Key="Brush.Info.Border" Color="#FF388BFD" />
+  <SolidColorBrush x:Key="Brush.Info.Background" Color="#FF20234A" />
+  <SolidColorBrush x:Key="Brush.Info.Border" Color="#FFA5B4FC" />
   <SolidColorBrush x:Key="Brush.Error.Background" Color="#FF3D1F1D" />
   <SolidColorBrush x:Key="Brush.Error.Border" Color="#FFF85149" />
+  <SolidColorBrush x:Key="Brush.Rail" Color="#FF111418" />
+  <SolidColorBrush x:Key="Brush.Header" Color="#FF20242A" />
+  <SolidColorBrush x:Key="Brush.BorderStrong" Color="#FF6B7480" />
+  <SolidColorBrush x:Key="Brush.Accent" Color="#FFA5B4FC" />
+  <SolidColorBrush x:Key="Brush.OnAccent" Color="#FF14171B" />
   <!-- Bookmark marks (sprint 2.7). -->
   <SolidColorBrush x:Key="Brush.Mark.Red" Color="#FFF85149" />
   <SolidColorBrush x:Key="Brush.Mark.Orange" Color="#FFF0883E" />
@@ -48,17 +53,45 @@
   <SolidColorBrush x:Key="Brush.Growth" Color="#FFFF7B72" />
   <SolidColorBrush x:Key="Brush.Shrink" Color="#FF3FB950" />
   <!-- The icicle chart (sprint 2.4): alternate levels, and the path to the selected bar. -->
-  <SolidColorBrush x:Key="Icicle.Bar1" Color="#FF2C4A6B" />
-  <SolidColorBrush x:Key="Icicle.Bar2" Color="#FF35587F" />
-  <SolidColorBrush x:Key="Icicle.Path" Color="#FF7A5A1E" />
-  <!-- Allocations timeline (sprint 2.5): the bars and the selected interval, green as in the dotMemory research. -->
-  <SolidColorBrush x:Key="Allocation.Bar" Color="#FF4F7FB0" />
-  <SolidColorBrush x:Key="Allocation.Interval" Color="#5538A55A" />
-  <SolidColorBrush x:Key="HeapKind.Unknown" Color="#FF757575" />
-  <SolidColorBrush x:Key="HeapKind.Gen0" Color="#FF66BB6A" />
-  <SolidColorBrush x:Key="HeapKind.Gen1" Color="#FF42A5F5" />
-  <SolidColorBrush x:Key="HeapKind.Gen2" Color="#FF9575CD" />
-  <SolidColorBrush x:Key="HeapKind.LargeObjectHeap" Color="#FFFFA726" />
-  <SolidColorBrush x:Key="HeapKind.PinnedObjectHeap" Color="#FFF06292" />
-  <SolidColorBrush x:Key="HeapKind.Frozen" Color="#FF90A4AE" />
+  <SolidColorBrush x:Key="Icicle.Bar1" Color="#FF3B3F80" />
+  <SolidColorBrush x:Key="Icicle.Bar2" Color="#FF343A43" />
+  <SolidColorBrush x:Key="Icicle.Path" Color="#FFE0B15A" />
+  <SolidColorBrush x:Key="Icicle.PathText" Color="#FF14171B" />
+  <!-- Allocations timeline (sprint 2.5): the bars and the selected interval. -->
+  <SolidColorBrush x:Key="Allocation.Bar" Color="#FF7C86E8" />
+  <SolidColorBrush x:Key="Allocation.Interval" Color="#55A5B4FC" />
+  <!-- The heap kinds; Unknown is also the Live chart's "allocated since the last GC" layer. -->
+  <SolidColorBrush x:Key="HeapKind.Unknown" Color="#FF5B6470" />
+  <SolidColorBrush x:Key="HeapKind.Gen0" Color="#FF4CC9B8" />
+  <SolidColorBrush x:Key="HeapKind.Gen1" Color="#FF6DB6EE" />
+  <SolidColorBrush x:Key="HeapKind.Gen2" Color="#FF3F8FD6" />
+  <SolidColorBrush x:Key="HeapKind.LargeObjectHeap" Color="#FFF2A93B" />
+  <SolidColorBrush x:Key="HeapKind.PinnedObjectHeap" Color="#FFEE6F9E" />
+  <SolidColorBrush x:Key="HeapKind.Frozen" Color="#FF8D9AA8" />
+  <!-- Fluent's own keys, so its controls follow these colors (ADR-040). -->
+  <SolidColorBrush x:Key="TextControlBorderBrush" Color="#FF6B7480" />
+  <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#FF6B7480" />
+  <SolidColorBrush x:Key="DataGridColumnHeaderBackgroundBrush" Color="#FF20242A" />
+  <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="#FFA5B4FC" />
+  <SolidColorBrush x:Key="DataGridRowSelectedBackgroundBrush" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="DataGridRowSelectedHoveredBackgroundBrush" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="DataGridRowSelectedUnfocusedBackgroundBrush" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundBrush" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="TreeViewItemBackgroundSelected" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="TreeViewItemBackgroundSelectedPointerOver" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="TreeViewItemBackgroundSelectedPressed" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="#FF2A2E52" />
+  <SolidColorBrush x:Key="TreeViewItemForegroundSelected" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="TreeViewItemForegroundSelectedPointerOver" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="TreeViewItemForegroundSelectedPressed" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="TabItemHeaderForegroundSelected" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="TabItemHeaderForegroundSelectedPointerOver" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="TabItemHeaderForegroundSelectedPressed" Color="#FFE6EAF0" />
+  <SolidColorBrush x:Key="TabItemHeaderForegroundUnselected" Color="#FF9BA5B1" />
+  <SolidColorBrush x:Key="TabItemHeaderForegroundUnselectedPointerOver" Color="#FF9BA5B1" />
 </ResourceDictionary>

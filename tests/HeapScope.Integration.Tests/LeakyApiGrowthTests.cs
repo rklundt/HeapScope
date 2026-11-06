@@ -61,7 +61,9 @@ public sealed class LeakyApiGrowthTests
             second = dump.CountTypes(typeNames);
         }
 
-        // Types shared by several leaks (byte[], string) grow by the sum of their per-item counts.
+        // Types shared by several leaks (byte[], string) grow by the sum of their per-item counts. For a type the framework also uses,
+        // growth is no measure: its own objects in the first dump can die before the second, so growth can look short of an intact
+        // leak. A leak frees nothing, so each dump holds at least the items of its requests, whatever else is there.
         var expectedGrowth = census
             .GroupBy(c => c.Entry.Type)
             .ToDictionary(g => g.Key, g => (Growth: 10L * ItemsPerRequest * g.Sum(c => c.Entry.PerItem), Exact: g.All(c => c.Entry.Exact)));
@@ -69,10 +71,12 @@ public sealed class LeakyApiGrowthTests
         foreach (var (type, (growth, exact)) in expectedGrowth)
         {
             var actual = second[type] - first[type];
-            var ok = exact ? actual == growth && first[type] == growth / 2 : actual >= growth;
+            var ok = exact ? actual == growth && first[type] == growth / 2 : first[type] >= growth / 2 && second[type] >= growth * 3 / 2;
             if (!ok)
             {
-                mismatches.Add($"{type}: first {first[type]}, growth {actual}, expected growth {growth}{(exact ? " exactly" : " or more")}");
+                mismatches.Add(exact
+                    ? $"{type}: first {first[type]}, growth {actual}, expected growth {growth} exactly"
+                    : $"{type}: first {first[type]}, second {second[type]}, expected at least {growth / 2} and {growth * 3 / 2}");
             }
         }
 

@@ -22,22 +22,16 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
-using System.Globalization;
-using Avalonia.Data.Converters;
+using Avalonia;
+using Avalonia.Media;
 
-namespace HeapScope.UI.Controls;
+namespace HeapScope.UI.Services;
 
-/// <summary>A diff delta's color (sprint 1.4): growth for a positive trend, shrinkage for a negative one, the text color otherwise.</summary>
-public sealed class TrendBrushConverter : IValueConverter
+/// <summary>The app's font (ADR-040): Inter is the default family, so charts, popups and tool tips use it too.</summary>
+internal static class AppFonts
 {
-    public static TrendBrushConverter Instance { get; } = new();
+    public const string Inter = "fonts:Inter#Inter";
 
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
-    {
-        > 0 => ResourceKeyToBrushConverter.Instance.Convert("Brush.Growth", targetType, null, culture),
-        < 0 => ResourceKeyToBrushConverter.Instance.Convert("Brush.Shrink", targetType, null, culture),
-        _ => ResourceKeyToBrushConverter.Instance.Convert("Brush.Text", targetType, null, culture),
-    };
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+    public static AppBuilder UseAppFont(this AppBuilder builder) =>
+        builder.WithInterFont().With(new FontManagerOptions { DefaultFamilyName = Inter });
 }

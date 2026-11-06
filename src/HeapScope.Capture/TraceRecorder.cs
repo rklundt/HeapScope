@@ -210,7 +210,7 @@ public static class TraceRecorder
         }
 
         return ex is UnauthorizedAccessException
-            ? ElevationRequiredException.For(processId, name, ex)
+            ? ElevationRequiredException.ForTrace(processId, name, ex)
             : new TargetUnavailableException($"{name} ({processId}) did not answer on its diagnostics port: {ex.Message} Is it a .NET 6 or later process?", ex);
     }
 }

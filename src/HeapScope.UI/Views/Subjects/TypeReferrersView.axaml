@@ -38,7 +38,7 @@
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ToolTip.Tip="Double-click or Enter opens the objects of the referencing type.">
       <DataGrid.Columns>
-        <DataGridTextColumn Header="Referencing type" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding TypeName}" Width="*" SortMemberPath="Type" />
+        <DataGridTextColumn Header="Referencing type" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding TypeName}" Width="*" MinWidth="240" SortMemberPath="Type" />
         <DataGridTextColumn Header="Module" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Module}" Width="180" SortMemberPath="Module" />
         <DataGridTextColumn Header="Objects" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="Objects" CellStyleClasses="number" />
         <DataGridTextColumn Header="References" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="100" SortMemberPath="References" CellStyleClasses="number" />

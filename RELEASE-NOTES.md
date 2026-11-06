@@ -15,6 +15,36 @@ each sprint is in `docs/reviews/sprint-X.Y.md`.
 
 Everything else was built on `develop` and first shipped in the next release above it.
 
+## 3.10.0: Visual design and README (sprint 3.10)
+
+- **A new look**: one design on every page, in both themes: slate neutrals and one indigo accent, the Inter font with
+  numbers that line up, tighter grids, and HeapScope's own logo and icons. Charts now follow a theme change.
+- **Fixes you can see**: Compare and Allocations keep type names readable, selected text is easier to read, columns no longer
+  clip or sit blank, and the Live chart has gridlines and a time axis. Fit to width on the retention diagram follows the page.
+- **Clearer messages**: empty pages say what to do next, failed jobs keep their reason, and the next steps fit the system you are on.
+- **Rows that open more**: a leak detector's row with no type or address, such as a timer's static method, now opens its
+  objects on double-click, and can be asked what those objects retain.
+- **Process names you can trust**: a dump's process name comes from the executable's path the dump records, and the log says
+  which rule chose it. It could be a library's name before, which could refuse New and Dead for two dumps of one process.
+- **A new README and a user guide**: the README shows real captures in your GitHub theme, and `docs/USER-GUIDE.md` holds the detail.
+- **macOS packages, untested**: releases attach `osx-arm64` and `osx-x64` packages. They are built on Linux, not on a Mac, and have
+  not been run. INSTALL.md says how to build on a Mac with `build/publish.sh`.
+- **Live says when it cannot help**: a process it may not monitor gets a warning that stays, with what to do, and a process that sends
+  no samples gets one after about 10 seconds, since some trimmed apps turn off the runtime events Live reads.
+- **A chart you can read**: hover over any bar in the Retainers chart for its name and size, and a line above the chart says how to read it.
+- **Allocation traces say why there is none**: stopping a run while its trace is still starting no longer reports a failure. The
+  run says there is no trace and how long it had been waiting.
+
+Limited:
+- **Each full dump's index cache is rebuilt once after upgrading**, so its first open takes as long as a first load. The process name
+  fix changed what the loader records (loader version 4): the name and the rule that chose it.
+- **That rebuild needs the dump's DAC.** Until sprint 3.11, a dump whose DAC is gone, or which you declined to trust, does not open
+  when its cache is from an older version, and the error says what is missing. This qualifies 3.6.0's "After a "no", a dump with
+  an index cache still opens": that holds for a cache written by this version.
+- After a reopen is refused, opening the dump again works, but the Snapshots page can keep showing "Open it again" and the old
+  notes. Sprint 3.11 fixes this.
+- Capture stays on Windows, and nothing is signed.
+
 ## 3.9.0: Packaging and distribution (sprint 3.9)
 
 Install HeapScope without building it: see [INSTALL.md](INSTALL.md), from download to a first snapshot.

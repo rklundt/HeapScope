@@ -50,8 +50,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   retains together, exactly) [2.4]. `Sets/ObjectSet` (a set's members as sorted object indices and a bit mask, built from
   types, addresses or indices), `Sets/SetDominators` (the members no other member dominates), `TypeAggregation.Compute`
   over a set, `SetRetention.Compute` over a set (optionally returning the retained objects as a set),
-  `TypeGroups.MatchGroup` (a namespace's or an assembly's types) and `InspectionTable.MembersOf` (the objects a leak
-  detector row counted) [3.1]. `Retention/SimilarRetention` (a set's members grouped by retention pattern, each group
+  `TypeGroups.MatchGroup` (a namespace's or an assembly's types) and `InspectionTable.MembersOf` (the objects behind a leak
+  detector row) [3.1]. `Retention/SimilarRetention` (a set's members grouped by retention pattern, each group
   with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
   signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
   grouping in `TypeGroups` (`GroupKey.Interface`, `TypeInterfaces`, `MatchInterface`) and `TypeDiff` [3.2].
@@ -60,7 +60,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `TypeTrend` (rows across several snapshots) [3.3].
 - **Storage.** `IndexCacheSigner` (passed to every reader and writer: the user's key in the worker, `None` written out
   in tools and tests; ADR-036 amended) [3.8]. The index cache format, reader and writer (section 7); the metadata records the loader version that
-  built the graph [1.8]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
+  built the graph [1.8] and the rule that chose the process name (`ProcessNameSource`) [3.10]. `IndexCacheFileWriter` (one index file section by section, header last, rename; the base writer
   uses it and returns the cache identity), `IndexCacheFile` (any index file opened and verified in memory or mapped,
   `TryGetSection<T>`), `IndexFileLayout` (the sections of the base cache and of each sidecar), `IndexFileDirectory` (the
   header and directory checks both readers share) and `IndexCacheLocator.GetSidecarPath` [2.1]. `MappedIndexFileWriter`
@@ -80,7 +80,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   shared with the loader, runtime creation failures wrapped with a next step) [1.5]; `MinidumpHeader` [1.2, 1.8];
   `CoreFileHeader` (a Linux or macOS core cut short: program headers or load commands, or a segment's file range, past
   the end of the file; such a core loses CompleteGraph and ExactCounts like a truncated minidump), a core's capture time
-  from the file's write time marked `SnapshotFacts.CaptureTimeFromFile` with a note, loader version 3 [2.3.5];
+  from the file's write time marked `SnapshotFacts.CaptureTimeFromFile` with a note, loader version 3 [2.3.5]; `ClrMdDumpLoader.ProcessNameOf`: the executable's path the dump records, else its modules, and which rule chose it, loader version 4 [3.10];
   `UnixLocalPath` (the local path rule on Linux and macOS: the mount holding the path, links resolved) [2.3.5];
   `DacLocator` and `LocalOnlyFileLocator` (the matching DAC from local folders only, ADR-017, section 6.3) [0.1, 1.2];
   a DAC next to the dump only once trusted by its SHA-256 and loaded from a private copy (`BesideDumpDirectories`,
@@ -202,7 +202,7 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `ObjectSetQuery` (a spec and the baseline snapshot of an inspection row, bound to the worker's current ids at each call
   by `SnapshotSession.UseWithSetAsync`) and the session's set queries (`QueryRetainedBySetAsync`, `QuerySetDominatorsAsync`,
   and a set on type summaries and instances) [3.1]; `QuerySetPathsAsync` and `QuerySimilarRetentionAsync` [3.2]; a diff's `matchObjects` and `includeRetained`,
-  `QueryTypeTrendAsync` over any number of snapshots (`UseManyAsync`), and `ObjectSetQuery.Baseline` as a compared set's
+  `QueryTypeTrendAsync` over up to 20 snapshots (`UseManyAsync`), and `ObjectSetQuery.Baseline` as a compared set's
   other snapshot [3.3].
 - **UI.ViewModels** (sprint 2.3.6, moved from the WPF app; no UI toolkit). Since 3.8 every query runs through
   `QueryRunner` (its activity, progress, and a refusal logged as shown; grids through `GridQueryViewModel`) [P8]. `Services/`: `IUiDispatcher` (post to the UI
@@ -262,8 +262,12 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   never copies or walks the list; whole-list walks are counted in `VirtualCollectionViews.Enumerations`, which the UI
   tests keep at zero), `HighlightedText`, `ProportionalPanel` (the heap kinds bar), `TimelineChart`, converters.
   `Services/`: `AvaloniaUiDispatcher`, `AvaloniaUserInteraction` (the system file picker), `DispatcherWatchdog`,
-  `ThemeChooser`, `NativeMethods` (Windows only). `Themes/`: `Light.axaml` and `Dark.axaml` (theme dictionaries with
-  the same keys) and `Styles.axaml`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9, 2.3.6]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
+  `ThemeChooser`, `AppFonts`, `NativeMethods` (Windows only). `Themes/`: `Light.axaml` and `Dark.axaml` (theme dictionaries with
+  the same keys), `Styles.axaml` and `Icons.axaml` (ADR-040). `Controls/` since 3.10: `DuotoneIcon`, `ButtonIcon`, `EmptyState`,
+  `ThemeBrush` (a background named by a data row, which follows the theme), `NumberHeaders`, `SignConverters`. In
+  `UI.ViewModels`, `PlatformHints` holds the next steps that depend on whether this system can capture.
+  `Assets/heapscope.ico`: the app's icon, from `build/make-icon.cs`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9,
+  2.3.6]; `Smoke/ScreenshotRunner`: every page as PNG files [3.10]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
   Retainers tab (`RetainersTab`), `Controls/IcicleChart` (drawn in one pass, geometry from the view models),
   `Controls/NoteText` (a status or note line that takes no space when empty), and `GridBehaviors`' `VisibleColumnGroups`,
   `ExpandCommand`, `CollapseCommand` and `ScrollToSelection`. Sprint 2.7: `Controls/GridExports` (every grid's
@@ -337,4 +341,6 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `WorkerStartException` per case when it cannot) and `WorkerLaunch` (Application), and `ProcessDiscovery` counts such a
   worker as HeapScope's own (Capture); `RuntimeEnvironment.DescribeBuild` (Contracts) names the build form in every log
   header. Tests: `WorkerHostOptionsTests`, `RuntimeEnvironmentTests`, `ProcessDiscoveryTests` and the integration test
-  `ToolWorkerTests` (the worker's assembly through the dotnet host).
+  `ToolWorkerTests` (the worker's assembly through the dotnet host). Sprint 3.10, by hand: `build/demo-data.sh` and
+  `build/screenshots.sh` (the demo dumps and the app's pictures), `build/make-icon.cs` (the app's icon); `build/licenses/` holds license
+  files a package does not carry itself (Inter's OFL).

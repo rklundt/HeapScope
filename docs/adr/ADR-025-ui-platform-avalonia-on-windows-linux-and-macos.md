@@ -63,6 +63,6 @@
   drawing in software measures the machine); the Windows smoke gate is unchanged. Avalonia's build telemetry is off for
   the repository (`Directory.Build.targets`, CI's `AVALONIA_TELEMETRY_OPTOUT`), since HeapScope sends nothing anywhere
   (12).
-- Amended by ADR-039 (sprint 3.9): releases ship win-x64 and linux-x64 only (macOS builds are built but not shipped),
+- Amended by ADR-039 (sprint 3.9): releases ship win-x64 and linux-x64 (since 3.10 also the macOS builds, marked untested),
   and the CLI's dotnet tool carries a framework-dependent worker started through the dotnet host, beside the
   self-contained worker per runtime identifier.

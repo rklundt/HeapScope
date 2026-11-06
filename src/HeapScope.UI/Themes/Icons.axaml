@@ -1,0 +1,105 @@
+<!--
+  HeapScope
+  Copyright (C) 2026 Ray Klundt
+  https://github.com/rklundt/HeapScope
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, version 3 only, with additional terms
+  under Section 7 of that license.
+
+  Additional terms, including attribution requirements, apply.
+  See the ADDITIONAL-TERMS.md file distributed with this program.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program (see the LICENSE file). If not, see
+  <https://www.gnu.org/licenses/>.
+
+  Commercial licenses are available. See COMMERCIAL.md.
+-->
+<!-- HeapScope's own icons (ADR-040): Duotone on a 20 px grid, drawn by Controls/DuotoneIcon. Icon.Name.Line is the outline, in the
+     text color; Icon.Name.Tint, where there is one, is filled with the accent's tint. Logo.Mark is logo A, the app's logo;
+     Logo.Small is its simplified form for 20 px and under. Fixed colors: a logo stays the same in both themes. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StreamGeometry x:Key="Icon.Home.Tint">M5 8v9h10V8l-5-5z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Home.Line">M3 9.5 10 3l7 6.5M5 8v9h10V8M8 17v-5h4v5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Snapshots.Tint">M3 3h14v7H3z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Snapshots.Line">M3 3h14v14H3zM3 10h14M3 13.5h9</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Allocations.Tint">M8.5 5h3v12h-3z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Allocations.Line">M3 17h14M5.5 17v-5M10 17V5M14.5 17V9</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Processes.Tint">M6 6h8v8H6z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Processes.Line">M6 6h8v8H6zM8 3v3M12 3v3M8 14v3M12 14v3M3 8h3M3 12h3M14 8h3M14 12h3</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Live.Tint">M2 17v-6.5h4l2-6 4 11 2-5h4V17z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Live.Line">M2 10.5h4l2-6 4 11 2-5h4</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Jobs.Tint">M2 3h6v5H2zM2 12h6v5H2z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Jobs.Line">M3 5l1.5 1.5L7 4M3 14l1.5 1.5L7 13M10 5.5h7M10 14.5h7</StreamGeometry>
+  <StreamGeometry x:Key="Icon.About.Tint">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.About.Line">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM10 9.5V14M10 6.5v.1</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Dismiss.Line">M5 5l10 10M15 5L5 15</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Back.Line">M9 4l-6 6 6 6M3 10h14</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Forward.Line">M11 4l6 6-6 6M17 10H3</StreamGeometry>
+  <StreamGeometry x:Key="Icon.ChevronRight.Line">M8 5l5 5-5 5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Refresh.Tint">M16.5 10a6.5 6.5 0 1 1-13 0a6.5 6.5 0 1 1 13 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Refresh.Line">M16 7a6.5 6.5 0 1 0 .5 3.5M16.5 3v4H12.5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.OpenFile.Tint">M3 16l2-7h13l-2 7z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.OpenFile.Line">M3 16V4.5h5l2 2.5h7v2M3 16l2-7h13l-2 7z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Capture.Tint">M13 11a3 3 0 1 1-6 0a3 3 0 1 1 6 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Capture.Line">M3 6.5h3.5L8 4h4l1.5 2.5H17v10H3zM13 11a3 3 0 1 1-6 0a3 3 0 1 1 6 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Bookmark.Tint">M5 3h10v14l-5-3.5L5 17z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Bookmark.Line">M5 3h10v14l-5-3.5L5 17z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Delete.Tint">M5 5.5l1 11.5h8l1-11.5z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Delete.Line">M3.5 5.5h13M8 5.5v-2h4v2M5 5.5l1 11.5h8l1-11.5M8.5 9v5M11.5 9v5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Start.Tint">M6 3.5l10 6.5-10 6.5z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Start.Line">M6 3.5l10 6.5-10 6.5z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Stop.Tint">M4.5 4.5h11v11h-11z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Stop.Line">M4.5 4.5h11v11h-11z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Search.Tint">M14 8.5a5.5 5.5 0 1 1-11 0a5.5 5.5 0 1 1 11 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Search.Line">M14 8.5a5.5 5.5 0 1 1-11 0a5.5 5.5 0 1 1 11 0zM12.5 12.5 17 17</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Copy.Tint">M7 7h10v10H7z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Copy.Line">M7 7h10v10H7zM13 7V3H3v10h4</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Export.Tint">M3 14h14v3H3z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Export.Line">M10 3v9M6 8.5l4 3.5 4-3.5M3 14v3h14v-3</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Diagram.Tint">M7.5 2.5h5V6h-5z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Diagram.Line">M10 6v3.5M10 9.5H4.5V13M10 9.5h5.5V13M7.500 2.500h5V6h-5zM2 13h5v4H2zM13 13h5v4h-5z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Fit.Line">M3 4v12M17 4v12M6 10h8M8 7.5 5.5 10 8 12.5M12 7.5l2.500 2.5-2.500 2.5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Completed.Tint">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Completed.Line">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM6.5 10.5 9 13l4.5-5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Failed.Tint">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Failed.Line">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM7.5 7.5l5 5M12.5 7.5l-5 5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Canceled.Tint">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Canceled.Line">M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM5 15 15 5</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Warning.Tint">M10 3l8 14H2z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Warning.Line">M10 3l8 14H2zM10 8v4.5M10 14.8v.1</StreamGeometry>
+
+  <DrawingImage x:Key="Logo.Mark">
+    <DrawingGroup>
+      <GeometryDrawing Brush="#FF4F46E5" Geometry="M14 0H50A14 14 0 0 1 64 14V50A14 14 0 0 1 50 64H14A14 14 0 0 1 0 50V14A14 14 0 0 1 14 0Z" />
+      <GeometryDrawing Brush="#FFFFFFFF" Geometry="M15.5 16H32.5A1.5 1.5 0 0 1 34 17.5V19.5A1.5 1.5 0 0 1 32.5 21H15.5A1.5 1.5 0 0 1 14 19.5V17.5A1.5 1.5 0 0 1 15.5 16Z" />
+      <GeometryDrawing Brush="#FFC9CEF7" Geometry="M15.5 24H32.5A1.5 1.5 0 0 1 34 25.5V27.5A1.5 1.5 0 0 1 32.5 29H15.5A1.5 1.5 0 0 1 14 27.5V25.5A1.5 1.5 0 0 1 15.5 24Z" />
+      <GeometryDrawing Brush="#FFFFFFFF" Geometry="M15.5 32H32.5A1.5 1.5 0 0 1 34 33.5V35.5A1.5 1.5 0 0 1 32.5 37H15.5A1.5 1.5 0 0 1 14 35.5V33.5A1.5 1.5 0 0 1 15.5 32Z" />
+      <GeometryDrawing Geometry="M48 34A13 13 0 1 1 22 34A13 13 0 1 1 48 34Z">
+        <GeometryDrawing.Pen><Pen Brush="#FFFFFFFF" Thickness="4" /></GeometryDrawing.Pen>
+      </GeometryDrawing>
+      <GeometryDrawing Geometry="M45 44L52 51">
+        <GeometryDrawing.Pen><Pen Brush="#FFFFFFFF" Thickness="5" LineCap="Round" /></GeometryDrawing.Pen>
+      </GeometryDrawing>
+    </DrawingGroup>
+  </DrawingImage>
+  <DrawingImage x:Key="Logo.Small">
+    <DrawingGroup>
+      <GeometryDrawing Brush="#FF4F46E5" Geometry="M14 0H50A14 14 0 0 1 64 14V50A14 14 0 0 1 50 64H14A14 14 0 0 1 0 50V14A14 14 0 0 1 14 0Z" />
+      <GeometryDrawing Geometry="M45 28A15 15 0 1 1 15 28A15 15 0 1 1 45 28Z">
+        <GeometryDrawing.Pen><Pen Brush="#FFFFFFFF" Thickness="8" /></GeometryDrawing.Pen>
+      </GeometryDrawing>
+      <GeometryDrawing Geometry="M42 40L52 50">
+        <GeometryDrawing.Pen><Pen Brush="#FFFFFFFF" Thickness="9" LineCap="Round" /></GeometryDrawing.Pen>
+      </GeometryDrawing>
+    </DrawingGroup>
+  </DrawingImage>
+</ResourceDictionary>

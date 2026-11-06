@@ -28,6 +28,9 @@ Swept 2026-10-31:
 - Pinned objects per heap: built in 1.6 (the `fragmentation` inspection).
 - A generic `VirtualRowList` and sorting by column name (`TypeSummarySort` retired): built in 1.4.
 
+Sprint 3.10:
+- Charts and data-named colors redrawn on a theme change (the 3.2 review's L14): built (ADR-040, `ThemeChangeTests`).
+
 ## Open
 
 Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
@@ -49,8 +52,17 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   keeps TRX results 14 days): `DenseHeapTests` once in CI (2026-11-02, release PR #45; ClrMD's default DAC lookup in
   the test helper failed where HeapScope's loader had just opened the dump; the helper is local-only since 2026-11-03
   and explains any failure); under full local load only, passing alone: `LiveWorkflowTests` (an allocation trace for a
-  run's whole length), `CounterMonitorTests`, `DiffTests` (leak deltas short of the known answers). Act on any that
-  recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
+  run's whole length), `CounterMonitorTests`, `DiffTests` (leak deltas short of the known answers). Three gate runs on sprint
+  3.10 (2026-11-04), each failing differently, each test passing alone: `DiffTests` again and `LeakyApiGrowthTests` (growth a
+  little short of the known answers, for example `System.Byte[]` 4,973 of 5,000), `UiResponsivenessTests` (one operation of at
+  most 159 ms as a job ended, 17 ms alone), and all 12 `AllocationTraceTests` (their fixture's setup canceled). `DiffTests` has
+  now recurred. `SignedCacheTests.Processes_creating_the_key_at_once_end_with_one_key` twice on the same sprint (2026-11-05). The second time gave the cause, a
+  real if tiny bug: `IndexCacheKey.LoadOrCreate` first reads the key outside its lock, so a read while another process moves the key into place
+  throws a sharing violation. Fix: on an `IOException` there, go on to the lock and read again. On 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` measured growth of types the framework also uses, whose own objects in the first dump
+  can die before the second. A GC before each dump did not cure it: CI still came up 1 to 4 short of thousands. This cause fits the numbers but
+  was not traced to the objects. They now check each dump's count, which a leak that frees nothing must reach, so the framework's objects cannot
+  fail them. `LiveWorkflowTests`' allocation trace was stopped while its session was still starting, reported as a failure (a product fix; the
+  test waits for bytes). Its `A_monitoring_run_takes_a_snapshot...` failed once on 3.10 with no message captured, cause unknown. Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
   landed before EventPipe had started the session; the test now checks both outcomes (canceled before the start keeps
   nothing; after it, the trace stops early and is kept).
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
@@ -60,9 +72,13 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   variable `Logging__File__MinimumLevel`, M14).
 - A documented CI leak check for users' pipelines: a sample workflow running `heapscope-cli diff --fail-on-growth` on
   two fixture dumps.
+- First load is slower than sprint 1.2 measured (sprint 3.10): a Medium dump took 35 to 48 s against 15.8 s, inside the 3 minute
+  budget, with one pass ranging 13 to 25 s between runs on a machine in use. Measure on a quiet machine and trace the object pass
+  before Phase 4 adds loader work (`docs/architecture/budgets.md`).
 - Testing on macOS (2026-10-31): CI has no macOS runners (owner: their minutes cost about ten times Linux's), so the
   macOS packages are built on Linux and never run, and the macOS core dump checks (known answers, DAC trust) no longer
-  run. Before macOS ships, the product owner picks a way: a Mac of their own, or macOS runners for a release only.
+  run. Since 3.10 releases attach them marked untested (ADR-039). Before that mark comes off, the product owner picks a way
+  to test them: a Mac of their own, or macOS runners for a release only.
   Standard hosted runners are free in public repositories, and HeapScope is public; the owner checks the billing
   report before macOS runners come back (2026-10-31).
 - Objects finalized between two snapshots: the baseline's finalizable objects whose finalizer has not run, matched by
@@ -131,8 +147,7 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   every front end disables it the same way (M6); the reverse index info on `SimilarRetentionResult` (M12); a test that a
   weak-handle-only referrer is not a retainer (M8); a reservation around `KeyPaths.ForTypes` and `ForMembers` (from 2.2);
   interfaces kept in a sidecar so a reopen does not read them again (L16); a dependent-handle marker on path steps (L1);
-  interface rows keyed by name and module (L3); the diagram cached, its back edges inside its bounds and redrawn on a
-  theme change (L13, L14); a request with both a type and a set refused (L15); the `MaxReferrers` constants tied by a
+  interface rows keyed by name and module (L3); the diagram cached and its back edges inside its bounds (L13); a request with both a type and a set refused (L15); the `MaxReferrers` constants tied by a
   test (L12); diagram toggles logged (L5); from the re-review: an exact back pointer test (the member dominates the
   referrer, or entry and exit numbers over the shortest-path tree) instead of the 256-step climb (M13); module metadata
   released after the interface table is built (L20); the (group, type) set in the reservation (L22); a cheap check
@@ -269,6 +284,8 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   summary output (L6, L7).
 
 **Low**
+- Visual design, left out of sprint 3.10 (product owner, 2026-11-04; ADR-040): inline data bars in grids, dimmed namespaces
+  in type names, a collapsible snapshot rail, the icicle chart colored by application versus framework code.
 - UI cold start: measure the Avalonia app's first window and first Compare tab again (the 1.2 and 1.4 numbers were
   WPF's); template preloading and deferring startup work remain options (from 0.3).
 - WinForms specific leak inspections.

@@ -77,7 +77,7 @@ Implemented in sprint 0.5 (`HeapScope.Storage`: `IndexCacheWriter`, `IndexCacheR
   disposes the graph (and unmaps the file), so queries and result sets that page over a snapshot can hold leases
   safely (6.5).
 - Versioning: any layout change of the base file bumps the format version. Optional JSON fields in the metadata
-  section do not: 1.2 added `DebuggableModules` and `UnreadableObjects`, which read as null and 0 from older caches.
+  section do not: 1.2 added `DebuggableModules` and `UnreadableObjects`, which read as null and 0 from older caches, and 3.10 `ProcessNameSource`, which reads as null.
 - Measured (`index-cache`, synthetic 50M objects with 150M references, 1.6 GB file, reopened in a fresh process,
   mapped first, warm page cache): write 3.2 s; reopen mapped 0.6 s (+9 MB private, +202 MB working set),
   scanning all edges of the mapped graph 0.2 s; reopen in memory 0.6 s (+1.6 GB private). Cold page cache (standby

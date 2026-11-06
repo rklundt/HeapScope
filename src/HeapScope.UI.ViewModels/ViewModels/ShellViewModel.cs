@@ -46,6 +46,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, JobViewModel> _jobsById = [];
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsJobsPanelVisible))]
     private NavigationItem _selectedItem;
 
     [ObservableProperty]
@@ -65,6 +66,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Home = home ?? throw new ArgumentNullException(nameof(home));
         Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         JobsPage = new JobsPageViewModel(Jobs, operations.Jobs);
+        Jobs.CollectionChanged += (_, _) => RaiseJobsChanged();
         NavigationItems =
         [
             new NavigationItem("Home", Home),
@@ -79,6 +81,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Allocations = allocations;
         About = about;
         about.Shortcuts = ShortcutList;
+        about.Diagnostics = Home;
         if (allocations is not null)
         {
             // A trace opened or recorded shows the Allocations page.
@@ -151,6 +154,24 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>The keyboard shortcuts, for the shortcuts list (sprint 2.7).</summary>
     public IReadOnlyList<Shortcut> ShortcutList => Shortcuts.List([.. NavigationItems.Select(i => i.Title)]);
 
+    /// <summary>
+    /// The jobs panel shows only while a job runs, and not on the Jobs page, which lists them anyway. Finished jobs stay on
+    /// the Jobs page; <see cref="FinishedJobsText"/> says so in the status line.
+    /// </summary>
+    public bool IsJobsPanelVisible => SelectedItem?.Page != JobsPage && Jobs.Any(j => j.IsRunning);
+
+    /// <summary>The status line's note on finished jobs and how many failed; empty when there are none.</summary>
+    public string FinishedJobsText
+    {
+        get
+        {
+            var finished = Jobs.Count(j => !j.IsRunning);
+            var failed = Jobs.Count(j => j.Status == JobStatus.Failed);
+            var text = finished switch { 0 => string.Empty, 1 => "1 job finished", _ => $"{finished} jobs finished" };
+            return failed > 0 ? $"{text}, {failed} failed" : text;
+        }
+    }
+
     /// <summary>All jobs, newest first; the jobs panel and the Jobs page bind to it.</summary>
     public ObservableCollection<JobViewModel> Jobs { get; } = [];
 
@@ -185,6 +206,23 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void DismissCrashBanner() => IsCrashBannerVisible = false;
+
+    [RelayCommand]
+    private void ShowJobs() => SelectedItem = NavigationItems.First(i => i.Page == JobsPage);
+
+    [RelayCommand]
+    private void ShowProcesses() => SelectedItem = NavigationItems.First(i => i.Page is ProcessesViewModel);
+
+    private bool HasLive() => Live is not null;
+
+    [RelayCommand(CanExecute = nameof(HasLive))]
+    private void ShowLive() => SelectedItem = NavigationItems.First(i => i.Page == Live);
+
+    private void RaiseJobsChanged()
+    {
+        OnPropertyChanged(nameof(IsJobsPanelVisible));
+        OnPropertyChanged(nameof(FinishedJobsText));
+    }
 
     /// <summary>Pages that show live data refresh when they are shown.</summary>
     partial void OnSelectedItemChanged(NavigationItem value) => Refresh(value?.Page);
@@ -223,6 +261,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         if (_jobsById.TryGetValue(job.Id, out var viewModel))
         {
             viewModel.Refresh();
+            RaiseJobsChanged();
         }
     });
 

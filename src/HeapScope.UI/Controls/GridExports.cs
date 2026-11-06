@@ -115,6 +115,11 @@ public static class GridExports
 
     private static void OnLoaded(object? sender, RoutedEventArgs e)
     {
+        if (sender is DataGrid loaded)
+        {
+            NumberHeaders.Apply(loaded);
+        }
+
         if (sender is DataGrid grid)
         {
             AddMenuItem(grid);

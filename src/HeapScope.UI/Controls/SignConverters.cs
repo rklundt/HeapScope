@@ -22,20 +22,17 @@
 // Commercial licenses are available. See COMMERCIAL.md.
 
 
-using System.Globalization;
 using Avalonia.Data.Converters;
 
 namespace HeapScope.UI.Controls;
 
-/// <summary>Looks up a brush resource by key in the active theme (the fixed heap kind colors).</summary>
-public sealed class ResourceKeyToBrushConverter : IValueConverter
+/// <summary>The sign of a delta, for the style classes that color it (<c>growth</c>, <c>shrink</c>): zero has neither.</summary>
+public static class SignConverters
 {
-    public static ResourceKeyToBrushConverter Instance { get; } = new();
+    public static FuncValueConverter<long, bool> IsPositive { get; } = new(static value => value > 0);
 
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is string key && Avalonia.Application.Current is { } app && app.TryGetResource(key, app.ActualThemeVariant, out var brush)
-            ? brush
-            : null;
+    public static FuncValueConverter<long, bool> IsNegative { get; } = new(static value => value < 0);
 
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+    /// <summary>Whether a list has anything in it (its <c>Count</c>), for a panel with nothing to show otherwise.</summary>
+    public static FuncValueConverter<int, bool> HasItems { get; } = new(static count => count > 0);
 }

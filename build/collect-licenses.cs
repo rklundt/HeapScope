@@ -108,6 +108,14 @@ var missing = new List<string>();
 foreach (var (package, folder) in packages)
 {
     var files = folder.Length == 0 ? [] : Directory.EnumerateFiles(folder).Where(IsLicenseFile).ToArray();
+    // A package may hold something under another license than its own, and no file saying so: build/licenses/<package id>
+    // has the text that must travel with it (the Inter typeface in Avalonia.Fonts.Inter, SIL OFL 1.1).
+    var extra = Path.Combine(repository, "build", "licenses", package.Split('/')[0]);
+    if (Directory.Exists(extra))
+    {
+        files = [.. files, .. Directory.EnumerateFiles(extra)];
+    }
+
     if (files.Length == 0)
     {
         missing.Add(package);
