@@ -57,9 +57,11 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   little short of the known answers, for example `System.Byte[]` 4,973 of 5,000), `UiResponsivenessTests` (one operation of at
   most 159 ms as a job ended, 17 ms alone), and all 12 `AllocationTraceTests` (their fixture's setup canceled). `DiffTests` has
   now recurred. `SignedCacheTests.Processes_creating_the_key_at_once_end_with_one_key` once on the same sprint (2026-11-05; passes alone,
-  and in its project's whole run). Causes found on 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` took their dumps with no GC, so garbage in the first, collected before
-  the second, made a shared type's growth look short (they now collect before each dump); `LiveWorkflowTests`' allocation trace was stopped while
-  its session was still starting, reported as a failure (a product fix; the test waits for bytes). Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
+  and in its project's whole run). On 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` measured growth of types the framework also uses, whose own objects in the first dump
+  can die before the second. A GC before each dump did not cure it: CI still came up 1 to 4 short of thousands. This cause fits the numbers but
+  was not traced to the objects. They now check each dump's count, which a leak that frees nothing must reach, so the framework's objects cannot
+  fail them. `LiveWorkflowTests`' allocation trace was stopped while its session was still starting, reported as a failure (a product fix; the
+  test waits for bytes). Its `A_monitoring_run_takes_a_snapshot...` failed once on 3.10 with no message captured, cause unknown. Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
   landed before EventPipe had started the session; the test now checks both outcomes (canceled before the start keeps
   nothing; after it, the trace stops early and is kept).
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
