@@ -33,9 +33,15 @@
              x:DataType="vm:SnapshotsViewModel">
   <DockPanel DataContext="{Binding Compare}" x:DataType="vm:CompareViewModel" Margin="0,8,0,0">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8" Spacing="12">
-      <RadioButton x:Name="PairMode" Content="Two snapshots" IsChecked="{Binding !IsTrendShown}" GroupName="CompareMode" />
+      <StackPanel Orientation="Horizontal" Spacing="2">
+        <RadioButton x:Name="PairMode" Content="Two snapshots" IsChecked="{Binding !IsTrendShown}" GroupName="CompareMode" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CompareTwo}" />
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="2">
       <RadioButton x:Name="TrendMode" Content="Trend across snapshots" IsChecked="{Binding IsTrendShown, Mode=TwoWay}" GroupName="CompareMode"
                    ToolTip.Tip="Each type's objects and bytes in several snapshots side by side, and how often it grew." />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CompareTrend}" />
+      </StackPanel>
     </StackPanel>
     <Grid>
     <DockPanel IsVisible="{Binding !IsTrendShown}">
@@ -67,11 +73,11 @@
       <TextBox x:Name="FilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
                ToolTip.Tip="Terms separated by spaces must all match. Each is a substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything. -term leaves out matches; module:name (m:name) matches the module. Ctrl+F (Cmd+F) comes here." />
       <CheckBox Content="New and dead objects" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding MatchObjects, Mode=TwoWay}"
-                ToolTip.Tip="Matches objects by address and type: only for two snapshots of one process. An object a compacting collection moved counts as dead and new." />
+                ToolTip.Tip="Matches objects by address, type, size and heap area: only for two complete full dumps of one process, with the earlier one as baseline. An object a compacting collection moved counts as dead and new." />
       <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowRetained, Mode=TwoWay}"
                 ToolTip.Tip="Each row's retained bytes in both snapshots (lower bounds). The first time for a snapshot this computes its dominators." />
       <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
-                ToolTip.Tip="The change in bytes per generation (Gen0, Gen1, Gen2, LOH, POH): growth in Gen2 is what stays." />
+                ToolTip.Tip="The change in bytes per generation (Gen0, Gen1, Gen2, LOH, POH). Growth in Gen2 is usually what stays, though a full dump also counts objects not collected yet." />
     </WrapPanel>
     <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" TextWrapping="Wrap" Margin="0,0,8,6" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
@@ -185,7 +191,7 @@
                 ctl:GridBehaviors.Rows="{Binding Rows}"
                 ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
                 ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-                ToolTip.Tip="Objects and bytes in each ticked snapshot, oldest first; GrowthSteps counts the steps a row's bytes grew in. Double-click or Enter opens the type's objects in the last snapshot." />
+                ToolTip.Tip="Objects and bytes in each ticked snapshot, oldest first when their capture times are known; Growth steps counts the steps a row's bytes grew in. Double-click or Enter opens the type's objects in the last snapshot." />
     </DockPanel>
     </Panel>
     </Grid>

@@ -5,7 +5,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 
 ## Finding your way
 
-- **Analysis path.** Each open snapshot keeps the steps you took (types, a type's objects, an object, referrers,
+- **Analysis path.** Each open snapshot keeps your last 30 steps (types, a type's objects, an object, referrers,
   retention, links into the Retainers tab) in the Snapshots page's left column. Opening something from an earlier step
   starts a branch; the later steps stay. Back and Forward (Alt+Left, Alt+Right, the mouse buttons) move along it.
 - **Bookmarks.** Ctrl+D (Cmd+D on macOS) marks the shown object, or the selected row's object, with a color. Bookmarks
@@ -45,7 +45,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   finalizer backlog behind a blocked or slow finalizer thread, and, against a baseline, the application's types that
   keep growing. The objects no root reaches open as a set from a full dump's Types view (`set --unreachable`).
 - **Group by interface.** The types grid and Compare group by interface on full dumps: a type counts under each
-  interface it implements, so the rows overlap. An interface row opens as a set.
+  interface it implements, so the rows overlap. In the types grid, an interface row opens as a set.
 - **Filters.** In the types and Compare grids, terms separated by spaces must all match; `-term` leaves names out;
   `module:name` (or `m:name`) matches the module. Each term is a substring, CamelHumps with capitals (`SCE` finds
   `StaticCacheEntry`), or uses `*` for anything.

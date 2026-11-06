@@ -61,11 +61,15 @@
     </Style>
   </UserControl.Styles>
   <DockPanel DataContext="{Binding Inspections}" x:DataType="vm:InspectionsViewModel" Margin="0,8,0,0">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
+      <TextBlock Text="Inspections" FontWeight="SemiBold" VerticalAlignment="Center" />
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Inspections}" />
+    </StackPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,6" />
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6" IsVisible="{Binding UsesBaseline}">
       <TextBlock Text="Baseline for growth" VerticalAlignment="Center" Margin="0,0,8,0" />
       <ComboBox x:Name="BaselinePicker" MinWidth="320" ItemsSource="{Binding BaselineChoices}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
-                ToolTip.Tip="An earlier snapshot of the same process: the growth detectors compare with it (open both dumps). None: they report only what is large." />
+                ToolTip.Tip="An earlier snapshot of the same process: the growth detectors compare with it (open both dumps). None: growing static collections report only what is large, and growing types report nothing." />
     </StackPanel>
     <ScrollViewer DockPanel.Dock="Left" Width="320" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
       <StackPanel>

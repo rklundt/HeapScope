@@ -216,7 +216,7 @@ public sealed partial class HomeViewModel(WorkerOperations operations, Snapshots
                 RecentSessions.Add(session);
             }
 
-            SessionStatus = sessions.Count == 0 ? "No sessions yet. Capture a process or open a dump to start one." : null;
+            SessionStatus = sessions.Count == 0 ? "No sessions yet. Capture a process or watch one live to start one." : null;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         {

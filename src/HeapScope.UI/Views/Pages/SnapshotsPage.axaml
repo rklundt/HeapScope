@@ -31,7 +31,10 @@
              x:DataType="vm:SnapshotsViewModel">
   <DockPanel Margin="4">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-      <TextBlock Classes="pageTitle" Text="Snapshots" VerticalAlignment="Center" />
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Classes="pageTitle" Text="Snapshots" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Snapshots}" />
+      </StackPanel>
       <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}" />
       <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
       <Button ctl:ButtonIcon.Icon="Delete" Content="Close and delete..." Margin="8,0,0,0" Command="{Binding CloseAndDeleteCommand}" CommandParameter="{Binding Selected}"
@@ -52,7 +55,7 @@
         </ListBox.ItemTemplate>
       </ListBox>
       <TextBlock Grid.Row="2" Text="Analysis path" FontWeight="SemiBold" Margin="0,12,0,4"
-                 ToolTip.Tip="Every step taken in this snapshot. Opening something from an earlier step starts a branch; the later steps stay. Ctrl+L (Cmd+L) comes here." />
+                 ToolTip.Tip="The steps taken in this snapshot, the last 30 at most. Opening something from an earlier step starts a branch; the later steps stay. Ctrl+L (Cmd+L) comes here." />
       <ListBox Grid.Row="3" x:Name="PathList" DataContext="{Binding Navigator}" x:DataType="vm:NavigatorViewModel"
                ItemsSource="{Binding Steps}" SelectedItem="{Binding CurrentStep, Mode=TwoWay}" AutomationProperties.Name="Analysis path">
         <ListBox.ItemTemplate>

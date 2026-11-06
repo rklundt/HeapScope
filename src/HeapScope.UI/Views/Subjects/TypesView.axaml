@@ -64,7 +64,8 @@
     </StackPanel>
 
     <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-      <TextBlock Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+      <TextBlock Text="Types" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <ctl:InfoIcon Text="{Binding InfoText}" Margin="0,0,12,0" />
       <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
       <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
@@ -75,10 +76,10 @@
                 ToolTip.Tip="Show bytes per generation (Gen0, Gen1, Gen2, LOH, POH, frozen) for every row." />
       <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding !IsSet}"
                 IsChecked="{Binding ShowRetained, Mode=TwoWay}"
-                ToolTip.Tip="Show the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take seconds; they are saved with the snapshot." />
+                ToolTip.Tip="Show at least the bytes each row keeps alive. The first time for a snapshot this computes its dominators, which can take a while; they are saved with its index cache, when it has one." />
       <Button Content="Unreachable objects" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding CanOpenUnreachable}"
               Command="{Binding OpenUnreachableCommand}"
-              ToolTip.Tip="Open the objects no root reaches as a set: garbage the dump still holds because no collection removed it yet. They retain nothing and have no retention path. Objects waiting for their finalizer are not in it (the finalizer backlog detector counts them)." />
+              ToolTip.Tip="Open the objects no root reaches as a set: garbage the dump still holds because no collection removed it yet, and objects held only weakly. They retain nothing and have no retention path. Objects waiting for their finalizer are not in it (the finalizer backlog detector counts them)." />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />
     </WrapPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />

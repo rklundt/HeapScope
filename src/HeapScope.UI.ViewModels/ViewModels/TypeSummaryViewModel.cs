@@ -264,6 +264,9 @@ public sealed partial class TypeSummaryViewModel : TypeGridViewModel<TypeRowItem
     /// <summary>Whether this grid summarizes a set: the whole-type links and retained sizes are off.</summary>
     public bool IsSet => Set is not null;
 
+    /// <summary>What the info icon says: this view shows a whole snapshot or a set.</summary>
+    public string InfoText => IsSet ? InfoTexts.SetTypes : InfoTexts.Types;
+
     /// <summary>
     /// Opens the selected rows as one object set (sprint 3.1): several type rows, or one namespace or assembly row. The
     /// parameter is the grid's selected rows.

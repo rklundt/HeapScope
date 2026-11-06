@@ -94,7 +94,7 @@ public static class Shortcuts
             new(Show(Gesture(ShortcutKeys.Bookmark)), "Bookmark the shown object, or the selected row's object"),
             new(Show(Gesture(ShortcutKeys.OpenAsSet)), "Open the selected rows (types, compared types, an inspection row) as one set of objects"),
             new(Show(Gesture(ShortcutKeys.OpenDump)), "Open a dump"),
-            new(Show(Gesture(ShortcutKeys.Refresh)), "Refresh the page (processes, sessions)"),
+            new(Show(Gesture(ShortcutKeys.Refresh)), "Refresh the page (processes, sessions, Live's process list)"),
             new("Enter", "Open the selected row (also a double-click)"),
             new("Right, Left", "Expand or collapse the selected tree row"),
             new("Tab, Shift+Tab", "Move between the controls of a view"),

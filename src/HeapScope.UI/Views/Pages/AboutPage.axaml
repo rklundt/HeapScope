@@ -30,7 +30,10 @@
              x:DataType="vm:AboutViewModel">
   <ScrollViewer>
   <StackPanel Margin="4">
-    <TextBlock Classes="pageTitle" Text="About" Margin="0,0,0,12" />
+    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,12">
+      <TextBlock Classes="pageTitle" Text="About" VerticalAlignment="Center" />
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.About}" />
+    </StackPanel>
     <TextBlock Text="{Binding ProductVersion}" />
     <SelectableTextBlock Margin="0,8,0,0" Text="{Binding Environment}" TextWrapping="Wrap" Classes="subtle" />
     <SelectableTextBlock Margin="0,4,0,0" Text="{Binding LogFolder, StringFormat='Logs: {0}'}" TextWrapping="Wrap" Classes="subtle"

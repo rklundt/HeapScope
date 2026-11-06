@@ -40,7 +40,8 @@
                   ToolTip.Tip="Scale the diagram down toward the page's width, as far as its labels stay readable." />
         <CheckBox Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
       </StackPanel>
-      <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
+      <ctl:InfoIcon DockPanel.Dock="Left" Text="{Binding InfoText}" Margin="0,0,6,0" />
+      <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" VerticalAlignment="Center" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
     <!-- One cell for both: docked beside a last child, the viewer took its content's width, and a fitted diagram could only shrink. -->

@@ -11,6 +11,9 @@
     fallback only draws if a key is missing, and `Icons.axaml`'s logo keeps its fixed colors. `App.axaml` repeats the accent
     for Fluent's palette, and the theme files repeat tokens under Fluent's own key names; tests hold both to the tokens and
     check those names still exist in Fluent.
+  - Info icons (amended in sprint 3.11): a screen says what it is for. Every page and tab has an `InfoIcon` beside its title, and groups
+    of settings have one beside their heading; single buttons keep a tooltip. Hovering shows the text, and a click, Enter or Space opens it
+    to stay, so it answers beside a disabled control. The page texts are in `InfoTexts`, approved by the product owner and checked against the code.
   - Readable: text colors meet 4.5:1 on every surface they sit on, the selection included, and an input's edge 3:1
     (`ThemeTests`). The attribution notice (ADR-022) keeps its wording, link, position and size; its colors follow the
     theme, at 16.6:1 light and 14.0:1 dark.

@@ -137,6 +137,20 @@
     <Setter Property="Padding" Value="10,6" />
     <Setter Property="Margin" Value="0,0,8,8" />
   </Style>
+  <!-- The info icon: small and quiet beside what it explains (ADR-040). -->
+  <Style Selector="Button.infoIcon">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Subtle}" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
   <Style Selector="Border.info">
     <Setter Property="Background" Value="{DynamicResource Brush.Info.Background}" />
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.Info.Border}" />

@@ -38,7 +38,8 @@
       <Button ctl:ButtonIcon.Icon="Bookmark" x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
               Command="{Binding $parent[pages:SnapshotsPage].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
               ToolTip.Tip="Mark this object, or remove its mark (Ctrl+D or Cmd+D). Bookmarks are listed on the left and kept for the next time the snapshot is opened." />
-      <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+      <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.Object}" Margin="0,0,6,0" />
+      <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" VerticalAlignment="Center" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <Border DockPanel.Dock="Top" Classes="info" IsVisible="{Binding FieldsUnavailable, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -71,7 +72,13 @@
       </DockPanel>
       <!-- Outgoing references (1.5) and the objects referencing this one (2.1, loaded when its tab is first shown). -->
       <TabControl Grid.Column="2" SelectedIndex="{Binding ReferencesTab, Mode=TwoWay}">
-        <TabItem Header="Outgoing">
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="Outgoing" VerticalAlignment="Center" />
+              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectOutgoing}" />
+            </StackPanel>
+          </TabItem.Header>
           <DockPanel Margin="0,4,0,0">
             <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Classes="subtle" />
             <DataGrid x:Name="ReferencesGrid" ctl:GridExports.ExportName="References" CanUserSortColumns="False"
@@ -86,7 +93,13 @@
             </DataGrid>
           </DockPanel>
         </TabItem>
-        <TabItem Header="Incoming">
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="Incoming" VerticalAlignment="Center" />
+              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectIncoming}" />
+            </StackPanel>
+          </TabItem.Header>
           <DockPanel Margin="0,4,0,0">
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
@@ -104,7 +117,13 @@
           </DockPanel>
         </TabItem>
         <!-- Sprint 2.2: why the object is alive, loaded when the tab is first shown. -->
-        <TabItem Header="Retention">
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="Retention" VerticalAlignment="Center" />
+              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectRetention}" />
+            </StackPanel>
+          </TabItem.Header>
           <DockPanel Margin="0,4,0,0">
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <!-- Sprint 2.3: the retained size and the immediate dominator, a link to open it. -->
@@ -117,7 +136,7 @@
                                ToolTip.Tip="Open the immediate dominator: the closest object every path from a root to this one passes through" />
             </WrapPanel>
             <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" Margin="0,0,0,4"
-                      ToolTip.Tip="Runs of System and Microsoft objects between other steps are folded into one line unless shown." />
+                      ToolTip.Tip="Runs of framework objects (System, Microsoft and the like) between other steps are folded into one line unless shown." />
             <DataGrid x:Name="KeyPathsGrid" ctl:GridExports.ExportName="KeyRetentionPaths" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
                       ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
                       ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">

@@ -30,7 +30,10 @@
              x:Class="HeapScope.UI.Views.Subjects.TypeReferrersView"
              x:DataType="vm:TypeReferrersViewModel">
   <DockPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Margin="0,0,0,6" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+      <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.Referrers}" Margin="0,0,6,0" />
+      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
     <DataGrid x:Name="TypeReferrersGrid" ctl:GridExports.ExportName="TypeReferrers" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"

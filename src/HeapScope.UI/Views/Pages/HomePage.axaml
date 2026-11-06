@@ -31,7 +31,10 @@
              x:DataType="vm:HomeViewModel">
   <ScrollViewer>
     <StackPanel Margin="4">
-      <TextBlock Classes="pageTitle" Text="Home" Margin="0,0,0,4" />
+      <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+        <TextBlock Classes="pageTitle" Text="Home" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Home}" />
+      </StackPanel>
       <TextBlock TextWrapping="Wrap" Classes="subtle" Margin="0,0,0,12" Text="See what is on a .NET process's heap, why it stays there and what grew." />
       <WrapPanel Margin="0,0,0,24">
         <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="0,0,8,0" Command="{Binding OpenDumpCommand}" />
@@ -43,7 +46,7 @@
       <DockPanel Margin="0,0,0,4">
         <Button ctl:ButtonIcon.Icon="Refresh" DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
         <Button DockPanel.Dock="Right" Content="Clean up..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}"
-                ToolTip.Tip="Delete the sessions not opened for the days given (asks first; the current session and sessions with an open snapshot are kept)." />
+                ToolTip.Tip="Delete the sessions not opened for the days given (asks first; the current session, sessions with an open snapshot and sessions in use are kept)." />
         <TextBlock DockPanel.Dock="Right" Text="days" Classes="subtle" VerticalAlignment="Center" Margin="0,0,8,0" />
         <NumericUpDown DockPanel.Dock="Right" Width="110" Minimum="1" Maximum="3650" Increment="1" FormatString="0" Value="{Binding CleanupDays, Mode=TwoWay}" Margin="0,0,6,0"
                        ToolTip.Tip="Days a session was not opened" />

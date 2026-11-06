@@ -46,7 +46,9 @@
   </UserControl.Styles>
   <DockPanel DataContext="{Binding Retainers}" x:DataType="vm:RetainersViewModel" Margin="0,8,0,0">
     <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-      <TextBlock Text="Retainers" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+      <TextBlock Text="Retainers" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" />
+      <TextBlock Text="What is holding or retaining memory" Classes="subtle" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Retainers}" Margin="0,0,16,0" />
       <TextBlock Text="Group children by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <ComboBox Width="130" ItemsSource="{x:Static vm:RetainersViewModel.Groupings}" SelectedItem="{Binding Grouping, Mode=TwoWay}" VerticalAlignment="Center" />
       <Button Content="Biggest retainers" Margin="12,0,0,0" Command="{Binding ShowTopCommand}" IsVisible="{Binding HasFocus}"
@@ -85,7 +87,7 @@
         <DockPanel DockPanel.Dock="Top">
           <Button DockPanel.Dock="Right" Content="Close" Command="{Binding HideCommand}" />
           <Button DockPanel.Dock="Right" Content="Open as a set" Margin="0,0,6,0" Command="{Binding OpenAsSetCommand}"
-                  ToolTip.Tip="The retained objects as a set, with every set view (types, instances, generations, dominators)." />
+                  ToolTip.Tip="The retained objects as a set, with every set view (types, instances, generations, dominators, paths, similar retention)." />
           <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
             <Run Text="{x:Static vm:RetainedBySetViewModel.Title}" /><Run Text=": " /><Run Text="{Binding ShownTitle}" />
           </TextBlock>
