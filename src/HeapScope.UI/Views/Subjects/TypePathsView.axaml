@@ -34,11 +34,10 @@
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
         <Button Content="Similar retention" Command="{Binding SimilarRetentionCommand}" IsVisible="{Binding !IsSet}"
                 ToolTip.Tip="Groups the objects by how they are retained, each group with its most different paths." />
-        <CheckBox x:Name="DiagramToggle" Content="Diagram" IsChecked="{Binding ShowDiagram, Mode=TwoWay}" VerticalAlignment="Center"
-                  ToolTip.Tip="The paths merged into one graph: roots at the top, the objects at the bottom." />
-        <CheckBox Content="Fit to width" IsChecked="{Binding FitDiagram, Mode=TwoWay}" IsVisible="{Binding ShowDiagram}" VerticalAlignment="Center"
-                  ToolTip.Tip="Scale the diagram down toward the page's width, as far as its labels stay readable." />
+        <CheckBox x:Name="DiagramToggle" Content="Diagram" IsChecked="{Binding ShowDiagram, Mode=TwoWay}" VerticalAlignment="Center" />
+        <CheckBox Content="Fit to width" IsChecked="{Binding FitDiagram, Mode=TwoWay}" IsVisible="{Binding ShowDiagram}" VerticalAlignment="Center" />
         <CheckBox Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.PathOptions}" VerticalAlignment="Center" />
       </StackPanel>
       <ctl:InfoIcon DockPanel.Dock="Left" Text="{Binding InfoText}" Margin="0,0,6,0" />
       <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" VerticalAlignment="Center" />
@@ -51,7 +50,7 @@
     </ScrollViewer>
     <DataGrid x:Name="TypePathsGrid" IsVisible="{Binding !ShowDiagram}" ctl:GridExports.ExportName="RetentionPaths" ItemsSource="{Binding Paths}" CanUserSortColumns="False"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ToolTip.Tip="Double-click or Enter opens an example object kept alive this way.">
+              ToolTip.Tip="Each row is one chain of types from a root, with the objects kept alive that way and their bytes; the 20 largest are listed. Double-click or Enter opens an example object.">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Objects" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="100" CellStyleClasses="number" />
         <DataGridTextColumn Header="Bytes" x:DataType="vm:KeyPathItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="120" CellStyleClasses="number" />

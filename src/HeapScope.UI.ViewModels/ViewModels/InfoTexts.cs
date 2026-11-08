@@ -24,8 +24,9 @@
 namespace HeapScope.UI.ViewModels;
 
 /// <summary>
-/// What each page and tab's info icon says (ADR-040): what it is for, when to use it and how to start. The product owner approved these
-/// on 2026-11-05, each checked against the code (`docs/design/info-text.md`). A change to what a page does may change its text here.
+/// What each info icon says (ADR-040). A page or tab's says what it is for, when to use it and how to start (approved 2026-11-05); a group
+/// of settings' says what each one does, a line each (approved 2026-11-08). Each was checked against the code (`docs/design/info-text.md`);
+/// a change to what a page or setting does may change its text here.
 /// </summary>
 public static class InfoTexts
 {
@@ -136,4 +137,126 @@ public static class InfoTexts
     /// <summary>About.</summary>
     public const string About =
         "Shows the version, the system, the log folder and every keyboard shortcut. Use it when you need a shortcut, or want to ask for support. F1 comes here from any page, and Copy details puts the support details on the clipboard.";
+
+    /// <summary>Home: Recent sessions heading.</summary>
+    public const string Sessions =
+        "A session is a folder of the dumps, recordings and timelines you capture, and the first capture starts one. Opening a dump file from elsewhere does not add it to a session.\n" +
+        "Open makes a session the current one, so new captures go into it, and opens its latest snapshot.\n" +
+        "Delete removes a session's folder with its dumps and caches; Clean up does so for sessions not opened for the days you set. Both ask first, and both leave alone the current session, sessions in use, sessions with an open snapshot, and dumps stored outside the folder.";
+
+    /// <summary>Processes: As gcdump.</summary>
+    public const string CaptureOptions =
+        "Capture dump copies the selected process's memory into a full dump, and the process is paused while it is written.\n" +
+        "As gcdump captures only the objects, their sizes and their references, with no field values, string text or generations. The process runs one full garbage collection for it.";
+
+    /// <summary>Snapshots: Analysis path heading.</summary>
+    public const string AnalysisPath =
+        "Lists the steps you took in this snapshot as a tree; choose one to go back to it. Opening something from an earlier step starts a branch, and at most 30 steps are kept. Ctrl+L (Cmd+L on macOS) comes here.";
+
+    /// <summary>Snapshots: Bookmarks heading.</summary>
+    public const string Bookmarks =
+        "Objects you marked with Ctrl+D (Cmd+D on macOS), from every open snapshot; double-click one or press Enter to open it. They come back when the same dump is opened again.\n" +
+        "Open as a set treats the bookmarks of the selected bookmark's snapshot as one set of objects. With bookmarks in one snapshot only, no selection is needed.";
+
+    /// <summary>Snapshot tab: The row of totals.</summary>
+    public const string SnapshotTotals =
+        "Heap size is the total bytes of the objects here. A full dump counts objects not collected yet, while a gcdump counts only what survived its collection.\n" +
+        "Roots counts what the runtime always keeps, such as static fields, local variables on thread stacks and GC handles. An object stays in memory while a chain of references from a root leads to it.\n" +
+        "The line above says how this snapshot was loaded. The index cache is a file HeapScope saves on the first load, so later opens skip loading the dump. In memory or memory-mapped is chosen for you: in memory when the data fits the memory budget, otherwise read from the cache file as needed.";
+
+    /// <summary>Types: Heap areas bar.</summary>
+    public const string HeapAreas =
+        "Shows how the bytes split across heap areas: Gen0, Gen1 and Gen2 hold objects by age, LOH large objects, POH pinned objects. Frozen objects are never collected, and a gcdump shows Unknown generation.";
+
+    /// <summary>Types: The options row.</summary>
+    public const string TypesOptions =
+        "Group by adds up the rows by type, namespace, assembly or interface. Interface needs a full dump, and a type counts under each interface it implements, so those rows overlap.\n" +
+        "Generations adds a column per heap area. It needs a full dump, because a gcdump records no generations.\n" +
+        "Retained sizes adds the bytes each row keeps alive, as a lower bound, except for interface rows. The first time for a snapshot HeapScope has to compute them, which can take a while.\n" +
+        "Unreachable objects opens as a set the objects no root reaches: garbage not collected yet, or objects held only weakly. It shows only for a full dump whose object graph is complete. Objects waiting for their finalizer are not in it.";
+
+    /// <summary>Object: Retention tab, Show framework steps.</summary>
+    public const string ObjectRetentionDetails =
+        "Retains is what this object alone keeps alive. Dominated by links to its immediate dominator: the closest object that every path from a root to this one passes through.\n" +
+        "Show framework steps shows every step of a path. When off, runs of framework types (System, Microsoft and similar) between your own steps fold into one line.\n" +
+        "The list has one row per distinct path among the roots found, with how many roots share it. Double-click or Enter opens the root's object.\n" +
+        "The tree below it starts at this object and branches out to what holds it, on toward the roots. Click an address to open that object.";
+
+    /// <summary>Why alive, Set: Paths: Diagram and its options.</summary>
+    public const string PathOptions =
+        "Diagram merges the paths into one graph, with roots at the top and the objects at the bottom. Thicker lines hold more objects.\n" +
+        "Fit to width, shown with Diagram on, shrinks it toward the page's width, to three quarters of its size at most, so its labels stay readable. A wider diagram keeps its scroll bar.\n" +
+        "Show framework steps shows every step of each path. When off, runs of framework types (System, Microsoft and similar) between your own steps fold away.";
+
+    /// <summary>Compare: two snapshots: Baseline and Current.</summary>
+    public const string CompareSnapshots =
+        "Baseline is the earlier snapshot, and each change is current minus baseline. The two latest captures are chosen for you by capture time, or by open order when a capture time is only a file's time. Swap exchanges them.";
+
+    /// <summary>Compare: two snapshots: The options row.</summary>
+    public const string CompareOptions =
+        "Group by adds up rows by type, namespace, assembly or interface. Only type rows open objects or sets here, and interface rows need full dumps and have no retained sizes.\n" +
+        "New and dead objects matches objects across the two snapshots by address, type, size and heap area, and an object a collection moved counts as dead and new. It needs two complete full dumps of one run of a process, with the earlier one as baseline; if not, a note says why.\n" +
+        "Retained sizes adds each row's retained bytes, what its objects keep alive, in both snapshots, as lower bounds. Interface rows have none, and the first time for a snapshot it has to compute them, which can take a while.\n" +
+        "Generations adds the change in bytes per heap area: Gen0, Gen1, Gen2, LOH and POH. It needs generations in both snapshots, so not a gcdump. Growth in Gen2 is usually what stays, though a full dump also counts objects not collected yet.";
+
+    /// <summary>Compare: trend: The options row.</summary>
+    public const string TrendOptions =
+        "The tick boxes choose the open snapshots to line up, at least 2 and at most 20. Changing a tick runs the trend again.\n" +
+        "Group by adds up rows by type, namespace, assembly or interface. Interface is always offered here, and it needs every ticked snapshot to be a full dump.";
+
+    /// <summary>Inspections: Leak detectors, Memory waste headings.</summary>
+    public const string Detectors =
+        "Leak detectors look for objects that may be kept alive by mistake, and Memory waste for memory used poorly. A finding is a lead to check, not a verdict.";
+
+    /// <summary>Inspections: Fragmentation heading.</summary>
+    public const string Fragmentation =
+        "Free gaps between live objects, as a share of each heap area, and what is pinned there. Pinned objects stop the runtime closing gaps around them, and a gcdump has no such figures.";
+
+    /// <summary>Retainers: The chart.</summary>
+    public const string RetainersChart =
+        "Each bar is what the bar above it keeps alive, and its width is how much. The two band colors only separate the levels; a bar and its path turn amber when selected.\n" +
+        "Hover for a bar's name and size, click to select it, double-click to show the tree below it. Bars too thin to point at are grouped as +N smaller.";
+
+    /// <summary>Retainers: The buttons above the tree.</summary>
+    public const string RetainersTree =
+        "Retained is what the row alone keeps alive, % is its share of the reachable heap, Bytes the objects' own size, and Objects how many the row stands for. Each level lists 100 rows before a \"more\" row.\n" +
+        "Select a row, then:\n" +
+        "Focus shows only the tree below it, with the objects above it as a trail. Object rows only.\n" +
+        "Open object opens it on the Snapshot tab. Object rows only.\n" +
+        "Instances lists all objects of its type on the Snapshot tab. Object rows and type groups.\n" +
+        "Why alive opens its Retention tab: the paths that keep it alive from roots, what the runtime always keeps. Object rows only.\n" +
+        "Objects retained by this set computes exactly what every object of its type keeps alive together, shown below the tree. Object rows and type groups.";
+
+    /// <summary>Allocations: Back traces and Call tree.</summary>
+    public const string AllocationTrees =
+        "Back traces starts from the methods that allocated, then goes up through their callers.\n" +
+        "Call tree starts from each thread's outermost frames and goes down.\n" +
+        "Total is the estimated bytes of the stacks through this row, and % its share of the bytes shown. Own is what the method allocated itself, and Samples how many allocation samples the row rests on.";
+
+    /// <summary>Live: Snapshot rules heading.</summary>
+    public const string LiveRules =
+        "Rules take snapshots by themselves during a run. Each filled field is its own rule, so any one can fire, and they are read when you press Start.\n" +
+        "Snapshot every takes one on a schedule, counted from the first sample, in minutes such as 5 or 0.5, whatever the heap's size.\n" +
+        "when above takes one when the heap as of the last garbage collection reaches this size, such as 500MB or 2GB. Before the first collection, it uses the heap now.\n" +
+        "or grown by takes one when that heap has grown this much over the first sample: a size such as 100MB, or a percent such as 50%.\n" +
+        "then says what the two size rules do after firing: below fires again once the heap falls under 90 percent of the threshold, once never fires again, and step raises the threshold by its own amount.\n" +
+        "at most is the most snapshots the rules may take in a run; empty means no limit. Get snapshot and failed captures do not count.\n" +
+        "as gcdumps makes this run's snapshots gcdumps, with only objects and references, instead of full dumps. Each one runs a full garbage collection in the process.\n" +
+        "Record allocations records sampled allocations with call stacks for the whole run, up to 1 GB. After the run, press Open allocations under Past runs.";
+
+    /// <summary>Live: Past runs heading.</summary>
+    public const string LivePastRuns =
+        "The monitoring runs of the current session; press Refresh to list them.\n" +
+        "Show draws the selected run's chart and snapshots, read only, and is off while a run is going.\n" +
+        "Open allocations opens the allocation trace of the last run, or of the past run shown, on the Allocations page. It needs a run that recorded allocations.";
+
+    /// <summary>Live: The chart legend.</summary>
+    public const string LiveChart =
+        "The chart stacks the heap areas as of the last collection, with what was allocated since then on top. A dashed line marks a snapshot and a dotted line a forced collection.\n" +
+        "The line above it is the latest sample: the heap now, the heap after the last collection and its parts, bytes allocated, collections per generation, and the last collection's share of time.";
+
+    /// <summary>The Types options in a set, where only Group by and Generations show.</summary>
+    public const string TypesOptionsInSet =
+        "Group by adds up the rows by type, namespace, assembly or interface. Interface needs a full dump, and a type counts under each interface it implements, so those rows overlap.\n" +
+        "Generations adds a column per heap area. It needs a full dump, because a gcdump records no generations.";
 }

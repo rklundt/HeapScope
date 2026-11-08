@@ -49,7 +49,8 @@
              IsVisible="{Binding Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     <Grid ColumnDefinitions="*,8,*">
       <DockPanel Grid.Column="0">
-        <TextBlock DockPanel.Dock="Top" Text="Fields" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <TextBlock DockPanel.Dock="Top" Text="Fields" FontWeight="SemiBold" Margin="0,0,0,4"
+                   ToolTip.Tip="This object's fields, or an array's elements; a link opens the object it points to. A gcdump has no field values, and the view says so." />
         <TreeView x:Name="FieldsTree" ItemsSource="{Binding Fields}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
           <TreeView.Styles>
             <Style Selector="TreeViewItem" x:DataType="vm:FieldNode">
@@ -111,7 +112,11 @@
                 <DataGridTextColumn Header="Address" x:DataType="vm:ReferrerRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
                 <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
-                <DataGridTextColumn Header="Refs" x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
+                <DataGridTextColumn x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number">
+                  <DataGridTextColumn.Header>
+                    <TextBlock Text="Refs" ToolTip.Tip="How many of that object's references point at this one." />
+                  </DataGridTextColumn.Header>
+                </DataGridTextColumn>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
@@ -132,14 +137,14 @@
               <TextBlock Text="{Binding RetainedSummary}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,4,0" />
               <HyperlinkButton Content="{Binding DominatorText}" Padding="0" VerticalAlignment="Center"
                                Command="{Binding OpenCommand}" CommandParameter="{Binding DominatorAddress}"
-                               IsVisible="{Binding DominatorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                               ToolTip.Tip="Open the immediate dominator: the closest object every path from a root to this one passes through" />
+                               IsVisible="{Binding DominatorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </WrapPanel>
-            <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" Margin="0,0,0,4"
-                      ToolTip.Tip="Runs of framework objects (System, Microsoft and the like) between other steps are folded into one line unless shown." />
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+              <CheckBox Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" />
+              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectRetentionDetails}" VerticalAlignment="Center" />
+            </StackPanel>
             <DataGrid x:Name="KeyPathsGrid" ctl:GridExports.ExportName="KeyRetentionPaths" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
-                      ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
-                      ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Roots" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />

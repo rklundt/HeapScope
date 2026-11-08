@@ -125,12 +125,119 @@ public sealed class InfoIconTests(UiSession ui)
                 .Select(File.ReadAllText));
         var texts = typeof(InfoTexts).GetFields().Where(static f => f.IsLiteral).ToList();
 
-        texts.Count.ShouldBe(27);
+        texts.Count.ShouldBe(48);
         foreach (var text in texts)
         {
             sources.ShouldContain("InfoTexts." + text.Name, customMessage: text.Name);
             ((string)text.GetRawConstantValue()!).ShouldNotBeNullOrWhiteSpace();
         }
+    }
+
+    /// <summary>
+    /// The owner approved the wording table (`docs/design/info-text.md`), not the code: each group icon says its row word for word, a
+    /// line per control, and each single control's tooltip is on a screen word for word.
+    /// </summary>
+    [Fact]
+    public void The_screens_say_what_the_owner_approved()
+    {
+        var repo = global::HeapScope.Tests.Shared.RepoRoot.Path;
+        var table = File.ReadAllText(Path.Combine(repo, "docs", "design", "info-text.md")).ReplaceLineEndings("\n");
+        var groups = Rows(Between(table, "## Table 2", "## Table 3"));
+        var singles = Rows(Between(table, "## Table 3", "## Evidence"));
+        var texts = typeof(InfoTexts).GetFields().Where(static f => f.IsLiteral).Select(static f => (string)f.GetRawConstantValue()!).ToHashSet();
+        var src = Path.Combine(repo, "src", "HeapScope.UI");
+        var screens = string.Concat(
+            Directory.EnumerateFiles(Path.Combine(src, "Views"), "*.axaml", SearchOption.AllDirectories)
+                .Concat(Directory.EnumerateFiles(Path.Combine(src, "Controls"), "*.cs"))
+                .Select(File.ReadAllText))
+            .Replace("&quot;", "\"", StringComparison.Ordinal).Replace("&lt;", "<", StringComparison.Ordinal).Replace("&gt;", ">", StringComparison.Ordinal)
+            .Replace("&amp;", "&", StringComparison.Ordinal).Replace("\\\"", "\"", StringComparison.Ordinal);
+
+        groups.Count.ShouldBe(20);
+        foreach (var row in groups)
+        {
+            texts.ShouldContain(row[2].Replace("<br>", "\n", StringComparison.Ordinal), customMessage: row[0] + ", " + row[1]);
+        }
+
+        singles.Count.ShouldBe(43);
+        foreach (var row in singles)
+        {
+            // A whole quoted string: a view's ToolTip.Tip, or a constant a control sets in code (the export menu's).
+            screens.ShouldContain("\"" + row[2] + "\"", customMessage: row[0] + ", " + row[1]);
+        }
+
+        static string Between(string text, string from, string to)
+        {
+            var start = text.IndexOf(from, StringComparison.Ordinal);
+            return text[start..text.IndexOf(to, start, StringComparison.Ordinal)];
+        }
+
+        static List<string[]> Rows(string section) =>
+            section.Split('\n').Where(static l => l.StartsWith("| ", StringComparison.Ordinal) && !l.StartsWith("| Page", StringComparison.Ordinal))
+                .Select(static l => l.Trim('|').Split(" | ").Select(static c => c.Trim()).ToArray()).ToList();
+    }
+
+    /// <summary>An icon in a header acts on its own: a click opens its text and leaves the expander or tab as it was.</summary>
+    [Fact]
+    public async Task An_icon_in_an_expander_header_opens_without_expanding_it()
+    {
+        await ui.RunAsync(() =>
+        {
+            var icon = new InfoIcon { Text = "What this is for." };
+            var expander = new Expander { Header = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { new TextBlock { Text = "Rules" }, icon } }, Content = new TextBlock { Text = "Inside" } };
+            var window = Show(expander);
+
+            Click(window, icon);
+
+            icon.Flyout.ShouldBeOfType<Flyout>().IsOpen.ShouldBeTrue();
+            expander.IsExpanded.ShouldBeFalse();
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task An_icon_in_a_tab_header_opens_without_switching_tabs()
+    {
+        await ui.RunAsync(() =>
+        {
+            var icon = new InfoIcon { Text = "What this is for." };
+            var tabs = new TabControl
+            {
+                Items =
+                {
+                    new TabItem { Header = "First", Content = new TextBlock { Text = "One" } },
+                    new TabItem { Header = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { new TextBlock { Text = "Second" }, icon } }, Content = new TextBlock { Text = "Two" } },
+                },
+            };
+            var window = Show(tabs);
+            tabs.SelectedIndex.ShouldBe(0);
+
+            Click(window, icon);
+
+            icon.Flyout.ShouldBeOfType<Flyout>().IsOpen.ShouldBeTrue();
+            tabs.SelectedIndex.ShouldBe(0);
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
+    private static Window Show(Control content)
+    {
+        var window = new Window { Width = 500, Height = 300, Content = content };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        window.CaptureRenderedFrame()?.Dispose();
+        Dispatcher.UIThread.RunJobs();
+        return window;
+    }
+
+    private static void Click(Window window, Control control)
+    {
+        var at = control.TranslatePoint(new Point(8, 8), window)!.Value;
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
     }
 
     [Fact]

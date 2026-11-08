@@ -90,7 +90,7 @@
                     ctl:GridBehaviors.ResultColumns="{Binding Columns}"
                     ctl:GridBehaviors.Rows="{Binding Rows}"
                     ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-                    ToolTip.Tip="Double-click or Enter opens the object; right-click shows it in the dominator tree.">
+                    ToolTip.Tip="Retained is what the object keeps alive, other set members included, and Members counts the other members below it. Double-click or Enter opens the object; right-click shows it in the dominator tree.">
             <DataGrid.ContextMenu>
               <ContextMenu>
                 <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #SetDominatorsGrid.SelectedItem}" />
@@ -109,7 +109,8 @@
       <Panel IsVisible="{Binding IsSimilarRetentionShown}">
         <DockPanel DataContext="{Binding SimilarRetention}" x:DataType="vm:SimilarRetentionViewModel">
           <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-            <CheckBox DockPanel.Dock="Right" Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
+            <CheckBox DockPanel.Dock="Right" Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center"
+                      ToolTip.Tip="Shows every step of each path. When off, runs of framework types (System, Microsoft and similar) between your own steps fold away." />
             <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.SetSimilarRetention}" Margin="0,0,6,0" />
             <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" VerticalAlignment="Center" />
           </DockPanel>
@@ -118,7 +119,7 @@
             <DataGrid x:Name="SimilarRetentionGrid" ctl:GridExports.ExportName="SimilarRetention" ItemsSource="{Binding Groups}"
                       SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="False"
                       ctl:GridBehaviors.OpenCommand="{Binding OpenGroupCommand}"
-                      ToolTip.Tip="Double-click or Enter opens the group as a set; right-click opens its first object.">
+                      ToolTip.Tip="Paths counts the distinct paths a group has, and at most the two most different are listed. Double-click or Enter opens the group as a set; right-click offers an example object.">
               <DataGrid.ContextMenu>
                 <ContextMenu>
                   <MenuItem Header="Open as set" Command="{Binding OpenGroupCommand}" CommandParameter="{Binding #SimilarRetentionGrid.SelectedItem}" />

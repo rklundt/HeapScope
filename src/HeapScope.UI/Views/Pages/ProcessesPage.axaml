@@ -36,8 +36,8 @@
       </StackPanel>
       <Button ctl:ButtonIcon.Icon="Refresh" Content="Refresh" Margin="16,0,0,0" Command="{Binding RefreshCommand}" />
       <Button ctl:ButtonIcon.Icon="Capture" Classes="primary" Content="Capture dump" Margin="8,0,0,0" Command="{Binding CaptureCommand}" />
-      <CheckBox Content="As gcdump" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDump}"
-                ToolTip.Tip="The object graph only: much smaller and quicker to open, but no field values, string text or generations. The process runs one full garbage collection." />
+      <CheckBox Content="As gcdump" Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding CaptureGcDump}" />
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CaptureOptions}" Margin="4,0,0,0" VerticalAlignment="Center" />
       <!-- Sprint 2.5: sampled allocations with call stacks, shown on the Allocations page when done. -->
       <Button Content="Record allocations" Margin="16,0,0,0" Command="{Binding RecordAllocationsCommand}" IsVisible="{Binding CanRecordAllocations}"
               ToolTip.Tip="Record which types and call stacks allocate, for up to 30 seconds, while you use the application. The process keeps running; Stop keeps what was recorded." />
@@ -58,8 +58,16 @@
         <DataGridTextColumn Header="PID" x:DataType="vm:ProcessRow" Binding="{Binding ProcessId}" Width="70" CellStyleClasses="number" />
         <DataGridTextColumn Header="Name" x:DataType="vm:ProcessRow" Binding="{Binding Name}" Width="200" />
         <DataGridTextColumn Header="Runtime" x:DataType="vm:ProcessRow" Binding="{Binding Runtime}" Width="130" />
-        <DataGridTextColumn Header="Elevation" x:DataType="vm:ProcessRow" Binding="{Binding Elevation}" Width="140" />
-        <DataGridTextColumn Header="Working set" x:DataType="vm:ProcessRow" Binding="{Binding WorkingSetBytes, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number" />
+        <DataGridTextColumn x:DataType="vm:ProcessRow" Binding="{Binding Elevation}" Width="140">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Elevation" ToolTip.Tip="&quot;Needs administrator&quot; means you must run HeapScope as administrator to capture this process. &quot;Elevated&quot; means it runs elevated and HeapScope does too." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
+        <DataGridTextColumn x:DataType="vm:ProcessRow" Binding="{Binding WorkingSetBytes, StringFormat='{}{0:N0}'}" Width="130" CellStyleClasses="number">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Working set" ToolTip.Tip="Physical memory the operating system has given the whole process right now, not only its .NET heap." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
         <!-- A command line can carry secrets: an export leaves it out unless the person opts in (ADR-026, 2.7 review H1). -->
         <DataGridTextColumn Header="Command line" x:DataType="vm:ProcessRow" Binding="{Binding CommandLine}" Width="*" MinWidth="240" ctl:GridExports.HasValues="True" />
       </DataGrid.Columns>

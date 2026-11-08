@@ -49,6 +49,7 @@
           <Border Classes="tile"><StackPanel><TextBlock Text="Types" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
           <Border Classes="tile"><StackPanel><TextBlock Text="References" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
           <Border Classes="tile"><StackPanel><TextBlock Text="Roots" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
+          <ctl:InfoIcon Text="{x:Static vm:InfoTexts.SnapshotTotals}" VerticalAlignment="Center" />
         </WrapPanel>
         <Border Classes="note" IsVisible="{Binding HasNotes}">
           <ItemsControl ItemsSource="{Binding Notes}">

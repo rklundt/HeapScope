@@ -35,10 +35,11 @@
         <TextBlock Classes="pageTitle" Text="Snapshots" VerticalAlignment="Center" />
         <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Snapshots}" />
       </StackPanel>
-      <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}" />
+      <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="16,0,0,0" Command="{Binding OpenDumpCommand}"
+              ToolTip.Tip="Opens a full dump (.dmp), a gcdump (.gcdump) or a core dump. If a first load may not fit in free memory, it asks first." />
       <Button Content="Close" Margin="8,0,0,0" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
       <Button ctl:ButtonIcon.Icon="Delete" Content="Close and delete..." Margin="8,0,0,0" Command="{Binding CloseAndDeleteCommand}" CommandParameter="{Binding Selected}"
-              ToolTip.Tip="Close the snapshot and delete its dump and index caches from its HeapScope session (asks first)." />
+              ToolTip.Tip="Closes the snapshot and deletes its dump and index caches, after asking. It works only for a dump in a HeapScope session; any other dump you delete yourself." />
       <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" MaxWidth="600" />
     </StackPanel>
     <!-- The open snapshots, the selected one's analysis path (sprint 2.7) and the bookmarks of every open snapshot. -->
@@ -54,8 +55,10 @@
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
-      <TextBlock Grid.Row="2" Text="Analysis path" FontWeight="SemiBold" Margin="0,12,0,4"
-                 ToolTip.Tip="The steps taken in this snapshot, the last 30 at most. Opening something from an earlier step starts a branch; the later steps stay. Ctrl+L (Cmd+L) comes here." />
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,12,0,4">
+        <TextBlock Text="Analysis path" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.AnalysisPath}" />
+      </StackPanel>
       <ListBox Grid.Row="3" x:Name="PathList" DataContext="{Binding Navigator}" x:DataType="vm:NavigatorViewModel"
                ItemsSource="{Binding Steps}" SelectedItem="{Binding CurrentStep, Mode=TwoWay}" AutomationProperties.Name="Analysis path">
         <ListBox.ItemTemplate>
@@ -72,14 +75,15 @@
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
-      <TextBlock Grid.Row="4" Text="Bookmarks" FontWeight="SemiBold" Margin="0,12,0,4"
-                 ToolTip.Tip="Objects marked with Ctrl+D (Cmd+D) in any open snapshot; kept for the next time the snapshot is opened." />
+      <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="6" Margin="0,12,0,4">
+        <TextBlock Text="Bookmarks" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Bookmarks}" />
+      </StackPanel>
       <DockPanel Grid.Row="5" DataContext="{Binding Bookmarks}" x:DataType="vm:BookmarksViewModel">
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" Classes="subtle" TextWrapping="Wrap"
                    IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <Button DockPanel.Dock="Bottom" Content="Open as a set" Margin="0,4,0,0" HorizontalAlignment="Left"
-                Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #BookmarkList.SelectedItem}" IsVisible="{Binding !!Items.Count}"
-                ToolTip.Tip="The bookmarks of the selected bookmark's snapshot as one set of objects, with every set view." />
+                Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #BookmarkList.SelectedItem}" IsVisible="{Binding !!Items.Count}" />
         <TextBlock DockPanel.Dock="Top" Text="None yet. Ctrl+D (Cmd+D) marks the shown object or the selected row's object." Classes="subtle" TextWrapping="Wrap"
                    IsVisible="{Binding !Items.Count}" />
         <ListBox x:Name="BookmarkList" ItemsSource="{Binding Items}" AutomationProperties.Name="Bookmarks"

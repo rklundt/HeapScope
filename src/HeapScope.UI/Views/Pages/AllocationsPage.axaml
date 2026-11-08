@@ -86,16 +86,15 @@
                 <DataGrid x:Name="TypesGrid" ctl:GridExports.ExportName="AllocatedTypes" CanUserSortColumns="False" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                           ctl:GridBehaviors.ResultColumns="{Binding Columns}"
                           ctl:GridBehaviors.Rows="{Binding Rows}"
-                          ToolTip.Tip="Select a type to see where it was allocated" />
+                          ToolTip.Tip="The types allocated in the chosen interval; select one to narrow the trees and stacks to it. All types clears that." />
               </DockPanel>
               <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
               <!-- Back traces (the allocating methods, then their callers) or the call tree (top-down). -->
               <DockPanel Grid.Column="2">
                 <WrapPanel DockPanel.Dock="Top" MinHeight="28" Margin="0,0,0,2">
-                  <RadioButton Content="Back traces" GroupName="TreeKind" IsChecked="{Binding !ShowCallTree}" Margin="0,0,12,0"
-                               ToolTip.Tip="The methods that allocated, then their callers" />
-                  <RadioButton Content="Call tree" GroupName="TreeKind" IsChecked="{Binding ShowCallTree}" Margin="0,0,12,0"
-                               ToolTip.Tip="From the threads' outermost frames down; Own is what a method allocated itself" />
+                  <RadioButton Content="Back traces" GroupName="TreeKind" IsChecked="{Binding !ShowCallTree}" Margin="0,0,12,0" />
+                  <RadioButton Content="Call tree" GroupName="TreeKind" IsChecked="{Binding ShowCallTree}" Margin="0,0,6,0" />
+                  <ctl:InfoIcon Text="{x:Static vm:InfoTexts.AllocationTrees}" Margin="0,0,12,0" VerticalAlignment="Center" />
                   <TextBlock Text="of" VerticalAlignment="Center" Margin="0,0,4,0" Classes="subtle" IsVisible="{Binding HasType}" />
                   <TextBlock Text="{Binding TypeName}" VerticalAlignment="Center" FontWeight="SemiBold" IsVisible="{Binding HasType}" TextTrimming="CharacterEllipsis" MaxWidth="360" />
                   <Button Content="All types" Margin="8,0,0,0" Command="{Binding AllTypesCommand}" IsVisible="{Binding HasType}" />
@@ -136,7 +135,8 @@
             <!-- The top call stacks of the interval (and type), with the selected one's frames. -->
             <Grid Grid.Row="4" ColumnDefinitions="3*,6,2*">
               <DockPanel Grid.Column="0">
-                <TextBlock DockPanel.Dock="Top" Text="Top call stacks" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBlock DockPanel.Dock="Top" Text="Top call stacks" FontWeight="SemiBold" Margin="0,0,0,2"
+                           ToolTip.Tip="The 20 call stacks that allocated the most in this interval and type. Select one to see its frames on the right." />
                 <ctl:NoteText DockPanel.Dock="Top" Text="{Binding StacksStatus}" TextWrapping="Wrap" />
                 <DataGrid x:Name="StacksGrid" ctl:GridExports.ExportName="AllocationStacks" ItemsSource="{Binding Stacks}" SelectedItem="{Binding SelectedStack, Mode=TwoWay}" CanUserSortColumns="False" IsReadOnly="True">
                   <DataGrid.Columns>

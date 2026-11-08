@@ -45,6 +45,10 @@ public static class GridExports
     /// <summary>The menu item's text.</summary>
     public const string MenuText = "Export to CSV...";
 
+    /// <summary>The menu item's tooltip (approved 2026-11-08, `docs/design/info-text.md`).</summary>
+    public const string MenuTip =
+        "Writes all of the list's rows to a CSV file, not only those on screen. String text, field values and command lines stay out unless you say yes for that export.";
+
     /// <summary>The grid's fixed name (the file's suggested name and the log's), such as "Instances".</summary>
     public static readonly AttachedProperty<string?> ExportNameProperty =
         AvaloniaProperty.RegisterAttached<DataGrid, string?>("ExportName", typeof(GridExports));
@@ -142,6 +146,7 @@ public static class GridExports
         }
 
         var item = new MenuItem { Header = MenuText, Tag = typeof(GridExports), InputGesture = Avalonia.Input.KeyGesture.Parse(Shortcuts.Gesture(ShortcutKeys.Export)) };
+        ToolTip.SetTip(item, MenuTip);
         item.Click += (_, _) => RequestExport(grid);
         items.Add(item);
     }

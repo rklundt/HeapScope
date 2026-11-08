@@ -49,7 +49,8 @@
             IsVisible="{Binding IsCrashBannerVisible}">
       <DockPanel>
         <Button DockPanel.Dock="Right" Content="Dismiss" Margin="8,0,0,0" Command="{Binding DismissCrashBannerCommand}" />
-        <Button DockPanel.Dock="Right" Content="Restart worker" Command="{Binding RestartWorkerCommand}" />
+        <Button DockPanel.Dock="Right" Content="Restart worker" Command="{Binding RestartWorkerCommand}"
+                ToolTip.Tip="The worker is the separate process that does the analysis, and it stopped. Restart starts a new one, and open snapshots are read back from their saved index when next used." />
         <TextBlock Text="{Binding CrashMessage}" VerticalAlignment="Center" TextWrapping="Wrap" />
       </DockPanel>
     </Border>
@@ -70,7 +71,7 @@
         <Button x:Name="CancelExport" DockPanel.Dock="Right" Classes="compact" Content="Cancel export" Margin="8,0,0,0"
                 Command="{Binding Exports.CancelCommand}" IsVisible="{Binding Exports.IsExporting}" />
         <TextBlock x:Name="ExportStatus" DockPanel.Dock="Right" Text="{Binding Exports.Status}" Classes="subtle" Margin="12,0,0,0" />
-        <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" />
+        <TextBlock Text="{Binding WorkerStatus}" Classes="subtle" ToolTip.Tip="Shows the state of the worker, the separate process that does the analysis." />
       </DockPanel>
     </Border>
     <!-- Only the jobs running now; the Jobs page keeps the finished ones. -->

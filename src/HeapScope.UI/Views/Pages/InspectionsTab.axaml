@@ -69,7 +69,7 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6" IsVisible="{Binding UsesBaseline}">
       <TextBlock Text="Baseline for growth" VerticalAlignment="Center" Margin="0,0,8,0" />
       <ComboBox x:Name="BaselinePicker" MinWidth="320" ItemsSource="{Binding BaselineChoices}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
-                ToolTip.Tip="An earlier snapshot of the same process: the growth detectors compare with it (open both dumps). None: growing static collections report only what is large, and growing types report nothing." />
+                ToolTip.Tip="An earlier full dump of the same process, for the Growing types and Growing static collections checks. With None, Growing types finds nothing and Growing static collections lists only large ones." />
     </StackPanel>
     <ScrollViewer DockPanel.Dock="Left" Width="320" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
       <StackPanel>
@@ -85,8 +85,11 @@
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InspectionTileViewModel">
               <StackPanel>
-              <TextBlock Classes="groupHeading" Text="{Binding GroupHeader}" IsVisible="{Binding HasGroupHeader}" FontWeight="SemiBold" Margin="0,8,0,4"
-                         Background="Transparent" Cursor="Arrow" />
+              <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4" IsVisible="{Binding HasGroupHeader}">
+                <TextBlock Classes="groupHeading" Text="{Binding GroupHeader}" FontWeight="SemiBold" VerticalAlignment="Center"
+                           Background="Transparent" Cursor="Arrow" />
+                <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Detectors}" />
+              </StackPanel>
               <Border Classes="card" Classes.selected="{Binding $parent[ListBoxItem].IsSelected}">
                 <StackPanel>
                   <!-- Found nothing: one quiet row, title and count, so what found something stands out. -->
@@ -113,8 +116,10 @@
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
-        <TextBlock Text="Fragmentation (free share of each heap)" FontWeight="SemiBold" Margin="0,8,0,4"
-                   IsVisible="{Binding HasFragments}" />
+        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,4" IsVisible="{Binding HasFragments}">
+          <TextBlock Text="Fragmentation (free share of each heap)" FontWeight="SemiBold" VerticalAlignment="Center" />
+          <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Fragmentation}" />
+        </StackPanel>
         <ItemsControl ItemsSource="{Binding Fragments}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:FragmentItem">
@@ -139,9 +144,9 @@
               ctl:GridBehaviors.ResultColumns="{Binding Columns}"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab; right-click for what they retain.">
+              ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab; a leak detector's row opens them as a set.">
       <DataGrid.ContextMenu>
-        <ContextMenu>
+        <ContextMenu ToolTip.Tip="Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it.">
           <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
           <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
           <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />

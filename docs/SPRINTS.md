@@ -90,14 +90,17 @@ them. The app has about 104 tooltips, found only by hovering over each control, 
 6. Out: a guided tour or first-run walkthrough, the slower first load, and the flaky tests other than the key file's.
 7. Existing tooltips that the drafting found wrong or incomplete are fixed in this sprint.
 8. The names stay. The Retainers tab gets the subtitle "What is holding or retaining memory".
+9. Settings get one icon per group, not one per field (option B, 2026-11-06): its popup has a line per control, and a single control keeps
+   a tooltip, shown even when it is disabled. The owner approved Tables 2 and 3 on 2026-11-08 with the recommended answers: a group's
+   fields lose their tooltips except two format hints and the filters, and the Retainers chart caption shrinks to one line.
 
 **Task breakdown**:
-1. [ ] The wording table: every page, tab, setting and feature, its draft text and the code that backs it. Proof: the owner's mark-up.
-   Table 1 (pages) approved 2026-11-05; the settings' table waits on the owner's choice between an icon per setting and one per group.
+1. [x] The wording table: every page, tab, setting and feature, its draft text and the code that backs it. Proof: the owner's mark-up.
+   Table 1 (pages) approved 2026-11-05; Tables 2 (20 group icons) and 3 (43 tooltips) approved 2026-11-08.
 2. [x] The info icon: one control (`InfoIcon`), one source for its texts, ADR-040 amended. Proof: UI tests that hover, click and keyboard open
    it and Escape closes it, its accessible name, its contrast in both themes (`ThemeTests`), and that it opens beside a disabled button.
 3. [x] Page info on every page and tab. Proof: a test that walks the pages and finds each one's icon and text; no binding errors; captures.
-4. [ ] Setting and feature info, as the approved table lists them; tooltips that now repeat it go. Proof: a test that every approved row
+4. [x] Setting and feature info, as the approved table lists them; tooltips that now repeat it go. Proof: a test that every approved row
    is on its view; captures.
 5. [x] The Snapshots page refresh (M40). Proof: view model tests where a reopen is refused and the dump opened again: the same handle
    shows again, the row and its notes are current, and a query runs.
