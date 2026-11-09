@@ -91,6 +91,9 @@ public sealed class SnapshotsViewModelTests : IDisposable
         var first = Dump("first.dmp", 10);
         _worker.Service.CacheIdentity = 0x8000_0000_0000_0001;
         await _snapshots.OpenPathAsync(first);
+
+        // The others' caches are the ones a reopen will find, so only the first is refused.
+        _worker.Service.CacheIdentity = 0x8000_0000_0000_0002;
         await _snapshots.OpenPathAsync(Dump("second.dmp", 10));
         await _snapshots.OpenPathAsync(Dump("third.dmp", 10));
         var items = _snapshots.Snapshots.ToList();
@@ -100,6 +103,9 @@ public sealed class SnapshotsViewModelTests : IDisposable
         _snapshots.Compare.Baseline = items[0];
         _snapshots.Compare.Current = items[1];
         _snapshots.Compare.Trend.Choices[1].IsIncluded = false;
+        _snapshots.Compare.IsTrendShown = true;
+        await _snapshots.Compare.QueryTask;
+        await _snapshots.Compare.Trend.QueryTask;
         var ticks = _snapshots.Compare.Trend.Choices.Select(static c => (c.Snapshot, c.IsIncluded)).ToList();
         _snapshots.Selected = items[0];
         _snapshots.Navigator.OpenObject(items[0].Handle, 0x1000);
@@ -107,14 +113,19 @@ public sealed class SnapshotsViewModelTests : IDisposable
         var changed = new List<string?>();
         items[0].PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
-        _worker.Service.CacheIdentity = 0x8000_0000_0000_0002;
         _worker.NewGeneration();
         _snapshots.Types.Show(items[0].Handle);
         await _snapshots.Types.QueryTask;
         _snapshots.Types.Status.ShouldNotBeNull().ShouldContain("was rebuilt");
         await _snapshots.OpenPathAsync(first);
         await _snapshots.Types.QueryTask;
+        await _snapshots.Compare.QueryTask;
+        await _snapshots.Compare.Trend.QueryTask;
 
+        // Their rows came from the earlier snapshot, and a page fetched later would ask the new one (3.11 review).
+        var reopened = items[0].Handle.Descriptor.SnapshotId;
+        _worker.Service.DiffQueries[^1].BaselineId.ShouldBe(reopened, "the pair holds the snapshot, so it runs again");
+        _worker.Service.TrendQueries[^1].SnapshotIds.ShouldContain(reopened, "the trend ticks it, so it runs again");
         _snapshots.Snapshots.ShouldBe(items);
         _snapshots.Selected.ShouldBeSameAs(items[0]);
         changed.ShouldContain(string.Empty, "the row says again what it shows");

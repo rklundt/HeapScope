@@ -2,7 +2,7 @@
 
 Reviewers: solution-architect, senior-dev, gc-specialist, support-engineer (2026-11-08), on `sprint/3.11` against `sprint-3.10`.
 Each reviewer read the working tree (none had a shell for `git diff`). Findings that overlap are merged and keep the highest
-severity. Counts: 3 High, 12 Moderate, 26 Low.
+severity. Counts: 3 High, 12 Moderate, 26 Low; the confirmations added 1 High (H4), 1 Moderate (M13) and Lows L21 to L33.
 
 Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 skipped, 0 failed (integration tests included).
 
@@ -51,11 +51,37 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
 - Status: Fixed. Confirmed by senior-dev (first fix) and support-engineer (second fix, 2026-11-08), who traced the members'
   reach under Type grouping through `DominatorTreeRows`; no test walks that tree path (noted, not a finding).
 
+### H4. Opening a dump again left Compare and Trend on the earlier snapshot
+- Reviewers: solution-architect and senior-dev, each on their own, while confirming M1 (2026-11-09).
+- Where: `SnapshotsViewModel.ShowOpened`, `CompareViewModel`, `TrendViewModel`.
+- What: M1's fix keeps the row, so Compare and Trend no longer saw a close and an open and did not run again. They kept the earlier
+  graph's results (or its refusal), and a page fetched later found the result set gone and ran the old query against the handle's
+  new worker snapshot (`ResultSetHandle.GetRowsAsync`): rows of two graphs under one set of totals, with no new "Compare pair" line.
+- Why it matters: a wrong result, which the "was rebuilt, open it again" refusal exists to prevent; introduced by M1's fix.
+- Fix: when an open changes the worker snapshot, `ShowOpened` calls `Compare.Reopened`, which runs a pair that holds it again,
+  logged as "Compare pair run again, a snapshot of it was opened again" with the new ids, and `Trend.Reopened`, which runs a trend
+  that ticks it again (its line names the ids). Not tied to the row's PropertyChanged, which a silent reopen of the same graph also
+  raises. The three-snapshot test checks that the last diff and trend queries name the new id; without the call it fails.
+- Status: Fixed; sent back to solution-architect and senior-dev.
+
 ## Moderate
 
 Decisions (product owner, 2026-11-09, "all recos"): fix now M1 to M6 and M8 to M12 (M12 with M1); M2 to M6 and M9 by
 rewording approved text, proposed in `docs/design/info-text.md` for approval first; M6 also adds a Backlog item to mark
 group rows' retained bytes as a lower bound. M7 to the Backlog.
+
+Status of the fixes (2026-11-09):
+- M1 and M12: fixed (`483305b`). M12 confirmed by support-engineer. M1 confirmed by support-engineer and senior-dev for the symptoms
+  listed; solution-architect did not confirm it, as Compare and Trend went stale (H4, now fixed).
+- M8: fixed and confirmed by solution-architect.
+- M9: the part with no new wording (one style for tooltips on disabled controls, Run synthetic job's tip, the Inspections menu
+  text on its items, the guide) fixed and confirmed by solution-architect, senior-dev and support-engineer. The Record
+  allocations tooltip waits for the owner's approval of its wording.
+- M10: fixed and confirmed by support-engineer.
+- M11: fixed and confirmed by gc-specialist and senior-dev.
+- M2 to M6: rewording proposed in `docs/design/info-text.md`, checked by gc-specialist, whose corrections to rows 1, 2, 9, 10, 12
+  and 13 are in; waiting for the owner's approval. M6's code comments corrected (`DominatorDtos`, `IcicleGeometry`).
+- M7: in `docs/BACKLOG.md`, confirmed by solution-architect.
 
 - **M1. Opening a dump again replaces its row, with side effects** (support-engineer, solution-architect, senior-dev).
   `SnapshotsViewModel.ShowOpened` swaps in a new `SnapshotItemViewModel`. Compare treats it as a close and open: a pair the user
@@ -91,6 +117,14 @@ group rows' retained bytes as a lower bound. M7 to the Backlog.
   logged, and that "+N smaller" grouping depends on the window's width and is not logged.
 - **M11. Icicle grouping edge cases untested** (gc-specialist, senior-dev). Groups at two levels at once, a narrow, wide, narrow,
   narrow run, a group under MinWidth, and a size case at worker scale. Suggested: add the tests.
+- **M13. A pinned object the GC demotes is counted as dead and new** (gc-specialist, raised while checking the rewording).
+  `ObjectIdentity` refuses a match when the object is in a younger generation now, on the comment's claim that an object never
+  changes it. The GC can demote: survivors around pinned plugs stay in Gen0 after a Gen1 collection, and with regions (.NET 7
+  and later) a region of few pinned survivors can go back to Gen0. A pinned object never moves, so it survives at the same
+  address but can read Gen1 in the baseline and Gen0 later. Pinned buffers, which leak hunts chase, then look like churn.
+  Suggested: drop the generation test for objects pinned in either snapshot, or drop it and rely on type, size and heap; at
+  least correct the comment and say "usually" in the wording; a fixture with a demoted pinned object.
+  Decision: pending the product owner.
 - **M12. ShowOpened's condition is broader than a refused reopen** (support-engineer). After a silent successful reopen the row's
   id is stale too, so a later open replaces the row and logs "shown afresh" when nothing was refused. Suggested: fold into M1.
 
@@ -138,3 +172,18 @@ Raised while confirming the High fixes:
 - L25. A TextBlock header built from inlines, with no Text, would drop its column from the CSV without a warning; none is built
   that way today (senior-dev).
 - L26. No test hovers an InfoIcon itself; hover is proven on a disabled Button (senior-dev).
+
+Raised while confirming the Moderate fixes:
+
+- L27. `before` is read ahead of the memory and DAC dialogs, so a silent reopen while a dialog is open makes an open that refused
+  nothing start the analysis path again (support-engineer).
+- L28. logging.md says the "+N smaller" groups are made in the view; they are made in `IcicleGeometry` from the chart's width
+  (support-engineer).
+- L29. `before` is the bare worker id: after a restart with no query since, opening an unchanged dump again starts its path
+  again; deciding on the cache identity would not (solution-architect).
+- L30. The evidence table's locations for the text M9 moved are stale (InspectionsTab, AboutPage) (senior-dev).
+- L31. `SnapshotItemViewModel.Reload` returns a bool no caller reads; `before` repeats the session's find-by-path rule, which a
+  `SnapshotSession.Find` would share (senior-dev).
+- L32. `ObjectIdentityTexts.Matched`'s comment describes only moved objects; once the reworded note is approved it should name
+  reused addresses too (gc-specialist).
+- L33. M7's Backlog item could also cover Table 2's group texts, which are checked for presence only (solution-architect).

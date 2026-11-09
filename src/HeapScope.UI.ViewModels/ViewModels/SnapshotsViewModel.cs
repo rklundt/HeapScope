@@ -331,9 +331,9 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
     /// <summary>
     /// Lists and selects what was just opened. Opening a dump again after a refused reopen keeps its handle, so the selection would
     /// not change and the page would keep the refusal and the old notes (3.10 review M40). When the open changed the handle's
-    /// worker snapshot (<paramref name="before"/>), its item says so in place, so a pair picked on Compare and Trend's ticks stay,
-    /// and its analysis path starts again, since every step on it asked the earlier snapshot (3.11 review M1). A dump that was
-    /// already open gets its item back unchanged.
+    /// worker snapshot (<paramref name="before"/>), its item says so in place, so a pair picked on Compare and Trend's ticks stay
+    /// and run again, and its analysis path starts again, since every step on it asked the earlier snapshot (3.11 review M1). A
+    /// dump that was already open gets its item back unchanged.
     /// </summary>
     private void ShowOpened(SnapshotHandle handle, Guid? before)
     {
@@ -347,6 +347,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
                 previous,
                 handle.Descriptor.SnapshotId);
             Navigator.Forget(handle);
+            Compare.Reopened(item);
             if (Selected == item)
             {
                 OnSelectedChanged(item);

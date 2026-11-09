@@ -160,7 +160,7 @@ public static class IcicleGeometry
         // Level 1 sits under the chart's top bar, the focus itself: a double-click there shows the same chart (3.11 review), so
         // the tree below is where they are. Deeper, the bar above is their parent, and focusing it puts them in the tree. Under
         // Group children by Type or Namespace the tree lists groups, and past 100 rows a "more" row: the text holds for both.
-        // A group's width adds up its members' own; what they hold together is counted in the bar above.
+        // A group's width adds up its members' retained sizes; what they keep alive together is counted in the bar above.
         var where = segment.Level <= 1
             ? TreeHasThem
             : "Double-click the bar above them to focus on it; " + char.ToLowerInvariant(TreeHasThem[0]) + TreeHasThem[1..];
