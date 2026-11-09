@@ -62,7 +62,7 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
   logged as "Compare pair run again, a snapshot of it was opened again" with the new ids, and `Trend.Reopened`, which runs a trend
   that ticks it again (its line names the ids). Not tied to the row's PropertyChanged, which a silent reopen of the same graph also
   raises. The three-snapshot test checks that the last diff and trend queries name the new id; without the call it fails.
-- Status: Fixed; sent back to solution-architect and senior-dev.
+- Status: Fixed. Confirmed by senior-dev and solution-architect (2026-11-09).
 
 ## Moderate
 
@@ -72,7 +72,7 @@ group rows' retained bytes as a lower bound. M7 to the Backlog.
 
 Status of the fixes (2026-11-09):
 - M1 and M12: fixed (`483305b`). M12 confirmed by support-engineer. M1 confirmed by support-engineer and senior-dev for the symptoms
-  listed; solution-architect did not confirm it, as Compare and Trend went stale (H4, now fixed).
+  listed; solution-architect first did not, as Compare and Trend went stale (H4), then confirmed M1 as a whole with H4 fixed.
 - M8: fixed and confirmed by solution-architect.
 - M9: the part with no new wording (one style for tooltips on disabled controls, Run synthetic job's tip, the Inspections menu
   text on its items, the guide) fixed and confirmed by solution-architect, senior-dev and support-engineer. The Record
@@ -180,7 +180,8 @@ Raised while confirming the Moderate fixes:
 - L28. logging.md says the "+N smaller" groups are made in the view; they are made in `IcicleGeometry` from the chart's width
   (support-engineer).
 - L29. `before` is the bare worker id: after a restart with no query since, opening an unchanged dump again starts its path
-  again; deciding on the cache identity would not (solution-architect).
+  again, and with H4 Compare and Trend run again and log "opened again" for an unchanged dump; deciding on the cache identity
+  would avoid both (solution-architect).
 - L30. The evidence table's locations for the text M9 moved are stale (InspectionsTab, AboutPage) (senior-dev).
 - L31. `SnapshotItemViewModel.Reload` returns a bool no caller reads; `before` repeats the session's find-by-path rule, which a
   `SnapshotSession.Find` would share (senior-dev).
