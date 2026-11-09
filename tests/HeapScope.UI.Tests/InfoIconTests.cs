@@ -90,6 +90,100 @@ public sealed class InfoIconTests(UiSession ui)
         });
     }
 
+    /// <summary>Sprint 3.11 (review H1): beside a disabled button, which shows no tooltip of its own, the icon still opens.</summary>
+    [Fact]
+    public async Task An_icon_beside_a_disabled_button_opens()
+    {
+        await ui.RunAsync(() =>
+        {
+            var icon = new InfoIcon { Text = "What this is for." };
+            var button = new Button { Content = "Get snapshot", IsEnabled = false };
+            var window = Show(new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { button, icon } });
+            button.IsEffectivelyEnabled.ShouldBeFalse();
+
+            Click(window, icon);
+
+            icon.Flyout.ShouldBeOfType<Flyout>().IsOpen.ShouldBeTrue();
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>Sprint 3.11 (review H1): a single control that can be turned off says what it needs, even while it is off.</summary>
+    [Fact]
+    public async Task A_disabled_button_that_shows_on_disabled_opens_its_tooltip_on_hover()
+    {
+        await ui.RunAsync(() =>
+        {
+            var button = new Button { Content = "Get snapshot", IsEnabled = false };
+            ToolTip.SetTip(button, "Needs a run going.");
+            ToolTip.SetShowOnDisabled(button, true);
+            ToolTip.SetShowDelay(button, 0);
+            var window = Show(new StackPanel { Children = { button } });
+
+            window.MouseMove(button.TranslatePoint(new Point(8, 8), window)!.Value);
+            Dispatcher.UIThread.RunJobs();
+
+            ToolTip.GetIsOpen(button).ShouldBeTrue();
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Live's section headings and the Inspections list's group headings hold icons, and Tab must reach them (3.11 review). A tab
+    /// header's icon could not be reached, so the Object view's tabs carry theirs in their content.
+    /// </summary>
+    [Fact]
+    public async Task Tab_reaches_an_icon_in_an_expander_header_and_in_a_list_item()
+    {
+        await ui.RunAsync(() =>
+        {
+            var inHeader = new InfoIcon { Text = "Header." };
+            var inList = new InfoIcon { Text = "List." };
+            var first = new Button { Content = "Before" };
+            var expander = new Expander { Header = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { new TextBlock { Text = "Snapshot rules" }, inHeader } }, Content = new TextBlock { Text = "Inside" } };
+            var list = new ListBox { Items = { new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { new TextBlock { Text = "Leak detectors" }, inList } } } };
+            KeyboardNavigation.SetTabNavigation(list, KeyboardNavigationMode.Continue); // as the Inspections list sets it
+            var window = Show(new StackPanel { Children = { first, expander, list } });
+            first.Focus(NavigationMethod.Tab).ShouldBeTrue();
+
+            var reached = new HashSet<InfoIcon>();
+            for (var i = 0; i < 12; i++)
+            {
+                window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+                window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+                Dispatcher.UIThread.RunJobs();
+                if (window.FocusManager?.GetFocusedElement() is InfoIcon icon)
+                {
+                    reached.Add(icon);
+                }
+            }
+
+            (reached.Contains(inHeader), reached.Contains(inList)).ShouldBe((true, true), "Tab reaches the icon in an expander header, and in a list item");
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task Space_opens_it_from_the_keyboard()
+    {
+        await ui.RunAsync(() =>
+        {
+            var (icon, window) = Shown();
+            icon.Focus(NavigationMethod.Tab).ShouldBeTrue();
+
+            window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+
+            icon.Flyout.ShouldBeOfType<Flyout>().IsOpen.ShouldBeTrue();
+            window.Close();
+            return Task.CompletedTask;
+        });
+    }
+
     [Fact]
     public async Task Enter_opens_it_from_the_keyboard()
     {
@@ -142,6 +236,7 @@ public sealed class InfoIconTests(UiSession ui)
     {
         var repo = global::HeapScope.Tests.Shared.RepoRoot.Path;
         var table = File.ReadAllText(Path.Combine(repo, "docs", "design", "info-text.md")).ReplaceLineEndings("\n");
+        var pages = Rows(Between(table, "## Table 1", "## Table 2"));
         var groups = Rows(Between(table, "## Table 2", "## Table 3"));
         var singles = Rows(Between(table, "## Table 3", "## Evidence"));
         var texts = typeof(InfoTexts).GetFields().Where(static f => f.IsLiteral).Select(static f => (string)f.GetRawConstantValue()!).ToHashSet();
@@ -152,6 +247,12 @@ public sealed class InfoIconTests(UiSession ui)
                 .Select(File.ReadAllText))
             .Replace("&quot;", "\"", StringComparison.Ordinal).Replace("&lt;", "<", StringComparison.Ordinal).Replace("&gt;", ">", StringComparison.Ordinal)
             .Replace("&amp;", "&", StringComparison.Ordinal).Replace("\\\"", "\"", StringComparison.Ordinal);
+
+        pages.Count.ShouldBe(27);
+        foreach (var row in pages)
+        {
+            texts.ShouldContain(row[1], customMessage: row[0]);
+        }
 
         groups.Count.ShouldBe(20);
         foreach (var row in groups)
@@ -169,15 +270,18 @@ public sealed class InfoIconTests(UiSession ui)
         static string Between(string text, string from, string to)
         {
             var start = text.IndexOf(from, StringComparison.Ordinal);
-            return text[start..text.IndexOf(to, start, StringComparison.Ordinal)];
+            start.ShouldBeGreaterThanOrEqualTo(0, $"info-text.md has no heading '{from}'");
+            var end = text.IndexOf(to, start, StringComparison.Ordinal);
+            end.ShouldBeGreaterThan(start, $"info-text.md has no heading '{to}' after '{from}'");
+            return text[start..end];
         }
 
         static List<string[]> Rows(string section) =>
-            section.Split('\n').Where(static l => l.StartsWith("| ", StringComparison.Ordinal) && !l.StartsWith("| Page", StringComparison.Ordinal))
+            section.Split('\n').Where(static l => l.StartsWith("| ", StringComparison.Ordinal) && !l.StartsWith("| Page", StringComparison.Ordinal) && !l.StartsWith("| Where", StringComparison.Ordinal))
                 .Select(static l => l.Trim('|').Split(" | ").Select(static c => c.Trim()).ToArray()).ToList();
     }
 
-    /// <summary>An icon in a header acts on its own: a click opens its text and leaves the expander or tab as it was.</summary>
+    /// <summary>An icon in a header acts on its own: a click opens its text and leaves the expander as it was.</summary>
     [Fact]
     public async Task An_icon_in_an_expander_header_opens_without_expanding_it()
     {
@@ -191,32 +295,6 @@ public sealed class InfoIconTests(UiSession ui)
 
             icon.Flyout.ShouldBeOfType<Flyout>().IsOpen.ShouldBeTrue();
             expander.IsExpanded.ShouldBeFalse();
-            window.Close();
-            return Task.CompletedTask;
-        });
-    }
-
-    [Fact]
-    public async Task An_icon_in_a_tab_header_opens_without_switching_tabs()
-    {
-        await ui.RunAsync(() =>
-        {
-            var icon = new InfoIcon { Text = "What this is for." };
-            var tabs = new TabControl
-            {
-                Items =
-                {
-                    new TabItem { Header = "First", Content = new TextBlock { Text = "One" } },
-                    new TabItem { Header = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { new TextBlock { Text = "Second" }, icon } }, Content = new TextBlock { Text = "Two" } },
-                },
-            };
-            var window = Show(tabs);
-            tabs.SelectedIndex.ShouldBe(0);
-
-            Click(window, icon);
-
-            icon.Flyout.ShouldBeOfType<Flyout>().IsOpen.ShouldBeTrue();
-            tabs.SelectedIndex.ShouldBe(0);
             window.Close();
             return Task.CompletedTask;
         });

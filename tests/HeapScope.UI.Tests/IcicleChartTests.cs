@@ -102,7 +102,7 @@ public sealed class IcicleChartTests(UiSession ui)
                 var group = chart.TranslatePoint(new Point(365, 1.5 * chart.RowHeight), window)!.Value;
                 window.MouseMove(group);
                 Dispatcher.UIThread.RunJobs();
-                ToolTip.GetTip(chart).ShouldBeOfType<string>().ShouldStartWith("+3 smaller\nKeeps ");
+                ToolTip.GetTip(chart).ShouldBeOfType<string>().ShouldStartWith("+3 smaller\nTogether keep at least ");
 
                 window.MouseDown(group, MouseButton.Left);
                 window.MouseUp(group, MouseButton.Left);

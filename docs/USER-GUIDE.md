@@ -38,8 +38,8 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 - **Reading the Retainers chart.** Each bar is what the bar above it keeps alive, and its width is how much. The two band
   colors only separate the levels; a selected bar and its path turn amber. Most bars are too narrow for a label, so hover
   for a bar's name and size. Click selects a bar, and a double-click shows the tree below it. Bars too narrow to point at
-  are grouped into one bar, "+N smaller", that says how many it holds and their size; double-click the bar above them to see
-  them.
+  are grouped into one bar, "+N smaller", that says how many it holds and their size. The tree below lists them; deeper in
+  the chart, a double-click on the bar above them also shows them.
 - **Live workflow.** When a process cannot be monitored, a warning says why: it runs elevated or as another user, so
   run HeapScope as administrator. A warning also appears when no samples arrive after about 10 seconds (or three
   intervals, if longer), since a process can turn off the runtime events Live reads; Get snapshot still works then. The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full

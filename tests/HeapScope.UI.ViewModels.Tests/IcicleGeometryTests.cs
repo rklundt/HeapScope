@@ -64,7 +64,12 @@ public sealed class IcicleGeometryTests
         text.ShouldContain((0.25).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
         text.ShouldNotContain("Double-click");
         IcicleGeometry.Describe(Bar(new IcicleSegmentDto(0, 0, 0, string.Empty, "Nothing", 0)), 0).ShouldContain((0.0).ToString("P1", System.Globalization.CultureInfo.CurrentCulture));
-        IcicleGeometry.Describe(Bar(new IcicleSegmentDto(1, 0, 10, "g", "+2 smaller", 0), count: 2), 100).ShouldEndWith("Double-click the bar above them to see them.");
+        // Under the top bar, a double-click on it would show the same chart, so the text points at the tree (3.11 review).
+        var top = IcicleGeometry.Describe(Bar(new IcicleSegmentDto(1, 0, 10, "g", "+2 smaller", 0), count: 2), 100);
+        top.ShouldContain("Together keep at least");
+        top.ShouldEndWith("The tree below lists them.");
+        IcicleGeometry.Describe(Bar(new IcicleSegmentDto(2, 0, 10, "g", "+2 smaller", 0), count: 2), 100)
+            .ShouldEndWith("Double-click the bar above them, or expand its row in the tree below, to see them.");
     }
 
     /// <summary>A parent, one wide child, and five children of 1 percent: at 200 pixels each is 2 pixels, too thin to point at.</summary>

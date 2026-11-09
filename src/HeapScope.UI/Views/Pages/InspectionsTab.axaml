@@ -73,7 +73,9 @@
     </StackPanel>
     <ScrollViewer DockPanel.Dock="Left" Width="320" VerticalScrollBarVisibility="Auto" Margin="0,0,8,0">
       <StackPanel>
+        <!-- Continue: Tab goes into the items, so it reaches a group heading's info icon (3.11 review). -->
         <ListBox x:Name="TileList" ItemsSource="{Binding Tiles}" SelectedItem="{Binding Selected, Mode=TwoWay}" Background="Transparent"
+                 KeyboardNavigation.TabNavigation="Continue"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
           <ListBox.Styles>
             <Style Selector="ListBoxItem">

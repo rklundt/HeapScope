@@ -149,8 +149,18 @@ public static class IcicleGeometry
         ArgumentNullException.ThrowIfNull(bar);
         var segment = bar.Segment;
         var share = total > 0 ? (double)segment.Width / total : 0;
-        var text = string.Create(CultureInfo.CurrentCulture, $"{segment.Name}\nKeeps {Format.Bytes(segment.Width)} alive, {share:P1} of this chart");
-        return bar.IsGroup ? text + "\nDouble-click the bar above them to see them." : text;
+        if (!bar.IsGroup)
+        {
+            return string.Create(CultureInfo.CurrentCulture, $"{segment.Name}\nKeeps {Format.Bytes(segment.Width)} alive, {share:P1} of this chart");
+        }
+
+        // Level 1 sits under the chart's top bar, the focus itself: a double-click there shows the same chart (3.11 review), so
+        // the tree below, which lists every child, is where they are. Deeper, the bar above is their parent, and focusing it
+        // widens them. A group's width adds up its members' own; what they hold together is counted in the bar above.
+        var where = segment.Level <= 1
+            ? "The tree below lists them."
+            : "Double-click the bar above them, or expand its row in the tree below, to see them.";
+        return string.Create(CultureInfo.CurrentCulture, $"{segment.Name}\nTogether keep at least {Format.Bytes(segment.Width)} alive, {share:P1} of this chart\n{where}");
     }
 
     /// <summary>What a bar this wide can show, or null when it has no room for words: a group's count must not be cut to "+12 ...".</summary>

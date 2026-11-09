@@ -77,6 +77,17 @@ public partial class ThemeTests(UiSession ui)
         }
     }
 
+    /// <summary>The info icon's glyph is drawn in a text token that passes the contrast test above (3.11 review).</summary>
+    [Fact]
+    public void The_info_icon_is_drawn_in_a_text_color_that_passes()
+    {
+        var styles = File.ReadAllText(Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI", "Themes", "Styles.axaml"));
+        var start = styles.IndexOf("<Style Selector=\"Button.infoIcon\">", StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0);
+        var style = styles[start..styles.IndexOf("</Style>", start, StringComparison.Ordinal)];
+        style.ShouldContain("<Setter Property=\"Foreground\" Value=\"{DynamicResource Brush.Subtle}\" />");
+    }
+
     /// <summary>ADR-040: an input's edge can be seen (WCAG 1.4.11 asks 3:1 of what identifies a control).</summary>
     [Theory]
     [InlineData("Light.axaml")]

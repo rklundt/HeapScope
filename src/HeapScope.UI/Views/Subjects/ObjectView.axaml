@@ -73,14 +73,10 @@
       </DockPanel>
       <!-- Outgoing references (1.5) and the objects referencing this one (2.1, loaded when its tab is first shown). -->
       <TabControl Grid.Column="2" SelectedIndex="{Binding ReferencesTab, Mode=TwoWay}">
-        <TabItem>
-          <TabItem.Header>
-            <StackPanel Orientation="Horizontal" Spacing="4">
-              <TextBlock Text="Outgoing" VerticalAlignment="Center" />
-              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectOutgoing}" />
-            </StackPanel>
-          </TabItem.Header>
+        <!-- Sprint 3.11: the tab's icon sits in its content, not its header, where Tab cannot reach it. -->
+        <TabItem Header="Outgoing">
           <DockPanel Margin="0,4,0,0">
+            <ctl:InfoIcon DockPanel.Dock="Top" HorizontalAlignment="Left" Text="{x:Static vm:InfoTexts.ObjectOutgoing}" Margin="0,0,0,4" />
             <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Classes="subtle" />
             <DataGrid x:Name="ReferencesGrid" ctl:GridExports.ExportName="References" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding ReferenceRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
@@ -94,14 +90,10 @@
             </DataGrid>
           </DockPanel>
         </TabItem>
-        <TabItem>
-          <TabItem.Header>
-            <StackPanel Orientation="Horizontal" Spacing="4">
-              <TextBlock Text="Incoming" VerticalAlignment="Center" />
-              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectIncoming}" />
-            </StackPanel>
-          </TabItem.Header>
+        <!-- Sprint 3.11: the tab's icon sits in its content, not its header, where Tab cannot reach it. -->
+        <TabItem Header="Incoming">
           <DockPanel Margin="0,4,0,0">
+            <ctl:InfoIcon DockPanel.Dock="Top" HorizontalAlignment="Left" Text="{x:Static vm:InfoTexts.ObjectIncoming}" Margin="0,0,0,4" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <DataGrid x:Name="IncomingGrid" ctl:GridExports.ExportName="Referrers" CanUserSortColumns="False"
@@ -122,14 +114,10 @@
           </DockPanel>
         </TabItem>
         <!-- Sprint 2.2: why the object is alive, loaded when the tab is first shown. -->
-        <TabItem>
-          <TabItem.Header>
-            <StackPanel Orientation="Horizontal" Spacing="4">
-              <TextBlock Text="Retention" VerticalAlignment="Center" />
-              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectRetention}" />
-            </StackPanel>
-          </TabItem.Header>
+        <!-- Sprint 3.11: the tab's icon sits in its content, not its header, where Tab cannot reach it. -->
+        <TabItem Header="Retention">
           <DockPanel Margin="0,4,0,0">
+            <ctl:InfoIcon DockPanel.Dock="Top" HorizontalAlignment="Left" Text="{x:Static vm:InfoTexts.ObjectRetention}" Margin="0,0,0,4" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <!-- Sprint 2.3: the retained size and the immediate dominator, a link to open it. -->
             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4"

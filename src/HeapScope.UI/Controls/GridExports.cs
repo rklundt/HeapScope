@@ -161,11 +161,14 @@ public static class GridExports
 
         public int RowCount => rows.Count;
 
+        /// <summary>A column's name: a header that carries a tooltip is a TextBlock, whose ToString is its type's name (3.11 review).</summary>
+        internal static string? HeaderText(object? header) => header is TextBlock block ? block.Text : header?.ToString();
+
         public static ItemsGridExport? From(DataGrid grid, IEnumerable items)
         {
             var shown = grid.Columns
                 .Where(c => c.IsVisible)
-                .Select(c => (Header: c.Header?.ToString(), Path: PathOf(c), HasValues: GetHasValues(c)))
+                .Select(c => (Header: HeaderText(c.Header), Path: PathOf(c), HasValues: GetHasValues(c)))
                 .Where(c => c.Header is { Length: > 0 } && c.Path is { Length: > 0 })
                 .ToList();
             if (shown.Count == 0)
