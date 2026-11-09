@@ -5,6 +5,10 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 
 ## Finding your way
 
+- **Info icons.** The (i) beside a page or tab title says what it is for, when to use it and how to start. One beside a group
+  of settings says what each of them does, a line each, so it helps even when a setting is turned off. Hover over the icon,
+  click it, or reach it with Tab and press Enter; Escape closes it. Single buttons have a tooltip, shown even when the button
+  is disabled, which says what it needs.
 - **Analysis path.** Each open snapshot keeps your last 30 steps (types, a type's objects, an object, referrers,
   retention, links into the Retainers tab) in the Snapshots page's left column. Opening something from an earlier step
   starts a branch; the later steps stay. Back and Forward (Alt+Left, Alt+Right, the mouse buttons) move along it.
@@ -33,7 +37,9 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   dumps.
 - **Reading the Retainers chart.** Each bar is what the bar above it keeps alive, and its width is how much. The two band
   colors only separate the levels; a selected bar and its path turn amber. Most bars are too narrow for a label, so hover
-  for a bar's name and size. Click selects a bar, and a double-click shows the tree below it.
+  for a bar's name and size. Click selects a bar, and a double-click shows the tree below it. Bars too narrow to point at
+  are grouped into one bar, "+N smaller", that says how many it holds and their size; double-click the bar above them to see
+  them.
 - **Live workflow.** When a process cannot be monitored, a warning says why: it runs elevated or as another user, so
   run HeapScope as administrator. A warning also appears when no samples arrive after about 10 seconds (or three
   intervals, if longer), since a process can turn off the runtime events Live reads; Get snapshot still works then. The Live page takes a snapshot of the monitored process now (Get snapshot) and forces a full

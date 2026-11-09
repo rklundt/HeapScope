@@ -107,7 +107,7 @@ them. The app has about 104 tooltips, found only by hovering over each control, 
 6. [x] Sliver grouping (M44): in the chart's geometry, so the worker's answer and protocol stay as they are. Proof: geometry tests (widths
    still sum, a group's count and size); a UI test of its hover text; what a click on a group does is settled by a test.
 7. [x] The key file's read (Backlog). Proof: a test that holds the file against a read, then lets it go.
-8. [ ] Docs: `docs/USER-GUIDE.md`, the code map, README pictures if the pages change, and the owner's list of names. Proof: the Markdown sweep.
+8. [x] Docs: `docs/USER-GUIDE.md`, the code map, README pictures if the pages change, and the owner's list of names. Proof: the Markdown sweep.
 
 **Review summary**: to be filled by /wrap-sprint.
 
