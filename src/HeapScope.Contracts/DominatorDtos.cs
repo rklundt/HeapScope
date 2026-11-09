@@ -29,7 +29,10 @@ public enum DominatorGroupingDto
     /// <summary>Each child object on its own row.</summary>
     None = 0,
 
-    /// <summary>Children grouped by type (with its module); a group's retained size is exact, since siblings retain disjoint sets.</summary>
+    /// <summary>
+    /// Children grouped by type (with its module). A group's retained size adds up its members' own, which never overlap; what several
+    /// members hold together is counted in the row above, so it is a lower bound of what they keep alive together (3.11 review M6).
+    /// </summary>
     Type = 1,
 
     /// <summary>Children grouped by namespace.</summary>
@@ -122,7 +125,7 @@ public static class DominatorTreeColumns
     /// <summary>Objects the row stands for: 1 for an object, the members of a group or of a "more" row.</summary>
     public const string Objects = "Objects";
 
-    /// <summary>Bytes the row retains (exact: dominator subtrees are disjoint).</summary>
+    /// <summary>Bytes the row retains: exact for an object; for a group, its members' own added up, a lower bound (3.11 review M6).</summary>
     public const string Retained = "Retained";
 
     /// <summary>The objects' own bytes.</summary>

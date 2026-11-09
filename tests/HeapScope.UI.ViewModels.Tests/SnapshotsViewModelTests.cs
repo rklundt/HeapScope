@@ -72,13 +72,79 @@ public sealed class SnapshotsViewModelTests : IDisposable
         await _snapshots.OpenPathAsync(dump);
         await _snapshots.Types.QueryTask;
 
-        var after = _snapshots.Selected.ShouldNotBeNull();
-        after.ShouldNotBeSameAs(before);
-        after.Handle.ShouldBeSameAs(before.Handle);
-        after.Notes.ShouldBe(["A newer note."]);
-        _snapshots.Snapshots.ShouldHaveSingleItem().ShouldBeSameAs(after);
+        // The row stays and says what it shows now (3.11 review M1).
+        _snapshots.Selected.ShouldBeSameAs(before);
+        before.Notes.ShouldBe(["A newer note."]);
+        before.ShownSnapshotId.ShouldBe(before.Handle.Descriptor.SnapshotId);
+        _snapshots.Snapshots.ShouldHaveSingleItem().ShouldBeSameAs(before);
         _snapshots.Types.Status.ShouldBeNull();
         _snapshots.Types.Rows.Count.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// A new row for a dump opened again read as a close and an open: Compare fell back to the automatic pair and Trend ticked an
+    /// unticked snapshot again and moved it last, while the steps that asked the earlier snapshot stayed on screen (3.11 review M1).
+    /// </summary>
+    [Fact]
+    public async Task Opening_a_dump_again_keeps_the_choices_made_with_it_and_starts_its_path_again()
+    {
+        var first = Dump("first.dmp", 10);
+        _worker.Service.CacheIdentity = 0x8000_0000_0000_0001;
+        await _snapshots.OpenPathAsync(first);
+        await _snapshots.OpenPathAsync(Dump("second.dmp", 10));
+        await _snapshots.OpenPathAsync(Dump("third.dmp", 10));
+        var items = _snapshots.Snapshots.ToList();
+        items.Count.ShouldBe(3);
+
+        // Not the automatic pair, which is the two latest.
+        _snapshots.Compare.Baseline = items[0];
+        _snapshots.Compare.Current = items[1];
+        _snapshots.Compare.Trend.Choices[1].IsIncluded = false;
+        var ticks = _snapshots.Compare.Trend.Choices.Select(static c => (c.Snapshot, c.IsIncluded)).ToList();
+        _snapshots.Selected = items[0];
+        _snapshots.Navigator.OpenObject(items[0].Handle, 0x1000);
+        _snapshots.Navigator.Current.ShouldBeOfType<ObjectViewModel>();
+        var changed = new List<string?>();
+        items[0].PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        _worker.Service.CacheIdentity = 0x8000_0000_0000_0002;
+        _worker.NewGeneration();
+        _snapshots.Types.Show(items[0].Handle);
+        await _snapshots.Types.QueryTask;
+        _snapshots.Types.Status.ShouldNotBeNull().ShouldContain("was rebuilt");
+        await _snapshots.OpenPathAsync(first);
+        await _snapshots.Types.QueryTask;
+
+        _snapshots.Snapshots.ShouldBe(items);
+        _snapshots.Selected.ShouldBeSameAs(items[0]);
+        changed.ShouldContain(string.Empty, "the row says again what it shows");
+        (_snapshots.Compare.Baseline, _snapshots.Compare.Current).ShouldBe((items[0], items[1]));
+        _snapshots.Compare.Trend.Choices.Select(static c => (c.Snapshot, c.IsIncluded)).ShouldBe(ticks);
+        _snapshots.Navigator.Current.ShouldBeOfType<TypeSummaryViewModel>("every step asked the earlier snapshot");
+        _snapshots.Navigator.Steps.Count.ShouldBe(1);
+    }
+
+    /// <summary>After a worker restart a snapshot reopens by itself; opening it again then changes nothing (3.11 review M12).</summary>
+    [Fact]
+    public async Task After_a_silent_reopen_opening_the_dump_again_keeps_its_path()
+    {
+        var dump = Dump("app.dmp", 1024);
+        await _snapshots.OpenPathAsync(dump);
+        await _snapshots.Types.QueryTask;
+        var item = _snapshots.Selected.ShouldNotBeNull();
+        var shown = _snapshots.Navigator.OpenObject(item.Handle, 0x1000);
+
+        _worker.NewGeneration();
+        _snapshots.Types.Show(item.Handle);
+        await _snapshots.Types.QueryTask;
+        _snapshots.Types.Status.ShouldBeNull();
+        item.ShownSnapshotId.ShouldBe(item.Handle.Descriptor.SnapshotId, "the row follows a silent reopen");
+
+        _worker.Service.NextSnapshotId = item.Handle.Descriptor.SnapshotId;
+        await _snapshots.OpenPathAsync(dump);
+
+        _snapshots.Selected.ShouldBeSameAs(item);
+        _snapshots.Navigator.Current.ShouldBeSameAs(shown);
     }
 
     [Fact]

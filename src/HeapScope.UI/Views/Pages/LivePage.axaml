@@ -55,9 +55,9 @@
         <Button ctl:ButtonIcon.Icon="Start" Classes="primary" Content="Start" Margin="16,0,0,0" Command="{Binding StartCommand}" VerticalAlignment="Center" />
         <Button ctl:ButtonIcon.Icon="Stop" Content="Stop" Margin="8,0,0,0" Command="{Binding StopCommand}" VerticalAlignment="Center" />
         <Button x:Name="GetSnapshotButton" Content="Get snapshot" Margin="16,0,0,0" Command="{Binding GetSnapshotCommand}" VerticalAlignment="Center"
-                ToolTip.ShowOnDisabled="True" ToolTip.Tip="Captures the monitored process now, as set by &quot;as gcdumps&quot;, and does not count toward &quot;at most&quot;. Needs a run going, with no snapshot or Force GC of it in progress." />
+                ToolTip.Tip="Captures the monitored process now, as set by &quot;as gcdumps&quot;, and does not count toward &quot;at most&quot;. Needs a run going, with no snapshot or Force GC of it in progress." />
         <Button x:Name="ForceGcButton" Content="Force GC" Margin="8,0,0,0" Command="{Binding ForceGcCommand}" VerticalAlignment="Center"
-                ToolTip.ShowOnDisabled="True" ToolTip.Tip="After asking, runs a full blocking garbage collection in the process (a dotted line); objects it moves count as dead and new when compared by address. Needs a run going, with no snapshot or Force GC of it in progress." />
+                ToolTip.Tip="After asking, runs a full blocking garbage collection in the process (a dotted line); objects it moves count as dead and new when compared by address. Needs a run going, with no snapshot or Force GC of it in progress." />
       </WrapPanel>
       <Expander x:Name="RulesExpander" Margin="0,0,0,6" HorizontalAlignment="Stretch">
         <Expander.Header>

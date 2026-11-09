@@ -48,6 +48,13 @@ references such as "ARCHITECTURE.md 11" still name the right section.
   source is the rule that chose the name: the executable's path the dump records (with the path), else the only .exe, the first of
   several, the first module not named like a library, or unknown, each with why the path was not used. Kept in the cache metadata, so a reopen still says it; a cache written before the
   rule was kept, by an earlier build of 3.10, says "not recorded".
+- **Opening again, the index key, and chart groups (sprint 3.11)**: opening a dump that is open, when the worker answers with a new
+  snapshot (after a refused reopen, or a worker restart not yet followed by a reopen), logs "Snapshot {Path} was opened again: worker
+  snapshot {PreviousId} is now {Id}; its row is shown afresh and its analysis path starts again". An open that changes nothing logs
+  only its open line, and a silent reopen after a restart logs its own lines ("Snapshot {Path} reopened: ..."). A read of the index
+  cache's key file that is retried under the lock is not logged: the key's outcome says Loaded either way. The Retainers chart's
+  "+N smaller" groups are not logged: they depend on the window's width and are made in the view, from the bars the icicle query
+  logged; the worker sends no bar under 0.1 percent of the top bar. Info icons and tooltips log nothing.
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
   sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
   and never the user's filter text (logged by its shape: length and term counts): `Provenance` writes any other text by its length only, and

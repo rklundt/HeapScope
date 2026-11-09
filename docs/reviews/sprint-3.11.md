@@ -53,7 +53,9 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
 
 ## Moderate
 
-Decisions: pending the product owner.
+Decisions (product owner, 2026-11-09, "all recos"): fix now M1 to M6 and M8 to M12 (M12 with M1); M2 to M6 and M9 by
+rewording approved text, proposed in `docs/design/info-text.md` for approval first; M6 also adds a Backlog item to mark
+group rows' retained bytes as a lower bound. M7 to the Backlog.
 
 - **M1. Opening a dump again replaces its row, with side effects** (support-engineer, solution-architect, senior-dev).
   `SnapshotsViewModel.ShowOpened` swaps in a new `SnapshotItemViewModel`. Compare treats it as a close and open: a pair the user

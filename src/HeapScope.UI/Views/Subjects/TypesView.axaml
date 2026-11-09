@@ -97,11 +97,11 @@
       <DataGrid.ContextMenu>
         <ContextMenu>
           <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItems}" IsVisible="{Binding !IsSet}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Treats the selected rows as one group of objects, with its own views. Takes up to 10,000 types, or one namespace, assembly or interface row." />
+                    ToolTip.Tip="Treats the selected rows as one group of objects, with its own views. Takes up to 10,000 types, or one namespace, assembly or interface row." />
           <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" IsVisible="{Binding !IsSet}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Opens the Retainers tab at this type's group, in the tree of what keeps what alive. Needs grouping by type; if no object of the type is at the top of the tree, it says so." />
+                    ToolTip.Tip="Opens the Retainers tab at this type's group, in the tree of what keeps what alive. Needs grouping by type; if no object of the type is at the top of the tree, it says so." />
           <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #TypesGrid.SelectedItem}" IsVisible="{Binding !IsSet}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Computes exactly what this type's objects keep alive together, on the Retainers tab; needs grouping by type. It can be more than the Retained column, which leaves out what several of them hold together." />
+                    ToolTip.Tip="Computes exactly what this type's objects keep alive together, on the Retainers tab; needs grouping by type. It can be more than the Retained column, which leaves out what several of them hold together." />
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>

@@ -161,6 +161,138 @@ public sealed class IcicleGeometryTests
         IcicleGeometry.HitTest(bars, 50, 25).ShouldNotBeNull().Key.ShouldBe("o:1");
     }
 
+    /// <summary>
+    /// Groups at two levels, the older one (level 1) to the right of the newer one (level 2): level 3 is walked against both at
+    /// once, so each segment is hidden only by the group above it (3.11 review M11). At 200 pixels for 1,000 bytes, a bar under
+    /// 30 bytes is narrow.
+    /// </summary>
+    [Fact]
+    public void Groups_at_two_levels_each_hide_only_what_lies_below_them()
+    {
+        IcicleSegmentDto[] segments =
+        [
+            new(0, 0, 1000, string.Empty, "All", 0),
+            new(1, 0, 800, "A", "A", 1),
+            new(1, 800, 10, "B1", "B1", 2),
+            new(1, 810, 10, "B2", "B2", 3),
+            new(1, 820, 10, "B3", "B3", 4),
+            new(1, 830, 170, "C", "C", 5),
+            new(2, 0, 600, "A1", "A1", 6),
+            new(2, 600, 20, "A2", "A2", 7),
+            new(2, 620, 20, "A3", "A3", 8),
+            new(2, 640, 150, "A4", "A4", 9),
+            new(2, 800, 5, "B1a", "B1a", 10),
+            new(2, 830, 100, "C1", "C1", 11),
+            new(3, 0, 300, "A1x", "A1x", 12),
+            new(3, 600, 10, "A2x", "A2x", 13),
+            new(3, 640, 100, "A4x", "A4x", 14),
+            new(3, 800, 5, "B1x", "B1x", 15),
+            new(3, 830, 50, "C1x", "C1x", 16),
+        ];
+
+        var bars = IcicleGeometry.Bars(segments, 1000, width: 200, rowHeight: 20);
+
+        bars.Where(static b => b.IsGroup).Select(static b => (b.Segment.Level, b.Segment.Offset, b.Segment.Width, b.Count))
+            .ShouldBe([(1, 800L, 30L, 3), (2, 600L, 40L, 2)], ignoreOrder: true);
+        bars.Where(static b => !b.IsGroup).Select(static b => b.Segment.Key)
+            .ShouldBe([string.Empty, "A", "C", "A1", "A4", "C1", "A1x", "A4x", "C1x"], ignoreOrder: true);
+    }
+
+    /// <summary>A run of narrow bars ends at a wide one: the lone one before it stays itself, the two after it group (3.11 review M11).</summary>
+    [Fact]
+    public void Narrow_wide_narrow_narrow_makes_one_lone_bar_and_one_group()
+    {
+        IcicleSegmentDto[] segments =
+        [
+            new(0, 0, 1000, string.Empty, "All", 0),
+            new(1, 0, 10, "N1", "N1", 1),
+            new(1, 10, 500, "W", "W", 2),
+            new(1, 510, 10, "N2", "N2", 3),
+            new(1, 520, 10, "N3", "N3", 4),
+        ];
+
+        var bars = IcicleGeometry.Bars(segments, 1000, width: 200, rowHeight: 20);
+
+        bars.Where(static b => b.Segment.Level == 1).Select(static b => (b.Segment.Offset, b.IsGroup, b.Count))
+            .ShouldBe([(0L, false, 1), (10L, false, 1), (510L, true, 2)]);
+    }
+
+    /// <summary>
+    /// Two neighbors narrower than a pixel together are still a group, though it is drawn under a pixel wide: it hides what lies
+    /// below them, which a lone bar that narrow does not (3.11 review M11; L9 lists the narrow group).
+    /// </summary>
+    [Fact]
+    public void A_group_under_a_pixel_still_hides_what_lies_below_it()
+    {
+        IcicleSegmentDto[] segments =
+        [
+            new(0, 0, 1000, string.Empty, "All", 0),
+            new(1, 0, 990, "W", "W", 1),
+            new(1, 990, 2, "T1", "T1", 2),
+            new(1, 992, 2, "T2", "T2", 3),
+            new(2, 990, 1, "Below", "Below", 4),
+        ];
+
+        var bars = IcicleGeometry.Bars(segments, 1000, width: 200, rowHeight: 20);
+
+        var group = bars.Single(static b => b.IsGroup);
+        (group.Count, group.Segment.Width).ShouldBe((2, 4L));
+        group.Width.ShouldBeLessThan(IcicleGeometry.MinWidth);
+        bars.Select(static b => b.Segment.Key).ShouldNotContain("Below");
+    }
+
+    /// <summary>
+    /// At worker scale (a chart can hold 20,000 segments) the bars of a level never overlap, a bar drawn on its own is at least
+    /// <see cref="IcicleGeometry.MinWidth"/> wide, and nothing is drawn below a group (3.11 review M11).
+    /// </summary>
+    [Fact]
+    public void At_worker_scale_bars_do_not_overlap_and_nothing_shows_below_a_group()
+    {
+        var random = new Random(311);
+        var segments = new List<IcicleSegmentDto> { new(0, 0, 1_000_000, string.Empty, "All", 0) };
+        var parents = new List<IcicleSegmentDto>(segments);
+        for (var level = 1; segments.Count < 20_000 && parents.Count > 0; level++)
+        {
+            var children = new List<IcicleSegmentDto>();
+            foreach (var parent in parents)
+            {
+                // A few wide children, then a tail of small ones, as dominator trees usually look.
+                var offset = parent.Offset;
+                var left = parent.Width - (parent.Width / 10);
+                for (var i = 0; left > 0 && i < 12 && segments.Count + children.Count < 20_000; i++)
+                {
+                    var width = Math.Max(1, i < 3 ? left / 2 : left / (2 + random.Next(1, 40)));
+                    children.Add(new IcicleSegmentDto(level, offset, width, $"{level}:{offset}", "T", (ulong)(segments.Count + children.Count)));
+                    offset += width;
+                    left -= width;
+                }
+            }
+
+            segments.AddRange(children);
+            parents = children;
+        }
+
+        segments.Count.ShouldBe(20_000);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var bars = IcicleGeometry.Bars(segments, 1_000_000, width: 1200, rowHeight: 20);
+        watch.Stop();
+        TestContext.Current.TestOutputHelper?.WriteLine($"{segments.Count} segments, {bars.Count} bars in {watch.Elapsed.TotalMilliseconds:N1} ms");
+
+        bars.ShouldContain(static b => b.IsGroup);
+        foreach (var level in bars.GroupBy(static b => b.Segment.Level))
+        {
+            var ordered = level.OrderBy(static b => b.Segment.Offset).ToList();
+            for (var i = 1; i < ordered.Count; i++)
+            {
+                ordered[i].Segment.Offset.ShouldBeGreaterThanOrEqualTo(ordered[i - 1].Segment.Offset + ordered[i - 1].Segment.Width);
+            }
+        }
+
+        bars.Where(static b => !b.IsGroup).ShouldAllBe(static b => b.Width >= IcicleGeometry.MinWidth);
+        var groups = bars.Where(static b => b.IsGroup).Select(static b => b.Segment).ToList();
+        bars.ShouldAllBe(b => !groups.Any(g => g.Level < b.Segment.Level && g.Offset <= b.Segment.Offset && b.Segment.Offset < g.Offset + g.Width));
+    }
+
     [Fact]
     public void A_point_hits_the_bar_under_it_and_the_path_to_a_bar_is_its_ancestors()
     {

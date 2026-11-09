@@ -282,6 +282,11 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   from the baseline (M10); an `InspectionNeeds` description with a cached derived-data accessor instead of one flag per
   input (M16); the rule version and parameters on `InspectionInfo` and Kind, elapsed time and baseline in the CLI
   summary output (L6, L7).
+- From the 3.11 review (product owner, 2026-11-09): the info text wording test checks placement, not only presence: map
+  each Table 3 row to its view file and control, so a text on the wrong control, or on one of several controls only,
+  fails (M7). Mark a Type or Namespace group row's retained bytes in the Retainers tree, and in its CSV export, as a lower
+  bound: they add up the members' own, and what several hold together is counted in the row above (a per-row bound, or a
+  group-only column; the tree's Retained column has the "Exactly this much" note, `ValueBoundTexts.Exact`, for every row; M6).
 
 **Low**
 - Visual design, left out of sprint 3.10 (product owner, 2026-11-04; ADR-040): inline data bars in grids, dimmed namespaces

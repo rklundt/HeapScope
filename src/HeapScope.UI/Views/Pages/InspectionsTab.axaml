@@ -148,10 +148,14 @@
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
               ToolTip.Tip="Double-click or Enter opens the row's objects on the Snapshot tab; a leak detector's row opens them as a set.">
       <DataGrid.ContextMenu>
-        <ContextMenu ToolTip.Tip="Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it.">
-          <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
-          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
-          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}" />
+        <!-- A menu's own tooltip never shows: each item carries the text (3.11 review M9). -->
+        <ContextMenu>
+          <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}"
+                    ToolTip.Tip="Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it." />
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}"
+                    ToolTip.Tip="Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it." />
+          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #InspectionGrid.SelectedItem}"
+                    ToolTip.Tip="Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it." />
         </ContextMenu>
       </DataGrid.ContextMenu>
     </DataGrid>

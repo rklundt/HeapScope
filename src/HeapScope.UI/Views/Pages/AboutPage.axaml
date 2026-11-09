@@ -54,7 +54,8 @@
       <StackPanel Orientation="Horizontal">
         <TextBlock Text="Objects" VerticalAlignment="Center" Margin="0,0,8,0" />
         <TextBox Width="140" Text="{Binding ObjectCount}" ToolTip.Tip="Builds a made-up object graph in the worker, to test the worker, its progress and cancellation; it is not needed for analysis. Objects must be between 0 and 100,000,000." />
-        <Button Content="Run synthetic job" Margin="8,0,0,0" Command="{Binding RunSyntheticCommand}" />
+        <Button Content="Run synthetic job" Margin="8,0,0,0" Command="{Binding RunSyntheticCommand}"
+                ToolTip.Tip="Builds a made-up object graph in the worker, to test the worker, its progress and cancellation; it is not needed for analysis. Objects must be between 0 and 100,000,000." />
       </StackPanel>
       <TextBlock Margin="0,8,0,0" Text="{Binding LastResult}" TextWrapping="Wrap" />
     </StackPanel>

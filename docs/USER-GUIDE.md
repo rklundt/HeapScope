@@ -7,8 +7,8 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
 
 - **Info icons.** The (i) beside a page or tab title says what it is for, when to use it and how to start. One beside a group
   of settings says what each of them does, a line each, so it helps even when a setting is turned off. Hover over the icon,
-  click it, or reach it with Tab and press Enter; Escape closes it. Single buttons have a tooltip, shown even when the button
-  is disabled, which says what it needs.
+  click it, or reach it with Tab and press Enter; Escape closes it. A tooltip shows even on a button, menu item or input that
+  is turned off, and many say there what they need.
 - **Analysis path.** Each open snapshot keeps your last 30 steps (types, a type's objects, an object, referrers,
   retention, links into the Retainers tab) in the Snapshots page's left column. Opening something from an earlier step
   starts a branch; the later steps stay. Back and Forward (Alt+Left, Alt+Right, the mouse buttons) move along it.

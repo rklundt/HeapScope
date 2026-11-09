@@ -417,6 +417,12 @@ of debuggable code) and exit when the process given as parent exits.
   `dismiss`, `link`. A number column sets `CellStyleClasses="number"`, which right-aligns its header too; a star column sets
   `MinWidth` (`GridLayoutTests`). Icons are in `Themes/Icons.axaml`: `ctl:DuotoneIcon`, or `ctl:ButtonIcon.Icon` on a button.
   An empty page or grid shows `ctl:EmptyState`, which says what to do next.
+- **Info icons** (sprint 3.11, ADR-040): a new page, tab or view gets a `ctl:InfoIcon` beside its title, and a new group of
+  settings one beside its heading, with the text in `InfoTexts`; a new single button or input gets a tooltip that says what
+  it needs. The product owner approves the wording first: add the row to `docs/design/info-text.md` (Table 1, 2 or 3), checked
+  against the code, and build it once approved. `InfoIconTests` holds the screens to that file word for word, and fails for a
+  view under `Views/Pages` or `Views/Subjects` with no icon unless it is named there with its reason. A change to what a page or
+  setting does is checked against its text, and a changed text goes back to the owner.
 - **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
   anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. A package
   that only arrives as a dependency counts too. The SIL Open Font License is allowed for fonts only (product owner,

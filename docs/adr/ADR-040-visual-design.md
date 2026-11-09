@@ -33,5 +33,6 @@
   - Backlog: inline data bars in grids, dimmed namespaces in type names, a collapsible snapshot rail, the icicle chart
     colored by application versus framework code.
 - Consequences: a new color is a key in both theme files, or a theme test fails. A new page reuses the styles in
-  `Themes/Styles.axaml`. The screenshots in `docs/images/` go stale when the look changes; `build/screenshots.sh` recaptures
+  `Themes/Styles.axaml`. A new page, tab, view or group of settings gets an info icon whose text the owner approved first, in
+  `docs/design/info-text.md` (DEVELOPER.md 4, Info icons); a view with none fails `InfoIconTests`. The screenshots in `docs/images/` go stale when the look changes; `build/screenshots.sh` recaptures
   them by hand, and no test compares pictures.

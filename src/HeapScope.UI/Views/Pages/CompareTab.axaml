@@ -89,18 +89,18 @@
       <DataGrid.ContextMenu>
         <ContextMenu>
           <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItems}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Treats the selected rows as one set in the current snapshot, or in the baseline if none of the types is left. Needs grouping by type; types only in the baseline are left out of a current set." />
+                    ToolTip.Tip="Treats the selected rows as one set in the current snapshot, or in the baseline if none of the types is left. Needs grouping by type; types only in the baseline are left out of a current set." />
           <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Follow this type into the current snapshot's Retainers tab: its group in the tree, or exactly what its objects keep alive together. Need grouping by type, and objects of the type in the current snapshot." />
+                    ToolTip.Tip="Follow this type into the current snapshot's Retainers tab: its group in the tree, or exactly what its objects keep alive together. Need grouping by type, and objects of the type in the current snapshot." />
           <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Follow this type into the current snapshot's Retainers tab: its group in the tree, or exactly what its objects keep alive together. Need grouping by type, and objects of the type in the current snapshot." />
+                    ToolTip.Tip="Follow this type into the current snapshot's Retainers tab: its group in the tree, or exactly what its objects keep alive together. Need grouping by type, and objects of the type in the current snapshot." />
           <Separator />
           <MenuItem Header="Open new objects as a set" Command="{Binding OpenNewCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
+                    ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
           <MenuItem Header="Open dead objects as a set (in the baseline)" Command="{Binding OpenDeadCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
+                    ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
           <MenuItem Header="Open survived objects as a set" Command="{Binding OpenSurvivedCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
-                    ToolTip.ShowOnDisabled="True" ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
+                    ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>

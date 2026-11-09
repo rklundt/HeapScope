@@ -37,13 +37,29 @@ using Microsoft.Extensions.Logging;
 namespace HeapScope.UI.ViewModels;
 
 
-/// <summary>An open snapshot as shown in the snapshot list and its overview.</summary>
-public sealed class SnapshotItemViewModel(SnapshotHandle handle)
+/// <summary>
+/// An open snapshot as shown in the snapshot list and its overview. It lives as long as its handle, and says again what it
+/// shows when the handle is opened again (3.11 review M1): a new item would read as a close and an open to Compare and Trend.
+/// </summary>
+public sealed class SnapshotItemViewModel(SnapshotHandle handle) : ObservableObject
 {
     public SnapshotHandle Handle { get; } = handle ?? throw new ArgumentNullException(nameof(handle));
 
     /// <summary>The worker's snapshot this item describes: the handle outlives it when the dump is opened again.</summary>
-    public Guid ShownSnapshotId { get; } = handle.Descriptor.SnapshotId;
+    public Guid ShownSnapshotId { get; private set; } = handle.Descriptor.SnapshotId;
+
+    /// <summary>Describes the handle's worker snapshot now, raising every property; false when it already did.</summary>
+    internal bool Reload()
+    {
+        if (ShownSnapshotId == Handle.Descriptor.SnapshotId)
+        {
+            return false;
+        }
+
+        ShownSnapshotId = Handle.Descriptor.SnapshotId;
+        OnPropertyChanged(string.Empty);
+        return true;
+    }
 
     public string Title => System.IO.Path.GetFileName(Handle.Path);
 
@@ -237,6 +253,11 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
         ArgumentException.ThrowIfNullOrEmpty(path);
         IsOpening = true;
         Status = $"Opening {System.IO.Path.GetFileName(path)}...";
+
+        // The worker snapshot the dump has now, if it is open: an open that changes it was the user's way back from a refused
+        // reopen (3.11 review M1, M12). A silent reopen after a worker restart has already moved the handle on.
+        var fullPath = System.IO.Path.GetFullPath(path);
+        var before = _session.Snapshots.FirstOrDefault(h => string.Equals(h.Path, fullPath, StringComparison.OrdinalIgnoreCase))?.Descriptor.SnapshotId;
         try
         {
             if (await _session.GetOpenWarningAsync(path, rebuild: false, CancellationToken.None) is { } warning
@@ -271,7 +292,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
                         return;
                     }
 
-                    ShowOpened(handle);
+                    ShowOpened(handle, before);
                     Status = "Opened from its index cache without the DAC: field values and strings are not shown. To trust the DAC, close the snapshot and open it again.";
                     return;
                 }
@@ -290,7 +311,7 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
                 handle = await _session.StartOpen(path).Result;
             }
 
-            ShowOpened(handle);
+            ShowOpened(handle, before);
             Status = null;
         }
         catch (OperationCanceledException)
@@ -308,20 +329,29 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
     }
 
     /// <summary>
-    /// Lists and selects what was just opened. Opening a dump again after a refused reopen keeps its handle, so the selection would not
-    /// change and the page would keep the refusal and the old notes (3.10 review M40): an item that describes an earlier worker
-    /// snapshot is replaced, and selecting the new one shows it afresh. A dump that was already open gets its item back unchanged.
+    /// Lists and selects what was just opened. Opening a dump again after a refused reopen keeps its handle, so the selection would
+    /// not change and the page would keep the refusal and the old notes (3.10 review M40). When the open changed the handle's
+    /// worker snapshot (<paramref name="before"/>), its item says so in place, so a pair picked on Compare and Trend's ticks stay,
+    /// and its analysis path starts again, since every step on it asked the earlier snapshot (3.11 review M1). A dump that was
+    /// already open gets its item back unchanged.
     /// </summary>
-    private void ShowOpened(SnapshotHandle handle)
+    private void ShowOpened(SnapshotHandle handle, Guid? before)
     {
         Refresh();
         var item = Snapshots.FirstOrDefault(s => s.Handle == handle);
-        if (item is not null && item.ShownSnapshotId != handle.Descriptor.SnapshotId)
+        if (item is not null && before is { } previous && previous != handle.Descriptor.SnapshotId)
         {
-            _logger?.LogInformation("Snapshot {Path} was opened again as worker snapshot {Id}: its page is shown afresh", handle.Path, handle.Descriptor.SnapshotId);
-            var index = Snapshots.IndexOf(item);
-            item = new SnapshotItemViewModel(handle);
-            Snapshots[index] = item;
+            _logger?.LogInformation(
+                "Snapshot {Path} was opened again: worker snapshot {PreviousId} is now {Id}; its row is shown afresh and its analysis path starts again",
+                handle.Path,
+                previous,
+                handle.Descriptor.SnapshotId);
+            Navigator.Forget(handle);
+            if (Selected == item)
+            {
+                OnSelectedChanged(item);
+                return;
+            }
         }
 
         Selected = item;
@@ -471,7 +501,12 @@ public sealed partial class SnapshotsViewModel : ObservableObject, INavigator, I
 
         foreach (var handle in handles)
         {
-            if (!Snapshots.Any(s => s.Handle == handle))
+            if (Snapshots.FirstOrDefault(s => s.Handle == handle) is { } shown)
+            {
+                // Reopened after a worker restart, or opened again: the row shows the snapshot's new load (3.11 review M12).
+                shown.Reload();
+            }
+            else
             {
                 Snapshots.Add(new SnapshotItemViewModel(handle));
                 _ = Bookmarks.LoadAsync(handle);

@@ -109,15 +109,17 @@ public sealed class InfoIconTests(UiSession ui)
         });
     }
 
-    /// <summary>Sprint 3.11 (review H1): a single control that can be turned off says what it needs, even while it is off.</summary>
+    /// <summary>
+    /// Sprint 3.11 (review H1): a single control that can be turned off says what it needs, even while it is off. The app's style
+    /// shows every button's tooltip while it is off, not one control at a time (review M9).
+    /// </summary>
     [Fact]
-    public async Task A_disabled_button_that_shows_on_disabled_opens_its_tooltip_on_hover()
+    public async Task A_disabled_button_opens_its_tooltip_on_hover()
     {
         await ui.RunAsync(() =>
         {
             var button = new Button { Content = "Get snapshot", IsEnabled = false };
             ToolTip.SetTip(button, "Needs a run going.");
-            ToolTip.SetShowOnDisabled(button, true);
             ToolTip.SetShowDelay(button, 0);
             var window = Show(new StackPanel { Children = { button } });
 
@@ -224,6 +226,32 @@ public sealed class InfoIconTests(UiSession ui)
         {
             sources.ShouldContain("InfoTexts." + text.Name, customMessage: text.Name);
             ((string)text.GetRawConstantValue()!).ShouldNotBeNullOrWhiteSpace();
+        }
+    }
+
+    /// <summary>
+    /// ADR-040: every page, tab and view says what it is for. A new view under Pages or Subjects fails here until it has an info icon
+    /// and an approved text (DEVELOPER.md), or is named below with the reason it needs none (3.11 review M8).
+    /// </summary>
+    [Fact]
+    public void Every_page_and_subject_view_has_an_info_icon()
+    {
+        var exceptions = new Dictionary<string, string>
+        {
+            ["JobRow.axaml"] = "one row of the Jobs page, whose icon covers it",
+        };
+        var views = Path.Combine(global::HeapScope.Tests.Shared.RepoRoot.Path, "src", "HeapScope.UI", "Views");
+        var files = Directory.GetFiles(Path.Combine(views, "Pages"), "*.axaml").Concat(Directory.GetFiles(Path.Combine(views, "Subjects"), "*.axaml")).ToList();
+
+        files.Count.ShouldBeGreaterThan(15);
+        foreach (var file in files.Where(f => !exceptions.ContainsKey(Path.GetFileName(f))))
+        {
+            File.ReadAllText(file).ShouldContain("<ctl:InfoIcon ", customMessage: Path.GetFileName(file) + " has no info icon");
+        }
+
+        foreach (var name in exceptions.Keys)
+        {
+            files.Select(Path.GetFileName).ShouldContain(name, "an exception names a view that no longer exists");
         }
     }
 

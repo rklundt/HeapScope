@@ -40,9 +40,9 @@
         <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="0,0,8,0" Command="{Binding OpenDumpCommand}"
                 ToolTip.Tip="Opens a full dump (.dmp), a gcdump (.gcdump) or a core dump. If a first load may not fit in free memory, it asks first." />
         <Button ctl:ButtonIcon.Icon="Capture" Content="Capture from a process" Margin="0,0,8,0" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowProcessesCommand}"
-                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.CaptureTip}" />
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.Tip="{x:Static vm:PlatformHints.CaptureTip}" />
         <Button ctl:ButtonIcon.Icon="Live" Content="Watch live" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowLiveCommand}"
-                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.LiveTip}" />
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.Tip="{x:Static vm:PlatformHints.LiveTip}" />
       </WrapPanel>
       <DockPanel Margin="0,0,0,4">
         <Button ctl:ButtonIcon.Icon="Refresh" DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
