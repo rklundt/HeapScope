@@ -143,6 +143,9 @@ public static class IcicleGeometry
         run.Clear();
     }
 
+    /// <summary>Where a group's bars are, whatever the tree's grouping.</summary>
+    private const string TreeHasThem = "The tree below has them (expand a group or a \"more\" row if they are not shown).";
+
     /// <summary>What a bar stands for, in words: most bars are too narrow to carry a label.</summary>
     public static string Describe(IcicleBar bar, long total)
     {
@@ -155,11 +158,12 @@ public static class IcicleGeometry
         }
 
         // Level 1 sits under the chart's top bar, the focus itself: a double-click there shows the same chart (3.11 review), so
-        // the tree below, which lists every child, is where they are. Deeper, the bar above is their parent, and focusing it
-        // widens them. A group's width adds up its members' own; what they hold together is counted in the bar above.
+        // the tree below is where they are. Deeper, the bar above is their parent, and focusing it puts them in the tree. Under
+        // Group children by Type or Namespace the tree lists groups, and past 100 rows a "more" row: the text holds for both.
+        // A group's width adds up its members' own; what they hold together is counted in the bar above.
         var where = segment.Level <= 1
-            ? "The tree below lists them."
-            : "Double-click the bar above them, or expand its row in the tree below, to see them.";
+            ? TreeHasThem
+            : "Double-click the bar above them to focus on it; " + char.ToLowerInvariant(TreeHasThem[0]) + TreeHasThem[1..];
         return string.Create(CultureInfo.CurrentCulture, $"{segment.Name}\nTogether keep at least {Format.Bytes(segment.Width)} alive, {share:P1} of this chart\n{where}");
     }
 

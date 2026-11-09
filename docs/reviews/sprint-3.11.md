@@ -2,7 +2,7 @@
 
 Reviewers: solution-architect, senior-dev, gc-specialist, support-engineer (2026-11-08), on `sprint/3.11` against `sprint-3.10`.
 Each reviewer read the working tree (none had a shell for `git diff`). Findings that overlap are merged and keep the highest
-severity. Counts: 3 High, 12 Moderate, 20 Low.
+severity. Counts: 3 High, 12 Moderate, 26 Low.
 
 Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 skipped, 0 failed (integration tests included).
 
@@ -24,7 +24,7 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
 - Found by the fix: Tab could not reach the icons in the Object view's tab headers, so they moved into each tab's content; the
   Inspections list now lets Tab into its items (`KeyboardNavigation.TabNavigation="Continue"`), so its group headings' icons are
   reached.
-- Status: Fixed. Confirmation: pending.
+- Status: Fixed. Confirmed by solution-architect and senior-dev (2026-11-08), with Lows L21 to L23 and L26.
 
 ### H2. The Processes page's CSV export named two columns "Avalonia.Controls.TextBlock"
 - Reviewer: senior-dev (Moderate; raised to High: a regression in output this sprint introduced).
@@ -33,7 +33,7 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
   header's `ToString()`.
 - Fix: `HeaderText` takes a TextBlock header's text. `ExportTests` now gives one column a TextBlock header and checks the header
   line; with the fix undone, it fails.
-- Status: Fixed. Confirmation: pending.
+- Status: Fixed. Confirmed by senior-dev (2026-11-08), with Low L25.
 
 ### H3. A "+N smaller" bar's hover text pointed at a double-click that does nothing
 - Reviewers: support-engineer and senior-dev (Moderate; raised to High: acceptance criterion 4, no claim the code does not back),
@@ -42,10 +42,13 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
 - What: "Double-click the bar above them to see them." Under the top bar (level 1, the most common case) the bar above is the
   focus itself, and a double-click shows the same chart. And "Keeps X alive" for a group is the sum of its members' own retained
   bytes: together they keep at least that much.
-- Fix: a group at level 1 says "The tree below lists them."; deeper, "Double-click the bar above them, or expand its row in the
-  tree below, to see them." A group says "Together keep at least X alive". Geometry and chart tests cover both levels; the guide
-  matches.
-- Status: Fixed. Confirmation: pending.
+- Fix: a group says "Together keep at least X alive". At level 1 it first said "The tree below lists them."; senior-dev confirmed
+  that, but support-engineer did not: under Group children by Type or Namespace (which "Show in dominator tree" sets by itself)
+  the tree lists groups, and past 100 rows a "more" row, so the members are not on screen. Second fix, true for every grouping:
+  level 1 says "The tree below has them (expand a group or a "more" row if they are not shown)."; deeper, "Double-click the bar
+  above them to focus on it; the tree below has them (expand a group or a "more" row if they are not shown)." Geometry and chart
+  tests cover both levels; the guide matches.
+- Status: Fixed. Confirmed by senior-dev (first fix); support-engineer: NOT CONFIRMED on the first fix, second fix pending.
 
 ## Moderate
 
@@ -118,3 +121,17 @@ Listed only (DEVELOPER.md 10).
 - L18. The Snapshot tab's page icon sits at the end of the "Opened from" line, which the next icon's text explains (senior-dev).
 - L19. Three changed files list several public types and were not split (DEVELOPER.md 4) (senior-dev).
 - L20. The group click test starts with no selection, so it cannot tell "ignores" from "clears" (senior-dev).
+
+Raised while confirming the High fixes:
+
+- L21. The page walk does not show the set views' texts (chosen by view model state: `SetTypes`, `TypesOptionsInSet`,
+  `SetInstances`, `SetPaths`), nor Fragmentation and AllocationTrees, which need data; task 3's proof does not say so
+  (solution-architect, senior-dev).
+- L22. `KeyboardNavigation.TabNavigation="Continue"` on the Inspections list makes every tile a Tab stop, about 17 between the
+  baseline picker and the rows (solution-architect, senior-dev).
+- L23. The list Tab test sets Continue on its own list, so removing it from the view fails no test (senior-dev).
+- L24. A group's members are the smallest siblings, so they sit behind "more" rows; deeper, focusing the bar above can show
+  another group when many siblings are about 0.1 percent each (senior-dev, support-engineer).
+- L25. A TextBlock header built from inlines, with no Text, would drop its column from the CSV without a warning; none is built
+  that way today (senior-dev).
+- L26. No test hovers an InfoIcon itself; hover is proven on a disabled Button (senior-dev).
