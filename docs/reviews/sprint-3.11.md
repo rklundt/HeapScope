@@ -48,7 +48,8 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
   level 1 says "The tree below has them (expand a group or a "more" row if they are not shown)."; deeper, "Double-click the bar
   above them to focus on it; the tree below has them (expand a group or a "more" row if they are not shown)." Geometry and chart
   tests cover both levels; the guide matches.
-- Status: Fixed. Confirmed by senior-dev (first fix); support-engineer: NOT CONFIRMED on the first fix, second fix pending.
+- Status: Fixed. Confirmed by senior-dev (first fix) and support-engineer (second fix, 2026-11-08), who traced the members'
+  reach under Type grouping through `DominatorTreeRows`; no test walks that tree path (noted, not a finding).
 
 ## Moderate
 
