@@ -2,7 +2,7 @@
 
 Reviewers: solution-architect, senior-dev, gc-specialist, support-engineer (2026-11-08), on `sprint/3.11` against `sprint-3.10`.
 Each reviewer read the working tree (none had a shell for `git diff`). Findings that overlap are merged and keep the highest
-severity. Counts: 3 High, 12 Moderate, 26 Low; the confirmations added 1 High (H4), 1 Moderate (M13) and Lows L21 to L33.
+severity. Counts: 3 High, 12 Moderate, 26 Low; the confirmations added 1 High (H4), 2 Moderates (M13, M14) and Lows L21 to L36.
 
 Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 skipped, 0 failed (integration tests included).
 
@@ -77,7 +77,8 @@ Status of the fixes (2026-11-09):
 - M8: fixed and confirmed by solution-architect.
 - M9: the part with no new wording (one style for tooltips on disabled controls, Run synthetic job's tip, the Inspections menu
   text on its items, the guide) fixed and confirmed by solution-architect, senior-dev and support-engineer. The Record
-  allocations tooltip's wording approved and built, now a row of Table 3 (44 single controls).
+  allocations tooltip's wording approved and built, now a row of Table 3 (44 single controls); confirmed by support-engineer
+  (its "Needs" sentence matches `CanRecord`).
 - M10: fixed and confirmed by support-engineer.
 - M11: fixed and confirmed by gc-specialist and senior-dev.
 - M2 to M6: rewording checked by gc-specialist (its corrections to rows 1, 2, 9, 10, 12 and 13 in), approved by the owner and
@@ -88,7 +89,10 @@ Status of the fixes (2026-11-09):
   pinned stack root holds in either snapshot, and counts such matches (`PinnedYoungerSurvivors`, in the worker's object
   matching log line). An unpinned object demoted beside a pinned one still counts as dead and new. Comment, ADR-032 and
   DEVELOPER.md corrected. Test: `ComparisonTests.A_pinned_object_the_GC_demoted_survives_and_an_unpinned_one_does_not`
-  (fails without the change). No real dump fixture: a demotion cannot be caused on demand.
+  (fails without the change). No real dump fixture: a demotion cannot be caused on demand. support-engineer confirmed the
+  Survived count and the privacy of the log line, but not the fix as a whole: it raised M14. Confirmed by gc-specialist
+  against the CLR (pinned handles, pinned and interior stack roots, the gcdump path), which also confirmed the built rewording
+  word for word against Tables 1 to 3, closing L32.
 - M7: in `docs/BACKLOG.md`, confirmed by solution-architect.
 
 - **M1. Opening a dump again replaces its row, with side effects** (support-engineer, solution-architect, senior-dev).
@@ -133,6 +137,13 @@ Status of the fixes (2026-11-09):
   Suggested: drop the generation test for objects pinned in either snapshot, or drop it and rely on type, size and heap; at
   least correct the comment and say "usually" in the wording; a fixture with a demoted pinned object.
   Decision: fix now (product owner, 2026-11-09).
+- **M14. The matching log gives a wrong reason for an unpinned demoted object** (support-engineer, raised while confirming M13).
+  `ObjectIdentity` counts every address match that fails a test as reused, and the log says "addresses reused by other objects".
+  An object of the same type, method table, area and size that is only in a younger generation, unpinned (the case M13 keeps
+  as dead and new), lands there too, so support cannot tell it from a real type or size mismatch when a user contests a New or
+  Dead count. Suggested: count matches that fail only the generation test on their own, log them beside the pinned count,
+  reword the rest as "addresses holding another type, size, area or method table", and extend the M13 test and logging.md.
+  Decision: pending the product owner.
 - **M12. ShowOpened's condition is broader than a refused reopen** (support-engineer). After a silent successful reopen the row's
   id is stale too, so a later open replaces the row and logs "shown afresh" when nothing was refused. Suggested: fold into M1.
 
@@ -196,3 +207,11 @@ Raised while confirming the Moderate fixes:
 - L32. `ObjectIdentityTexts.Matched`'s comment describes only moved objects; once the reworded note is approved it should name
   reused addresses too (gc-specialist).
 - L33. M7's Backlog item could also cover Table 2's group texts, which are checked for presence only (solution-architect).
+- L34. The approved Compare texts (`ObjectIdentityTexts.Matched`, the New and dead objects line) say a moved object counts as
+  dead and new but not that an unpinned object the GC demoted does too; changing them needs the owner's approval
+  (support-engineer, gc-specialist: "moved, or rarely demoted," would cover it).
+- L35. The comment at `ClrMdDumpLoader.cs:419` says an async pinned handle pins its object; if ClrMD reports the OverlappedData
+  and not the user buffers, a demoted async I/O buffer still counts as dead and new. Check against the runtime-semantics
+  fixture (gc-specialist).
+- L36. "A pinned object never moves" in `ObjectIdentity` and ADR-032 holds only while it is pinned: a pin seen in either
+  snapshot stands in for one at the demoting collection (gc-specialist).
