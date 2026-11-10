@@ -63,6 +63,12 @@ internal sealed partial class FakeWorkerService : IWorkerService
     /// <summary>When set, the next opens fail with it.</summary>
     public Exception? OpenFailure { get; set; }
 
+    /// <summary>The id the next opens answer with, as the worker does for a dump that is already open; otherwise a new one.</summary>
+    public Guid? NextSnapshotId { get; set; }
+
+    /// <summary>The notes an open reports.</summary>
+    public IReadOnlyList<string> OpenNotes { get; set; } = ["A note."];
+
     /// <summary>When set, opens are refused until a request trusts this DAC (sprint 3.6).</summary>
     public DacTrustDetails? RequiredDac { get; set; }
 

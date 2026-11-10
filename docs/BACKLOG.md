@@ -31,6 +31,10 @@ Swept 2026-10-31:
 Sprint 3.10:
 - Charts and data-named colors redrawn on a theme change (the 3.2 review's L14): built (ADR-040, `ThemeChangeTests`).
 
+Sprint 3.11:
+- The key file read that failed while another process moved the key into place (from the tests that failed now and then):
+  built (`IndexCacheKey.LoadOrCreate`, `SignedCacheTests`).
+
 ## Open
 
 Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
@@ -58,13 +62,24 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   most 159 ms as a job ended, 17 ms alone), and all 12 `AllocationTraceTests` (their fixture's setup canceled). `DiffTests` has
   now recurred. `SignedCacheTests.Processes_creating_the_key_at_once_end_with_one_key` twice on the same sprint (2026-11-05). The second time gave the cause, a
   real if tiny bug: `IndexCacheKey.LoadOrCreate` first reads the key outside its lock, so a read while another process moves the key into place
-  throws a sharing violation. Fix: on an `IOException` there, go on to the lock and read again. On 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` measured growth of types the framework also uses, whose own objects in the first dump
+  throws a sharing violation. Fixed in 3.11: an `IOException` there goes on to the lock and reads again. On 3.10 (2026-11-05): `DiffTests` and `LeakyApiGrowthTests` measured growth of types the framework also uses, whose own objects in the first dump
   can die before the second. A GC before each dump did not cure it: CI still came up 1 to 4 short of thousands. This cause fits the numbers but
   was not traced to the objects. They now check each dump's count, which a leak that frees nothing must reach, so the framework's objects cannot
   fail them. `LiveWorkflowTests`' allocation trace was stopped while its session was still starting, reported as a failure (a product fix; the
   test waits for bytes). Its `A_monitoring_run_takes_a_snapshot...` failed once on 3.10 with no message captured, cause unknown. Act on any that recurs: find the cause before adding a retry. Fixed: `TraceTests` cancel (2026-11-03, Avalonia PR #48's CI): a 1 s cancel
   landed before EventPipe had started the session; the test now checks both outcomes (canceled before the start keeps
-  nothing; after it, the trace stops early and is kept).
+  nothing; after it, the trace stops early and is kept). Sprint 3.11's wrap (2026-11-10), one full Release run, each passing
+  alone: three `ProcessesViewModelTests` read the machine's free memory (0.6 GB of 31.7 GB during the run), so opening a capture
+  asked the low memory question first; fixed, the test gives `SnapshotSession` a fixed `PhysicalMemory`, but most other tests
+  that open a dump still read the machine's. `CaptureTests.Canceling_a_real_capture_leaves_no_dump_behind`: the capture
+  finished before the wait saw "Writing dump" (the wait also ends on completion), so the cancel came too late; the test needs
+  the capture held while it writes, or to accept both outcomes as `TraceTests` does. `CounterMonitorTests`: the first sample's
+  `gc-heap-size` was negative (-0.77 MB, from the target's runtime, with Gen0 at 1.8 MB); HeapScope passes it on as is, so the
+  chart and the size rules can read a negative heap. Decide whether to drop or clamp such a sample.
+  The wrap's second full run: all 12 `AllocationTraceTests` again (as on 3.10's gate), their fixture's session start canceled.
+  Cause: the fixture started the load a fixed second after the recording and stopped the recording when the load ended, so a
+  start slower than the load was canceled. Fixed: the load starts once the trace's partial file has bytes, as
+  `LiveWorkflowTests` already waits.
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
   (`LogWarning(ex, ...)` reaches the console logger; keep stacks in the file log, M11); capturing or finding one of
   HeapScope's own processes says "No running .NET process with id N was found" and logs nothing (say "pid N is
@@ -282,6 +297,11 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   from the baseline (M10); an `InspectionNeeds` description with a cached derived-data accessor instead of one flag per
   input (M16); the rule version and parameters on `InspectionInfo` and Kind, elapsed time and baseline in the CLI
   summary output (L6, L7).
+- From the 3.11 review (product owner, 2026-11-09): the info text wording test checks placement, not only presence: map
+  each Table 3 row to its view file and control, so a text on the wrong control, or on one of several controls only,
+  fails (M7). Mark a Type or Namespace group row's retained bytes in the Retainers tree, and in its CSV export, as a lower
+  bound: they add up the members' own, and what several hold together is counted in the row above (a per-row bound, or a
+  group-only column; the tree's Retained column has the "Exactly this much" note, `ValueBoundTexts.Exact`, for every row; M6).
 
 **Low**
 - Visual design, left out of sprint 3.10 (product owner, 2026-11-04; ADR-040): inline data bars in grids, dimmed namespaces

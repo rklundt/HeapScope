@@ -33,16 +33,20 @@
              x:DataType="vm:SnapshotsViewModel">
   <DockPanel DataContext="{Binding Compare}" x:DataType="vm:CompareViewModel" Margin="0,8,0,0">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8" Spacing="12">
-      <RadioButton x:Name="PairMode" Content="Two snapshots" IsChecked="{Binding !IsTrendShown}" GroupName="CompareMode" />
-      <RadioButton x:Name="TrendMode" Content="Trend across snapshots" IsChecked="{Binding IsTrendShown, Mode=TwoWay}" GroupName="CompareMode"
-                   ToolTip.Tip="Each type's objects and bytes in several snapshots side by side, and how often it grew." />
+      <StackPanel Orientation="Horizontal" Spacing="2">
+        <RadioButton x:Name="PairMode" Content="Two snapshots" IsChecked="{Binding !IsTrendShown}" GroupName="CompareMode" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CompareTwo}" />
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="2">
+      <RadioButton x:Name="TrendMode" Content="Trend across snapshots" IsChecked="{Binding IsTrendShown, Mode=TwoWay}" GroupName="CompareMode" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CompareTrend}" />
+      </StackPanel>
     </StackPanel>
     <Grid>
     <DockPanel IsVisible="{Binding !IsTrendShown}">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,8,8">
       <TextBlock Text="Baseline" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
-      <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Baseline, Mode=TwoWay}"
-                ToolTip.Tip="The earlier snapshot; deltas are current minus baseline.">
+      <ComboBox Width="260" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Baseline, Mode=TwoWay}">
         <ComboBox.ItemTemplate>
           <DataTemplate x:DataType="vm:SnapshotItemViewModel">
             <TextBlock Text="{Binding Title}" />
@@ -58,6 +62,7 @@
           </DataTemplate>
         </ComboBox.ItemTemplate>
       </ComboBox>
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CompareSnapshots}" Margin="8,0,0,0" VerticalAlignment="Center" />
     </StackPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Hint}" Margin="0,0,0,6" Classes="subtle" TextWrapping="Wrap" />
     <WrapPanel DockPanel.Dock="Top" Margin="0,0,8,6">
@@ -65,13 +70,11 @@
       <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
       <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
       <TextBox x:Name="FilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
-               ToolTip.Tip="Terms separated by spaces must all match. Each is a substring; capitals match as typed or as CamelHumps (SCE finds StaticCacheEntry); * matches anything. -term leaves out matches; module:name (m:name) matches the module. Ctrl+F (Cmd+F) comes here." />
-      <CheckBox Content="New and dead objects" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding MatchObjects, Mode=TwoWay}"
-                ToolTip.Tip="Matches objects by address and type: only for two snapshots of one process. An object a compacting collection moved counts as dead and new." />
-      <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowRetained, Mode=TwoWay}"
-                ToolTip.Tip="Each row's retained bytes in both snapshots (lower bounds). The first time for a snapshot this computes its dominators." />
-      <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}"
-                ToolTip.Tip="The change in bytes per generation (Gen0, Gen1, Gen2, LOH, POH): growth in Gen2 is what stays." />
+               ToolTip.Tip="Keeps rows whose name matches: terms separated by spaces must all match, and an all lower-case term ignores case. * matches anything, -term leaves out matches, module:name or m:name matches the module, and capitals also match word starts, so SCE finds StaticCacheEntry. Ctrl+F (Cmd+F on macOS) comes here." />
+      <CheckBox Content="New and dead objects" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding MatchObjects, Mode=TwoWay}" />
+      <CheckBox Content="Retained sizes" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowRetained, Mode=TwoWay}" />
+      <CheckBox Content="Generations" Margin="16,0,0,0" VerticalAlignment="Center" IsChecked="{Binding ShowGenerations, Mode=TwoWay}" IsEnabled="{Binding HasGenerations}" />
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.CompareOptions}" Margin="12,0,0,0" VerticalAlignment="Center" />
     </WrapPanel>
     <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Classes="subtle" TextWrapping="Wrap" Margin="0,0,8,6" />
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
@@ -82,16 +85,22 @@
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ToolTip.Tip="Double-click or Enter opens the type's objects in the current snapshot; right-click for what they retain there.">
+              ToolTip.Tip="Double-click or Enter opens the type's objects in the current snapshot, or in the baseline if the current one has none. Needs grouping by type.">
       <DataGrid.ContextMenu>
         <ContextMenu>
-          <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItems}" />
-          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
-          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+          <MenuItem Header="Open as a set" InputGesture="Ctrl+Shift+O" Command="{Binding OpenAsSetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItems}"
+                    ToolTip.Tip="Treats the selected rows as one set in the current snapshot, or in the baseline if none of the types is left. Needs grouping by type; types only in the baseline are left out of a current set." />
+          <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
+                    ToolTip.Tip="Follow this type into the current snapshot's Retainers tab: its group in the tree, or exactly what its objects keep alive together. Need grouping by type, and objects of the type in the current snapshot." />
+          <MenuItem Header="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedBySetCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
+                    ToolTip.Tip="Follow this type into the current snapshot's Retainers tab: its group in the tree, or exactly what its objects keep alive together. Need grouping by type, and objects of the type in the current snapshot." />
           <Separator />
-          <MenuItem Header="Open new objects as a set" Command="{Binding OpenNewCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
-          <MenuItem Header="Open dead objects as a set (in the baseline)" Command="{Binding OpenDeadCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
-          <MenuItem Header="Open survived objects as a set" Command="{Binding OpenSurvivedCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}" />
+          <MenuItem Header="Open new objects as a set" Command="{Binding OpenNewCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
+                    ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
+          <MenuItem Header="Open dead objects as a set (in the baseline)" Command="{Binding OpenDeadCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
+                    ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
+          <MenuItem Header="Open survived objects as a set" Command="{Binding OpenSurvivedCommand}" CommandParameter="{Binding #CompareGrid.SelectedItem}"
+                    ToolTip.Tip="Opens this type's new, dead or survived objects as a set, with dead ones in the baseline. Needs grouping by type, with New and dead objects ticked and matched." />
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>
@@ -149,8 +158,16 @@
         <DataGridTextColumn Header="Gen2 +/-" x:DataType="vm:DiffRowItem" Binding="{Binding Gen2Delta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="Gen2Delta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
         <DataGridTextColumn Header="LOH +/-" x:DataType="vm:DiffRowItem" Binding="{Binding LohDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="LohDelta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
         <DataGridTextColumn Header="POH +/-" x:DataType="vm:DiffRowItem" Binding="{Binding PohDelta, StringFormat='{}{0:+#,0;-#,0;0}'}" Width="110" SortMemberPath="PohDelta" CellStyleClasses="number" Tag="Generations" IsVisible="False" />
-        <DataGridTextColumn Header="Types (baseline)" x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="122" SortMemberPath="BaselineTypes" CellStyleClasses="number" />
-        <DataGridTextColumn Header="Types (current)" x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="122" SortMemberPath="CurrentTypes" CellStyleClasses="number" />
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding BaselineTypes}" Width="122" SortMemberPath="BaselineTypes" CellStyleClasses="number">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Types (baseline)" ToolTip.Tip="How many distinct types the row adds up in each snapshot. For a type row it differs when the type is loaded a different number of times." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
+        <DataGridTextColumn x:DataType="vm:DiffRowItem" Binding="{Binding CurrentTypes}" Width="122" SortMemberPath="CurrentTypes" CellStyleClasses="number">
+          <DataGridTextColumn.Header>
+            <TextBlock Text="Types (current)" ToolTip.Tip="How many distinct types the row adds up in each snapshot. For a type row it differs when the type is loaded a different number of times." />
+          </DataGridTextColumn.Header>
+        </DataGridTextColumn>
       </DataGrid.Columns>
     </DataGrid>
     </DockPanel>
@@ -176,7 +193,9 @@
         <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
         <ComboBox Width="130" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy, Mode=TwoWay}" VerticalAlignment="Center" />
         <TextBlock Text="Filter" VerticalAlignment="Center" Margin="16,0,6,0" Classes="subtle" />
-        <TextBox x:Name="TrendFilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center" />
+        <TextBox x:Name="TrendFilterBox" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"
+                 ToolTip.Tip="Keeps rows whose name matches: terms separated by spaces must all match, and an all lower-case term ignores case. * matches anything, -term leaves out matches, module:name or m:name matches the module, and capitals also match word starts, so SCE finds StaticCacheEntry. Ctrl+F (Cmd+F on macOS) comes here." />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.TrendOptions}" Margin="12,0,0,0" VerticalAlignment="Center" />
         <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Totals}" />
       </WrapPanel>
       <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
@@ -185,7 +204,7 @@
                 ctl:GridBehaviors.Rows="{Binding Rows}"
                 ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
                 ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-                ToolTip.Tip="Objects and bytes in each ticked snapshot, oldest first; GrowthSteps counts the steps a row's bytes grew in. Double-click or Enter opens the type's objects in the last snapshot." />
+                ToolTip.Tip="Objects and bytes per ticked snapshot, numbered by capture time, or by open order when a capture time is missing or only a file's. Growth steps counts the steps in which bytes grew; double-click opens the type's objects in the last snapshot." />
     </DockPanel>
     </Panel>
     </Grid>

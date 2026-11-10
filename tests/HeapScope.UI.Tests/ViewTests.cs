@@ -136,6 +136,104 @@ public sealed class ViewTests(UiSession ui) : IDisposable
         });
     }
 
+    /// <summary>
+    /// Sprint 3.11 (review H1): walking every page, each Snapshots tab and the Snapshot tab's views down to one object, each
+    /// shows its info icons, with the approved text, where a user sees them. The set views are not walked here.
+    /// </summary>
+    [Fact]
+    public async Task Every_page_tab_and_view_shows_its_info_icons()
+    {
+        await ui.RunAsync(async () =>
+        {
+            var (shell, worker) = Shell();
+            worker.Service.Rows.Add(["App.Order", "2", "80"]);
+            worker.Service.InstanceRows.Add(["0x1000", "App.Order", "40", "Gen2", ""]);
+            worker.Service.ReferenceRows.Add(["Customer", "0x3000", "App.Customer", "60"]);
+            worker.Service.TreeNodes.Add(new FakeTreeNode("o:100", string.Empty, "App.Cache", 0x100, 800));
+            var snapshots = shell.Snapshots;
+            ui.ClearBindingErrors();
+            var window = new MainWindow(shell) { Width = 1400, Height = 900 };
+            window.Show();
+            var seen = new HashSet<string>();
+            void Look()
+            {
+                Dispatcher.UIThread.RunJobs();
+                window.CaptureRenderedFrame()?.Dispose();
+                seen.UnionWith(window.GetVisualDescendants().OfType<Controls.InfoIcon>().Where(static i => i.IsEffectivelyVisible).Select(static i => i.Text ?? string.Empty));
+            }
+
+            foreach (var item in shell.NavigationItems)
+            {
+                shell.SelectedItem = item;
+                Look();
+            }
+
+            shell.SelectedItem = shell.NavigationItems.Single(i => i.Page == snapshots);
+            foreach (var name in new[] { "a.dmp", "b.dmp" })
+            {
+                var dump = Path.Combine(_folder, name);
+                await File.WriteAllBytesAsync(dump, [1]);
+                await snapshots.OpenPathAsync(dump);
+            }
+
+            await snapshots.Types.QueryTask;
+            await Settle(snapshots.Types.Rows);
+            Look();
+
+            var navigator = snapshots.Navigator;
+            snapshots.Types.OpenRowCommand!.Execute(snapshots.Types.Rows.GetRow(0));
+            var instances = navigator.Current.ShouldBeOfType<InstancesViewModel>();
+            await instances.QueryTask;
+            await Settle(instances.Rows);
+            Look();
+            instances.OpenRowCommand!.Execute(instances.Rows.GetRow(0));
+            var obj = navigator.Current.ShouldBeOfType<ObjectViewModel>();
+            await obj.LoadTask;
+            Look();
+            foreach (var tab in new[] { 1, 2 })
+            {
+                obj.ReferencesTab = tab;
+                Look();
+            }
+            navigator.BackCommand.Execute(null);
+            instances.ReferencedByCommand!.Execute(null);
+            Look();
+            navigator.BackCommand.Execute(null);
+            instances.WhyAliveCommand!.Execute(null);
+            Look();
+
+            snapshots.Tab = SnapshotTabs.Compare;
+            Look();
+            snapshots.Compare.IsTrendShown = true;
+            Look();
+            snapshots.Tab = SnapshotTabs.Inspections;
+            await snapshots.Inspections.RunTask;
+            Look();
+            snapshots.Tab = SnapshotTabs.Retainers;
+            await snapshots.Retainers.QueryTask;
+            await snapshots.Retainers.IcicleTask;
+            Look();
+
+            string[] expected =
+            [
+                InfoTexts.Home, InfoTexts.Sessions, InfoTexts.Processes, InfoTexts.CaptureOptions, InfoTexts.Snapshots, InfoTexts.AnalysisPath,
+                InfoTexts.Bookmarks, InfoTexts.SnapshotTab, InfoTexts.SnapshotTotals, InfoTexts.HeapAreas, InfoTexts.Types, InfoTexts.TypesOptions,
+                InfoTexts.Instances, InfoTexts.Object, InfoTexts.ObjectOutgoing, InfoTexts.ObjectIncoming, InfoTexts.ObjectRetention,
+                InfoTexts.ObjectRetentionDetails, InfoTexts.Referrers, InfoTexts.WhyAlive, InfoTexts.PathOptions, InfoTexts.CompareTwo,
+                InfoTexts.CompareTrend, InfoTexts.CompareSnapshots, InfoTexts.CompareOptions, InfoTexts.TrendOptions, InfoTexts.Inspections,
+                InfoTexts.Detectors, InfoTexts.Retainers, InfoTexts.RetainersChart, InfoTexts.RetainersTree, InfoTexts.Allocations,
+                InfoTexts.Live, InfoTexts.LiveRules, InfoTexts.LivePastRuns, InfoTexts.LiveChart, InfoTexts.Jobs, InfoTexts.About,
+            ];
+            foreach (var text in expected)
+            {
+                seen.ShouldContain(text, customMessage: typeof(InfoTexts).GetFields().Single(f => (string?)f.GetRawConstantValue() == text).Name);
+            }
+
+            ui.BindingErrors.ShouldBeEmpty();
+            window.Close();
+        });
+    }
+
     [Fact]
     public async Task The_compare_tab_shows_new_and_dead_columns_and_the_trend_view_binds_cleanly()
     {

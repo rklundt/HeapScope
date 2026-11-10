@@ -116,6 +116,27 @@ public sealed class SignedCacheTests : IDisposable
         (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).ShouldBe(keys[0]);
     }
 
+    /// <summary>The cause of a test that failed now and then: the first read holds no lock, so it can meet another process's move.</summary>
+    [Fact]
+    public async Task A_read_while_another_process_moves_the_key_waits_for_it()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_directory, "moving", IndexCacheKey.FileName);
+        var key = IndexCacheKey.LoadOrCreate(path).Key;
+        var read = Task.CompletedTask;
+        byte[]? seen = null;
+        using (var mover = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        using (var moving = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            read = Task.Run(() => seen = IndexCacheKey.LoadOrCreate(path).Key, ct);
+            await Task.Delay(200, ct);
+            read.IsCompleted.ShouldBeFalse("it waits for the lock");
+        }
+
+        await read.WaitAsync(TimeSpan.FromSeconds(30), ct);
+        seen.ShouldBe(key);
+    }
+
     [Fact]
     public async Task A_cache_mutated_at_random_answers_with_a_graph_or_a_reason()
     {

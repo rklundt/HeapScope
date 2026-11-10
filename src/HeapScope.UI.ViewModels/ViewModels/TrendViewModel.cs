@@ -103,6 +103,15 @@ public sealed partial class TrendViewModel : TypeGridViewModel<CellRowItem>
         }
     }
 
+    /// <summary>A ticked snapshot was opened again as a new worker snapshot: the trend runs again (3.11 review).</summary>
+    public void Reopened(SnapshotItemViewModel item)
+    {
+        if (Choices.Any(c => c.Snapshot == item && c.IsIncluded))
+        {
+            Changed();
+        }
+    }
+
     /// <summary>Ticks or unticks a snapshot; the change queries again.</summary>
     [RelayCommand]
     private void Toggle(TrendSnapshotItem? item)

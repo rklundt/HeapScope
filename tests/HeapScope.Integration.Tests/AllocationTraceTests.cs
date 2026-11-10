@@ -56,7 +56,27 @@ public sealed class LeakyApiAllocations : IAsyncLifetime
         await Api.PostWorkAsync(1, CancellationToken.None);
         using var stop = new CancellationTokenSource();
         var recording = TraceRecorder.RecordAsync(Api.ProcessId, TracePath, TraceProfile.Allocations, TimeSpan.FromMinutes(5), stop.Token);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        // Load starts once the session streams (its partial file has bytes), not after a fixed second: under a full test run the
+        // session's start took longer than the load, and the stop then canceled the start (sprint 3.11's wrap, and 3.10's gate).
+        var folder = Path.GetDirectoryName(TracePath)!;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
+        while (!Directory.EnumerateFiles(folder, TraceRecorder.PartialPattern(TracePath)).Any(static f => new FileInfo(f).Length > 0))
+        {
+            if (recording.IsCompleted)
+            {
+                await recording;
+                throw new InvalidOperationException("The recording ended before its session started.");
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException("The allocation recording's session did not start within 60 seconds.");
+            }
+
+            await Task.Delay(50);
+        }
+
         using (var load = ChildProcess.Start(TestPaths.LoadGenExe, "--url", Api.Url!.ToString(), "--requests", "2000", "--concurrency", "8"))
         {
             if (!await load.WaitForExitAsync(TimeSpan.FromMinutes(3)) || load.Process.ExitCode != 0)

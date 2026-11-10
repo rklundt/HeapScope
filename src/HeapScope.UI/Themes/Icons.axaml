@@ -27,6 +27,8 @@
      Logo.Small is its simplified form for 20 px and under. Fixed colors: a logo stays the same in both themes. -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StreamGeometry x:Key="Icon.Info.Tint">M10 3a7 7 0 1 0 0 14a7 7 0 0 0 0-14z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.Info.Line">M10 3a7 7 0 1 0 0 14a7 7 0 0 0 0-14zM10 9v4.5M10 6.25v.5</StreamGeometry>
   <StreamGeometry x:Key="Icon.Home.Tint">M5 8v9h10V8l-5-5z</StreamGeometry>
   <StreamGeometry x:Key="Icon.Home.Line">M3 9.5 10 3l7 6.5M5 8v9h10V8M8 17v-5h4v5</StreamGeometry>
   <StreamGeometry x:Key="Icon.Snapshots.Tint">M3 3h14v7H3z</StreamGeometry>

@@ -3,7 +3,7 @@
 Phases: **0.x** architecture, framework and skeleton; **1.x** quick wins; **2.x** heavy hitters; **3.x** depth to
 match dotMemory (planned 2026-10-28); **Phase 4 candidates** what Phase 3 leaves out; the Backlog ([BACKLOG.md](BACKLOG.md)) everything else. Closed sprints are
 in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-1.md),
-[Phase 2](sprints/phase-2.md), [Phase 3, the peer review sprints and 3.9](sprints/phase-3.md).
+[Phase 2](sprints/phase-2.md), [Phase 3, the peer review sprints, 3.9 and 3.10](sprints/phase-3.md).
 
 ## Status
 
@@ -44,7 +44,8 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
 | 3.9 | Packaging and distribution | Closed | 2026-11-01 | sprint-3.9 |
 | 3.10 | Visual design and README | Closed | 2026-11-05 | sprint-3.10 |
-| 3.11 | First-show performance and refactor analysis | Planned | | |
+| 3.11 | Screens that explain themselves | Closed | 2026-11-10 | sprint-3.11 |
+| 3.12 | First-show performance and refactor analysis | Planned | | |
 
 ---
 
@@ -62,29 +63,29 @@ Closed 2026-11-05; its section is in [sprints/phase-3.md](sprints/phase-3.md) an
 
 ---
 
-## Sprint 3.11: First-show performance and refactor analysis
+## Sprint 3.11: Screens that explain themselves
+
+Closed 2026-11-10; its section is in [sprints/phase-3.md](sprints/phase-3.md) and its review in
+[reviews/sprint-3.11.md](reviews/sprint-3.11.md). ADR-040 records the info icons, and ADR-032 the match of pinned objects.
+
+## Sprint 3.12: First-show performance and refactor analysis
 
 **Goal**: know why pages hitch the first time they open, and what in the code is worth refactoring, before Phase 4 adds to both.
 
-**Background**: the product owner asked for this sprint on 2026-11-05, from the 3.10 review. M16: cold first shows over 100 ms went
-from 3 to 7 per run to 5 to 13, exempt from the gate, with the worst dispatcher lag 184 of 200 ms and the cause only inferred.
+**Background**: the product owner asked for this on 2026-11-05, from the 3.10 review. M16: cold first shows over 100 ms went from 3 to 7 per
+run to 5 to 13, exempt from the gate, with the worst dispatcher lag 184 of 200 ms and the cause only inferred.
 
 **Scope, to settle at /start-sprint**:
 - Trace a cold first show (`--smoke-trace`, with JIT events), attribute the blips, and fix what the trace supports. Consider a ceiling
   on logged first shows, and a run on a Medium dump, not only the demo dumps.
 - A refactor analysis of the codebase: what to change, why and at what cost, as a ranked list the owner decides on. It proposes; any
-  refactor it leads to is the owner's call.
+  refactor it leads to is the owner's call. It includes `PlatformHints` (3.10 review M36).
 - To consider pulling in: the Backlog's slower first load (the object pass), and the tests that fail only under full load.
-- Required, whatever else is settled (product owner, 2026-11-05; 3.10 review M40): the Snapshots page refreshes when the user opens a dump
-  again after a refused reopen. Today the handle stays the same, so the row keeps "Open it again" and the old notes.
-- The Retainers chart's narrowest bars, from the owner's test of 3.10 (2026-11-05; M44): group them into one "+N smaller" bar, so the chart is not
-  slivers with no text. 3.10 added the hover text and a caption.
-- The key file's read outside its lock (Backlog, "Tests that failed now and then"): a small fix with its cause known.
-- The older cache fallback, moved from 3.10 by the product owner (2026-11-05; 3.10 review M14, M29 to M31, M37, M40). After a loader update,
+- The older cache fallback, moved from 3.10 by the product owner (2026-11-05; 3.10 review M14, M29 to M31, M37). After a loader update,
   a dump whose DAC is gone or not trusted cannot rebuild its cache, so it does not open. Open the older cache instead, with a note. It must
   cover every way a rebuild can lack the DAC (a symbol server failure, an untrusted DAC after a "no"), set the oldest loader version it accepts,
-  free the first read's memory before the second, say which views are refused without a DAC, and refresh the Snapshots page when
-  the user opens the dump again. Its first version caused most of the findings on 3.10's Moderate fixes, so review it as a feature.
+  free the first read's memory before the second, and say which views are refused without a DAC. Its first version caused most of the
+  findings on 3.10's Moderate fixes, so review it as a feature.
 
 **Tasks**: to be filled by /start-sprint.
 

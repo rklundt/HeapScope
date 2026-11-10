@@ -40,9 +40,17 @@ public static class IndexCacheKey
 
     internal static (byte[] Key, IndexCacheKeySource How) LoadOrCreate(string path)
     {
-        if (TryRead(path, out _) is { } key)
+        try
         {
-            return (key, IndexCacheKeySource.Loaded);
+            if (TryRead(path, out _) is { } key)
+            {
+                return (key, IndexCacheKeySource.Loaded);
+            }
+        }
+        catch (IOException)
+        {
+            // No lock is held here, so this can be another process moving the key into place. Under the lock that move is over, and a
+            // read that still fails is a real failure.
         }
 
         // Missing or damaged: created under a lock file, so processes starting together end with one key. A move that

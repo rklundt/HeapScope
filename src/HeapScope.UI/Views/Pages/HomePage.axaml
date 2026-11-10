@@ -31,24 +31,29 @@
              x:DataType="vm:HomeViewModel">
   <ScrollViewer>
     <StackPanel Margin="4">
-      <TextBlock Classes="pageTitle" Text="Home" Margin="0,0,0,4" />
+      <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+        <TextBlock Classes="pageTitle" Text="Home" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Home}" />
+      </StackPanel>
       <TextBlock TextWrapping="Wrap" Classes="subtle" Margin="0,0,0,12" Text="See what is on a .NET process's heap, why it stays there and what grew." />
       <WrapPanel Margin="0,0,0,24">
-        <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="0,0,8,0" Command="{Binding OpenDumpCommand}" />
+        <Button ctl:ButtonIcon.Icon="OpenFile" Classes="primary" Content="Open dump..." Margin="0,0,8,0" Command="{Binding OpenDumpCommand}"
+                ToolTip.Tip="Opens a full dump (.dmp), a gcdump (.gcdump) or a core dump. If a first load may not fit in free memory, it asks first." />
         <Button ctl:ButtonIcon.Icon="Capture" Content="Capture from a process" Margin="0,0,8,0" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowProcessesCommand}"
-                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.CaptureTip}" />
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.Tip="{x:Static vm:PlatformHints.CaptureTip}" />
         <Button ctl:ButtonIcon.Icon="Live" Content="Watch live" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).ShowLiveCommand}"
-                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{x:Static vm:PlatformHints.LiveTip}" />
+                IsEnabled="{x:Static vm:PlatformHints.CanCapture}" ToolTip.Tip="{x:Static vm:PlatformHints.LiveTip}" />
       </WrapPanel>
       <DockPanel Margin="0,0,0,4">
         <Button ctl:ButtonIcon.Icon="Refresh" DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
-        <Button DockPanel.Dock="Right" Content="Clean up..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}"
-                ToolTip.Tip="Delete the sessions not opened for the days given (asks first; the current session and sessions with an open snapshot are kept)." />
+        <Button DockPanel.Dock="Right" Content="Clean up..." Margin="0,0,8,0" Command="{Binding CleanUpCommand}" />
         <TextBlock DockPanel.Dock="Right" Text="days" Classes="subtle" VerticalAlignment="Center" Margin="0,0,8,0" />
-        <NumericUpDown DockPanel.Dock="Right" Width="110" Minimum="1" Maximum="3650" Increment="1" FormatString="0" Value="{Binding CleanupDays, Mode=TwoWay}" Margin="0,0,6,0"
-                       ToolTip.Tip="Days a session was not opened" />
+        <NumericUpDown DockPanel.Dock="Right" Width="110" Minimum="1" Maximum="3650" Increment="1" FormatString="0" Value="{Binding CleanupDays, Mode=TwoWay}" Margin="0,0,6,0" />
         <TextBlock DockPanel.Dock="Right" Text="Sessions not opened for" Classes="subtle" VerticalAlignment="Center" Margin="0,0,6,0" />
-        <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Text="Recent sessions" FontWeight="SemiBold" VerticalAlignment="Center" />
+          <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Sessions}" />
+        </StackPanel>
       </DockPanel>
       <ctl:NoteText Text="{Binding SessionStatus}" Classes="subtle" Margin="0,0,0,4" />
       <DataGrid x:Name="Sessions" ctl:GridExports.ExportName="Sessions" ItemsSource="{Binding RecentSessions}" MaxHeight="360">

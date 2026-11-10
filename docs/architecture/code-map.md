@@ -55,7 +55,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
   signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
   grouping in `TypeGroups` (`GroupKey.Interface`, `TypeInterfaces`, `MatchInterface`) and `TypeDiff` [3.2].
-  `ObjectIdentity` (two snapshots' objects matched by address and type in one merge, a bit per object of each side),
+  `ObjectIdentity` (two snapshots' objects matched by address and type in one merge, a bit per object of each side; since 3.11 an
+  object a root pins is exempt from the generation test, and `PinnedYoungerSurvivors` and `YoungerUnpinned` count what that test decided, for `HeapQueryHandler`'s log line),
   `TypeDiff`'s `DiffExtras` (New and Dead per row, retained bytes per group of each side, bytes per heap kind) and
   `TypeTrend` (rows across several snapshots) [3.3].
 - **Storage.** `IndexCacheSigner` (passed to every reader and writer: the user's key in the worker, `None` written out
@@ -67,7 +68,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   (sections planned up front and filled in place through a read-write mapping of the temporary file, then hashed, header
   last, rename) and the sidecar semantics version (`IndexFileLayout.SemanticsVersion`, checked on open) [2.3].
   `IndexCacheKey` (the per-user key that signs and checks every index file's header region, ADR-036;
-  `IndexCacheKeyOutcome` says where the worker's key came from) [3.7].
+  `IndexCacheKeyOutcome` says where the worker's key came from) [3.7]; a read of the key file that fails before the lock is taken
+  is tried again under it [3.11].
 - **Capture.** Process discovery and elevation, `DumpSizeEstimator` (the disk preflight's estimate) [1.1]; `DumpCapturer` (full dumps written by the runtime) and `GcDumpCapturer`
   (the vendored heap snapshot over EventPipe, failures classified, its log lines sent to the HeapScope log) [1.8], both
   writing through `PartialSnapshotFile` (reserve, never overwrite, commit by rename, discard with retries) [1.9];
@@ -250,6 +252,9 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   Sprint 3.4 to 3.6: deleting snapshots and sessions and the cleanup of old sessions (`SnapshotsViewModel`,
   `PageViewModels`), past runs and forced collections on `LiveViewModel` (`PastRunItem`), and the DAC trust question in
   `SnapshotsViewModel`.
+  Sprint 3.11: opening a dump again refreshes its row in place (`SnapshotItemViewModel.Reload`, `SnapshotsViewModel.ShowOpened`)
+  and runs Compare and Trend again when they use it (`CompareViewModel.Reopened`, `TrendViewModel.Reopened`); `InfoTexts` and
+  `IcicleGeometry`'s "+N smaller" groups are under UI below.
 - **UI** (Avalonia, sprint 2.3.6, ADR-025). `Program` (the desktop app, or `--headless` on Avalonia's headless platform
   for CI smoke runs), `App` (host start and bounded stop, last-chance handlers, power throttling off on Windows, theme)
   and `UiHost` (DI, `UiOptions`). `Views/`: `MainWindow` (the shell, the attribution strip as `AttributionText`,
@@ -265,7 +270,12 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   `ThemeChooser`, `AppFonts`, `NativeMethods` (Windows only). `Themes/`: `Light.axaml` and `Dark.axaml` (theme dictionaries with
   the same keys), `Styles.axaml` and `Icons.axaml` (ADR-040). `Controls/` since 3.10: `DuotoneIcon`, `ButtonIcon`, `EmptyState`,
   `ThemeBrush` (a background named by a data row, which follows the theme), `NumberHeaders`, `SignConverters`. In
-  `UI.ViewModels`, `PlatformHints` holds the next steps that depend on whether this system can capture.
+  `UI.ViewModels`, `PlatformHints` holds the next steps that depend on whether this system can capture. Sprint 3.11:
+  `Controls/InfoIcon` (the (i) button: a tooltip on hover, a flyout on click, Enter or Space, its text as the screen reader's help
+  text) and `InfoTexts` in `UI.ViewModels` (every icon's text, as the owner approved it in `docs/design/info-text.md`;
+  `InfoIconTests` checks the screens say it word for word); one style in `Themes/Styles.axaml` shows tooltips on disabled
+  controls. `IcicleGeometry` (UI.ViewModels) makes two or more neighbors under one parent, each narrower than 6 pixels
+  (`GroupBelow`), one "+N smaller" bar, in one linear walk per level.
   `Assets/heapscope.ico`: the app's icon, from `build/make-icon.cs`. `Smoke/SmokeRunner`: the unattended smoke runs [1.9,
   2.3.6]; `Smoke/ScreenshotRunner`: every page as PNG files [3.10]. Sprint 2.4: the Snapshot tab's subjects are views of their own (`Views/Subjects/`), the
   Retainers tab (`RetainersTab`), `Controls/IcicleChart` (drawn in one pass, geometry from the view models),

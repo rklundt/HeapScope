@@ -60,8 +60,8 @@ internal sealed partial class FakeWorkerService : ISnapshotService
         var kind = request.Path.EndsWith(".gcdump", StringComparison.OrdinalIgnoreCase) ? SnapshotKindDto.GcDump : SnapshotKindDto.FullDump;
         var features = FeaturesOf(kind);
         return Task.FromResult(new SnapshotDescriptor(
-            Guid.NewGuid(), request.Path, kind, features, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
-            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, ["A note."], CacheIdentity,
+            NextSnapshotId ?? Guid.NewGuid(), request.Path, kind, features, "App", 42, "10.0.13", CapturedAt?.Invoke(request.Path),
+            1000, 3000, 10, 5, 48_000, SnapshotMemoryMode.InMemory, false, request.Path + ".hsidx", 1.5, OpenNotes, CacheIdentity,
             CaptureTimeFromFile?.Invoke(request.Path) ?? false, AvailabilityOf(kind, features)));
     }
 

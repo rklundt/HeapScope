@@ -38,7 +38,8 @@
       <Button ctl:ButtonIcon.Icon="Bookmark" x:Name="BookmarkButton" DockPanel.Dock="Right" Content="Bookmark" Margin="0,0,6,0" VerticalAlignment="Top"
               Command="{Binding $parent[pages:SnapshotsPage].((vm:SnapshotsViewModel)DataContext).ToggleBookmarkCommand}"
               ToolTip.Tip="Mark this object, or remove its mark (Ctrl+D or Cmd+D). Bookmarks are listed on the left and kept for the next time the snapshot is opened." />
-      <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+      <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.Object}" Margin="0,0,6,0" />
+      <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" VerticalAlignment="Center" />
     </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" />
     <Border DockPanel.Dock="Top" Classes="info" IsVisible="{Binding FieldsUnavailable, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -48,7 +49,8 @@
              IsVisible="{Binding Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     <Grid ColumnDefinitions="*,8,*">
       <DockPanel Grid.Column="0">
-        <TextBlock DockPanel.Dock="Top" Text="Fields" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <TextBlock DockPanel.Dock="Top" Text="Fields" FontWeight="SemiBold" Margin="0,0,0,4"
+                   ToolTip.Tip="This object's fields, or an array's elements; a link opens the object it points to. A gcdump has no field values, and the view says so." />
         <TreeView x:Name="FieldsTree" ItemsSource="{Binding Fields}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
           <TreeView.Styles>
             <Style Selector="TreeViewItem" x:DataType="vm:FieldNode">
@@ -71,8 +73,10 @@
       </DockPanel>
       <!-- Outgoing references (1.5) and the objects referencing this one (2.1, loaded when its tab is first shown). -->
       <TabControl Grid.Column="2" SelectedIndex="{Binding ReferencesTab, Mode=TwoWay}">
+        <!-- Sprint 3.11: the tab's icon sits in its content, not its header, where Tab cannot reach it. -->
         <TabItem Header="Outgoing">
           <DockPanel Margin="0,4,0,0">
+            <ctl:InfoIcon DockPanel.Dock="Top" HorizontalAlignment="Left" Text="{x:Static vm:InfoTexts.ObjectOutgoing}" Margin="0,0,0,4" />
             <TextBlock DockPanel.Dock="Top" Text="{Binding ReferencesTotals}" Margin="0,0,0,4" Classes="subtle" />
             <DataGrid x:Name="ReferencesGrid" ctl:GridExports.ExportName="References" CanUserSortColumns="False"
                       ctl:GridBehaviors.Rows="{Binding ReferenceRows}" ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
@@ -86,8 +90,10 @@
             </DataGrid>
           </DockPanel>
         </TabItem>
+        <!-- Sprint 3.11: the tab's icon sits in its content, not its header, where Tab cannot reach it. -->
         <TabItem Header="Incoming">
           <DockPanel Margin="0,4,0,0">
+            <ctl:InfoIcon DockPanel.Dock="Top" HorizontalAlignment="Left" Text="{x:Static vm:InfoTexts.ObjectIncoming}" Margin="0,0,0,4" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingTotals}" Margin="0,0,0,4" Classes="subtle" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding IncomingStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <DataGrid x:Name="IncomingGrid" ctl:GridExports.ExportName="Referrers" CanUserSortColumns="False"
@@ -98,14 +104,20 @@
                 <DataGridTextColumn Header="Address" x:DataType="vm:ReferrerRowItem" Binding="{Binding AddressText}" Width="140" CellStyleClasses="address" />
                 <DataGridTextColumn Header="Type" x:DataType="vm:ReferrerRowItem" Binding="{Binding Type}" Width="*" MinWidth="240" />
                 <DataGridTextColumn Header="Bytes" x:DataType="vm:ReferrerRowItem" Binding="{Binding Bytes, StringFormat='{}{0:N0}'}" Width="90" CellStyleClasses="number" />
-                <DataGridTextColumn Header="Refs" x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
+                <DataGridTextColumn x:DataType="vm:ReferrerRowItem" Binding="{Binding References, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number">
+                  <DataGridTextColumn.Header>
+                    <TextBlock Text="Refs" ToolTip.Tip="How many of that object's references point at this one." />
+                  </DataGridTextColumn.Header>
+                </DataGridTextColumn>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
         </TabItem>
         <!-- Sprint 2.2: why the object is alive, loaded when the tab is first shown. -->
+        <!-- Sprint 3.11: the tab's icon sits in its content, not its header, where Tab cannot reach it. -->
         <TabItem Header="Retention">
           <DockPanel Margin="0,4,0,0">
+            <ctl:InfoIcon DockPanel.Dock="Top" HorizontalAlignment="Left" Text="{x:Static vm:InfoTexts.ObjectRetention}" Margin="0,0,0,4" />
             <ctl:NoteText DockPanel.Dock="Top" Text="{Binding RetentionStatus}" Margin="0,0,0,4" TextWrapping="Wrap" Classes="subtle" />
             <!-- Sprint 2.3: the retained size and the immediate dominator, a link to open it. -->
             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4"
@@ -113,14 +125,14 @@
               <TextBlock Text="{Binding RetainedSummary}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,4,0" />
               <HyperlinkButton Content="{Binding DominatorText}" Padding="0" VerticalAlignment="Center"
                                Command="{Binding OpenCommand}" CommandParameter="{Binding DominatorAddress}"
-                               IsVisible="{Binding DominatorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                               ToolTip.Tip="Open the immediate dominator: the closest object every path from a root to this one passes through" />
+                               IsVisible="{Binding DominatorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </WrapPanel>
-            <CheckBox DockPanel.Dock="Top" Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" Margin="0,0,0,4"
-                      ToolTip.Tip="Runs of System and Microsoft objects between other steps are folded into one line unless shown." />
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+              <CheckBox Content="Show framework steps" IsChecked="{Binding ShowFrameworkSteps, Mode=TwoWay}" />
+              <ctl:InfoIcon Text="{x:Static vm:InfoTexts.ObjectRetentionDetails}" VerticalAlignment="Center" />
+            </StackPanel>
             <DataGrid x:Name="KeyPathsGrid" ctl:GridExports.ExportName="KeyRetentionPaths" DockPanel.Dock="Top" ItemsSource="{Binding KeyPaths}" CanUserSortColumns="False" MaxHeight="140" Margin="0,0,0,6"
-                      ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}"
-                      ToolTip.Tip="Key paths among the roots found. Double-click or Enter opens the root's object.">
+                      ctl:GridBehaviors.OpenCommand="{Binding OpenCommand}">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Roots" x:DataType="vm:KeyPathItem" Binding="{Binding Objects, StringFormat='{}{0:N0}'}" Width="60" CellStyleClasses="number" />
                 <DataGridTextColumn Header="Root" x:DataType="vm:KeyPathItem" Binding="{Binding Root}" Width="*" MinWidth="240" />

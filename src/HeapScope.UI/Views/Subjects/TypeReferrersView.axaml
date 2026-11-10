@@ -30,13 +30,16 @@
              x:Class="HeapScope.UI.Views.Subjects.TypeReferrersView"
              x:DataType="vm:TypeReferrersViewModel">
   <DockPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Totals}" Margin="0,0,0,6" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+      <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.Referrers}" Margin="0,0,6,0" />
+      <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Classes="subtle" TextTrimming="CharacterEllipsis" />
+    </DockPanel>
     <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" Margin="0,0,0,4" TextWrapping="Wrap" />
     <DataGrid x:Name="TypeReferrersGrid" ctl:GridExports.ExportName="TypeReferrers" CanUserSortColumns="True"
               ctl:GridBehaviors.Rows="{Binding Rows}"
               ctl:GridBehaviors.SortCommand="{Binding SortByCommand}" ctl:GridBehaviors.SortState="{Binding SortState}"
               ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-              ToolTip.Tip="Double-click or Enter opens the objects of the referencing type.">
+              ToolTip.Tip="Objects counts the referencing objects, References their references to this type, and Targets the objects of this type they reach. Double-click or Enter opens the objects of the referencing type.">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Referencing type" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding TypeName}" Width="*" MinWidth="240" SortMemberPath="Type" />
         <DataGridTextColumn Header="Module" x:DataType="vm:TypeReferrerRowItem" Binding="{Binding Module}" Width="180" SortMemberPath="Module" />

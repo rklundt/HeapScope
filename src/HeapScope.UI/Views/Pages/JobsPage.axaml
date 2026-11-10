@@ -30,7 +30,10 @@
              x:DataType="vm:JobsPageViewModel">
   <DockPanel Margin="4">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-      <TextBlock Classes="pageTitle" Text="Jobs" />
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Classes="pageTitle" Text="Jobs" VerticalAlignment="Center" />
+        <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Jobs}" />
+      </StackPanel>
       <Button Content="Clear finished" Margin="16,0,0,0" Command="{Binding ClearFinishedCommand}" />
     </StackPanel>
     <Grid>

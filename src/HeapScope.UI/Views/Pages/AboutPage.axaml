@@ -30,14 +30,17 @@
              x:DataType="vm:AboutViewModel">
   <ScrollViewer>
   <StackPanel Margin="4">
-    <TextBlock Classes="pageTitle" Text="About" Margin="0,0,0,12" />
+    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,12">
+      <TextBlock Classes="pageTitle" Text="About" VerticalAlignment="Center" />
+      <ctl:InfoIcon Text="{x:Static vm:InfoTexts.About}" />
+    </StackPanel>
     <TextBlock Text="{Binding ProductVersion}" />
     <SelectableTextBlock Margin="0,8,0,0" Text="{Binding Environment}" TextWrapping="Wrap" Classes="subtle" />
     <SelectableTextBlock Margin="0,4,0,0" Text="{Binding LogFolder, StringFormat='Logs: {0}'}" TextWrapping="Wrap" Classes="subtle"
                          IsVisible="{Binding LogFolder, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     <SelectableTextBlock Margin="0,8,0,0" Text="{Binding WorkerDetails}" TextWrapping="Wrap" />
     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-      <Button Content="Query worker" Command="{Binding RefreshCommand}" />
+      <Button Content="Query worker" Command="{Binding RefreshCommand}" ToolTip.Tip="Asks the analysis worker for its version, protocol, process id, garbage collector mode and memory use." />
       <Button ctl:ButtonIcon.Icon="Copy" Content="Copy details" Command="{Binding CopyDetailsCommand}"
               ToolTip.Tip="Copies the versions, the system and the log folder, for a support request. Nothing is sent anywhere." />
     </StackPanel>
@@ -50,8 +53,9 @@
                  Text="Run a synthetic graph job to exercise the analysis worker, progress and cancellation." />
       <StackPanel Orientation="Horizontal">
         <TextBlock Text="Objects" VerticalAlignment="Center" Margin="0,0,8,0" />
-        <TextBox Width="140" Text="{Binding ObjectCount}" />
-        <Button Content="Run synthetic job" Margin="8,0,0,0" Command="{Binding RunSyntheticCommand}" />
+        <TextBox Width="140" Text="{Binding ObjectCount}" ToolTip.Tip="Builds a made-up object graph in the worker, to test the worker, its progress and cancellation; it is not needed for analysis. Objects must be between 0 and 100,000,000." />
+        <Button Content="Run synthetic job" Margin="8,0,0,0" Command="{Binding RunSyntheticCommand}"
+                ToolTip.Tip="Builds a made-up object graph in the worker, to test the worker, its progress and cancellation; it is not needed for analysis. Objects must be between 0 and 100,000,000." />
       </StackPanel>
       <TextBlock Margin="0,8,0,0" Text="{Binding LastResult}" TextWrapping="Wrap" />
     </StackPanel>

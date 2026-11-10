@@ -25,7 +25,7 @@
     `/proc` for discovery) is a backlog item.
   - Some tests depend on Windows file semantics (an open or mapped file cannot be deleted or replaced there; it can on
     Linux and macOS) or Windows paths; they skip off Windows.
-- Prototype (`spikes/AvaloniaGrid`, outside the solution, Small dump): Avalonia 12.1.4 with the Fluent theme and the
+- Prototype (`spikes/AvaloniaGrid`, outside the solution, removed in 2.3.6, Small dump): Avalonia 12.1.4 with the Fluent theme and the
   free DataGrid 12.1.2, showing the types grid and a type's objects through the real `SnapshotSession` and the existing
   view models (linked, not copied).
   - The DataGrid copies its source into its own list and enumerates it to find the item type, which defeats
@@ -33,7 +33,7 @@
     `IEnumerable<TRow>`, avoids both: zero enumerations, private memory 540 MB down to 197 MB.
   - With it: scrolling stalls at most 36 ms; the first showing of a grid 108 to 162 ms (WPF's smoke run: 140 ms).
   - Sorting and the filter work through the view models unchanged; the WPF-only part was the render yield, now
-    `TaskSchedulerExtensions.RenderYield`, set by the UI.
+    `IUiDispatcher.YieldToRenderAsync`, which the UI implements.
 - A dump is read by a worker of the system and architecture that took it (review): ClrMD loads the DAC into the
   worker's process, and HeapScope does not search cross-system DACs. So HeapScope ships a worker per runtime identifier
   (`win-x64`, `linux-x64`, `osx-arm64`, `osx-x64`); opening a dump of another system or architecture fails with a

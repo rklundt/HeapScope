@@ -35,7 +35,8 @@
     <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
       <Button DockPanel.Dock="Right" Content="{x:Static dto:ValueBoundTexts.SetAction}" Command="{Binding RetainedCommand}"
               ToolTip.Tip="What the set's objects keep alive together, exactly, on the Retainers tab." />
-      <TextBlock Text="Set" Classes="subtle" VerticalAlignment="Center" Margin="0,0,6,0" />
+      <TextBlock DockPanel.Dock="Left" Text="Set" Classes="subtle" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.Set}" Margin="0,0,6,0" />
       <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
     </DockPanel>
 
@@ -61,6 +62,7 @@
       <!-- Generations: the set's objects and bytes per heap kind, from its Types query. -->
       <Panel IsVisible="{Binding IsGenerationsShown}">
         <StackPanel DataContext="{Binding Types}" x:DataType="vm:TypeSummaryViewModel">
+          <ctl:InfoIcon Text="{x:Static vm:InfoTexts.SetGenerations}" HorizontalAlignment="Left" Margin="0,0,0,4" />
           <ctl:NoteText Text="{Binding GenerationsExplanation}" TextWrapping="Wrap" Classes="subtle" Margin="0,0,0,6" />
           <ItemsControl ItemsSource="{Binding HeapKinds}">
             <ItemsControl.ItemTemplate>
@@ -81,13 +83,14 @@
       <!-- Dominators: the members no other member holds, with what each retains. -->
       <Panel IsVisible="{Binding IsDominatorsShown}">
         <DockPanel DataContext="{Binding Dominators}" x:DataType="vm:SetDominatorsViewModel">
+          <ctl:InfoIcon DockPanel.Dock="Top" Text="{x:Static vm:InfoTexts.SetDominators}" HorizontalAlignment="Left" Margin="0,0,0,4" />
           <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,0,8,4" />
           <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
           <DataGrid x:Name="SetDominatorsGrid" ctl:GridExports.ExportName="SetDominators" CanUserSortColumns="False"
                     ctl:GridBehaviors.ResultColumns="{Binding Columns}"
                     ctl:GridBehaviors.Rows="{Binding Rows}"
                     ctl:GridBehaviors.OpenCommand="{Binding OpenRowCommand}"
-                    ToolTip.Tip="Double-click or Enter opens the object; right-click shows it in the dominator tree.">
+                    ToolTip.Tip="Retained is what the object keeps alive, other set members included, and Members counts the other members below it. Double-click or Enter opens the object; right-click shows it in the dominator tree.">
             <DataGrid.ContextMenu>
               <ContextMenu>
                 <MenuItem Header="Show in dominator tree" Command="{Binding ShowInRetainersCommand}" CommandParameter="{Binding #SetDominatorsGrid.SelectedItem}" />
@@ -106,15 +109,17 @@
       <Panel IsVisible="{Binding IsSimilarRetentionShown}">
         <DockPanel DataContext="{Binding SimilarRetention}" x:DataType="vm:SimilarRetentionViewModel">
           <DockPanel DockPanel.Dock="Top" Margin="0,0,8,6">
-            <CheckBox DockPanel.Dock="Right" Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" />
+            <CheckBox DockPanel.Dock="Right" Content="Show framework steps" IsChecked="{Binding ShowFramework, Mode=TwoWay}" VerticalAlignment="Center"
+                      ToolTip.Tip="Shows every step of each path. When off, runs of framework types (System, Microsoft and similar) between your own steps fold away." />
+            <ctl:InfoIcon DockPanel.Dock="Left" Text="{x:Static vm:InfoTexts.SetSimilarRetention}" Margin="0,0,6,0" />
+            <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" Classes="subtle" VerticalAlignment="Center" />
           </DockPanel>
           <ctl:NoteText DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,4" />
           <Grid RowDefinitions="*,Auto,*">
             <DataGrid x:Name="SimilarRetentionGrid" ctl:GridExports.ExportName="SimilarRetention" ItemsSource="{Binding Groups}"
                       SelectedItem="{Binding Selected, Mode=TwoWay}" CanUserSortColumns="False"
                       ctl:GridBehaviors.OpenCommand="{Binding OpenGroupCommand}"
-                      ToolTip.Tip="Double-click or Enter opens the group as a set; right-click opens its first object.">
+                      ToolTip.Tip="Paths counts the distinct paths a group has, and at most the two most different are listed. Double-click or Enter opens the group as a set; right-click offers an example object.">
               <DataGrid.ContextMenu>
                 <ContextMenu>
                   <MenuItem Header="Open as set" Command="{Binding OpenGroupCommand}" CommandParameter="{Binding #SimilarRetentionGrid.SelectedItem}" />

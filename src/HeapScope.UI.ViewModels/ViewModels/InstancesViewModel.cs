@@ -172,6 +172,9 @@ public sealed partial class InstancesViewModel : GridQueryViewModel<InstanceRowI
     /// <summary>The object set whose members are listed (sprint 3.1); null for a type's objects.</summary>
     public ObjectSetQuery? Set { get; }
 
+    /// <summary>What the info icon says: this view shows a type's objects or a set's.</summary>
+    public string InfoText => Set is null ? InfoTexts.Instances : InfoTexts.SetInstances;
+
     /// <summary>The set's title, with <see cref="Set"/>.</summary>
     public string? SetTitle { get; }
 

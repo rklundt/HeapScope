@@ -46,7 +46,7 @@ public static class PlatformHints
         : "Watching a process live needs Windows. Take a dump with dotnet-dump, then open it here.";
 
     public static string SnapshotEmptyOn(bool canCapture) => canCapture
-        ? "Open a full memory dump (.dmp) to see what is on the heap, or capture one on the Processes page."
+        ? "Open a dump (.dmp, .gcdump or a core dump) to see what is on the heap, or capture one on the Processes page."
         : "Open a full memory dump to see what is on the heap. Take one with dotnet-dump collect --process-id <pid> --type Full.";
 
     public static string LiveEmptyOn(bool canCapture) => canCapture

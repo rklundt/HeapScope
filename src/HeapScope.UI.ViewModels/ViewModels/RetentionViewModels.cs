@@ -235,6 +235,9 @@ public sealed partial class TypePathsViewModel : ObservableObject, INavigationSu
     /// <summary>Whether these are a set's paths (no type of their own).</summary>
     public bool IsSet => _set is not null;
 
+    /// <summary>What the info icon says: this view shows a type's paths or a set's.</summary>
+    public string InfoText => IsSet ? InfoTexts.SetPaths : InfoTexts.WhyAlive;
+
     /// <summary>The navigation title.</summary>
     public string Title => "Why alive: " + (_setTitle ?? (string.IsNullOrEmpty(Module) ? TypeName : $"{TypeName} [{Module}]"));
 

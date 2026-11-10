@@ -40,7 +40,8 @@
         <WrapPanel Margin="0,0,0,8">
           <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,0,10,0" VerticalAlignment="Center" />
           <TextBlock Text="{Binding Process}" Classes="subtle" FontSize="12" Margin="0,0,10,0" VerticalAlignment="Center" />
-          <TextBlock Text="{Binding Source}" Classes="subtle" FontSize="12" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding Source}" Classes="subtle" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
+          <ctl:InfoIcon Text="{x:Static vm:InfoTexts.SnapshotTab}" />
         </WrapPanel>
         <WrapPanel>
           <Border Classes="tile"><StackPanel><TextBlock Text="Objects" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Objects}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
@@ -48,6 +49,7 @@
           <Border Classes="tile"><StackPanel><TextBlock Text="Types" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Types}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
           <Border Classes="tile"><StackPanel><TextBlock Text="References" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding References}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
           <Border Classes="tile"><StackPanel><TextBlock Text="Roots" Classes="subtle" FontSize="11" /><TextBlock Text="{Binding Roots}" FontSize="15" FontWeight="SemiBold" /></StackPanel></Border>
+          <ctl:InfoIcon Text="{x:Static vm:InfoTexts.SnapshotTotals}" VerticalAlignment="Center" />
         </WrapPanel>
         <Border Classes="note" IsVisible="{Binding HasNotes}">
           <ItemsControl ItemsSource="{Binding Notes}">

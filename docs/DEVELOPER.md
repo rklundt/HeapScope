@@ -119,7 +119,7 @@ dotnet test --solution HeapScope.sln
   references) are printed to stderr for each side, and in the JSON, which also carries `BaselineKind`, `CurrentKind`,
   `BaselineIncludesUnreachable` and `CurrentIncludesUnreachable` (`IncludesUnreachable` is true only when both are,
   sprint 1.9). Since 3.3: `--match-objects` adds New and Dead objects per row, matched by address, type, size and heap
-  area, only for two complete full dumps of one run of a process (otherwise stderr says why and the columns are left
+  area (an unpinned object must also be in no younger generation), only for two complete full dumps of one run of a process (otherwise stderr says why and the columns are left
   out; ADR-032). For New and Dead do not force a GC between the two dumps (it moves most objects): that is the
   opposite of the growth gate's advice above, so use one capture procedure per question; `--retained` adds each row's retained
   lower bound in both dumps and the delta; `--sort new|dead|retained-delta|gen2-delta`; `--growth-of gen0|gen1|gen2|loh|poh`
@@ -159,8 +159,8 @@ dotnet test --solution HeapScope.sln
   An unknown type or an address with no object exits 1, `--max` out of range exits 64; a snapshot whose index cache
   predates format version 2 is rebuilt once on open.
   `retainers <snapshot> [--address <hex>] [--group none|type|namespace] [--depth 0-5] [--top 1-1000] [--format
-  table|csv|json]` (sprint 2.4) prints the biggest retainers, the top of the dominator tree (each row's retained bytes are
-  exact: siblings never share), with `--depth` levels expanded below each of the `--top` biggest rows; with `--address`,
+  table|csv|json]` (sprint 2.4) prints the biggest retainers, the top of the dominator tree (an object row's retained bytes are
+  exact; a group's or a "more" row's add up its members', a lower bound of what they keep alive together), with `--depth` levels expanded below each of the `--top` biggest rows; with `--address`,
   the tree below that object and its dominators from the top. `retained-by <snapshot> <type> [--module <file>] [--top N
   | --all] [--format table|csv|json]` prints what every object of the type keeps alive together, exactly, by type,
   with the summary's lower bound beside it (the reachable members, and how many no root reaches, which retain nothing).
@@ -417,6 +417,12 @@ of debuggable code) and exit when the process given as parent exits.
   `dismiss`, `link`. A number column sets `CellStyleClasses="number"`, which right-aligns its header too; a star column sets
   `MinWidth` (`GridLayoutTests`). Icons are in `Themes/Icons.axaml`: `ctl:DuotoneIcon`, or `ctl:ButtonIcon.Icon` on a button.
   An empty page or grid shows `ctl:EmptyState`, which says what to do next.
+- **Info icons** (sprint 3.11, ADR-040): a new page, tab or view gets a `ctl:InfoIcon` beside its title, and a new group of
+  settings one beside its heading, with the text in `InfoTexts`; a new single button or input gets a tooltip that says what
+  it needs (a style in `Themes/Styles.axaml` shows it on a disabled button, menu item, combo box or text box too). The product owner approves the wording first: add the row to `docs/design/info-text.md` (Table 1, 2 or 3), checked
+  against the code, and build it once approved. `InfoIconTests` holds the screens to that file word for word, and fails for a
+  view under `Views/Pages` or `Views/Subjects` with no icon unless it is named there with its reason. A change to what a page or
+  setting does is checked against its text, and a changed text goes back to the owner.
 - **Dependencies**: check the license before adding one. MIT, BSD, Apache-2.0, LGPL, GPLv3 and AGPLv3 are fine;
   anything else (GPLv2 only, proprietary, SSPL, non-commercial, unlicensed) needs the product owner first. A package
   that only arrives as a dependency counts too. The SIL Open Font License is allowed for fonts only (product owner,
