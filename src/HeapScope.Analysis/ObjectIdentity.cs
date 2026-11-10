@@ -43,7 +43,7 @@ public sealed class ObjectIdentity
     private readonly ulong[] _survivedInCurrent;
     private readonly ulong[] _survivedInBaseline;
 
-    private ObjectIdentity(ulong[] survivedInCurrent, ulong[] survivedInBaseline, long survivors, long reused, long frozen, long frozenSurvivors, long pinnedYounger)
+    private ObjectIdentity(ulong[] survivedInCurrent, ulong[] survivedInBaseline, long survivors, long reused, long frozen, long frozenSurvivors, long pinnedYounger, long youngerUnpinned)
     {
         _survivedInCurrent = survivedInCurrent;
         _survivedInBaseline = survivedInBaseline;
@@ -52,12 +52,16 @@ public sealed class ObjectIdentity
         BaselineFrozen = frozen;
         FrozenSurvivors = frozenSurvivors;
         PinnedYoungerSurvivors = pinnedYounger;
+        YoungerUnpinned = youngerUnpinned;
     }
 
     /// <summary>Objects matched on both sides.</summary>
     public long Survivors { get; }
 
-    /// <summary>Addresses holding an object on both sides that is not the same one (another type, size, area or method table).</summary>
+    /// <summary>
+    /// Addresses holding an object on both sides that is not the same one: another type, size, area or method table. Objects
+    /// that differ only in being in a younger generation, unpinned, are counted apart (<see cref="YoungerUnpinned"/>).
+    /// </summary>
     public long ReusedAddresses { get; }
 
     /// <summary>Frozen objects of the baseline: in one run of a process they never move or die.</summary>
@@ -68,6 +72,12 @@ public sealed class ObjectIdentity
 
     /// <summary>Survivors in a younger generation than before, matched only because a root pins them (M13 of the 3.11 review).</summary>
     public long PinnedYoungerSurvivors { get; }
+
+    /// <summary>
+    /// Addresses whose objects match in all but the generation: younger now and pinned by no root, so counted as dead and new.
+    /// A new object at a reused address and an unpinned object the GC demoted look the same here (M14 of the 3.11 review).
+    /// </summary>
+    public long YoungerUnpinned { get; }
 
     /// <summary>Memory one match of these graphs takes: a bit per object of each.</summary>
     public static long WorkingBytes(HeapGraph baseline, HeapGraph current) =>
@@ -97,7 +107,7 @@ public sealed class ObjectIdentity
         var currentKinds = current.HeapKinds.Span;
         var baseTables = baseline.Types.MethodTables.Span;
         var currentTables = current.Types.MethodTables.Span;
-        long survivors = 0, reused = 0, frozen = 0, frozenSurvivors = 0, pinnedYounger = 0;
+        long survivors = 0, reused = 0, frozen = 0, frozenSurvivors = 0, pinnedYounger = 0, youngerUnpinned = 0;
         for (var o = 0; o < baseKinds.Length; o++)
         {
             if ((o & 0xFFFF) == 0)
@@ -132,11 +142,18 @@ public sealed class ObjectIdentity
 
             var (bt, ct) = (baseTypes[b], currentTypes[c]);
             var younger = Younger(currentKinds[c], baseKinds[b]);
-            if (baselineKeys[bt] == currentKeys[ct]
-                && baseTables[bt] == currentTables[ct]
-                && Area(baseKinds[b]) == Area(currentKinds[c])
-                && (!younger || PinnedByRoot(baseline, b) || PinnedByRoot(current, c))
-                && baseline.GetSize(b) == current.GetSize(c))
+            if (baselineKeys[bt] != currentKeys[ct]
+                || baseTables[bt] != currentTables[ct]
+                || Area(baseKinds[b]) != Area(currentKinds[c])
+                || baseline.GetSize(b) != current.GetSize(c))
+            {
+                reused++;
+            }
+            else if (younger && !PinnedByRoot(baseline, b) && !PinnedByRoot(current, c))
+            {
+                youngerUnpinned++;
+            }
+            else
             {
                 if (younger)
                 {
@@ -151,13 +168,9 @@ public sealed class ObjectIdentity
                     frozenSurvivors++;
                 }
             }
-            else
-            {
-                reused++;
-            }
         }
 
-        return new ObjectIdentity(inCurrent, inBaseline, survivors, reused, frozen, frozenSurvivors, pinnedYounger);
+        return new ObjectIdentity(inCurrent, inBaseline, survivors, reused, frozen, frozenSurvivors, pinnedYounger, youngerUnpinned);
     }
 
     /// <summary>New objects per type index of the current snapshot (no match in the baseline).</summary>

@@ -90,8 +90,9 @@ public sealed class ComparisonTests
         var identity = ObjectIdentity.Match(baseline, current, Ct);
 
         // Only the first (same everything) and the third (promoted from Gen0 to Gen2) survive; the second got younger, the
-        // fourth has another method table, the last another size (it is last, so the others keep their addresses).
-        (identity.Survivors, identity.ReusedAddresses).ShouldBe((2L, 3L));
+        // fourth has another method table, the last another size (it is last, so the others keep their addresses). The one that
+        // differs only in its generation is counted apart from the reused addresses (M14 of the 3.11 review).
+        (identity.Survivors, identity.YoungerUnpinned, identity.ReusedAddresses).ShouldBe((2L, 1L, 2L));
         Enumerable.Range(0, 5).Select(identity.SurvivedInCurrent).ShouldBe([true, false, true, false, false]);
     }
 
@@ -116,7 +117,7 @@ public sealed class ComparisonTests
 
         var identity = ObjectIdentity.Match(baseline, current, Ct);
 
-        (identity.Survivors, identity.PinnedYoungerSurvivors, identity.ReusedAddresses).ShouldBe((2L, 2L, 1L));
+        (identity.Survivors, identity.PinnedYoungerSurvivors, identity.YoungerUnpinned, identity.ReusedAddresses).ShouldBe((2L, 2L, 1L, 0L));
         Enumerable.Range(0, 3).Select(identity.SurvivedInCurrent).ShouldBe([true, true, false]);
         Enumerable.Range(0, 3).Select(identity.SurvivedInBaseline).ShouldBe([true, true, false]);
     }

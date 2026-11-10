@@ -56,7 +56,9 @@ references such as "ARCHITECTURE.md 11" still name the right section.
   "+N smaller" groups are not logged: they depend on the window's width and are made in the view, from the bars the icicle query
   logged; the worker sends no bar under 0.1 percent of the top bar. Info icons and tooltips log nothing. The object matching
   line of a comparison also counts its survivors that are pinned and in a younger generation than before, which match only
-  because a root pins them (review finding M13).
+  because a root pins them (review finding M13), and the addresses whose objects differ only in being in a younger generation,
+  unpinned, which count as dead and new: a new object at a reused address or an unpinned object the GC demoted, which the
+  match cannot tell apart. The rest of the reused addresses hold another type, size, area or method table (M14).
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
   sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
   and never the user's filter text (logged by its shape: length and term counts): `Provenance` writes any other text by its length only, and

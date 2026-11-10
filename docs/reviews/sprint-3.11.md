@@ -92,7 +92,7 @@ Status of the fixes (2026-11-09):
   (fails without the change). No real dump fixture: a demotion cannot be caused on demand. support-engineer confirmed the
   Survived count and the privacy of the log line, but not the fix as a whole: it raised M14. Confirmed by gc-specialist
   against the CLR (pinned handles, pinned and interior stack roots, the gcdump path), which also confirmed the built rewording
-  word for word against Tables 1 to 3, closing L32.
+  word for word against Tables 1 to 3, closing L32. M14 fixed (below); its confirmation pending.
 - M7: in `docs/BACKLOG.md`, confirmed by solution-architect.
 
 - **M1. Opening a dump again replaces its row, with side effects** (support-engineer, solution-architect, senior-dev).
@@ -143,7 +143,11 @@ Status of the fixes (2026-11-09):
   as dead and new), lands there too, so support cannot tell it from a real type or size mismatch when a user contests a New or
   Dead count. Suggested: count matches that fail only the generation test on their own, log them beside the pinned count,
   reword the rest as "addresses holding another type, size, area or method table", and extend the M13 test and logging.md.
-  Decision: pending the product owner.
+  Decision: fix now (product owner, 2026-11-10).
+  Fix: `ObjectIdentity.YoungerUnpinned` counts addresses whose objects match in all but a younger generation, unpinned, apart
+  from `ReusedAddresses`; the object matching log line gives both, the rest as "addresses holding another type, size, area or
+  method table". logging.md says what the new count can and cannot tell. Both identity tests assert the counts and fail when
+  the case goes back under reused.
 - **M12. ShowOpened's condition is broader than a refused reopen** (support-engineer). After a silent successful reopen the row's
   id is stale too, so a later open replaces the row and logs "shown afresh" when nothing was refused. Suggested: fold into M1.
 
