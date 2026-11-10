@@ -44,7 +44,7 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
 | 3.9 | Packaging and distribution | Closed | 2026-11-01 | sprint-3.9 |
 | 3.10 | Visual design and README | Closed | 2026-11-05 | sprint-3.10 |
-| 3.11 | Screens that explain themselves | In Progress | | |
+| 3.11 | Screens that explain themselves | Wrapping | | |
 | 3.12 | First-show performance and refactor analysis | Planned | | |
 
 ---
@@ -123,7 +123,8 @@ the rounds that confirmed the fixes.
   counts objects that differ only in a younger generation apart from reused addresses (M14).
 - Deferred to the Backlog: a wording test that checks placement, not only presence (M7), and marking group rows' retained bytes as a
   lower bound on screen (M6).
-- Measured: the icicle geometry lays out 20,000 segments in about 9 ms. Tests at wrap: TOTALS_AT_WRAP.
+- Measured: the icicle geometry lays out 20,000 segments in about 9 ms. Tests at wrap (Release, 2026-11-10): 1,646, 1,641 passed, 5 skipped, 0 failed, with 0 warnings; two
+earlier full runs failed tests that pass alone, and their causes and fixes are in the Backlog's flaky tests entry.
 
 ## Sprint 3.12: First-show performance and refactor analysis
 

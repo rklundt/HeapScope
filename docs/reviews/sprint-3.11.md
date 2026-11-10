@@ -242,3 +242,5 @@ Every tracked .md file was read against the code after the fixes; past review fi
 Also `src/HeapScope.Analysis/Retention/DominatorTreeRows.cs`'s comment, which M6's correction had missed. Left: line numbers in
 info-text.md that drifted by a few lines (the file says they may), ADR-012's historical `gate.ps1`. Not edited: `COMMERCIAL.md`'s
 last line names `THIRD-PARTY-NOTICES` without `.md` (reported to the owner). No em or en dashes in any changed file.
+
+Final run (2026-11-10, Release): 0 warnings; 1,646 tests, 1,641 passed, 5 skipped, 0 failed.
