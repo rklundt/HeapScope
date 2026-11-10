@@ -57,7 +57,7 @@ The [README](../README.md) shows what HeapScope does. This guide covers how each
   `module:name` (or `m:name`) matches the module. Each term is a substring, CamelHumps with capitals (`SCE` finds
   `StaticCacheEntry`), or uses `*` for anything.
 - **CSV export.** Every grid has "Export to CSV..." in its context menu (Ctrl+E or Cmd+E). It writes all rows, not only
-  those on screen. String text and field values are left out unless you say yes for that export.
+  those on screen. String text, field values and command lines are left out unless you say yes for that export.
 - **Jobs.** Long work shows a progress row above the status line while it runs, with Cancel. Finished jobs move to the
   Jobs page; the status line says how many finished and how many failed, and a click on it opens the page.
 - **Keyboard.** F1 lists every shortcut on the About page: Ctrl+1 to 7 (Cmd on macOS) for the pages, Alt+1 to 4 for the Snapshots

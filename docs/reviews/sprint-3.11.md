@@ -223,3 +223,22 @@ Raised while confirming the Moderate fixes:
 - L37. The matching log line's new clause has a comma inside it ("..., unpinned, {Reused} addresses ..."), so its clauses are hard
   to tell apart; semicolons or "unpinned addresses whose objects differ only in a younger generation" would read better
   (support-engineer).
+
+## Markdown sweep (2026-11-10)
+
+Every tracked .md file was read against the code after the fixes; past review files were left as written. Changed:
+- `docs/USER-GUIDE.md`: CSV export also leaves out command lines unless you say yes.
+- `docs/BACKLOG.md`: the key file read under "Built since listed"; the failures of the wrap's full test run with their causes.
+- `docs/SPRINTS.md`: the Phase 3 link names 3.10; the Review summary.
+- `docs/DEVELOPER.md`: the CLI retainers' group and "more" rows are lower bounds (M6); the style for tooltips on disabled
+  controls.
+- `docs/architecture/code-map.md`: the match counts, the key file retry, the 3.11 view model changes, Space on the info icon,
+  the disabled tooltip style, and how "+N smaller" groups really form (two or more neighbors).
+- `docs/architecture/graph-format.md`: a group's retained bytes are a lower bound (M6).
+- `docs/adr/ADR-025`, `ADR-034`, `ADR-036`: renamed or removed code names (`IUiDispatcher.YieldToRenderAsync`,
+  `Reachability.ComputeFromPathRoots` and `Compute`, `IndexCacheSigner.ForThisUser`; the spike folder removed in 2.3.6).
+- `docs/design/info-text.md`: the evidence rows for the text M9 moved (L30); the "Existing text that looks wrong" findings and
+  two "Could not verify" items marked resolved in 3.11. Tables 1 to 3 unchanged.
+Also `src/HeapScope.Analysis/Retention/DominatorTreeRows.cs`'s comment, which M6's correction had missed. Left: line numbers in
+info-text.md that drifted by a few lines (the file says they may), ADR-012's historical `gate.ps1`. Not edited: `COMMERCIAL.md`'s
+last line names `THIRD-PARTY-NOTICES` without `.md` (reported to the owner). No em or en dashes in any changed file.

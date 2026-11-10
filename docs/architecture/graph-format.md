@@ -214,7 +214,8 @@ Code map (sprint 0.2, namespace `HeapScope.Core.Graph`): `HeapGraphBuilder` (`Ad
     children with a heap of k, ties by index, so the order never varies). `DominatorTreeRows` flattens the tree for a
     paged grid: the virtual root's children (the biggest retainers) or a focus object and its children, each expanded
     row's children below it, as objects or grouped by type (with its module) or namespace. Siblings retain disjoint sets,
-    so a group's retained bytes are the exact sum of its members'. A list shows 100 children and a "more" row that sums
+    so a group's retained bytes are the sum of its members', a lower bound of what they keep alive together: what several
+    of them keep alive together is counted in the row above (at the top level, in rows of its own; 3.11 review M6). A list shows 100 children and a "more" row that sums
     the rest; expanding the "more" row shows the next 100. Grouped lists sum only the groups present, an open group's
     largest members are picked from the list without copying it, and each grouping's type tables are built once per
     snapshot. Row keys survive re-runs and a worker restart: an object's is its address (`o:<hex>`), a group's and a "more"

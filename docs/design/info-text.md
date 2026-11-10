@@ -209,7 +209,7 @@ predate the 3.11 review's rewording: where they differ, the tables above hold.
 | InspectionsTab.axaml:84 Leak detectors, Memory waste headings | Leak detectors look for objects that may be kept alive by mistake, and Memory waste for memory used poorly. A finding is a lead to check, not a verdict. | none | InspectionsViewModel.cs:356, README.md:32, PendingAsyncMethodsDetector.cs:124 |
 | InspectionsTab.axaml:112 Fragmentation | Free gaps between live objects, as a share of each heap area, and what is pinned there. Pinned objects stop the runtime closing gaps around them, and a gcdump has no such figures. | none | InspectionsViewModel.cs:86, InspectionsViewModel.cs:89, GraphInspections.cs:394, GraphInspections.cs:398 |
 | InspectionsTab.axaml:134 inspection grid | Double-click or Enter opens the row's objects on the Snapshot tab; a leak detector's row opens them as a set. | "Double-click or Enter opens the row's objects on the Snapshot tab; right-click for what they retain." | InspectionsViewModel.cs:234, InspectionsViewModel.cs:236, InspectionsViewModel.cs:246 |
-| InspectionsTab.axaml:141 row menu | Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it. | none | InspectionsViewModel.cs:253, InspectionsViewModel.cs:280, InspectionsViewModel.cs:295, InspectionsViewModel.cs:314 |
+| InspectionsTab.axaml:153, InspectionsTab.axaml:155, InspectionsTab.axaml:157 row menu items | Open as a set, Show in dominator tree and Objects retained by this set follow the row's objects. The last needs a row with objects behind it. | none | InspectionsViewModel.cs:253, InspectionsViewModel.cs:280, InspectionsViewModel.cs:295, InspectionsViewModel.cs:314 |
 | RetainersTab.axaml:51 Group children by | None lists each object on its own row, while Type or Namespace adds objects up into one row, at the top level too. Rows side by side never share memory, so their retained bytes stay exact. | none | DominatorDtos.cs:30, DominatorDtos.cs:33, DominatorDtos.cs:36, DominatorDtos.cs:41, WorkerDtos.cs:113 |
 | RetainersTab.axaml:52 Biggest retainers | Goes back to the top of the tree: the objects that alone keep the most alive. Shown only after Focus. | "Back to the top of the tree: the objects that alone keep the most alive" | RetainersViewModel.cs:120, RetainersViewModel.cs:370, RetainersTab.axaml:52 |
 | RetainersTab.axaml:64 trail buttons | The objects above the focus in the tree, top first; click one to show the tree below it. A "more" button only stands for those left out of a long trail. | "Show the tree below this dominator" | RetainersViewModel.cs:82, RetainersViewModel.cs:361, RetainersViewModel.cs:423, RetainersTab.axaml:64 |
@@ -250,7 +250,7 @@ predate the 3.11 review's rewording: where they differ, the tables above hold.
 | LivePage.axaml:117 chart legend | Stacks the heap areas as of the last collection, with what was allocated since then on top. A dashed line marks a snapshot and a dotted line a forced collection. | none (text at LivePage.axaml:123) | TimelineLayout.cs:40, HeapSample.cs:65, TimelineChart.cs:135, TimelineChart.cs:144 |
 | AboutPage.axaml:40 Query worker | Asks the analysis worker for its version, protocol, process id, garbage collector mode and memory use. | none | PageViewModels.cs:362, PageViewModels.cs:365 |
 | AboutPage.axaml:41 Copy details | Copies the versions, the system and the log folder to the clipboard, for a support request. Nothing is sent anywhere. | "Copies the versions, the system and the log folder, for a support request. Nothing is sent anywhere." | PageViewModels.cs:354, PageViewModels.cs:355 |
-| AboutPage.axaml:53 Objects, AboutPage.axaml:54 Run synthetic job | Builds a made-up object graph in the worker, to test the worker, its progress and cancellation; it is not needed for analysis. Objects must be between 0 and 100,000,000. | none (text at AboutPage.axaml:50) | PageViewModels.cs:284, PageViewModels.cs:289, AboutPage.axaml:46, AboutPage.axaml:50 |
+| AboutPage.axaml:56 Objects, AboutPage.axaml:57 Run synthetic job | Builds a made-up object graph in the worker, to test the worker, its progress and cancellation; it is not needed for analysis. Objects must be between 0 and 100,000,000. | none (text at AboutPage.axaml:52) | PageViewModels.cs:284, PageViewModels.cs:289, AboutPage.axaml:49, AboutPage.axaml:52 |
 | GridExports.cs:46 Export to CSV (every grid's right-click menu) | Writes all of the grid's rows to a CSV file, not only those on screen. String text, field values and command lines stay out unless you say yes for that export. | none | GridExports.cs:40, GridExport.cs:67, GridExport.cs:114 |
 
 ## Existing text that looks wrong
@@ -259,61 +259,82 @@ Wrong against the code:
 
 - **LivePage.axaml:74, "Record allocations" tooltip.** It says the trace is "opened on the Allocations page when the run stops".
   The run's end only stores the path (LiveViewModel.cs:752). The only call that opens it is behind the Open allocations button
-  (LiveViewModel.cs:424, LivePage.axaml:89).
+  (LiveViewModel.cs:424, LivePage.axaml:89). Resolved in 3.11: the tooltip is gone, and the Snapshot rules icon says to press
+  Open allocations under Past runs (LivePage.axaml:81, InfoTexts.cs:245).
 - **LivePage.axaml:111, "High GC pressure" tooltip.** It says "the last ten intervals". The average covers the last ten samples
-  that had a collection, and idle intervals do not count (SnapshotRules.cs:132, SnapshotRules.cs:190).
+  that had a collection, and idle intervals do not count (SnapshotRules.cs:132, SnapshotRules.cs:190). Resolved in 3.11: the
+  tooltip now says "the last ten samples that had a collection" (LivePage.axaml:122).
 - **LivePage.axaml:68, "then" tooltip.** It says below fires "after the heap falls back under the threshold". The rule re-arms only
-  under 90 percent of the threshold (SnapshotRules.cs:103, SnapshotRules.cs:203).
+  under 90 percent of the threshold (SnapshotRules.cs:103, SnapshotRules.cs:203). Resolved in 3.11: the tooltip is gone, and the
+  Snapshot rules icon says 90 percent (LivePage.axaml:77, InfoTexts.cs:242).
 - **InspectionsTab.axaml:68, baseline tooltip.** It says that with None the growth detectors "report only what is large". That holds
   for Growing static collections (GrowingStaticCollectionsDetector.cs:115). Growing types reports nothing without a baseline
-  (TypeGrowthDetector.cs:79).
+  (TypeGrowthDetector.cs:79). Resolved in 3.11: the tooltip now says Growing types finds nothing with None
+  (InspectionsTab.axaml:72).
 - **PageViewModels.cs:219, Home status text.** "No sessions yet. Capture a process or open a dump to start one." Opening a dump does
   not start a session: StartOpen never touches the session library (SnapshotSession.cs:122). Only captures, monitoring runs and
-  allocation recordings do (CaptureService.cs:170, RunRecord.cs:68, AllocationSession.cs:150).
+  allocation recordings do (CaptureService.cs:170, RunRecord.cs:68, AllocationSession.cs:150). Resolved in 3.11: it now says
+  "Capture a process or watch one live to start one." (PageViewModels.cs:219).
 - **LivePage.axaml:35, Live subtitle.** It says rules "take full dumps". With "as gcdumps" ticked they take gcdumps
-  (LiveViewModel.cs:291).
+  (LiveViewModel.cs:291). Resolved in 3.11: it now says "take dumps" (LivePage.axaml:38).
 - **LivePage.axaml:72, "as gcdumps" tooltip.** It says "Rules capture gcdumps". Get snapshot takes the same kind (MonitorRun.cs:466).
+  Resolved in 3.11: the tooltip is gone; the Snapshot rules icon says "this run's snapshots", and Get snapshot's tooltip says
+  "as set by as gcdumps" (LivePage.axaml:80, InfoTexts.cs:244, LivePage.axaml:58).
 - **USER-GUIDE.md:47, "Group by interface".** It covers the types grid and Compare, then says "An interface row opens as a set." That
   is true of the types grid (TypeSummaryViewModel.cs:312). In Compare only Type grouping gives a row a key
-  (TypeDiff.cs:31), so an interface row answers "Group by type to open a row's objects." (CompareViewModel.cs:460).
+  (TypeDiff.cs:31), so an interface row answers "Group by type to open a row's objects." (CompareViewModel.cs:460). Resolved in
+  3.11: it now says "In the types grid, an interface row opens as a set." (USER-GUIDE.md:55).
 - **CompareTab.axaml:188, trend grid tooltip.** It names a column "GrowthSteps", but the header reads "Growth steps"
-  (ColumnHeaders.cs:45, GridBehaviors.cs:280).
+  (ColumnHeaders.cs:45, GridBehaviors.cs:280). Resolved in 3.11: the tooltip now says "Growth steps" (CompareTab.axaml:207).
 
 Incomplete or overstated, and the drafts say it differently:
 
 - **CompareTab.axaml:70, "New and dead objects" tooltip.** "Only for two snapshots of one process" leaves out that they must be full
   dumps, complete, with the earlier one as baseline (IdentityMatcher.cs:42, IdentityMatcher.cs:47, IdentityMatcher.cs:63,
   SnapshotKinds.cs:216). "By address and type" leaves out size and heap area (ObjectIdentity.cs:32), which the column tooltips at
-  CompareTab.axaml:136 and CompareTab.axaml:141 do mention in part.
+  CompareTab.axaml:136 and CompareTab.axaml:141 do mention in part. Resolved in 3.11: the tooltip is gone, and the Compare options
+  icon names all of these (CompareTab.axaml:74, InfoTexts.cs:198).
 - **CompareTab.axaml:74, Generations tooltip.** "Growth in Gen2 is what stays" is too strong: a full dump also counts unreachable
-  objects not collected yet (SnapshotScopeTexts.cs:40).
+  objects not collected yet (SnapshotScopeTexts.cs:40). Resolved in 3.11: the tooltip is gone, and the Compare options icon says
+  "usually" and why (CompareTab.axaml:76, InfoTexts.cs:200).
 - **TypesView.axaml:81, "Unreachable objects" tooltip.** It says garbage only. The same set also holds objects held only weakly
-  (SnapshotKinds.cs:166, ObjectSetResolver.cs:149).
+  (SnapshotKinds.cs:166, ObjectSetResolver.cs:149). Resolved in 3.11: the tooltip is gone, and the Types options icon names
+  objects held only weakly (TypesView.axaml:81, InfoTexts.cs:176).
 - **TypesView.axaml:78, "Retained sizes" tooltip.** "The bytes each row keeps alive" leaves out that a row's value is a lower bound
   (WorkerDtos.cs:110, TypeSummaryViewModel.cs:465). "Saved with the snapshot" holds only when it has an index cache
-  (SnapshotStore.Dominators.cs:147). The Instances tooltip at InstancesView.axaml:46 repeats the second point.
+  (SnapshotStore.Dominators.cs:147). The Instances tooltip at InstancesView.axaml:46 repeats the second point. Resolved in 3.11:
+  the Types tooltip is gone and the Types options icon says "as a lower bound" (TypesView.axaml:79, InfoTexts.cs:175); the
+  Instances tooltip now says "saved with its index cache, when it has one" (InstancesView.axaml:47).
 - **SnapshotsPage.axaml:55 and USER-GUIDE.md:8, analysis path.** "Every step taken" and "keeps the steps you took" leave out the cap of 30
-  steps, past which older ones close (AnalysisPath.cs:132, AnalysisPath.cs:138).
+  steps, past which older ones close (AnalysisPath.cs:132, AnalysisPath.cs:138). Resolved in 3.11: the tooltip is gone, the
+  Analysis path icon names the cap (SnapshotsPage.axaml:60, InfoTexts.cs:154), and the guide says "your last 30 steps"
+  (USER-GUIDE.md:12).
 - **ObjectView.axaml:120, "Show framework steps" tooltip.** "System and Microsoft objects" is narrower than the rule, which also covers
-  those assemblies by module, netstandard.dll and some Internal names (FrameworkTypes.cs:51).
+  those assemblies by module, netstandard.dll and some Internal names (FrameworkTypes.cs:51). Resolved in 3.11: the tooltip is
+  gone, and the Retention icon says "System, Microsoft and similar" (ObjectView.axaml:131, InfoTexts.cs:181).
 - **CompareTab.axaml:188, trend grid tooltip.** "Oldest first" holds only with real capture times; otherwise the order is open order
-  (TrendViewModel.cs:156, TrendViewModel.cs:157).
+  (TrendViewModel.cs:156, TrendViewModel.cs:157). Resolved in 3.11: the tooltip now names open order (CompareTab.axaml:207).
 - **RetainersTab.axaml:88, "Open as a set" tooltip.** The list "(types, instances, generations, dominators)" leaves out Paths and
-  SimilarRetention (SetViewModel.cs:43, SetViewModel.cs:46).
-- **HomePage.axaml:46, "Clean up" tooltip.** It leaves out that sessions in use are kept too (PageViewModels.cs:156).
+  SimilarRetention (SetViewModel.cs:43, SetViewModel.cs:46). Resolved in 3.11: the list now ends "paths, similar retention"
+  (RetainersTab.axaml:94).
+- **HomePage.axaml:46, "Clean up" tooltip.** It leaves out that sessions in use are kept too (PageViewModels.cs:156). Resolved in
+  3.11: the tooltip is gone, and the Recent sessions icon names sessions in use (HomePage.axaml:49, InfoTexts.cs:145).
 - **PlatformHints.cs:49, Snapshot tab empty text.** It offers only a full dump (.dmp); the picker also takes .gcdump and core dumps
-  (AvaloniaUserInteraction.cs:40).
+  (AvaloniaUserInteraction.cs:40). Resolved in 3.11: it now names .dmp, .gcdump and core dumps (PlatformHints.cs:49).
 - **Shortcuts.cs:97, F5 description.** "Refresh the page (processes, sessions)" leaves out Live's process list (ShellViewModel.cs:240).
+  Resolved in 3.11: it now names Live's process list (Shortcuts.cs:97).
 
 ## Could not verify
 
 The app was not run, so anything below rests on reading only.
 
 - **"Much smaller and quicker to open" (ProcessesPage.axaml:37), "much smaller" (LivePage.axaml:72).** These are claims about file size
-  and speed that no code establishes. Left out of the "As gcdump" and "as gcdumps" drafts.
+  and speed that no code establishes. Left out of the "As gcdump" and "as gcdumps" drafts. Resolved in 3.11: neither claim is on
+  screen any more (ProcessesPage.axaml:39, LivePage.axaml:80).
 - **"Which can take seconds" (TypesView.axaml:78, InstancesView.axaml:46).** Only a code comment says so (TypeSummaryViewModel.cs:199).
   The code shows that a computation runs with progress, not how long it takes. The drafts say "can take a while"; the owner may
-  prefer to drop that too.
+  prefer to drop that too. Resolved in 3.11: the Types tooltip is gone, and the Instances tooltip says "can take a while"
+  (InstancesView.axaml:47).
 - **"A finding is a lead to check, not a verdict" (InspectionsTab headings row).** This comes from README.md:32, and the code backs it in
   only one note I found (PendingAsyncMethodsDetector.cs:124). The README's "it says so where a pattern can also be normal" was not
   confirmed for every detector.

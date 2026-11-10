@@ -11,8 +11,8 @@
   module), framework types (by namespace or module) left out, from 1,000 more and 50% more; both snapshots must have a
   complete graph and exact counts (full dumps: a gcdump names nested types differently and may be sampled), and a
   baseline captured later is not compared. Each row opens its objects as a set. `ObjectSetKind.Unreachable` is the
-  complement of `Reachability.FromPathRoots`, the retention views' roots (ADR-024, finalizer queue included), so no
-  member has a path or retains anything; the leak detectors keep `Reachability.For`, which does not start from the
+  complement of `Reachability.ComputeFromPathRoots`, the retention views' roots (ADR-024, finalizer queue included), so no
+  member has a path or retains anything; the leak detectors keep `Reachability.Compute`, which does not start from the
   finalizer queue (objects waiting for their finalizer are dead for them). Refused for gcdumps and incomplete dumps; its
   log line says how much only the finalizer queue holds. Protocol 19.
 - Consequences: async calls that wait by design (requests in flight, background loops) count too, so the note says to
