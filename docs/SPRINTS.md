@@ -44,7 +44,7 @@ in [sprints/](sprints/): [Phase 0](sprints/phase-0.md), [Phase 1](sprints/phase-
 | 3.8 | Modularity | Closed | 2026-10-30 | sprint-3.8 |
 | 3.9 | Packaging and distribution | Closed | 2026-11-01 | sprint-3.9 |
 | 3.10 | Visual design and README | Closed | 2026-11-05 | sprint-3.10 |
-| 3.11 | Screens that explain themselves | Wrapping | | |
+| 3.11 | Screens that explain themselves | Closed | 2026-11-10 | sprint-3.11 |
 | 3.12 | First-show performance and refactor analysis | Planned | | |
 
 ---
@@ -65,66 +65,8 @@ Closed 2026-11-05; its section is in [sprints/phase-3.md](sprints/phase-3.md) an
 
 ## Sprint 3.11: Screens that explain themselves
 
-**Goal**: every screen says what it does and how to use it, so a developer new to memory profilers can find their way, and the two
-defects the owner saw in 3.10's testing are gone.
-
-**Background**: the product owner tested 3.10 before its merge (2026-11-05) and could not tell what several screens do or how to use
-them. The app has about 104 tooltips, found only by hovering over each control, and most describe a control, not what its page is for.
-
-**Acceptance criteria**:
-- Every page and tab has an info icon saying what it is for, when to use it and how to start.
-- Settings and features whose purpose is not obvious have an info icon too, including beside a control that is disabled.
-- Each opens by hover, click or keyboard, and reads well in both themes.
-- Every text was approved by the owner and checked against the code: no claim the code does not back.
-- After a refused reopen, opening the dump again refreshes the Snapshots page: the row and its notes are current (3.10 review M40).
-- The Retainers chart's narrowest bars are grouped into one bar that says how many it holds and their size (M44).
-- A read of the key file while another process moves it into place no longer fails.
-
-**Decisions** (product owner, 2026-11-05):
-1. Split from the old 3.11: this sprint goes first; first-show performance, the refactor analysis and the older cache fallback move to 3.12.
-2. Every page is covered, starting with Retainers, Live, Inspections and Compare.
-3. An info icon beside each page title, and beside each setting or feature that is not obvious. Hover, click or keyboard opens it, so it
-   works beside a disabled button.
-4. The owner approves the wording first, from a table of every text with the code that backs it (`docs/design/info-text.md`).
-5. Names stay for now (Retainers, Why alive, Focus): the icons explain them, and the owner decides on a list of those that still do not work.
-6. Out: a guided tour or first-run walkthrough, the slower first load, and the flaky tests other than the key file's.
-7. Existing tooltips that the drafting found wrong or incomplete are fixed in this sprint.
-8. The names stay. The Retainers tab gets the subtitle "What is holding or retaining memory".
-9. Settings get one icon per group, not one per field (option B, 2026-11-06): its popup has a line per control, and a single control keeps
-   a tooltip, shown even when it is disabled. The owner approved Tables 2 and 3 on 2026-11-08 with the recommended answers: a group's
-   fields lose their tooltips except two format hints and the filters, and the Retainers chart caption shrinks to one line.
-
-**Task breakdown**:
-1. [x] The wording table: every page, tab, setting and feature, its draft text and the code that backs it. Proof: the owner's mark-up.
-   Table 1 (pages) approved 2026-11-05; Tables 2 (20 group icons) and 3 (43 tooltips) approved 2026-11-08; the review's rewording
-   (14 rows, Table 3 now 44) approved 2026-11-09.
-2. [x] The info icon: one control (`InfoIcon`), one source for its texts, ADR-040 amended. Proof: UI tests that hover, click and keyboard open
-   it and Escape closes it, its accessible name, its contrast in both themes (`ThemeTests`), and that it opens beside a disabled button.
-3. [x] Page info on every page and tab. Proof: a test that walks the pages and finds each one's icon and text; no binding errors; captures.
-4. [x] Setting and feature info, as the approved table lists them; tooltips that now repeat it go. Proof: a test that every approved row
-   is on its view; captures.
-5. [x] The Snapshots page refresh (M40). Proof: view model tests where a reopen is refused and the dump opened again: the same handle
-   shows again, the row and its notes are current, and a query runs.
-6. [x] Sliver grouping (M44): in the chart's geometry, so the worker's answer and protocol stay as they are. Proof: geometry tests (widths
-   still sum, a group's count and size); a UI test of its hover text; what a click on a group does is settled by a test.
-7. [x] The key file's read (Backlog). Proof: a test that holds the file against a read, then lets it go.
-8. [x] Docs: `docs/USER-GUIDE.md`, the code map, README pictures if the pages change, and the owner's list of names. Proof: the Markdown sweep.
-
-**Review summary** ([reviews/sprint-3.11.md](reviews/sprint-3.11.md)): 4 High, 14 Moderate, 37 Low, from the four reviewers and
-the rounds that confirmed the fixes.
-- Fixed and confirmed, High: proofs for tasks 2 to 4 that did not exist (H1), the Processes CSV export's column names (H2), a "+N
-  smaller" hover text pointing at a double-click that does nothing (H3), and Compare and Trend left on the earlier snapshot when a
-  dump was opened again (H4, caused by M1's fix).
-- Fixed and confirmed, Moderate (owner, 2026-11-09 and 2026-11-10): opening a dump again refreshes its row in place and keeps the
-  Compare pair and Trend ticks (M1, M12); 14 texts reworded with the owner's approval, on roots, New and dead objects, the POH,
-  generations and group rows' retained bytes (M2 to M6), and the Record allocations tooltip (M9); one style shows tooltips on
-  disabled controls (M9); a written procedure and a test for info icons on every view (M8); logging.md's 3.11 entry (M10); icicle
-  grouping edge cases tested (M11); a pinned object the GC demoted counts as survived (M13, ADR-032 amended), and the matching log
-  counts objects that differ only in a younger generation apart from reused addresses (M14).
-- Deferred to the Backlog: a wording test that checks placement, not only presence (M7), and marking group rows' retained bytes as a
-  lower bound on screen (M6).
-- Measured: the icicle geometry lays out 20,000 segments in about 9 ms. Tests at wrap (Release, 2026-11-10): 1,646, 1,641 passed, 5 skipped, 0 failed, with 0 warnings; two
-earlier full runs failed tests that pass alone, and their causes and fixes are in the Backlog's flaky tests entry.
+Closed 2026-11-10; its section is in [sprints/phase-3.md](sprints/phase-3.md) and its review in
+[reviews/sprint-3.11.md](reviews/sprint-3.11.md). ADR-040 records the info icons, and ADR-032 the match of pinned objects.
 
 ## Sprint 3.12: First-show performance and refactor analysis
 
