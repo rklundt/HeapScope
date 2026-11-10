@@ -76,6 +76,10 @@ Phase 4 candidates are listed in [SPRINTS.md](SPRINTS.md) only.
   the capture held while it writes, or to accept both outcomes as `TraceTests` does. `CounterMonitorTests`: the first sample's
   `gc-heap-size` was negative (-0.77 MB, from the target's runtime, with Gen0 at 1.8 MB); HeapScope passes it on as is, so the
   chart and the size rules can read a negative heap. Decide whether to drop or clamp such a sample.
+  The wrap's second full run: all 12 `AllocationTraceTests` again (as on 3.10's gate), their fixture's session start canceled.
+  Cause: the fixture started the load a fixed second after the recording and stopped the recording when the load ended, so a
+  start slower than the load was canceled. Fixed: the load starts once the trace's partial file has bytes, as
+  `LiveWorkflowTests` already waits.
 - From the 3.9 review (product owner, 2026-11-01): a worker start failure shows its stack trace on the CLI's console
   (`LogWarning(ex, ...)` reaches the console logger; keep stacks in the file log, M11); capturing or finding one of
   HeapScope's own processes says "No running .NET process with id N was found" and logs nothing (say "pid N is
