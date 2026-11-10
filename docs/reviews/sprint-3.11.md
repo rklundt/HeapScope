@@ -2,7 +2,7 @@
 
 Reviewers: solution-architect, senior-dev, gc-specialist, support-engineer (2026-11-08), on `sprint/3.11` against `sprint-3.10`.
 Each reviewer read the working tree (none had a shell for `git diff`). Findings that overlap are merged and keep the highest
-severity. Counts: 3 High, 12 Moderate, 26 Low; the confirmations added 1 High (H4), 2 Moderates (M13, M14) and Lows L21 to L36.
+severity. Counts: 3 High, 12 Moderate, 26 Low; the confirmations added 1 High (H4), 2 Moderates (M13, M14) and Lows L21 to L37.
 
 Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 skipped, 0 failed (integration tests included).
 
@@ -92,7 +92,7 @@ Status of the fixes (2026-11-09):
   (fails without the change). No real dump fixture: a demotion cannot be caused on demand. support-engineer confirmed the
   Survived count and the privacy of the log line, but not the fix as a whole: it raised M14. Confirmed by gc-specialist
   against the CLR (pinned handles, pinned and interior stack roots, the gcdump path), which also confirmed the built rewording
-  word for word against Tables 1 to 3, closing L32. M14 fixed (below); its confirmation pending.
+  word for word against Tables 1 to 3, closing L32. M14 fixed and confirmed (below).
 - M7: in `docs/BACKLOG.md`, confirmed by solution-architect.
 
 - **M1. Opening a dump again replaces its row, with side effects** (support-engineer, solution-architect, senior-dev).
@@ -147,7 +147,8 @@ Status of the fixes (2026-11-09):
   Fix: `ObjectIdentity.YoungerUnpinned` counts addresses whose objects match in all but a younger generation, unpinned, apart
   from `ReusedAddresses`; the object matching log line gives both, the rest as "addresses holding another type, size, area or
   method table". logging.md says what the new count can and cannot tell. Both identity tests assert the counts and fail when
-  the case goes back under reused.
+  the case goes back under reused. Confirmed by support-engineer (2026-11-10): the match result is unchanged, only the counting
+  moved, and the line now separates the two cases.
 - **M12. ShowOpened's condition is broader than a refused reopen** (support-engineer). After a silent successful reopen the row's
   id is stale too, so a later open replaces the row and logs "shown afresh" when nothing was refused. Suggested: fold into M1.
 
@@ -219,3 +220,6 @@ Raised while confirming the Moderate fixes:
   fixture (gc-specialist).
 - L36. "A pinned object never moves" in `ObjectIdentity` and ADR-032 holds only while it is pinned: a pin seen in either
   snapshot stands in for one at the demoting collection (gc-specialist).
+- L37. The matching log line's new clause has a comma inside it ("..., unpinned, {Reused} addresses ..."), so its clauses are hard
+  to tell apart; semicolons or "unpinned addresses whose objects differ only in a younger generation" would read better
+  (support-engineer).

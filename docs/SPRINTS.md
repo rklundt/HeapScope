@@ -96,7 +96,8 @@ them. The app has about 104 tooltips, found only by hovering over each control, 
 
 **Task breakdown**:
 1. [x] The wording table: every page, tab, setting and feature, its draft text and the code that backs it. Proof: the owner's mark-up.
-   Table 1 (pages) approved 2026-11-05; Tables 2 (20 group icons) and 3 (43 tooltips) approved 2026-11-08.
+   Table 1 (pages) approved 2026-11-05; Tables 2 (20 group icons) and 3 (43 tooltips) approved 2026-11-08; the review's rewording
+   (14 rows, Table 3 now 44) approved 2026-11-09.
 2. [x] The info icon: one control (`InfoIcon`), one source for its texts, ADR-040 amended. Proof: UI tests that hover, click and keyboard open
    it and Escape closes it, its accessible name, its contrast in both themes (`ThemeTests`), and that it opens beside a disabled button.
 3. [x] Page info on every page and tab. Proof: a test that walks the pages and finds each one's icon and text; no binding errors; captures.
@@ -109,7 +110,20 @@ them. The app has about 104 tooltips, found only by hovering over each control, 
 7. [x] The key file's read (Backlog). Proof: a test that holds the file against a read, then lets it go.
 8. [x] Docs: `docs/USER-GUIDE.md`, the code map, README pictures if the pages change, and the owner's list of names. Proof: the Markdown sweep.
 
-**Review summary**: to be filled by /wrap-sprint.
+**Review summary** ([reviews/sprint-3.11.md](reviews/sprint-3.11.md)): 4 High, 14 Moderate, 37 Low, from the four reviewers and
+the rounds that confirmed the fixes.
+- Fixed and confirmed, High: proofs for tasks 2 to 4 that did not exist (H1), the Processes CSV export's column names (H2), a "+N
+  smaller" hover text pointing at a double-click that does nothing (H3), and Compare and Trend left on the earlier snapshot when a
+  dump was opened again (H4, caused by M1's fix).
+- Fixed and confirmed, Moderate (owner, 2026-11-09 and 2026-11-10): opening a dump again refreshes its row in place and keeps the
+  Compare pair and Trend ticks (M1, M12); 14 texts reworded with the owner's approval, on roots, New and dead objects, the POH,
+  generations and group rows' retained bytes (M2 to M6), and the Record allocations tooltip (M9); one style shows tooltips on
+  disabled controls (M9); a written procedure and a test for info icons on every view (M8); logging.md's 3.11 entry (M10); icicle
+  grouping edge cases tested (M11); a pinned object the GC demoted counts as survived (M13, ADR-032 amended), and the matching log
+  counts objects that differ only in a younger generation apart from reused addresses (M14).
+- Deferred to the Backlog: a wording test that checks placement, not only presence (M7), and marking group rows' retained bytes as a
+  lower bound on screen (M6).
+- Measured: the icicle geometry lays out 20,000 segments in about 9 ms. Tests at wrap: TOTALS_AT_WRAP.
 
 ## Sprint 3.12: First-show performance and refactor analysis
 

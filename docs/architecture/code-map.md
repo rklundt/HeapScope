@@ -55,7 +55,8 @@ Code map by project (reorganized in sprint 1.9 from the per-sprint notes):
   with its most different paths, and a group's members by rank), `Retention/PathSignatures` (the interned key path
   signatures, shared by key paths and Similar Retention), `KeyPaths.ForMembers` (a set's key paths), and interface
   grouping in `TypeGroups` (`GroupKey.Interface`, `TypeInterfaces`, `MatchInterface`) and `TypeDiff` [3.2].
-  `ObjectIdentity` (two snapshots' objects matched by address and type in one merge, a bit per object of each side),
+  `ObjectIdentity` (two snapshots' objects matched by address and type in one merge, a bit per object of each side; since 3.11 an
+  object a root pins is exempt from the generation test),
   `TypeDiff`'s `DiffExtras` (New and Dead per row, retained bytes per group of each side, bytes per heap kind) and
   `TypeTrend` (rows across several snapshots) [3.3].
 - **Storage.** `IndexCacheSigner` (passed to every reader and writer: the user's key in the worker, `None` written out
