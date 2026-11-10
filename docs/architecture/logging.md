@@ -54,7 +54,9 @@ references such as "ARCHITECTURE.md 11" still name the right section.
   only its open line, and a silent reopen after a restart logs its own lines ("Snapshot {Path} reopened: ..."). A read of the index
   cache's key file that is retried under the lock is not logged: the key's outcome says Loaded either way. The Retainers chart's
   "+N smaller" groups are not logged: they depend on the window's width and are made in the view, from the bars the icicle query
-  logged; the worker sends no bar under 0.1 percent of the top bar. Info icons and tooltips log nothing.
+  logged; the worker sends no bar under 0.1 percent of the top bar. Info icons and tooltips log nothing. The object matching
+  line of a comparison also counts its survivors that are pinned and in a younger generation than before, which match only
+  because a root pins them (review finding M13).
 - **What a log may hold (sprint 2.3.7 review M6)**: paths, file and process names, type, module and field names, counts,
   sizes, addresses, ids, versions, flags and HeapScope's own notes. Never field values or string contents from a dump,
   and never the user's filter text (logged by its shape: length and term counts): `Provenance` writes any other text by its length only, and

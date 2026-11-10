@@ -28,9 +28,10 @@ public static class ObjectIdentityTexts
 {
     /// <summary>
     /// The new and dead objects of a comparison and what they mean: a collection that moved an object makes it dead and
-    /// new. Numbers in <paramref name="provider"/>'s format.
+    /// new, and a new object of the same type and size where a dead one was can count as survived (M4 of the 3.11 review).
+    /// Numbers in <paramref name="provider"/>'s format.
     /// </summary>
     public static string Matched(long newObjects, long deadObjects, IFormatProvider provider) => string.Create(
         provider,
-        $"{newObjects:N0} new and {deadObjects:N0} dead objects, matched by address: an object a collection moved counts as dead and new (Gen0 and Gen1 survivors usually move).");
+        $"{newObjects:N0} new and {deadObjects:N0} dead objects, matched by address: an object a collection moved counts as dead and new (Gen0 and Gen1 survivors usually move), and a new object of the same type and size where a dead one was can count as survived.");
 }

@@ -68,7 +68,8 @@ Before the review: Debug build with 0 warnings; 1,633 tests, 1,628 passed, 5 ski
 
 Decisions (product owner, 2026-11-09, "all recos"): fix now M1 to M6 and M8 to M12 (M12 with M1); M2 to M6 and M9 by
 rewording approved text, proposed in `docs/design/info-text.md` for approval first; M6 also adds a Backlog item to mark
-group rows' retained bytes as a lower bound. M7 to the Backlog.
+group rows' retained bytes as a lower bound. M7 to the Backlog. The owner approved the rewording table as proposed and chose to
+fix M13 now (2026-11-09).
 
 Status of the fixes (2026-11-09):
 - M1 and M12: fixed (`483305b`). M12 confirmed by support-engineer. M1 confirmed by support-engineer and senior-dev for the symptoms
@@ -76,11 +77,18 @@ Status of the fixes (2026-11-09):
 - M8: fixed and confirmed by solution-architect.
 - M9: the part with no new wording (one style for tooltips on disabled controls, Run synthetic job's tip, the Inspections menu
   text on its items, the guide) fixed and confirmed by solution-architect, senior-dev and support-engineer. The Record
-  allocations tooltip waits for the owner's approval of its wording.
+  allocations tooltip's wording approved and built, now a row of Table 3 (44 single controls).
 - M10: fixed and confirmed by support-engineer.
 - M11: fixed and confirmed by gc-specialist and senior-dev.
-- M2 to M6: rewording proposed in `docs/design/info-text.md`, checked by gc-specialist, whose corrections to rows 1, 2, 9, 10, 12
-  and 13 are in; waiting for the owner's approval. M6's code comments corrected (`DominatorDtos`, `IcicleGeometry`).
+- M2 to M6: rewording checked by gc-specialist (its corrections to rows 1, 2, 9, 10, 12 and 13 in), approved by the owner and
+  built: Tables 1 to 3 of `docs/design/info-text.md`, `InfoTexts`, the Why alive, Group children by and Record allocations
+  tooltips, and `ObjectIdentityTexts.Matched` (shared with the CLI). Row 9 left out "not in a younger generation than before",
+  as M13 makes that test not hold for pinned objects. M6's code comments corrected (`DominatorDtos`, `IcicleGeometry`).
+- M13: fixed. `ObjectIdentity` no longer tests the generation for an object a pinned handle, an async pinned handle or a
+  pinned stack root holds in either snapshot, and counts such matches (`PinnedYoungerSurvivors`, in the worker's object
+  matching log line). An unpinned object demoted beside a pinned one still counts as dead and new. Comment, ADR-032 and
+  DEVELOPER.md corrected. Test: `ComparisonTests.A_pinned_object_the_GC_demoted_survives_and_an_unpinned_one_does_not`
+  (fails without the change). No real dump fixture: a demotion cannot be caused on demand.
 - M7: in `docs/BACKLOG.md`, confirmed by solution-architect.
 
 - **M1. Opening a dump again replaces its row, with side effects** (support-engineer, solution-architect, senior-dev).
@@ -124,7 +132,7 @@ Status of the fixes (2026-11-09):
   address but can read Gen1 in the baseline and Gen0 later. Pinned buffers, which leak hunts chase, then look like churn.
   Suggested: drop the generation test for objects pinned in either snapshot, or drop it and rely on type, size and heap; at
   least correct the comment and say "usually" in the wording; a fixture with a demoted pinned object.
-  Decision: pending the product owner.
+  Decision: fix now (product owner, 2026-11-09).
 - **M12. ShowOpened's condition is broader than a refused reopen** (support-engineer). After a silent successful reopen the row's
   id is stale too, so a later open replaces the row and logs "shown afresh" when nothing was refused. Suggested: fold into M1.
 

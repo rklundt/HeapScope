@@ -119,7 +119,7 @@ dotnet test --solution HeapScope.sln
   references) are printed to stderr for each side, and in the JSON, which also carries `BaselineKind`, `CurrentKind`,
   `BaselineIncludesUnreachable` and `CurrentIncludesUnreachable` (`IncludesUnreachable` is true only when both are,
   sprint 1.9). Since 3.3: `--match-objects` adds New and Dead objects per row, matched by address, type, size and heap
-  area, only for two complete full dumps of one run of a process (otherwise stderr says why and the columns are left
+  area (an unpinned object must also be in no younger generation), only for two complete full dumps of one run of a process (otherwise stderr says why and the columns are left
   out; ADR-032). For New and Dead do not force a GC between the two dumps (it moves most objects): that is the
   opposite of the growth gate's advice above, so use one capture procedure per question; `--retained` adds each row's retained
   lower bound in both dumps and the delta; `--sort new|dead|retained-delta|gen2-delta`; `--growth-of gen0|gen1|gen2|loh|poh`

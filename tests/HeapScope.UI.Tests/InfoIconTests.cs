@@ -288,7 +288,7 @@ public sealed class InfoIconTests(UiSession ui)
             texts.ShouldContain(row[2].Replace("<br>", "\n", StringComparison.Ordinal), customMessage: row[0] + ", " + row[1]);
         }
 
-        singles.Count.ShouldBe(43);
+        singles.Count.ShouldBe(44);
         foreach (var row in singles)
         {
             // A whole quoted string: a view's ToolTip.Tip, or a constant a control sets in code (the export menu's).

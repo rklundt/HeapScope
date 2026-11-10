@@ -37,7 +37,7 @@
       <Button DockPanel.Dock="Right" Content="Referenced by" Command="{Binding ReferencedByCommand}"
               ToolTip.Tip="Lists the types whose objects reference this type's objects. Off inside a set." />
       <Button DockPanel.Dock="Right" Content="Why alive" Margin="0,0,6,0" Command="{Binding WhyAliveCommand}"
-              ToolTip.Tip="Shows the paths from roots, what the runtime always keeps, to this type's objects. Off when this list is only part of the type, and inside a set, which has its own Paths view." />
+              ToolTip.Tip="Shows the paths from roots, what the runtime holds on to by itself, to this type's objects. Off when this list is only part of the type, and inside a set, which has its own Paths view." />
       <ctl:InfoIcon DockPanel.Dock="Left" Text="{Binding InfoText}" Margin="0,0,8,0" />
       <TextBlock DockPanel.Dock="Left" Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <TextBox x:Name="FilterBox" DockPanel.Dock="Left" Width="260" Text="{Binding Filter, Mode=TwoWay}" VerticalAlignment="Center"

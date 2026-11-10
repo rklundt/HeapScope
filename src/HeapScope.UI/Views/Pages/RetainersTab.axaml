@@ -51,7 +51,7 @@
       <ctl:InfoIcon Text="{x:Static vm:InfoTexts.Retainers}" Margin="0,0,16,0" />
       <TextBlock Text="Group children by" VerticalAlignment="Center" Margin="0,0,6,0" Classes="subtle" />
       <ComboBox Width="130" ItemsSource="{x:Static vm:RetainersViewModel.Groupings}" SelectedItem="{Binding Grouping, Mode=TwoWay}" VerticalAlignment="Center"
-                ToolTip.Tip="None lists each object on its own row, while Type or Namespace adds objects up into one row, at the top level too. Rows side by side never share memory, so their retained bytes stay exact." />
+                ToolTip.Tip="None lists each object on its own row, while Type or Namespace adds objects up into one row, at the top level too. Rows side by side never share memory, so a group's retained bytes add up what each of its objects alone keeps alive; what several of them keep alive together is counted in the row above, or at the top level in rows of its own." />
       <Button Content="Biggest retainers" Margin="12,0,0,0" Command="{Binding ShowTopCommand}" IsVisible="{Binding HasFocus}"
               ToolTip.Tip="Back to the top of the tree: the objects that alone keep the most alive" />
       <TextBlock Text="{Binding Totals}" VerticalAlignment="Center" Margin="12,0,0,0" Classes="subtle" TextTrimming="CharacterEllipsis" />

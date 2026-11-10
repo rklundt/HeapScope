@@ -7,7 +7,8 @@
   dumps of one process (same process id and name, the current captured later) are matched by one merge of their sorted
   addresses: a current object Survived when the baseline has, at its address, an object of the same method table and
   type key, the same size, the same heap area (small object heap, LOH, POH, frozen), the current object in the same or
-  an older generation (a collection that demotes an object, rare, makes a real survivor Dead and New); New
+  an older generation unless a root pins it in either snapshot (a collection that demotes an unpinned object makes a
+  real survivor Dead and New; amended in sprint 3.11, below); New
   otherwise. A baseline object with no such object at its address is Dead. A match whose baseline frozen objects (which
   never move or die in one run) are mostly not found is refused as "not one run" (a reused process id, such as a
   container's pid 1; frozen objects exist from .NET 8 on, so on earlier runtimes only the low-survivor caution
@@ -19,10 +20,15 @@
   so objects that were young in the baseline usually count as Dead and New; Gen2 (swept by background collections), LOH
   (unless compacted), POH and frozen objects keep their addresses, and that is where Survived is trustworthy. A new object
   of the same type and size allocated where a dead one was, in the same or an older generation, still counts as
-  Survived: the check catches a different size, area, method table or a younger generation, not every reuse. Full dumps
+  Survived: the check catches a different size, area, method table or an unpinned younger generation, not every reuse. Full dumps
   hold unreachable objects, so New and Survived include garbage not yet collected. A forced GC (or a gcdump captured)
   between the two dumps moves most objects: the result then carries a caution when under a tenth of the objects kept
   their address. New is never less than a type's growth. Matching costs a bit per object of each snapshot and one pass,
   and runs again for each diff and compared set (keeping it per pair is in the Backlog). The capture advice of a growth
   gate (force a full GC first) and of New and Dead (do not force one between the dumps) differ: DEVELOPER.md says which
   goes with which.
+- Amended in sprint 3.11 (review finding M13): the GC can demote. Survivors around pinned plugs can stay in Gen0 after a
+  Gen1 collection, and with regions (.NET 7 and later) a region of few pinned survivors can go back to Gen0. A pinned
+  object never moves, so it survives at its address while reading a younger generation; pinned buffers, which leak hunts
+  chase, looked like churn. The generation is no longer tested for an object a pinned handle, an async pinned handle or a
+  pinned stack root holds in either snapshot. Test: `ComparisonTests.A_pinned_object_the_GC_demoted_survives_and_an_unpinned_one_does_not`.

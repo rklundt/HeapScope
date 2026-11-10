@@ -70,7 +70,8 @@ public sealed class ComparisonTests
     [Fact]
     public void An_address_reused_by_another_size_a_younger_generation_another_heap_or_method_table_is_dead_and_new()
     {
-        // The 3.3 review: an object never changes size, heap area or method table, and never gets younger.
+        // The 3.3 review: an object never changes size, heap area or method table, and an unpinned one is taken never to get
+        // younger (M13 of the 3.11 review: the GC can demote, so a pinned one is exempt).
         var before = new SyntheticGraphBuilder();
         before.Object("App.A", 32, HeapKind.Gen2, methodTable: 0x10);
         before.Object("App.A", 32, HeapKind.Gen1, methodTable: 0x10);
@@ -92,6 +93,32 @@ public sealed class ComparisonTests
         // fourth has another method table, the last another size (it is last, so the others keep their addresses).
         (identity.Survivors, identity.ReusedAddresses).ShouldBe((2L, 3L));
         Enumerable.Range(0, 5).Select(identity.SurvivedInCurrent).ShouldBe([true, false, true, false, false]);
+    }
+
+    [Fact]
+    public void A_pinned_object_the_GC_demoted_survives_and_an_unpinned_one_does_not()
+    {
+        // M13 of the 3.11 review: the GC can demote, and a pinned object never moves, so a pinned object in a younger
+        // generation at its address is the same object. A pinned handle in the baseline, a pinned stack root (fixed) in the
+        // current snapshot, and an unpinned object demoted beside them, which still counts as dead and new.
+        var before = new SyntheticGraphBuilder();
+        var handled = before.Object("App.Buffer", 64, HeapKind.Gen1);
+        before.Object("App.Buffer", 64, HeapKind.Gen2);
+        before.Object("App.Buffer", 64, HeapKind.Gen1);
+        before.Root(handled, RootKind.PinnedHandle, flags: RootFlags.Retaining | RootFlags.Pinned);
+        var after = new SyntheticGraphBuilder();
+        after.Object("App.Buffer", 64, HeapKind.Gen0);
+        var stackPinned = after.Object("App.Buffer", 64, HeapKind.Gen0);
+        after.Object("App.Buffer", 64, HeapKind.Gen0);
+        after.Root(stackPinned, RootKind.ThreadStack, flags: RootFlags.Retaining | RootFlags.Pinned);
+        using var baseline = before.Build();
+        using var current = after.Build();
+
+        var identity = ObjectIdentity.Match(baseline, current, Ct);
+
+        (identity.Survivors, identity.PinnedYoungerSurvivors, identity.ReusedAddresses).ShouldBe((2L, 2L, 1L));
+        Enumerable.Range(0, 3).Select(identity.SurvivedInCurrent).ShouldBe([true, true, false]);
+        Enumerable.Range(0, 3).Select(identity.SurvivedInBaseline).ShouldBe([true, true, false]);
     }
 
     [Fact]

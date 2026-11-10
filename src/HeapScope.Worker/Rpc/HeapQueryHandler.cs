@@ -480,7 +480,7 @@ internal sealed class HeapQueryHandler(
 
             // Who was compared and which rule decided (the 3.3 review), so a contested match can be backed up.
             Logger.LogInformation(
-                "Object matching of {Baseline} ({BaselineKind}, process {BaselineName} {BaselinePid}, captured {BaselineCaptured:O}) and {Current} ({CurrentKind}, process {CurrentName} {CurrentPid}, captured {CurrentCaptured:O}): {Outcome}; {Survivors} survivors, {Reused} addresses reused by other objects, {FrozenSurvivors} of {Frozen} frozen objects at their address",
+                "Object matching of {Baseline} ({BaselineKind}, process {BaselineName} {BaselinePid}, captured {BaselineCaptured:O}) and {Current} ({CurrentKind}, process {CurrentName} {CurrentPid}, captured {CurrentCaptured:O}): {Outcome}; {Survivors} survivors ({PinnedYounger} of them pinned and in a younger generation), {Reused} addresses reused by other objects, {FrozenSurvivors} of {Frozen} frozen objects at their address",
                 request.BaselineId,
                 baseline.Info.Kind,
                 baseline.Info.ProcessName ?? "unknown",
@@ -493,6 +493,7 @@ internal sealed class HeapQueryHandler(
                 current.Info.CapturedAtUtc,
                 comparison.Matched ? "matched" + (comparison.IdentityNote is null ? string.Empty : ", with a caution") : comparison.IdentityNote,
                 comparison.Identity?.Survivors,
+                comparison.Identity?.PinnedYoungerSurvivors,
                 comparison.Identity?.ReusedAddresses,
                 comparison.Identity?.FrozenSurvivors,
                 comparison.Identity?.BaselineFrozen);

@@ -29,17 +29,21 @@ namespace HeapScope.Analysis;
 /// <summary>
 /// Objects of two snapshots of one process matched by address (sprint 3.3, ADR-032): an object of the later snapshot
 /// survived when the earlier one has, at its address, an object of the same method table and type key (name and module
-/// file), the same size and the same heap area (small object heap, LOH, POH or frozen), in no younger generation: an
-/// object never changes any of these (the 3.3 review). A new object of the same type and size allocated where a dead one
-/// was, in the same or an older generation, still passes: the counts say "by address". A collection that moves objects makes a moved survivor dead in the earlier snapshot and new in
-/// the later. One merge over both snapshots' sorted addresses; a bit per object of each side.
+/// file), the same size and the same heap area (small object heap, LOH, POH or frozen): an object never changes any of
+/// these (the 3.3 review). It must also be in no younger generation, which an object usually is not: the GC can demote
+/// objects around pinned ones, and with regions (.NET 7 and later) a region of few pinned survivors can go back to Gen0
+/// (M13 of the 3.11 review). A pinned object never moves, so the generation is not tested for an object a root pins in
+/// either snapshot; an unpinned object demoted beside one still counts as dead and new. A new object of the same type and
+/// size allocated where a dead one was, in the same or an older generation, still passes: the counts say "by address". A
+/// collection that moves objects makes a moved survivor dead in the earlier snapshot and new in the later. One merge over
+/// both snapshots' sorted addresses; a bit per object of each side.
 /// </summary>
 public sealed class ObjectIdentity
 {
     private readonly ulong[] _survivedInCurrent;
     private readonly ulong[] _survivedInBaseline;
 
-    private ObjectIdentity(ulong[] survivedInCurrent, ulong[] survivedInBaseline, long survivors, long reused, long frozen, long frozenSurvivors)
+    private ObjectIdentity(ulong[] survivedInCurrent, ulong[] survivedInBaseline, long survivors, long reused, long frozen, long frozenSurvivors, long pinnedYounger)
     {
         _survivedInCurrent = survivedInCurrent;
         _survivedInBaseline = survivedInBaseline;
@@ -47,6 +51,7 @@ public sealed class ObjectIdentity
         ReusedAddresses = reused;
         BaselineFrozen = frozen;
         FrozenSurvivors = frozenSurvivors;
+        PinnedYoungerSurvivors = pinnedYounger;
     }
 
     /// <summary>Objects matched on both sides.</summary>
@@ -60,6 +65,9 @@ public sealed class ObjectIdentity
 
     /// <summary>Frozen objects of the baseline found at their address in the current snapshot.</summary>
     public long FrozenSurvivors { get; }
+
+    /// <summary>Survivors in a younger generation than before, matched only because a root pins them (M13 of the 3.11 review).</summary>
+    public long PinnedYoungerSurvivors { get; }
 
     /// <summary>Memory one match of these graphs takes: a bit per object of each.</summary>
     public static long WorkingBytes(HeapGraph baseline, HeapGraph current) =>
@@ -89,7 +97,7 @@ public sealed class ObjectIdentity
         var currentKinds = current.HeapKinds.Span;
         var baseTables = baseline.Types.MethodTables.Span;
         var currentTables = current.Types.MethodTables.Span;
-        long survivors = 0, reused = 0, frozen = 0, frozenSurvivors = 0;
+        long survivors = 0, reused = 0, frozen = 0, frozenSurvivors = 0, pinnedYounger = 0;
         for (var o = 0; o < baseKinds.Length; o++)
         {
             if ((o & 0xFFFF) == 0)
@@ -123,12 +131,18 @@ public sealed class ObjectIdentity
             }
 
             var (bt, ct) = (baseTypes[b], currentTypes[c]);
+            var younger = Younger(currentKinds[c], baseKinds[b]);
             if (baselineKeys[bt] == currentKeys[ct]
                 && baseTables[bt] == currentTables[ct]
                 && Area(baseKinds[b]) == Area(currentKinds[c])
-                && !Younger(currentKinds[c], baseKinds[b])
+                && (!younger || PinnedByRoot(baseline, b) || PinnedByRoot(current, c))
                 && baseline.GetSize(b) == current.GetSize(c))
             {
+                if (younger)
+                {
+                    pinnedYounger++;
+                }
+
                 inCurrent[c >> 6] |= 1UL << (c & 63);
                 inBaseline[b >> 6] |= 1UL << (b & 63);
                 survivors++;
@@ -143,7 +157,7 @@ public sealed class ObjectIdentity
             }
         }
 
-        return new ObjectIdentity(inCurrent, inBaseline, survivors, reused, frozen, frozenSurvivors);
+        return new ObjectIdentity(inCurrent, inBaseline, survivors, reused, frozen, frozenSurvivors, pinnedYounger);
     }
 
     /// <summary>New objects per type index of the current snapshot (no match in the baseline).</summary>
@@ -183,9 +197,29 @@ public sealed class ObjectIdentity
         return members;
     }
 
-    /// <summary>A survivor is never in a younger generation than before; a younger one is a new object at a reused address.</summary>
+    /// <summary>
+    /// A survivor is usually in no younger generation than before, so a younger one is taken for a new object at a reused
+    /// address, unless a root pins it (see the class summary).
+    /// </summary>
     private static bool Younger(HeapKind now, HeapKind before) =>
         now is HeapKind.Gen0 or HeapKind.Gen1 or HeapKind.Gen2 && before is HeapKind.Gen0 or HeapKind.Gen1 or HeapKind.Gen2 && now < before;
+
+    /// <summary>
+    /// True when a root pins the object: a pinned or async pinned handle, or a pinned stack root (<c>fixed</c> and pinned
+    /// locals). Asked only when the generation is younger, with a binary search of the root table each time.
+    /// </summary>
+    private static bool PinnedByRoot(HeapGraph graph, int objectIndex)
+    {
+        foreach (var root in graph.Roots.GetRoots(objectIndex))
+        {
+            if (root.Kind is RootKind.PinnedHandle or RootKind.AsyncPinnedHandle || (root.Flags & RootFlags.Pinned) != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Where an object lives for good: generations share the small object heap; LOH, POH and frozen are apart.</summary>
     private static HeapKind Area(HeapKind kind) => kind is HeapKind.LargeObjectHeap or HeapKind.PinnedObjectHeap or HeapKind.Frozen ? kind : HeapKind.Gen2;

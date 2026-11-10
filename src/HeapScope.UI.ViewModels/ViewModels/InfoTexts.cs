@@ -68,11 +68,11 @@ public static class InfoTexts
 
     /// <summary>Object: Retention tab.</summary>
     public const string ObjectRetention =
-        "Use it to see why this object is still alive, as reference paths from roots. A root is something the runtime always keeps, such as a static field or a local variable on a thread's stack. Open the tab and it searches by itself; double-click a key path to open the root's object.";
+        "Use it to see why this object is still alive, as reference paths from roots. A root is something the runtime holds on to by itself, such as a static field, or a local variable on a thread's stack that its method still uses. Open the tab and it searches by itself; double-click a key path to open the root's object.";
 
     /// <summary>Snapshot tab: Why alive (paths).</summary>
     public const string WhyAlive =
-        "Use it when a type's objects should be gone: each row is one chain of types from a root to those objects, largest first. A root is something the runtime always keeps, such as a static field. Press Why alive on a type's objects, then double-click a row to open an example object.";
+        "Use it when a type's objects should be gone: each row is one chain of types from a root to those objects, largest first. A root is something the runtime holds on to by itself, such as a static field. Press Why alive on a type's objects, then double-click a row to open an example object.";
 
     /// <summary>Snapshot tab: Referrers.</summary>
     public const string Referrers =
@@ -92,15 +92,15 @@ public static class InfoTexts
 
     /// <summary>Set view: Generations.</summary>
     public const string SetGenerations =
-        "Shows the set's objects and bytes per heap area: Gen0, Gen1 and Gen2 hold objects by age, LOH large objects and POH pinned objects. Use it to see how long the set's objects have stayed. Pick Generations; a gcdump has no generations, and the view says so.";
+        "Shows the set's objects and bytes per heap area: Gen0, Gen1 and Gen2 hold objects by age, LOH large objects and POH objects allocated as pinned. Use it to see whether the set's objects are young or have survived several collections. Pick Generations; a gcdump has no generations, and the view says so.";
 
     /// <summary>Set view: Dominators.</summary>
     public const string SetDominators =
-        "Lists the set's objects that no other member keeps alive, with the bytes each one retains: what it alone keeps alive. An object dominates another when every path to that other object from a root, something the runtime always keeps, passes through it. Use it to find the few objects that account for the set; double-click a row to open one.";
+        "Lists the set's objects that no other member keeps alive, with the bytes each one retains: what it alone keeps alive. An object dominates another when every path to that other object from a root, something the runtime holds on to by itself, passes through it. Use it to find the few objects that account for the set; double-click a row to open one.";
 
     /// <summary>Set view: Paths.</summary>
     public const string SetPaths =
-        "Shows the paths from roots, things the runtime always keeps such as static fields, to the set's objects. Use it to see what keeps the whole set alive. Pick Paths, then double-click a row to open an example object, or tick Diagram to merge the paths into one graph.";
+        "Shows the paths from roots, things the runtime holds on to by itself such as static fields, to the set's objects. Use it to see what keeps the whole set alive. Pick Paths, then double-click a row to open an example object, or tick Diagram to merge the paths into one graph.";
 
     /// <summary>Set view: SimilarRetention.</summary>
     public const string SetSimilarRetention =
@@ -120,7 +120,7 @@ public static class InfoTexts
 
     /// <summary>Snapshots: Retainers tab.</summary>
     public const string Retainers =
-        "Use it to find what really holds the memory: it ranks objects by retained bytes, what an object alone keeps alive. Each row sits under its dominator: the closest object on every path to it from a root, something the runtime always keeps. Open the tab, then expand a row, or select one and press Focus.";
+        "Use it to find what really holds the memory: it ranks objects by retained bytes, what an object alone keeps alive. Each row sits under its dominator: the closest object on every path to it from a root, something the runtime holds on to by itself. Open the tab, then expand a row, or select one and press Focus.";
 
     /// <summary>Allocations.</summary>
     public const string Allocations =
@@ -161,12 +161,12 @@ public static class InfoTexts
     /// <summary>Snapshot tab: The row of totals.</summary>
     public const string SnapshotTotals =
         "Heap size is the total bytes of the objects here. A full dump counts objects not collected yet, while a gcdump counts only what survived its collection.\n" +
-        "Roots counts what the runtime always keeps, such as static fields, local variables on thread stacks and GC handles. An object stays in memory while a chain of references from a root leads to it.\n" +
+        "Roots counts the roots found in the dump, such as static fields, local variables a method on a thread's stack still uses and GC handles. Some, such as weak handles, keep nothing alive. An object stays in memory while a chain of references leads to it from a root that does.\n" +
         "The line above says how this snapshot was loaded. The index cache is a file HeapScope saves on the first load, so later opens skip loading the dump. In memory or memory-mapped is chosen for you: in memory when the data fits the memory budget, otherwise read from the cache file as needed.";
 
     /// <summary>Types: Heap areas bar.</summary>
     public const string HeapAreas =
-        "Shows how the bytes split across heap areas: Gen0, Gen1 and Gen2 hold objects by age, LOH large objects, POH pinned objects. Frozen objects are never collected, and a gcdump shows Unknown generation.";
+        "Shows how the bytes split across heap areas: Gen0, Gen1 and Gen2 hold objects by age, LOH large objects (85,000 bytes or more by default), POH objects allocated as pinned. Frozen objects are never collected, and a gcdump shows Unknown generation.";
 
     /// <summary>Types: The options row.</summary>
     public const string TypesOptions =
@@ -195,7 +195,7 @@ public static class InfoTexts
     /// <summary>Compare: two snapshots: The options row.</summary>
     public const string CompareOptions =
         "Group by adds up rows by type, namespace, assembly or interface. Only type rows open objects or sets here, and interface rows need full dumps and have no retained sizes.\n" +
-        "New and dead objects matches objects across the two snapshots by address, type, size and heap area, and an object a collection moved counts as dead and new. It needs two complete full dumps of one run of a process, with the earlier one as baseline; if not, a note says why.\n" +
+        "New and dead objects matches objects across the two snapshots by address, type and size, in the same heap (small object heap, LOH, POH or frozen). An object a collection moved counts as dead and new, and a new object of the same type and size where a dead one was can count as survived. It needs two complete full dumps of one run of a process, with the earlier one as baseline; if not, a note says why.\n" +
         "Retained sizes adds each row's retained bytes, what its objects keep alive, in both snapshots, as lower bounds. Interface rows have none, and the first time for a snapshot it has to compute them, which can take a while.\n" +
         "Generations adds the change in bytes per heap area: Gen0, Gen1, Gen2, LOH and POH. It needs generations in both snapshots, so not a gcdump. Growth in Gen2 is usually what stays, though a full dump also counts objects not collected yet.";
 
@@ -224,7 +224,7 @@ public static class InfoTexts
         "Focus shows only the tree below it, with the objects above it as a trail. Object rows only.\n" +
         "Open object opens it on the Snapshot tab. Object rows only.\n" +
         "Instances lists all objects of its type on the Snapshot tab. Object rows and type groups.\n" +
-        "Why alive opens its Retention tab: the paths that keep it alive from roots, what the runtime always keeps. Object rows only.\n" +
+        "Why alive opens its Retention tab: the paths that keep it alive from roots, what the runtime holds on to by itself. Object rows only.\n" +
         "Objects retained by this set computes exactly what every object of its type keeps alive together, shown below the tree. Object rows and type groups.";
 
     /// <summary>Allocations: Back traces and Call tree.</summary>

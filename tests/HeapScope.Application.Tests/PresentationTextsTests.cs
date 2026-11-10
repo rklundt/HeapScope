@@ -46,7 +46,7 @@ public sealed class PresentationTextsTests
     public void The_identity_text_counts_new_and_dead_objects_and_says_why_moved_objects_count_as_both()
     {
         ObjectIdentityTexts.Matched(1200, 3, CultureInfo.InvariantCulture).ShouldBe(
-            "1,200 new and 3 dead objects, matched by address: an object a collection moved counts as dead and new (Gen0 and Gen1 survivors usually move).");
+            "1,200 new and 3 dead objects, matched by address: an object a collection moved counts as dead and new (Gen0 and Gen1 survivors usually move), and a new object of the same type and size where a dead one was can count as survived.");
         ObjectIdentityTexts.Matched(1200, 3, s_german).ShouldStartWith("1.200 new and 3 dead objects");
     }
 
