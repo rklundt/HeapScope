@@ -415,7 +415,7 @@
       "heapscope.analysis": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "System.IO.Hashing": "[10.0.14, )"
         }
       },
@@ -428,29 +428,29 @@
       "heapscope.loaders.clrmd": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "Microsoft.Diagnostics.Runtime": "[4.2.751201, )"
         }
       },
       "heapscope.loaders.gcdump": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
-          "HeapScope.ThirdParty.GcDump": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
+          "HeapScope.ThirdParty.GcDump": "[3.11.0, )",
           "Microsoft.Diagnostics.Tracing.TraceEvent": "[4.0.0, )"
         }
       },
       "heapscope.loaders.trace": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "Microsoft.Diagnostics.Tracing.TraceEvent": "[4.0.0, )"
         }
       },
       "heapscope.storage": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "System.IO.Hashing": "[10.0.14, )"
         }
       },
@@ -515,7 +515,7 @@
       },
       "Microsoft.Extensions.Options": {
         "type": "CentralTransitive",
-        "requested": "[10.0.14, )",
+        "requested": "[11.0.0, )",
         "resolved": "10.0.14",
         "contentHash": "EeN/33S418m9oWEaZY4N5T+BNxtOqNTIFoFbIgBKwylh4OJPKIWFAzbIhpTdNbwUs26MhkmbLCAbdY+YCJ1dIQ==",
         "dependencies": {
