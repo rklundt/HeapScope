@@ -13,5 +13,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
     <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" VersionOverride="11.0.0" />
   </ItemGroup>
 </Project>

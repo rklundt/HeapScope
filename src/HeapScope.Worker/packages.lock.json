@@ -175,8 +175,8 @@
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "Transitive",
-        "resolved": "10.0.14",
-        "contentHash": "QtpQzuSZVyTPCuHW058yCs9Nj0394uUkNyFHS813nOmK9UgUdBdaprJ5PPsBgsQIpxADTsTkbaMMonykem6qdw=="
+        "resolved": "11.0.0",
+        "contentHash": "a2c4Kp55miXT6G+DSb75pczXQJHgNMzPyZEyMxrrKxuQrgvctcDWJWD9fVe/uGbQdu4Z0c3B7AVKp1DXmD64nQ=="
       },
       "Microsoft.Extensions.Diagnostics": {
         "type": "Transitive",
@@ -392,6 +392,11 @@
           "System.Memory.Data": "10.0.3"
         }
       },
+      "System.Diagnostics.DiagnosticSource": {
+        "type": "Transitive",
+        "resolved": "11.0.0",
+        "contentHash": "+boRR9uSKiIPtFeRLGwO5xylhDF80xpwM+dmk5jgIqqeUKLbujGkGICMTKqQrBzKO6fIp8BU8DV6YZkQukqo3A=="
+      },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
         "resolved": "10.0.14",
@@ -415,7 +420,7 @@
       "heapscope.analysis": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "System.IO.Hashing": "[10.0.14, )"
         }
       },
@@ -428,29 +433,29 @@
       "heapscope.loaders.clrmd": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "Microsoft.Diagnostics.Runtime": "[4.2.751201, )"
         }
       },
       "heapscope.loaders.gcdump": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
-          "HeapScope.ThirdParty.GcDump": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
+          "HeapScope.ThirdParty.GcDump": "[3.11.0, )",
           "Microsoft.Diagnostics.Tracing.TraceEvent": "[4.0.0, )"
         }
       },
       "heapscope.loaders.trace": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "Microsoft.Diagnostics.Tracing.TraceEvent": "[4.0.0, )"
         }
       },
       "heapscope.storage": {
         "type": "Project",
         "dependencies": {
-          "HeapScope.Core": "[3.6.0, )",
+          "HeapScope.Core": "[3.11.0, )",
           "System.IO.Hashing": "[10.0.14, )"
         }
       },
@@ -458,7 +463,8 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Diagnostics.NETCore.Client": "[0.2.750501, )",
-          "Microsoft.Diagnostics.Tracing.TraceEvent": "[4.0.0, )"
+          "Microsoft.Diagnostics.Tracing.TraceEvent": "[4.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[11.0.0, )"
         }
       },
       "Microsoft.Diagnostics.NETCore.Client": {
@@ -506,11 +512,12 @@
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "CentralTransitive",
-        "requested": "[10.0.14, )",
-        "resolved": "10.0.14",
-        "contentHash": "SwcbEBtkECq3D2oywvHkm46fyrX9Dd2JPWphDnHUc2+cUWR1Mdo41atAjh/9iZjgQxuvbKfZKXqostT/LZfefA==",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "MTMO2V1eT9Dm5VIpJGLNwIjAjoBErUlfuB+DEaZ0tb8J+Nf/Xlj8he5AztK9p1iOJPIyuBeOrVy2u/CSdsfzPw==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.14"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "11.0.0",
+          "System.Diagnostics.DiagnosticSource": "11.0.0"
         }
       },
       "Microsoft.Extensions.Options": {
